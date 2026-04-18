@@ -9,8 +9,7 @@ import {
   Factory, 
   Warehouse, 
   ShoppingCart,
-  Clock,
-  TrendingDown
+  Clock
 } from 'lucide-react';
 import { format } from 'date-fns';
 
