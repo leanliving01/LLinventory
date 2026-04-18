@@ -6,9 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Save, Upload, Search, FileDown, History } from 'lucide-react';
+import { Save, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import CSVStockImport from '../components/stock/CSVStockImport';
 
 export default function StockEntry() {
   const queryClient = useQueryClient();
@@ -100,6 +101,9 @@ export default function StockEntry() {
           </Button>
         </div>
       </div>
+
+      {/* CSV Import */}
+      <CSVStockImport skus={skus} />
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">

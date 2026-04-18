@@ -1,16 +1,28 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ShoppingCart, RefreshCw, ExternalLink } from 'lucide-react';
+import { ShoppingCart, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 
 export default function ShopifySync() {
+  const queryClient = useQueryClient();
+  const [syncing, setSyncing] = useState(false);
+
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['shopifyOrders'],
     queryFn: () => base44.entities.ShopifyOrder.list('-created_date', 100),
   });
+
+  const handleSync = async () => {
+    setSyncing(true);
+    const res = await base44.functions.invoke('syncShopifyOrders', {});
+    queryClient.invalidateQueries({ queryKey: ['shopifyOrders'] });
+    toast.success(`Synced ${res.data.total} orders (${res.data.created} new, ${res.data.updated} updated)`);
+    setSyncing(false);
+  };
 
   const unfulfilled = orders.filter(o => o.fulfilment_status === 'unfulfilled');
   const paid = orders.filter(o => o.paid_status === 'paid');
@@ -38,9 +50,9 @@ export default function ShopifySync() {
             Synced orders from Shopify — {unfulfilled.length} unfulfilled, {paid.length} paid
           </p>
         </div>
-        <Button variant="outline" className="gap-2" disabled>
-          <RefreshCw className="w-4 h-4" />
-          Sync Orders
+        <Button variant="outline" className="gap-2" onClick={handleSync} disabled={syncing}>
+          <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? 'Syncing...' : 'Sync Orders'}
         </Button>
       </div>
 
