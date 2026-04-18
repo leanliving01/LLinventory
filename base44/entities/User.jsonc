@@ -1,0 +1,17 @@
+{
+  "name": "User",
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "kitchen_manager",
+        "stock_controller",
+        "viewer"
+      ],
+      "default": "viewer",
+      "description": "User role for permissions"
+    }
+  }
+}

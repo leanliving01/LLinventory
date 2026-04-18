@@ -1,0 +1,57 @@
+{
+  "name": "ShopifyOrderLine",
+  "type": "object",
+  "properties": {
+    "shopify_order_id": {
+      "type": "string",
+      "description": "Reference to ShopifyOrder entity ID"
+    },
+    "shopify_line_item_id": {
+      "type": "string",
+      "description": "Shopify line item ID"
+    },
+    "product_title": {
+      "type": "string",
+      "description": "Product title from Shopify"
+    },
+    "variant_title": {
+      "type": "string",
+      "description": "Variant title from Shopify"
+    },
+    "quantity": {
+      "type": "number",
+      "description": "Quantity ordered"
+    },
+    "mapped_package_product_id": {
+      "type": "string",
+      "description": "Mapped PackageProduct ID (null if unmapped)"
+    },
+    "mapped_sku_id": {
+      "type": "string",
+      "description": "Mapped SKU ID for BYO items (null if not BYO)"
+    },
+    "is_mapped": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this line item has been mapped to a package or SKU"
+    },
+    "mapping_type": {
+      "type": "string",
+      "enum": [
+        "fixed_pack",
+        "byo",
+        "unmapped"
+      ],
+      "description": "Type of mapping"
+    },
+    "raw_payload": {
+      "type": "string",
+      "description": "Raw JSON payload from Shopify for this line item"
+    }
+  },
+  "required": [
+    "shopify_order_id",
+    "product_title",
+    "quantity"
+  ]
+}

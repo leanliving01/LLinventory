@@ -1,0 +1,44 @@
+{
+  "name": "PackageProduct",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Product name as displayed"
+    },
+    "shopify_product_id": {
+      "type": "string",
+      "description": "Shopify product ID"
+    },
+    "shopify_variant_id": {
+      "type": "string",
+      "description": "Shopify variant ID"
+    },
+    "package_family": {
+      "type": "string",
+      "enum": [
+        "MWL",
+        "MLM",
+        "WWL",
+        "WLM",
+        "LOW_CARB",
+        "BYO"
+      ],
+      "description": "Package family type"
+    },
+    "pack_size": {
+      "type": "number",
+      "description": "Number of meals in the pack (15, 30, 60, or custom)"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether this product is currently active"
+    }
+  },
+  "required": [
+    "name",
+    "package_family",
+    "pack_size"
+  ]
+}

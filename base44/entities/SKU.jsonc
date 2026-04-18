@@ -1,0 +1,47 @@
+{
+  "name": "SKU",
+  "type": "object",
+  "properties": {
+    "sku_code": {
+      "type": "string",
+      "description": "Unique SKU code"
+    },
+    "meal_id": {
+      "type": "string",
+      "description": "Reference to Meal entity ID"
+    },
+    "meal_name": {
+      "type": "string",
+      "description": "Denormalized meal name for display"
+    },
+    "package_type": {
+      "type": "string",
+      "enum": [
+        "MWL",
+        "MLM",
+        "WWL",
+        "WLM",
+        "LOW_CARB"
+      ],
+      "description": "Package type / portion size variant"
+    },
+    "portion_size_grams": {
+      "type": "number",
+      "description": "Portion size in grams"
+    },
+    "display_name": {
+      "type": "string",
+      "description": "Full display name for this SKU"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether this SKU is currently active"
+    }
+  },
+  "required": [
+    "sku_code",
+    "meal_id",
+    "package_type"
+  ]
+}

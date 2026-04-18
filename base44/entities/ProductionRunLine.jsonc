@@ -1,0 +1,61 @@
+{
+  "name": "ProductionRunLine",
+  "type": "object",
+  "properties": {
+    "production_run_id": {
+      "type": "string",
+      "description": "Reference to ProductionRun ID"
+    },
+    "sku_id": {
+      "type": "string",
+      "description": "Reference to SKU ID"
+    },
+    "sku_display_name": {
+      "type": "string",
+      "description": "Denormalized SKU display name"
+    },
+    "package_type": {
+      "type": "string",
+      "enum": [
+        "MWL",
+        "MLM",
+        "WWL",
+        "WLM",
+        "LOW_CARB"
+      ],
+      "description": "Package type"
+    },
+    "stock_on_hand": {
+      "type": "number",
+      "description": "Stock on hand at time of calculation"
+    },
+    "committed_stock": {
+      "type": "number",
+      "description": "Committed stock from orders"
+    },
+    "available_stock": {
+      "type": "number",
+      "description": "Available stock (stock_on_hand - committed_stock)"
+    },
+    "par_level": {
+      "type": "number",
+      "description": "Par level for this SKU"
+    },
+    "recommended_production": {
+      "type": "number",
+      "description": "System-recommended production quantity"
+    },
+    "final_production_quantity": {
+      "type": "number",
+      "description": "Admin-overridden final quantity"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional notes"
+    }
+  },
+  "required": [
+    "production_run_id",
+    "sku_id"
+  ]
+}

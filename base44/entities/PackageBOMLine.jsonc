@@ -1,0 +1,46 @@
+{
+  "name": "PackageBOMLine",
+  "type": "object",
+  "properties": {
+    "package_product_id": {
+      "type": "string",
+      "description": "Reference to PackageProduct ID"
+    },
+    "sku_id": {
+      "type": "string",
+      "description": "Reference to SKU ID"
+    },
+    "sku_display_name": {
+      "type": "string",
+      "description": "Denormalized SKU display name"
+    },
+    "quantity_per_pack": {
+      "type": "number",
+      "description": "Number of this SKU per pack"
+    },
+    "effective_from": {
+      "type": "string",
+      "format": "date",
+      "description": "Date this BOM line became effective"
+    },
+    "effective_to": {
+      "type": "string",
+      "format": "date",
+      "description": "Date this BOM line expires (null = still active)"
+    },
+    "replacement_reason": {
+      "type": "string",
+      "description": "Reason for replacement if applicable"
+    },
+    "is_replacement": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this is a temporary replacement"
+    }
+  },
+  "required": [
+    "package_product_id",
+    "sku_id",
+    "quantity_per_pack"
+  ]
+}

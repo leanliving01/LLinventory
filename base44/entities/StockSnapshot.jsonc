@@ -1,0 +1,53 @@
+{
+  "name": "StockSnapshot",
+  "type": "object",
+  "properties": {
+    "snapshot_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of this stock snapshot"
+    },
+    "sku_id": {
+      "type": "string",
+      "description": "Reference to SKU ID"
+    },
+    "sku_display_name": {
+      "type": "string",
+      "description": "Denormalized SKU display name"
+    },
+    "package_type": {
+      "type": "string",
+      "enum": [
+        "MWL",
+        "MLM",
+        "WWL",
+        "WLM",
+        "LOW_CARB"
+      ],
+      "description": "Package type for filtering"
+    },
+    "stock_on_hand": {
+      "type": "number",
+      "description": "Number of units on hand"
+    },
+    "entry_type": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "csv_import",
+        "adjustment"
+      ],
+      "description": "How this entry was created"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional notes for this entry"
+    }
+  },
+  "required": [
+    "snapshot_date",
+    "sku_id",
+    "stock_on_hand",
+    "entry_type"
+  ]
+}

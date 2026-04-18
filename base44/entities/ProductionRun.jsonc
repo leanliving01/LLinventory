@@ -1,0 +1,36 @@
+{
+  "name": "ProductionRun",
+  "type": "object",
+  "properties": {
+    "run_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Production run date"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "finalized"
+      ],
+      "default": "draft",
+      "description": "Status of the production run"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional notes"
+    },
+    "total_units_to_produce": {
+      "type": "number",
+      "description": "Total units recommended for production"
+    },
+    "total_skus_below_par": {
+      "type": "number",
+      "description": "Number of SKUs below par"
+    }
+  },
+  "required": [
+    "run_date",
+    "status"
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "name": "ShopifyOrder",
+  "type": "object",
+  "properties": {
+    "shopify_order_id": {
+      "type": "string",
+      "description": "Shopify order ID"
+    },
+    "order_number": {
+      "type": "string",
+      "description": "Shopify order number (e.g. #28461)"
+    },
+    "customer_name": {
+      "type": "string",
+      "description": "Customer name"
+    },
+    "paid_status": {
+      "type": "string",
+      "enum": [
+        "paid",
+        "unpaid",
+        "partially_paid",
+        "refunded"
+      ],
+      "description": "Payment status"
+    },
+    "fulfilment_status": {
+      "type": "string",
+      "enum": [
+        "unfulfilled",
+        "fulfilled",
+        "partial",
+        "restocked"
+      ],
+      "description": "Fulfilment status"
+    },
+    "tags": {
+      "type": "string",
+      "description": "Comma-separated tags from Shopify"
+    },
+    "order_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the order was placed"
+    },
+    "synced_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this order was last synced"
+    },
+    "total_meals": {
+      "type": "number",
+      "description": "Total number of meals in this order"
+    },
+    "is_byo": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this is a BYO order"
+    },
+    "demand_calculated": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether committed demand has been calculated"
+    }
+  },
+  "required": [
+    "shopify_order_id",
+    "order_number",
+    "paid_status",
+    "fulfilment_status"
+  ]
+}

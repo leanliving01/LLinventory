@@ -1,0 +1,44 @@
+{
+  "name": "CommittedDemand",
+  "type": "object",
+  "properties": {
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of the demand calculation"
+    },
+    "sku_id": {
+      "type": "string",
+      "description": "Reference to SKU ID"
+    },
+    "sku_display_name": {
+      "type": "string",
+      "description": "Denormalized SKU display name"
+    },
+    "quantity": {
+      "type": "number",
+      "description": "Number of units demanded"
+    },
+    "source_order_id": {
+      "type": "string",
+      "description": "Reference to ShopifyOrder entity ID"
+    },
+    "source_line_id": {
+      "type": "string",
+      "description": "Reference to ShopifyOrderLine entity ID"
+    },
+    "demand_type": {
+      "type": "string",
+      "enum": [
+        "fixed_pack",
+        "byo"
+      ],
+      "description": "Type of demand source"
+    }
+  },
+  "required": [
+    "sku_id",
+    "quantity",
+    "demand_type"
+  ]
+}

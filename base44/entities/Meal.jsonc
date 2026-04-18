@@ -1,0 +1,27 @@
+{
+  "name": "Meal",
+  "type": "object",
+  "properties": {
+    "meal_name": {
+      "type": "string",
+      "description": "Name of the meal"
+    },
+    "family_type": {
+      "type": "string",
+      "enum": [
+        "goal_related",
+        "low_carb"
+      ],
+      "description": "Whether this is a goal-related meal or low carb meal"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether this meal is currently active"
+    }
+  },
+  "required": [
+    "meal_name",
+    "family_type"
+  ]
+}

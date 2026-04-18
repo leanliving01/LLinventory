@@ -1,0 +1,38 @@
+{
+  "name": "ParLevel",
+  "type": "object",
+  "properties": {
+    "sku_id": {
+      "type": "string",
+      "description": "Reference to SKU ID"
+    },
+    "sku_display_name": {
+      "type": "string",
+      "description": "Denormalized SKU display name"
+    },
+    "package_type": {
+      "type": "string",
+      "enum": [
+        "MWL",
+        "MLM",
+        "WWL",
+        "WLM",
+        "LOW_CARB"
+      ],
+      "description": "Package type for quick filtering"
+    },
+    "par_level": {
+      "type": "number",
+      "description": "Par level quantity"
+    },
+    "effective_from": {
+      "type": "string",
+      "format": "date",
+      "description": "Date this par level became effective"
+    }
+  },
+  "required": [
+    "sku_id",
+    "par_level"
+  ]
+}
