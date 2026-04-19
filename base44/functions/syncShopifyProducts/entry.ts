@@ -21,21 +21,36 @@ async function withRetry(fn, retries = 4) {
 // ─── Manual mapping: Base44 meal_name → Shopify product title ───
 // This ensures 100% accurate matching despite naming differences.
 // When a new meal is added to Shopify, add an entry here.
+// Map covers BOTH old Base44 names AND already-renamed Shopify names (idempotent)
 const MEAL_NAME_MAP = {
+  // Old Base44 names → Shopify titles
   'beef and beans + green beans + brown rice': 'Beef & Beans',
   'beef trinchado + white basmati rice + stirfry': 'Beef Trinchado + (white basmati rice + stir-fry)',
-  'chicken breast, butternut, stir-fry': 'Chicken breast, Butternut, Stir-fry',
-  'chicken breast, sweet potato, mixed veg': 'Chicken breast, Sweet potato, Mixed veg',
   'chicken breast, potato wedges, creamy spinach': 'Chicken breast, Potato Wedges, Creamy spinach (Swt Chilli Sauce)',
-  'chicken curry + (white rice + butternut)': 'Chicken Curry + (white rice + butternut)',
   'cottage pie + sweet potato mash + creamy spinach': 'Cottage Pie + (Sweet potato Mash + Creamy spinach)',
   'keto butter chicken + cauliflower + spinach': 'Keto Butter Chicken + (cauliflower + spinach)',
-  'lean mince, pasta shells, corn': 'Lean Mince – Pasta Shells and Corn',
+  'lean mince, pasta shells, corn': 'Lean Mince \u2013 Pasta Shells and Corn',
+  'steak, brown rice, carrots': 'Steak \u2013 Brown Rice and Carrots',
+  'steak, sweet potato, broccoli': 'Steak \u2013 Sweet Potato and Broccoli',
+  'sweet chilli chicken + (brown rice + stirfry)': 'Sweet Chilli Chicken + (brown rice + stir-fry)',
+
+  // Already-renamed names (so re-running the sync still matches)
+  'beef & beans': 'Beef & Beans',
+  'beef trinchado + (white basmati rice + stir-fry)': 'Beef Trinchado + (white basmati rice + stir-fry)',
+  'chicken breast, potato wedges, creamy spinach (swt chilli sauce)': 'Chicken breast, Potato Wedges, Creamy spinach (Swt Chilli Sauce)',
+  'cottage pie + (sweet potato mash + creamy spinach)': 'Cottage Pie + (Sweet potato Mash + Creamy spinach)',
+  'keto butter chicken + (cauliflower + spinach)': 'Keto Butter Chicken + (cauliflower + spinach)',
+  'lean mince \u2013 pasta shells and corn': 'Lean Mince \u2013 Pasta Shells and Corn',
+  'steak \u2013 brown rice and carrots': 'Steak \u2013 Brown Rice and Carrots',
+  'steak \u2013 sweet potato and broccoli': 'Steak \u2013 Sweet Potato and Broccoli',
+  'sweet chilli chicken + (brown rice + stir-fry)': 'Sweet Chilli Chicken + (brown rice + stir-fry)',
+
+  // Names that already match Shopify exactly
+  'chicken breast, butternut, stir-fry': 'Chicken breast, Butternut, Stir-fry',
+  'chicken breast, sweet potato, mixed veg': 'Chicken breast, Sweet potato, Mixed veg',
+  'chicken curry + (white rice + butternut)': 'Chicken Curry + (white rice + butternut)',
   'lean mince, white basmati rice, broccoli': 'Lean mince, White basmati rice, Broccoli',
   'lean mince, white basmati rice, green beans': 'Lean mince, White basmati rice, Green beans',
-  'steak, brown rice, carrots': 'Steak – Brown Rice and Carrots',
-  'steak, sweet potato, broccoli': 'Steak – Sweet Potato and Broccoli',
-  'sweet chilli chicken + (brown rice + stirfry)': 'Sweet Chilli Chicken + (brown rice + stir-fry)',
 };
 
 // Build reverse map: Shopify title (lowercase) → target Shopify title
@@ -137,6 +152,18 @@ Deno.serve(async (req) => {
       await withRetry(() => base44.asServiceRole.entities.Meal.update(meal.id, { meal_name: shopifyTitle }));
       mealsRenamed++;
       await delay(300);
+
+      // Also update meal_name and display_name on ALL existing SKUs for this meal
+      const relatedSkus = existingSkus.filter(s => s.meal_id === meal.id);
+      for (const sku of relatedSkus) {
+        const updatedDisplayName = `${shopifyTitle} (${sku.package_type === 'LOW_CARB' ? 'LC' : sku.package_type} ${sku.portion_size_grams}g)`;
+        console.log(`  Updating SKU ${sku.sku_code}: meal_name → "${shopifyTitle}"`);
+        await withRetry(() => base44.asServiceRole.entities.SKU.update(sku.id, {
+          meal_name: shopifyTitle,
+          display_name: updatedDisplayName,
+        }));
+        await delay(200);
+      }
     }
 
     // ─── 4b. Create/update SKU for this meal ───
