@@ -1,18 +1,15 @@
 import React, { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
-import { Package, Plus, RefreshCw } from 'lucide-react';
-import { toast } from 'sonner';
+import { Package, Plus } from 'lucide-react';
 import { PACKAGE_COLORS } from '@/lib/mealGrouping';
 import { cn } from '@/lib/utils';
 import PackageFamilyCard from './PackageFamilyCard';
 import AddPackageForm from './AddPackageForm';
 
 export default function BOMTab() {
-  const queryClient = useQueryClient();
   const [showAddPackage, setShowAddPackage] = useState(false);
-  const [syncingSkus, setSyncingSkus] = useState(false);
 
   const { data: packages = [], isLoading } = useQuery({
     queryKey: ['packageProducts'],
@@ -42,14 +39,6 @@ export default function BOMTab() {
       Object.values(familyGroups).filter(g => !familyOrder.includes(g.family))
     );
 
-  const handleSyncShopifySkus = async () => {
-    setSyncingSkus(true);
-    const res = await base44.functions.invoke('syncShopifyProducts', {});
-    queryClient.invalidateQueries({ queryKey: ['skus'] });
-    toast.success(`Synced from Shopify: ${res.data.created} new, ${res.data.updated} updated SKUs`);
-    setSyncingSkus(false);
-  };
-
   const FAMILY_NAMES = {
     MWL: "Men's Weight Loss",
     MLM: "Men's Lean Muscle",
@@ -70,10 +59,7 @@ export default function BOMTab() {
           <Plus className="w-3.5 h-3.5" />
           Add Package
         </Button>
-        <Button variant="outline" size="sm" onClick={handleSyncShopifySkus} disabled={syncingSkus} className="gap-2">
-          <RefreshCw className={cn("w-3.5 h-3.5", syncingSkus && "animate-spin")} />
-          {syncingSkus ? 'Syncing...' : 'Sync SKUs from Shopify'}
-        </Button>
+
       </div>
 
       {showAddPackage && (
