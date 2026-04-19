@@ -5,7 +5,7 @@ function isExcluded(lineItem) {
   const title = (lineItem.title || '').toLowerCase();
   const variantTitle = (lineItem.variant_title || '').toLowerCase();
   const sku = (lineItem.sku || '').toLowerCase();
-  const tags = (lineItem.properties || []).map(p => (p.value || '').toLowerCase()).join(' ');
+  const tags = (lineItem.properties || []).map(p => String(p.value || '').toLowerCase()).join(' ');
 
   if (title.includes('supplement') || tags.includes('supplement')) return true;
   if (title.includes('low calorie sauce') || title.includes('sauce')) return true;
