@@ -79,7 +79,7 @@ export default function ParLevelsTab() {
 
   return (
     <div className="space-y-4">
-      <ParLevelCSVImport skus={skus} parBySkuId={parBySkuId} />
+      <ParLevelCSVImport skus={skus} meals={meals} parBySkuId={parBySkuId} />
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 max-w-sm">
