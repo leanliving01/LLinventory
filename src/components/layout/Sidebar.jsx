@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard },
   { label: 'Production Plan', path: '/production', icon: Factory },
-  { label: 'Stock Entry', path: '/stock', icon: Warehouse },
+  { label: 'Inventory', path: '/stock', icon: Warehouse },
   { label: 'Shopify Sync', path: '/shopify', icon: ShoppingCart },
   { label: 'Master Data', path: '/master-data', icon: Package },
   { label: 'Reports', path: '/reports', icon: FileText },

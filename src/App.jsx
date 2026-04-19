@@ -8,7 +8,7 @@ import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import AppLayout from '@/components/layout/AppLayout';
 import Dashboard from '@/pages/Dashboard';
 import ProductionPlanning from '@/pages/ProductionPlanning';
-import StockEntry from '@/pages/StockEntry';
+import Inventory from '@/pages/Inventory';
 import ShopifySync from '@/pages/ShopifySync';
 import MasterData from '@/pages/MasterData';
 import Reports from '@/pages/Reports';
@@ -43,7 +43,7 @@ const AuthenticatedApp = () => {
       <Route element={<AppLayout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/production" element={<ProductionPlanning />} />
-        <Route path="/stock" element={<StockEntry />} />
+        <Route path="/stock" element={<Inventory />} />
         <Route path="/shopify" element={<ShopifySync />} />
         <Route path="/master-data" element={<MasterData />} />
         <Route path="/reports" element={<Reports />} />
