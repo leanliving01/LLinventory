@@ -1,6 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
-// ─── Exclusion logic: skip non-meal items ───
+// ─── Same parsing helpers ───
 function isExcluded(lineItem) {
   const title = (lineItem.title || '').toLowerCase();
   const sku = (lineItem.sku || '').toLowerCase();
@@ -53,16 +53,10 @@ function parseOrder(order) {
   const orderTags = order.tags || '';
   let mwlMeals = 0, mlmMeals = 0, wwlMeals = 0, wlmMeals = 0, lcMeals = 0, byoMeals = 0, totalMeals = 0;
   let orderIsByo = false;
-
   for (const li of (order.line_items || [])) {
     const qty = li.quantity || 0;
     if (isExcluded(li)) continue;
-    if (isBYOItem(li, orderTags)) {
-      orderIsByo = true;
-      byoMeals += qty;
-      totalMeals += qty;
-      continue;
-    }
+    if (isBYOItem(li, orderTags)) { orderIsByo = true; byoMeals += qty; totalMeals += qty; continue; }
     const mealType = getMealType(li.title, li.variant_title);
     const packSize = getPackSize(li.variant_title);
     if (mealType && packSize > 0) {
@@ -77,119 +71,87 @@ function parseOrder(order) {
       }
     }
   }
-
   return {
     shopify_order_id: String(order.id),
     order_number: order.name || `#${order.order_number}`,
     order_date: order.created_at,
     customer_name: order.customer ? `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim() : '',
-    paid_status: 'paid',
-    fulfilment_status: 'unfulfilled',
-    tags: orderTags,
-    synced_at: new Date().toISOString(),
-    total_meals: totalMeals,
-    mwl_meals: mwlMeals,
-    mlm_meals: mlmMeals,
-    wwl_meals: wwlMeals,
-    wlm_meals: wlmMeals,
-    lc_meals: lcMeals,
-    byo_meals: byoMeals,
-    is_byo: orderIsByo,
-    demand_calculated: false,
+    paid_status: 'paid', fulfilment_status: 'unfulfilled',
+    tags: orderTags, synced_at: new Date().toISOString(),
+    total_meals: totalMeals, mwl_meals: mwlMeals, mlm_meals: mlmMeals,
+    wwl_meals: wwlMeals, wlm_meals: wlmMeals, lc_meals: lcMeals,
+    byo_meals: byoMeals, is_byo: orderIsByo, demand_calculated: false,
   };
 }
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function withRetry(fn, retries = 4) {
+async function withRetry(fn, retries = 3) {
   for (let i = 0; i < retries; i++) {
-    try {
-      return await fn();
-    } catch (err) {
-      if (err.status === 429 && i < retries - 1) {
-        const waitTime = (i + 1) * 3000; // 3s, 6s, 9s, 12s
-        console.log(`Rate limited, waiting ${waitTime/1000}s...`);
-        await delay(waitTime);
-      } else {
-        throw err;
-      }
+    try { return await fn(); } catch (err) {
+      if (err.status === 429 && i < retries - 1) { await delay((i + 1) * 3000); } else { throw err; }
     }
   }
 }
 
+// This function is called by automation every 5 minutes — no user auth needed
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
-  const user = await base44.auth.me();
-  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const body = await req.json().catch(() => ({}));
-  const action = body.action || 'batch'; // 'fetch' or 'batch'
 
   const storeDomain = Deno.env.get('SHOPIFY_STORE_DOMAIN');
   const accessToken = Deno.env.get('SHOPIFY_ACCESS_TOKEN');
-  if (!storeDomain || !accessToken) return Response.json({ error: 'Shopify credentials not configured' }, { status: 400 });
+  if (!storeDomain || !accessToken) return Response.json({ error: 'Not configured' }, { status: 400 });
 
-  // ─── STEP 1: Frontend calls with action='fetch' to get all Shopify orders ───
-  if (action === 'fetch') {
-    let allOrders = [];
-    let pageUrl = `https://${storeDomain}/admin/api/2024-01/orders.json?status=open&financial_status=paid&fulfillment_status=unfulfilled&limit=250`;
+  // Fetch recent orders (last page only — most recent)
+  const url = `https://${storeDomain}/admin/api/2024-01/orders.json?status=open&financial_status=paid&fulfillment_status=unfulfilled&limit=250`;
+  const res = await fetch(url, {
+    headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) return Response.json({ error: `Shopify error: ${res.status}` }, { status: 502 });
 
-    while (pageUrl) {
-      const res = await fetch(pageUrl, {
-        headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-      });
-      if (!res.ok) return Response.json({ error: `Shopify API error: ${res.status}` }, { status: 502 });
-      const data = await res.json();
-      allOrders = allOrders.concat(data.orders || []);
-      const linkHeader = res.headers.get('Link') || '';
-      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-      pageUrl = nextMatch ? nextMatch[1] : null;
+  const { orders: shopifyOrders } = await res.json();
+  console.log(`Auto-sync: fetched ${shopifyOrders.length} orders`);
+
+  // Load existing
+  const existing = await base44.asServiceRole.entities.ShopifyOrder.filter({});
+  const existingMap = {};
+  existing.forEach(o => {
+    if (o.shopify_order_id) existingMap[o.shopify_order_id] = o;
+    if (o.order_number) existingMap[o.order_number] = o;
+  });
+
+  const toCreate = [];
+  const toUpdate = [];
+
+  for (const order of shopifyOrders) {
+    const parsed = parseOrder(order);
+    const ex = existingMap[parsed.shopify_order_id] || existingMap[parsed.order_number];
+    if (ex) {
+      // Only update if something changed
+      if (ex.total_meals !== parsed.total_meals || ex.tags !== parsed.tags || ex.customer_name !== parsed.customer_name) {
+        toUpdate.push({ id: ex.id, data: parsed });
+      }
+    } else {
+      toCreate.push(parsed);
     }
-
-    // Parse all orders in memory
-    const parsed = allOrders.map(o => parseOrder(o));
-
-    // Get existing orders for dedup mapping
-    const existingOrders = await base44.asServiceRole.entities.ShopifyOrder.filter({});
-    const existingMap = {};
-    existingOrders.forEach(o => {
-      if (o.shopify_order_id) existingMap[o.shopify_order_id] = o.id;
-      if (o.order_number) existingMap[o.order_number] = o.id;
-    });
-
-    // Tag each with existing ID or null
-    const orders = parsed.map(p => ({
-      ...p,
-      _existingId: existingMap[p.shopify_order_id] || existingMap[p.order_number] || null,
-    }));
-
-    return Response.json({ total: orders.length, orders });
   }
-
-  // ─── STEP 2: Frontend calls with action='batch' to process a chunk ───
-  const ordersToProcess = body.orders || [];
-  let created = 0, updated = 0;
-
-  // Separate creates and updates
-  const toCreate = ordersToProcess.filter(o => !o._existingId);
-  const toUpdate = ordersToProcess.filter(o => o._existingId);
 
   // Bulk create new orders
   if (toCreate.length > 0) {
-    const createData = toCreate.map(({ _existingId, ...rest }) => rest);
-    await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.bulkCreate(createData));
-    created = toCreate.length;
-    await delay(1000);
+    for (let i = 0; i < toCreate.length; i += 25) {
+      await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.bulkCreate(toCreate.slice(i, i + 25)));
+      await delay(1000);
+    }
   }
 
-  // Update existing orders one by one with delays
+  // Update changed orders
   for (let i = 0; i < toUpdate.length; i++) {
-    const { _existingId, shopify_order_id, order_number, order_date, ...updateData } = toUpdate[i];
-    await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.update(_existingId, updateData));
-    updated++;
-    // Delay every 5 updates
+    const { id, data } = toUpdate[i];
+    const { shopify_order_id, order_number, order_date, ...updateData } = data;
+    await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.update(id, updateData));
     if ((i + 1) % 5 === 0) await delay(1500);
   }
 
-  return Response.json({ created, updated, processed: ordersToProcess.length });
+  console.log(`Auto-sync complete: ${toCreate.length} created, ${toUpdate.length} updated`);
+  return Response.json({ created: toCreate.length, updated: toUpdate.length });
 });

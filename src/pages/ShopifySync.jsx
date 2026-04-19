@@ -9,10 +9,13 @@ import { ShoppingCart, RefreshCw, Search, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import ShopifyOrdersTable from '@/components/shopify/ShopifyOrdersTable';
+import SyncProgressBar from '@/components/shopify/SyncProgressBar';
 
 export default function ShopifySync() {
   const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(null); // null | 'fetching' | 'processing' | 'complete'
+  const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 });
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [sortOrder, setSortOrder] = useState('newest');
@@ -23,12 +26,47 @@ export default function ShopifySync() {
     queryFn: () => base44.entities.ShopifyOrder.list('-created_date', 500),
   });
 
+  const BATCH_SIZE = 8;
+
   const handleSync = async () => {
     setSyncing(true);
-    const res = await base44.functions.invoke('syncShopifyOrders', {});
+    setSyncStatus('fetching');
+    setSyncProgress({ current: 0, total: 0 });
+
+    // Step 1: Fetch all orders from Shopify
+    const fetchRes = await base44.functions.invoke('syncShopifyOrders', { action: 'fetch' });
+    const allOrders = fetchRes.data.orders || [];
+    const total = allOrders.length;
+
+    if (total === 0) {
+      toast.info('No orders to sync');
+      setSyncing(false);
+      setSyncStatus(null);
+      return;
+    }
+
+    setSyncStatus('processing');
+    setSyncProgress({ current: 0, total });
+
+    // Step 2: Process in small batches
+    let totalCreated = 0, totalUpdated = 0;
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      const batch = allOrders.slice(i, i + BATCH_SIZE);
+      const res = await base44.functions.invoke('syncShopifyOrders', { action: 'batch', orders: batch });
+      totalCreated += res.data.created || 0;
+      totalUpdated += res.data.updated || 0;
+      setSyncProgress({ current: Math.min(i + BATCH_SIZE, total), total });
+    }
+
+    setSyncStatus('complete');
     queryClient.invalidateQueries({ queryKey: ['shopifyOrders'] });
-    toast.success(`Synced ${res.data.total} orders (${res.data.created} new, ${res.data.updated} updated)`);
-    setSyncing(false);
+    toast.success(`Synced ${total} orders (${totalCreated} new, ${totalUpdated} updated)`);
+
+    // Hide progress after 3 seconds
+    setTimeout(() => {
+      setSyncing(false);
+      setSyncStatus(null);
+    }, 3000);
   };
 
   // Only show paid + unfulfilled orders
@@ -87,6 +125,11 @@ export default function ShopifySync() {
           {syncing ? 'Syncing...' : 'Sync Orders'}
         </Button>
       </div>
+
+      {/* Sync Progress */}
+      {syncStatus && (
+        <SyncProgressBar current={syncProgress.current} total={syncProgress.total} status={syncStatus} />
+      )}
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
