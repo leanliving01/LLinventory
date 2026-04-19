@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { GOAL_PACKAGE_TYPES, LOW_CARB_PACKAGE_TYPES, PACKAGE_LABELS, PACKAGE_COLORS, groupSkusByMeal } from '@/lib/mealGrouping';
+import ParLevelCSVImport from './ParLevelCSVImport';
 
 export default function ParLevelsTab() {
   const queryClient = useQueryClient();
@@ -78,6 +79,8 @@ export default function ParLevelsTab() {
 
   return (
     <div className="space-y-4">
+      <ParLevelCSVImport skus={skus} parBySkuId={parBySkuId} />
+
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
