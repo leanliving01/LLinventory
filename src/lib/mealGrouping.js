@@ -1,13 +1,30 @@
 // Shared constants and grouping utilities for the meal-centric table layout
 
-export const PACKAGE_TYPES = ['MWL', 'MLM', 'WLM', 'WWL', 'LOW_CARB'];
+// Goal-related package types (shown in goal-related table)
+export const GOAL_PACKAGE_TYPES = ['MWL', 'MLM', 'WLM', 'WWL'];
 
+// Low carb package type (shown in low carb table)
+export const LOW_CARB_PACKAGE_TYPES = ['LOW_CARB'];
+
+// All package types combined
+export const PACKAGE_TYPES = [...GOAL_PACKAGE_TYPES, ...LOW_CARB_PACKAGE_TYPES];
+
+// Short abbreviation labels
 export const PACKAGE_LABELS = {
-  MWL: "Men's WL",
-  MLM: "Men's LM",
-  WLM: "Women's LM",
-  WWL: "Women's WL",
-  LOW_CARB: "Low Carb",
+  MWL: 'MWL',
+  MLM: 'MLM',
+  WLM: 'WLM',
+  WWL: 'WWL',
+  LOW_CARB: 'LC',
+};
+
+// Brand colors per package type (bg, text, border for header styling)
+export const PACKAGE_COLORS = {
+  MWL: { bg: 'bg-blue-500', text: 'text-white', light: 'bg-blue-50', lightText: 'text-blue-700', border: 'border-blue-200' },
+  MLM: { bg: 'bg-green-500', text: 'text-white', light: 'bg-green-50', lightText: 'text-green-700', border: 'border-green-200' },
+  WLM: { bg: 'bg-orange-500', text: 'text-white', light: 'bg-orange-50', lightText: 'text-orange-700', border: 'border-orange-200' },
+  WWL: { bg: 'bg-pink-400', text: 'text-white', light: 'bg-pink-50', lightText: 'text-pink-700', border: 'border-pink-200' },
+  LOW_CARB: { bg: 'bg-yellow-400', text: 'text-yellow-900', light: 'bg-yellow-50', lightText: 'text-yellow-700', border: 'border-yellow-200' },
 };
 
 /**

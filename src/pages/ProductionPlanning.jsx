@@ -7,7 +7,7 @@ import { Factory, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import ProductionTable from '@/components/production/ProductionTable';
-import { PACKAGE_TYPES, groupSkusByMeal } from '@/lib/mealGrouping';
+import { PACKAGE_TYPES, GOAL_PACKAGE_TYPES, LOW_CARB_PACKAGE_TYPES, groupSkusByMeal } from '@/lib/mealGrouping';
 
 export default function ProductionPlanning() {
   const queryClient = useQueryClient();
@@ -201,7 +201,26 @@ export default function ProductionPlanning() {
         />
       </div>
 
-      <ProductionTable mealRows={mealRows} overrides={overrides} setOverrides={setOverrides} />
+      <ProductionTable
+        title="Goal-Related Meals"
+        mealRows={mealRows.filter(r => {
+          // A row is goal-related if it has any SKU in GOAL_PACKAGE_TYPES
+          return GOAL_PACKAGE_TYPES.some(pt => r.dataByType[pt]);
+        })}
+        packageTypes={GOAL_PACKAGE_TYPES}
+        overrides={overrides}
+        setOverrides={setOverrides}
+      />
+
+      <ProductionTable
+        title="Low Carb Meals"
+        mealRows={mealRows.filter(r => {
+          return LOW_CARB_PACKAGE_TYPES.some(pt => r.dataByType[pt]);
+        })}
+        packageTypes={LOW_CARB_PACKAGE_TYPES}
+        overrides={overrides}
+        setOverrides={setOverrides}
+      />
     </div>
   );
 }

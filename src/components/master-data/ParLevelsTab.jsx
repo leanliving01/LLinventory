@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Search, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-import { PACKAGE_TYPES, PACKAGE_LABELS, groupSkusByMeal } from '@/lib/mealGrouping';
+import { cn } from '@/lib/utils';
+import { GOAL_PACKAGE_TYPES, LOW_CARB_PACKAGE_TYPES, PACKAGE_LABELS, PACKAGE_COLORS, groupSkusByMeal } from '@/lib/mealGrouping';
 
 export default function ParLevelsTab() {
   const queryClient = useQueryClient();
@@ -40,6 +41,9 @@ export default function ParLevelsTab() {
     if (!search) return groups;
     return groups.filter(g => g.mealName.toLowerCase().includes(search.toLowerCase()));
   }, [skus, meals, search]);
+
+  const goalMeals = mealGroups.filter(m => m.familyType === 'goal_related');
+  const lowCarbMeals = mealGroups.filter(m => m.familyType === 'low_carb');
 
   const handleSave = async () => {
     const entries = Object.entries(edits).filter(([_, v]) => v !== '' && v !== undefined);
@@ -85,56 +89,69 @@ export default function ParLevelsTab() {
         </Button>
       </div>
 
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="bg-muted/50 border-b border-border">
-                <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase min-w-[180px]">
-                  Meal
-                </th>
-                {PACKAGE_TYPES.map(pt => (
-                  <th key={pt} className="text-center px-2 py-2 text-xs font-semibold text-foreground uppercase border-l border-border min-w-[100px]">
+      <ParTable title="Goal-Related Meals" items={goalMeals} packageTypes={GOAL_PACKAGE_TYPES} parBySkuId={parBySkuId} edits={edits} setEdits={setEdits} />
+      <ParTable title="Low Carb Meals" items={lowCarbMeals} packageTypes={LOW_CARB_PACKAGE_TYPES} parBySkuId={parBySkuId} edits={edits} setEdits={setEdits} />
+    </div>
+  );
+}
+
+function ParTable({ title, items, packageTypes, parBySkuId, edits, setEdits }) {
+  if (items.length === 0) return null;
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="px-6 py-3 border-b border-border bg-muted/30">
+        <h3 className="text-sm font-bold uppercase tracking-wide">{title}</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b border-border">
+              <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase min-w-[180px]">
+                Meal
+              </th>
+              {packageTypes.map(pt => {
+                const colors = PACKAGE_COLORS[pt];
+                return (
+                  <th key={pt} className={cn("text-center px-2 py-2 text-xs font-bold uppercase border-l border-border min-w-[100px]", colors.bg, colors.text)}>
                     {PACKAGE_LABELS[pt]}
                   </th>
-                ))}
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {items.map(row => (
+              <tr key={row.mealName} className="hover:bg-muted/30 transition-colors">
+                <td className="px-4 py-2.5 text-sm font-medium">{row.mealName}</td>
+                {packageTypes.map(pt => {
+                  const sku = row.skusByType[pt];
+                  if (!sku) {
+                    return <td key={pt} className="px-2 py-2.5 text-center text-muted-foreground text-[10px] border-l border-border">—</td>;
+                  }
+                  const par = parBySkuId[sku.id];
+                  return (
+                    <td key={pt} className="px-2 py-2.5 border-l border-border">
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-[10px] text-muted-foreground tabular-nums">
+                          {par ? `Current: ${par.par_level}` : 'Not set'}
+                        </span>
+                        <Input
+                          type="number"
+                          min="0"
+                          placeholder={par ? String(par.par_level) : 'Set...'}
+                          value={edits[sku.id] ?? ''}
+                          onChange={e => setEdits(prev => ({ ...prev, [sku.id]: e.target.value }))}
+                          className="w-16 text-center h-6 text-[11px] px-1"
+                        />
+                      </div>
+                    </td>
+                  );
+                })}
               </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {mealGroups.length === 0 ? (
-                <tr><td colSpan={1 + PACKAGE_TYPES.length} className="text-center py-8 text-sm text-muted-foreground">No meals found</td></tr>
-              ) : mealGroups.map(row => (
-                <tr key={row.mealName} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-2.5 text-sm font-medium">{row.mealName}</td>
-                  {PACKAGE_TYPES.map(pt => {
-                    const sku = row.skusByType[pt];
-                    if (!sku) {
-                      return <td key={pt} className="px-2 py-2.5 text-center text-muted-foreground text-[10px] border-l border-border">—</td>;
-                    }
-                    const par = parBySkuId[sku.id];
-                    return (
-                      <td key={pt} className="px-2 py-2.5 border-l border-border">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="text-[10px] text-muted-foreground tabular-nums">
-                            {par ? `Current: ${par.par_level}` : 'Not set'}
-                          </span>
-                          <Input
-                            type="number"
-                            min="0"
-                            placeholder={par ? String(par.par_level) : 'Set...'}
-                            value={edits[sku.id] ?? ''}
-                            onChange={e => setEdits(prev => ({ ...prev, [sku.id]: e.target.value }))}
-                            className="w-16 text-center h-6 text-[11px] px-1"
-                          />
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

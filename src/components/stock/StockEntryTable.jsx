@@ -1,7 +1,7 @@
 import React from 'react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { PACKAGE_TYPES, PACKAGE_LABELS } from '@/lib/mealGrouping';
+import { PACKAGE_LABELS, PACKAGE_COLORS } from '@/lib/mealGrouping';
 
 function ChangeIndicator({ current, newVal }) {
   if (newVal === '' || newVal === undefined) return null;
@@ -14,24 +14,34 @@ function ChangeIndicator({ current, newVal }) {
   );
 }
 
-export default function StockEntryTable({ mealRows, stockValues, onStockChange }) {
+export default function StockEntryTable({ title, mealRows, packageTypes, stockValues, onStockChange }) {
+  if (mealRows.length === 0) return null;
+
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
+      {title && (
+        <div className="px-6 py-3 border-b border-border bg-muted/30">
+          <h3 className="text-sm font-bold text-foreground uppercase tracking-wide">{title}</h3>
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse">
           <thead>
-            <tr className="bg-muted/50 border-b border-border">
-              <th rowSpan={2} className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground uppercase sticky left-0 bg-muted/50 z-10 min-w-[180px]">
+            <tr className="border-b border-border">
+              <th rowSpan={2} className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground uppercase sticky left-0 bg-card z-10 min-w-[180px]">
                 Meal
               </th>
-              {PACKAGE_TYPES.map(pt => (
-                <th key={pt} colSpan={2} className="text-center px-1 py-2 text-xs font-semibold text-foreground uppercase border-l border-border">
-                  {PACKAGE_LABELS[pt]}
-                </th>
-              ))}
+              {packageTypes.map(pt => {
+                const colors = PACKAGE_COLORS[pt];
+                return (
+                  <th key={pt} colSpan={2} className={cn("text-center px-1 py-2 text-xs font-bold uppercase border-l border-border", colors.bg, colors.text)}>
+                    {PACKAGE_LABELS[pt]}
+                  </th>
+                );
+              })}
             </tr>
             <tr className="bg-muted/30 border-b border-border">
-              {PACKAGE_TYPES.map(pt => (
+              {packageTypes.map(pt => (
                 <React.Fragment key={pt}>
                   <th className="text-right px-1 py-1.5 text-[10px] text-muted-foreground border-l border-border">Current</th>
                   <th className="text-right px-1 py-1.5 text-[10px] text-muted-foreground">New</th>
@@ -45,7 +55,7 @@ export default function StockEntryTable({ mealRows, stockValues, onStockChange }
                 <td className="px-3 py-2 text-sm font-medium sticky left-0 bg-card z-10">
                   {row.mealName}
                 </td>
-                {PACKAGE_TYPES.map(pt => {
+                {packageTypes.map(pt => {
                   const sku = row.skusByType[pt];
                   if (!sku) {
                     return <td key={pt} colSpan={2} className="px-1 py-2 text-center text-muted-foreground text-[10px] border-l border-border">—</td>;

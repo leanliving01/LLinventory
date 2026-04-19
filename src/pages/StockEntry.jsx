@@ -8,7 +8,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import CSVStockImport from '@/components/stock/CSVStockImport';
 import StockEntryTable from '@/components/stock/StockEntryTable';
-import { PACKAGE_TYPES, groupSkusByMeal } from '@/lib/mealGrouping';
+import { PACKAGE_TYPES, GOAL_PACKAGE_TYPES, LOW_CARB_PACKAGE_TYPES, groupSkusByMeal } from '@/lib/mealGrouping';
 
 export default function StockEntry() {
   const queryClient = useQueryClient();
@@ -125,7 +125,17 @@ export default function StockEntry() {
       </div>
 
       <StockEntryTable
-        mealRows={mealRows}
+        title="Goal-Related Meals"
+        mealRows={mealRows.filter(r => GOAL_PACKAGE_TYPES.some(pt => r.skusByType[pt]))}
+        packageTypes={GOAL_PACKAGE_TYPES}
+        stockValues={stockValues}
+        onStockChange={handleStockChange}
+      />
+
+      <StockEntryTable
+        title="Low Carb Meals"
+        mealRows={mealRows.filter(r => LOW_CARB_PACKAGE_TYPES.some(pt => r.skusByType[pt]))}
+        packageTypes={LOW_CARB_PACKAGE_TYPES}
         stockValues={stockValues}
         onStockChange={handleStockChange}
       />

@@ -88,5 +88,12 @@ module.exports = {
   		}
   	}
   },
+  safelist: [
+    'bg-blue-500', 'bg-green-500', 'bg-orange-500', 'bg-pink-400', 'bg-yellow-400',
+    'text-white', 'text-yellow-900',
+    'bg-blue-50', 'bg-green-50', 'bg-orange-50', 'bg-pink-50', 'bg-yellow-50',
+    'text-blue-700', 'text-green-700', 'text-orange-700', 'text-pink-700', 'text-yellow-700',
+    'border-blue-200', 'border-green-200', 'border-orange-200', 'border-pink-200', 'border-yellow-200',
+  ],
   plugins: [require("tailwindcss-animate")],
 }

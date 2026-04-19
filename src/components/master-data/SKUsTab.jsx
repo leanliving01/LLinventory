@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Search } from 'lucide-react';
-import { PACKAGE_TYPES, PACKAGE_LABELS, groupSkusByMeal } from '@/lib/mealGrouping';
+import { cn } from '@/lib/utils';
+import { GOAL_PACKAGE_TYPES, LOW_CARB_PACKAGE_TYPES, PACKAGE_LABELS, PACKAGE_COLORS, groupSkusByMeal } from '@/lib/mealGrouping';
 
 export default function SKUsTab() {
   const [search, setSearch] = useState('');
@@ -24,6 +25,9 @@ export default function SKUsTab() {
     return groups.filter(g => g.mealName.toLowerCase().includes(search.toLowerCase()));
   }, [skus, meals, search]);
 
+  const goalMeals = mealGroups.filter(m => m.familyType === 'goal_related');
+  const lowCarbMeals = mealGroups.filter(m => m.familyType === 'low_carb');
+
   return (
     <div className="space-y-4">
       <div className="relative max-w-sm">
@@ -31,46 +35,60 @@ export default function SKUsTab() {
         <Input placeholder="Search meals..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
       </div>
 
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="bg-muted/50 border-b border-border">
-                <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase min-w-[180px]">
-                  Meal
-                </th>
-                {PACKAGE_TYPES.map(pt => (
-                  <th key={pt} className="text-center px-2 py-2 text-xs font-semibold text-foreground uppercase border-l border-border">
+      <SKUTable title="Goal-Related Meals" items={goalMeals} packageTypes={GOAL_PACKAGE_TYPES} />
+      <SKUTable title="Low Carb Meals" items={lowCarbMeals} packageTypes={LOW_CARB_PACKAGE_TYPES} />
+
+      <div className="text-xs text-muted-foreground px-1">
+        Showing {mealGroups.length} meals with {skus.filter(s => s.is_active !== false).length} active SKUs
+      </div>
+    </div>
+  );
+}
+
+function SKUTable({ title, items, packageTypes }) {
+  if (items.length === 0) return null;
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="px-6 py-3 border-b border-border bg-muted/30">
+        <h3 className="text-sm font-bold uppercase tracking-wide">{title}</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b border-border">
+              <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase min-w-[180px]">
+                Meal
+              </th>
+              {packageTypes.map(pt => {
+                const colors = PACKAGE_COLORS[pt];
+                return (
+                  <th key={pt} className={cn("text-center px-2 py-2 text-xs font-bold uppercase border-l border-border", colors.bg, colors.text)}>
                     {PACKAGE_LABELS[pt]}
                   </th>
-                ))}
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {items.map(row => (
+              <tr key={row.mealName} className="hover:bg-muted/30 transition-colors">
+                <td className="px-4 py-2.5 text-sm font-medium">{row.mealName}</td>
+                {packageTypes.map(pt => {
+                  const sku = row.skusByType[pt];
+                  if (!sku) {
+                    return <td key={pt} className="px-2 py-2.5 text-center text-muted-foreground text-[10px] border-l border-border">—</td>;
+                  }
+                  return (
+                    <td key={pt} className="px-2 py-2.5 text-center border-l border-border">
+                      <span className="text-xs font-mono text-muted-foreground">{sku.sku_code}</span>
+                    </td>
+                  );
+                })}
               </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {mealGroups.length === 0 ? (
-                <tr><td colSpan={1 + PACKAGE_TYPES.length} className="text-center py-8 text-sm text-muted-foreground">No SKUs found</td></tr>
-              ) : mealGroups.map(row => (
-                <tr key={row.mealName} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-2.5 text-sm font-medium">{row.mealName}</td>
-                  {PACKAGE_TYPES.map(pt => {
-                    const sku = row.skusByType[pt];
-                    if (!sku) {
-                      return <td key={pt} className="px-2 py-2.5 text-center text-muted-foreground text-[10px] border-l border-border">—</td>;
-                    }
-                    return (
-                      <td key={pt} className="px-2 py-2.5 text-center border-l border-border">
-                        <span className="text-xs font-mono text-muted-foreground">{sku.sku_code}</span>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="px-4 py-3 border-t border-border text-xs text-muted-foreground">
-          Showing {mealGroups.length} meals with {skus.filter(s => s.is_active !== false).length} active SKUs
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
