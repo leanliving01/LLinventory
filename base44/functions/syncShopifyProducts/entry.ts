@@ -18,6 +18,32 @@ async function withRetry(fn, retries = 4) {
   }
 }
 
+// ─── Manual mapping: Base44 meal_name → Shopify product title ───
+// This ensures 100% accurate matching despite naming differences.
+// When a new meal is added to Shopify, add an entry here.
+const MEAL_NAME_MAP = {
+  'beef and beans + green beans + brown rice': 'Beef & Beans',
+  'beef trinchado + white basmati rice + stirfry': 'Beef Trinchado + (white basmati rice + stir-fry)',
+  'chicken breast, butternut, stir-fry': 'Chicken breast, Butternut, Stir-fry',
+  'chicken breast, sweet potato, mixed veg': 'Chicken breast, Sweet potato, Mixed veg',
+  'chicken breast, potato wedges, creamy spinach': 'Chicken breast, Potato Wedges, Creamy spinach (Swt Chilli Sauce)',
+  'chicken curry + (white rice + butternut)': 'Chicken Curry + (white rice + butternut)',
+  'cottage pie + sweet potato mash + creamy spinach': 'Cottage Pie + (Sweet potato Mash + Creamy spinach)',
+  'keto butter chicken + cauliflower + spinach': 'Keto Butter Chicken + (cauliflower + spinach)',
+  'lean mince, pasta shells, corn': 'Lean Mince – Pasta Shells and Corn',
+  'lean mince, white basmati rice, broccoli': 'Lean mince, White basmati rice, Broccoli',
+  'lean mince, white basmati rice, green beans': 'Lean mince, White basmati rice, Green beans',
+  'steak, brown rice, carrots': 'Steak – Brown Rice and Carrots',
+  'steak, sweet potato, broccoli': 'Steak – Sweet Potato and Broccoli',
+  'sweet chilli chicken + (brown rice + stirfry)': 'Sweet Chilli Chicken + (brown rice + stir-fry)',
+};
+
+// Build reverse map: Shopify title (lowercase) → target Shopify title
+const SHOPIFY_TITLE_LOOKUP = {};
+Object.values(MEAL_NAME_MAP).forEach(shopifyTitle => {
+  SHOPIFY_TITLE_LOOKUP[shopifyTitle.toLowerCase().trim()] = shopifyTitle;
+});
+
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
@@ -29,9 +55,9 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'Shopify credentials not configured' }, { status: 400 });
   }
 
-  // ─── 1. Fetch all Shopify products (paginated) ───
+  // ─── 1. Fetch active Shopify products (paginated) ───
   let allProducts = [];
-  let pageUrl = `https://${storeDomain}/admin/api/2024-01/products.json?limit=250&status=any`;
+  let pageUrl = `https://${storeDomain}/admin/api/2024-01/products.json?limit=250&status=active`;
 
   while (pageUrl) {
     const res = await fetch(pageUrl, {
@@ -51,25 +77,25 @@ Deno.serve(async (req) => {
 
   console.log(`Fetched ${allProducts.length} total products from Shopify`);
 
-  // ─── 2. Filter to BYO meal products (tagged with both "BYO" and "Meals") ───
-  const byoProducts = allProducts.filter(p => {
-    const tags = (p.tags || '').toLowerCase().split(',').map(t => t.trim());
-    return tags.includes('byo') && tags.includes('meals');
+  // ─── 2. Filter to BYO meal products (tagged "BYO Meals" AND "Meals") ───
+  const byoMealProducts = allProducts.filter(p => {
+    const tags = (p.tags || '').split(',').map(t => t.trim().toLowerCase());
+    return tags.includes('byo meals') && tags.includes('meals');
   });
 
-  console.log(`Found ${byoProducts.length} BYO meal products`);
+  console.log(`Found ${byoMealProducts.length} BYO meal products`);
+
+  // Build lookup: Shopify title (lowercase) → Shopify product
+  const shopifyByTitle = {};
+  byoMealProducts.forEach(p => {
+    shopifyByTitle[p.title.toLowerCase().trim()] = p;
+  });
 
   // ─── 3. Load existing Meals and SKUs from Base44 ───
   const [existingMeals, existingSkus] = await Promise.all([
     base44.asServiceRole.entities.Meal.filter({}),
     base44.asServiceRole.entities.SKU.filter({}),
   ]);
-
-  // Map meals by name (lowercase trimmed) for lookup
-  const mealsByName = {};
-  existingMeals.forEach(m => {
-    mealsByName[m.meal_name.toLowerCase().trim()] = m;
-  });
 
   // Map existing SKUs by meal_id + package_type for dedup
   const skuByMealAndType = {};
@@ -79,85 +105,101 @@ Deno.serve(async (req) => {
     }
   });
 
-  // ─── 4. Process each BYO product ───
-  let created = 0, updated = 0, skipped = 0;
-  const matched = [];
-  const unmatched = [];
+  // ─── 4. Process each Base44 meal: rename if needed, then sync SKU ───
+  let mealsRenamed = 0, skusCreated = 0, skusUpdated = 0, skipped = 0;
+  const results = [];
+  const unmatchedMeals = [];
+  const unmatchedShopify = [];
 
-  for (const product of byoProducts) {
-    const productTitle = (product.title || '').trim();
-    const mealKey = productTitle.toLowerCase().trim();
+  for (const meal of existingMeals) {
+    const mealKey = meal.meal_name.toLowerCase().trim();
+    const mappedShopifyTitle = MEAL_NAME_MAP[mealKey];
 
-    // Look up the Meal entity by exact name match
-    const meal = mealsByName[mealKey];
-    if (!meal) {
-      unmatched.push({ shopify_title: productTitle, reason: 'No matching Meal entity found' });
+    if (!mappedShopifyTitle) {
+      // No mapping exists for this meal (e.g. low carb meals without Shopify counterparts)
+      unmatchedMeals.push({ meal_name: meal.meal_name, reason: 'No mapping in MEAL_NAME_MAP' });
       skipped++;
       continue;
     }
 
-    // Determine package_type from family_type
+    // Find the Shopify product by the mapped title
+    const shopifyProduct = shopifyByTitle[mappedShopifyTitle.toLowerCase().trim()];
+    if (!shopifyProduct) {
+      unmatchedMeals.push({ meal_name: meal.meal_name, mapped_to: mappedShopifyTitle, reason: 'Shopify product not found (maybe inactive or deleted)' });
+      skipped++;
+      continue;
+    }
+
+    // ─── 4a. Rename Base44 meal to match Shopify title ───
+    const shopifyTitle = shopifyProduct.title.trim();
+    if (meal.meal_name !== shopifyTitle) {
+      console.log(`Renaming meal: "${meal.meal_name}" → "${shopifyTitle}"`);
+      await withRetry(() => base44.asServiceRole.entities.Meal.update(meal.id, { meal_name: shopifyTitle }));
+      mealsRenamed++;
+      await delay(300);
+    }
+
+    // ─── 4b. Create/update SKU for this meal ───
     const packageType = meal.family_type === 'low_carb' ? 'LOW_CARB' : 'MWL';
-
-    // Determine portion size based on package type
     const portionGrams = packageType === 'LOW_CARB' ? 330 : 350;
-
-    // Generate a consistent SKU code
     const skuPrefix = packageType === 'LOW_CARB' ? 'LC-BYO' : 'MWL-BYO';
-    // Use meal ID suffix for uniqueness
     const skuCodeSuffix = meal.id.slice(-4).toUpperCase();
     const skuCode = `${skuPrefix}-${skuCodeSuffix}`;
-
-    const displayName = `${productTitle} (${packageType === 'LOW_CARB' ? 'LC' : 'MWL'} ${portionGrams}g)`;
+    const displayName = `${shopifyTitle} (${packageType === 'LOW_CARB' ? 'LC' : 'MWL'} ${portionGrams}g)`;
 
     const lookupKey = `${meal.id}_${packageType}`;
     const existingSku = skuByMealAndType[lookupKey];
 
-    const skuData = {
-      sku_code: existingSku ? existingSku.sku_code : skuCode,
-      meal_id: meal.id,
-      meal_name: meal.meal_name,
-      package_type: packageType,
-      portion_size_grams: portionGrams,
-      display_name: displayName,
-      is_active: product.status === 'active',
-    };
-
     if (existingSku) {
-      // Update existing SKU — preserve the existing sku_code
       await withRetry(() => base44.asServiceRole.entities.SKU.update(existingSku.id, {
-        meal_name: skuData.meal_name,
-        display_name: skuData.display_name,
-        is_active: skuData.is_active,
+        meal_name: shopifyTitle,
+        display_name: displayName,
+        is_active: true,
       }));
-      updated++;
-      matched.push({ shopify_title: productTitle, sku_code: existingSku.sku_code, action: 'updated', package_type: packageType });
+      skusUpdated++;
+      results.push({ shopify_title: shopifyTitle, sku_code: existingSku.sku_code, action: 'updated', package_type: packageType });
     } else {
-      // Create new SKU
-      await withRetry(() => base44.asServiceRole.entities.SKU.create(skuData));
-      created++;
-      matched.push({ shopify_title: productTitle, sku_code: skuCode, action: 'created', package_type: packageType });
+      await withRetry(() => base44.asServiceRole.entities.SKU.create({
+        sku_code: skuCode,
+        meal_id: meal.id,
+        meal_name: shopifyTitle,
+        package_type: packageType,
+        portion_size_grams: portionGrams,
+        display_name: displayName,
+        is_active: true,
+      }));
+      skusCreated++;
+      results.push({ shopify_title: shopifyTitle, sku_code: skuCode, action: 'created', package_type: packageType });
     }
 
-    // Small delay to avoid rate limits
     await delay(300);
   }
+
+  // Check for Shopify BYO meal products that weren't matched to any Base44 meal
+  const matchedShopifyTitles = new Set(Object.values(MEAL_NAME_MAP).map(t => t.toLowerCase().trim()));
+  byoMealProducts.forEach(p => {
+    if (!matchedShopifyTitles.has(p.title.toLowerCase().trim())) {
+      unmatchedShopify.push({ shopify_title: p.title, reason: 'No Base44 meal mapped to this product' });
+    }
+  });
 
   // ─── 5. Audit log ───
   await base44.asServiceRole.entities.AuditLog.create({
     action: 'sync',
-    entity_type: 'SKU',
-    description: `BYO SKU sync from Shopify: ${created} created, ${updated} updated, ${skipped} unmatched out of ${byoProducts.length} BYO products`,
+    entity_type: 'Meal',
+    description: `Shopify meal sync: ${mealsRenamed} meals renamed, ${skusCreated} SKUs created, ${skusUpdated} SKUs updated, ${skipped} skipped`,
   });
 
   return Response.json({
     success: true,
     total_shopify_products: allProducts.length,
-    byo_products_found: byoProducts.length,
-    created,
-    updated,
+    byo_meal_products: byoMealProducts.length,
+    meals_renamed: mealsRenamed,
+    skus_created: skusCreated,
+    skus_updated: skusUpdated,
     skipped,
-    matched,
-    unmatched,
+    results,
+    unmatched_base44_meals: unmatchedMeals,
+    unmatched_shopify_products: unmatchedShopify,
   });
 });
