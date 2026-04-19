@@ -33,69 +33,117 @@ Deno.serve(async (req) => {
   const { orders: shopifyOrders } = await shopifyRes.json();
   console.log(`Fetched ${shopifyOrders.length} orders from Shopify`);
 
-  // Get existing orders to avoid duplicates
+  // Get ALL existing orders — index by BOTH shopify_order_id AND order_number for bulletproof dedup
   const existingOrders = await base44.asServiceRole.entities.ShopifyOrder.filter({});
   const existingByShopifyId = {};
-  existingOrders.forEach(o => { existingByShopifyId[o.shopify_order_id] = o; });
+  const existingByOrderNumber = {};
+  existingOrders.forEach(o => {
+    if (o.shopify_order_id) existingByShopifyId[o.shopify_order_id] = o;
+    if (o.order_number) existingByOrderNumber[o.order_number] = o;
+  });
+
+  // Get ALL existing order lines, indexed by shopify_line_item_id for dedup
+  const existingLines = await base44.asServiceRole.entities.ShopifyOrderLine.filter({});
+  const existingLinesByItemId = {};
+  existingLines.forEach(l => {
+    if (l.shopify_line_item_id) existingLinesByItemId[l.shopify_line_item_id] = l;
+  });
 
   let created = 0;
   let updated = 0;
-  let orderLineRecords = [];
+  let skipped = 0;
+  let linesCreated = 0;
+  let linesUpdated = 0;
 
   for (const order of shopifyOrders) {
-    const orderId = String(order.id);
-    const isByo = (order.tags || '').toLowerCase().includes('byo') || 
+    const shopifyId = String(order.id);
+    const orderNumber = order.name || `#${order.order_number}`;
+
+    // Check for existing order by shopify_order_id OR order_number (belt and suspenders)
+    const existingOrder = existingByShopifyId[shopifyId] || existingByOrderNumber[orderNumber];
+
+    const isByo = (order.tags || '').toLowerCase().includes('byo') ||
                   order.line_items.some(li => (li.title || '').toLowerCase().includes('build your own'));
 
     const totalMeals = order.line_items.reduce((sum, li) => sum + (li.quantity || 0), 0);
 
-    const orderData = {
-      shopify_order_id: orderId,
-      order_number: order.name || `#${order.order_number}`,
-      customer_name: order.customer ? `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim() : '',
-      paid_status: 'paid',
-      fulfilment_status: 'unfulfilled',
-      tags: order.tags || '',
-      order_date: order.created_at,
-      synced_at: new Date().toISOString(),
-      total_meals: totalMeals,
-      is_byo: isByo,
-      demand_calculated: false,
-    };
+    let savedOrderId;
 
-    let savedOrder;
-    if (existingByShopifyId[orderId]) {
-      savedOrder = await base44.asServiceRole.entities.ShopifyOrder.update(
-        existingByShopifyId[orderId].id,
-        orderData
-      );
-      updated++;
+    if (existingOrder) {
+      // Order exists — only update fields that may have changed, NEVER reset demand_calculated
+      const updateData = {
+        customer_name: order.customer ? `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim() : existingOrder.customer_name,
+        paid_status: 'paid',
+        fulfilment_status: 'unfulfilled',
+        tags: order.tags || '',
+        synced_at: new Date().toISOString(),
+        total_meals: totalMeals,
+        is_byo: isByo,
+      };
+
+      // Check if anything actually changed
+      const hasChanges =
+        existingOrder.total_meals !== totalMeals ||
+        existingOrder.tags !== (order.tags || '') ||
+        existingOrder.is_byo !== isByo ||
+        existingOrder.customer_name !== updateData.customer_name;
+
+      if (hasChanges) {
+        await base44.asServiceRole.entities.ShopifyOrder.update(existingOrder.id, updateData);
+        updated++;
+      } else {
+        skipped++;
+      }
+      savedOrderId = existingOrder.id;
     } else {
-      savedOrder = await base44.asServiceRole.entities.ShopifyOrder.create(orderData);
+      // Brand new order — create it
+      const savedOrder = await base44.asServiceRole.entities.ShopifyOrder.create({
+        shopify_order_id: shopifyId,
+        order_number: orderNumber,
+        customer_name: order.customer ? `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim() : '',
+        paid_status: 'paid',
+        fulfilment_status: 'unfulfilled',
+        tags: order.tags || '',
+        order_date: order.created_at,
+        synced_at: new Date().toISOString(),
+        total_meals: totalMeals,
+        is_byo: isByo,
+        demand_calculated: false,
+      });
+      savedOrderId = savedOrder.id;
       created++;
     }
 
-    // Create order line items
+    // Sync line items — dedup by shopify_line_item_id
     for (const li of order.line_items) {
-      orderLineRecords.push({
-        shopify_order_id: savedOrder.id,
-        shopify_line_item_id: String(li.id),
-        product_title: li.title || '',
-        variant_title: li.variant_title || '',
-        quantity: li.quantity || 0,
-        is_mapped: false,
-        mapping_type: 'unmapped',
-        raw_payload: JSON.stringify(li),
-      });
-    }
-  }
+      const lineItemId = String(li.id);
+      const existingLine = existingLinesByItemId[lineItemId];
 
-  // Bulk create line items
-  if (orderLineRecords.length > 0) {
-    // Create in batches of 50
-    for (let i = 0; i < orderLineRecords.length; i += 50) {
-      const batch = orderLineRecords.slice(i, i + 50);
-      await base44.asServiceRole.entities.ShopifyOrderLine.bulkCreate(batch);
+      if (existingLine) {
+        // Line exists — update only if quantity changed
+        if (existingLine.quantity !== (li.quantity || 0)) {
+          await base44.asServiceRole.entities.ShopifyOrderLine.update(existingLine.id, {
+            quantity: li.quantity || 0,
+            product_title: li.title || '',
+            variant_title: li.variant_title || '',
+            raw_payload: JSON.stringify(li),
+          });
+          linesUpdated++;
+        }
+      } else {
+        // New line item — create it
+        await base44.asServiceRole.entities.ShopifyOrderLine.create({
+          shopify_order_id: savedOrderId,
+          shopify_line_item_id: lineItemId,
+          product_title: li.title || '',
+          variant_title: li.variant_title || '',
+          quantity: li.quantity || 0,
+          is_mapped: false,
+          mapping_type: 'unmapped',
+          raw_payload: JSON.stringify(li),
+        });
+        linesCreated++;
+      }
     }
   }
 
@@ -103,7 +151,7 @@ Deno.serve(async (req) => {
   await base44.asServiceRole.entities.AuditLog.create({
     action: 'sync',
     entity_type: 'ShopifyOrder',
-    description: `Synced ${shopifyOrders.length} orders from Shopify (${created} new, ${updated} updated, ${orderLineRecords.length} line items)`,
+    description: `Synced ${shopifyOrders.length} orders from Shopify (${created} new, ${updated} updated, ${skipped} unchanged, ${linesCreated} new lines, ${linesUpdated} updated lines)`,
   });
 
   return Response.json({
@@ -111,6 +159,8 @@ Deno.serve(async (req) => {
     total: shopifyOrders.length,
     created,
     updated,
-    line_items: orderLineRecords.length,
+    skipped,
+    lines_created: linesCreated,
+    lines_updated: linesUpdated,
   });
 });
