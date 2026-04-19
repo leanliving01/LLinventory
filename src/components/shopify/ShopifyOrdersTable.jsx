@@ -17,6 +17,15 @@ const fulfilmentColors = {
   restocked: 'bg-gray-100 text-gray-700',
 };
 
+const mealColumns = [
+  { key: 'mwl_meals', label: 'MWL', color: 'text-blue-700' },
+  { key: 'wwl_meals', label: 'WWL', color: 'text-pink-700' },
+  { key: 'mlm_meals', label: 'MLM', color: 'text-green-700' },
+  { key: 'wlm_meals', label: 'WLM', color: 'text-orange-700' },
+  { key: 'lc_meals', label: 'LC', color: 'text-amber-700' },
+  { key: 'byo_meals', label: 'BYO', color: 'text-purple-700' },
+];
+
 export default function ShopifyOrdersTable({ orders }) {
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -29,15 +38,19 @@ export default function ShopifyOrdersTable({ orders }) {
               <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Date</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Payment</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Fulfilment</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Meals</th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">BYO</th>
+              {mealColumns.map(col => (
+                <th key={col.key} className="text-center px-3 py-3 text-xs font-bold uppercase tracking-wide">
+                  <span className={col.color}>{col.label}</span>
+                </th>
+              ))}
+              <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Total</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Demand</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {orders.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-12 text-center">
+                <td colSpan={13} className="px-4 py-12 text-center">
                   <ShoppingCart className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
                   <p className="text-sm text-muted-foreground">No orders match the current filters</p>
                 </td>
@@ -59,9 +72,20 @@ export default function ShopifyOrdersTable({ orders }) {
                     {order.fulfilment_status}
                   </span>
                 </td>
-                <td className="px-4 py-2.5 text-right text-sm tabular-nums">{order.total_meals || '—'}</td>
-                <td className="px-4 py-2.5 text-center">
-                  {order.is_byo ? <Badge className="text-[10px]">BYO</Badge> : <span className="text-muted-foreground text-xs">—</span>}
+                {mealColumns.map(col => {
+                  const val = order[col.key] || 0;
+                  return (
+                    <td key={col.key} className="px-3 py-2.5 text-center">
+                      {val > 0 ? (
+                        <span className={`text-sm font-semibold tabular-nums ${col.color}`}>{val}</span>
+                      ) : (
+                        <span className="text-muted-foreground/40 text-xs">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+                <td className="px-4 py-2.5 text-right text-sm font-semibold tabular-nums">
+                  {order.total_meals || '—'}
                 </td>
                 <td className="px-4 py-2.5 text-center">
                   {order.demand_calculated ? (

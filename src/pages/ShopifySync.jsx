@@ -89,14 +89,10 @@ export default function ShopifySync() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
         <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Synced</p>
-          <p className="text-xl font-bold mt-1">{orders.length}</p>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Paid & Unfulfilled</p>
-          <p className="text-xl font-bold mt-1 text-amber-600">{paidUnfulfilledOrders.length}</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">Orders</p>
+          <p className="text-xl font-bold mt-1">{paidUnfulfilledOrders.length}</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-4">
           <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Meals</p>
@@ -105,8 +101,40 @@ export default function ShopifySync() {
           </p>
         </div>
         <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Demand Calculated</p>
-          <p className="text-xl font-bold mt-1">{paidUnfulfilledOrders.filter(o => o.demand_calculated).length}</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wider text-blue-700">MWL</p>
+          <p className="text-xl font-bold mt-1 text-blue-700">
+            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.mwl_meals || 0), 0)}
+          </p>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider text-pink-700">WWL</p>
+          <p className="text-xl font-bold mt-1 text-pink-700">
+            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.wwl_meals || 0), 0)}
+          </p>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider text-green-700">MLM</p>
+          <p className="text-xl font-bold mt-1 text-green-700">
+            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.mlm_meals || 0), 0)}
+          </p>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider text-orange-700">WLM</p>
+          <p className="text-xl font-bold mt-1 text-orange-700">
+            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.wlm_meals || 0), 0)}
+          </p>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider text-amber-700">LC</p>
+          <p className="text-xl font-bold mt-1 text-amber-700">
+            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.lc_meals || 0), 0)}
+          </p>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider text-purple-700">BYO</p>
+          <p className="text-xl font-bold mt-1 text-purple-700">
+            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.byo_meals || 0), 0)}
+          </p>
         </div>
       </div>
 

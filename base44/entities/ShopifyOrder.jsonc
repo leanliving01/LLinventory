@@ -52,6 +52,36 @@
       "type": "number",
       "description": "Total number of meals in this order"
     },
+    "mwl_meals": {
+      "type": "number",
+      "default": 0,
+      "description": "Men's Weight Loss meal count"
+    },
+    "mlm_meals": {
+      "type": "number",
+      "default": 0,
+      "description": "Men's Lean Muscle meal count"
+    },
+    "wwl_meals": {
+      "type": "number",
+      "default": 0,
+      "description": "Women's Weight Loss meal count"
+    },
+    "wlm_meals": {
+      "type": "number",
+      "default": 0,
+      "description": "Women's Lean Muscle meal count"
+    },
+    "lc_meals": {
+      "type": "number",
+      "default": 0,
+      "description": "Low Carb meal count"
+    },
+    "byo_meals": {
+      "type": "number",
+      "default": 0,
+      "description": "Build Your Own meal count"
+    },
     "is_byo": {
       "type": "boolean",
       "default": false,
