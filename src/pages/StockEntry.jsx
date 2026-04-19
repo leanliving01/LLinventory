@@ -1,34 +1,36 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Save, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import CSVStockImport from '../components/stock/CSVStockImport';
+import CSVStockImport from '@/components/stock/CSVStockImport';
+import StockEntryTable from '@/components/stock/StockEntryTable';
+import { PACKAGE_TYPES, groupSkusByMeal } from '@/lib/mealGrouping';
 
 export default function StockEntry() {
   const queryClient = useQueryClient();
-  const [filterType, setFilterType] = useState('all');
   const [search, setSearch] = useState('');
   const [stockValues, setStockValues] = useState({});
   const [saving, setSaving] = useState(false);
 
   const { data: skus = [] } = useQuery({
     queryKey: ['skus'],
-    queryFn: () => base44.entities.SKU.list('-sku_code', 100),
+    queryFn: () => base44.entities.SKU.list('-sku_code', 200),
+  });
+
+  const { data: meals = [] } = useQuery({
+    queryKey: ['meals'],
+    queryFn: () => base44.entities.Meal.list('-created_date', 50),
   });
 
   const { data: stockSnapshots = [] } = useQuery({
     queryKey: ['latestStock'],
-    queryFn: () => base44.entities.StockSnapshot.list('-created_date', 200),
+    queryFn: () => base44.entities.StockSnapshot.list('-created_date', 500),
   });
 
-  // Latest stock by SKU
   const latestStockBySkuId = useMemo(() => {
     const map = {};
     stockSnapshots.forEach(snap => {
@@ -39,12 +41,22 @@ export default function StockEntry() {
     return map;
   }, [stockSnapshots]);
 
-  const filteredSkus = useMemo(() => {
-    return skus
-      .filter(sku => sku.is_active !== false)
-      .filter(sku => filterType === 'all' || sku.package_type === filterType)
-      .filter(sku => !search || sku.meal_name?.toLowerCase().includes(search.toLowerCase()) || sku.sku_code?.toLowerCase().includes(search.toLowerCase()));
-  }, [skus, filterType, search]);
+  const mealRows = useMemo(() => {
+    const groups = groupSkusByMeal(skus, meals);
+    const filtered = search
+      ? groups.filter(g => g.mealName.toLowerCase().includes(search.toLowerCase()))
+      : groups;
+
+    return filtered.map(group => {
+      const stockByType = {};
+      PACKAGE_TYPES.forEach(pt => {
+        const sku = group.skusByType[pt];
+        if (!sku) return;
+        stockByType[pt] = latestStockBySkuId[sku.id]?.stock_on_hand;
+      });
+      return { ...group, stockByType };
+    });
+  }, [skus, meals, search, latestStockBySkuId]);
 
   const handleStockChange = (skuId, value) => {
     setStockValues(prev => ({ ...prev, [skuId]: value }));
@@ -79,7 +91,7 @@ export default function StockEntry() {
     setSaving(false);
   };
 
-  const packageTypes = ['all', 'MWL', 'MLM', 'WWL', 'WLM', 'LOW_CARB'];
+  const saveCount = Object.values(stockValues).filter(v => v !== '' && v !== undefined).length;
 
   return (
     <div className="space-y-6">
@@ -87,99 +99,36 @@ export default function StockEntry() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Stock Entry</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Enter current stock on hand by SKU — {format(new Date(), 'dd MMM yyyy')}
+            Enter current stock on hand by meal — {format(new Date(), 'dd MMM yyyy')}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={handleSaveAll}
-            disabled={saving || Object.keys(stockValues).length === 0}
-            className="gap-2"
-          >
-            <Save className="w-4 h-4" />
-            Save All ({Object.values(stockValues).filter(v => v !== '' && v !== undefined).length})
-          </Button>
-        </div>
+        <Button
+          onClick={handleSaveAll}
+          disabled={saving || saveCount === 0}
+          className="gap-2"
+        >
+          <Save className="w-4 h-4" />
+          Save All ({saveCount})
+        </Button>
       </div>
 
-      {/* CSV Import */}
       <CSVStockImport skus={skus} />
 
-      {/* Filters */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search meals or SKU codes..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <div className="flex gap-1">
-          {packageTypes.map(type => (
-            <Button
-              key={type}
-              variant={filterType === type ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setFilterType(type)}
-              className="text-xs"
-            >
-              {type === 'all' ? 'All' : type}
-            </Button>
-          ))}
-        </div>
+      <div className="relative max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Search meals..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="pl-9"
+        />
       </div>
 
-      {/* Stock Grid */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-muted/50 border-b border-border">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">SKU Code</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Meal</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Type</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Current Stock</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider w-40">New Stock</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {filteredSkus.map(sku => {
-                const currentStock = latestStockBySkuId[sku.id]?.stock_on_hand;
-                return (
-                  <tr key={sku.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-2.5">
-                      <span className="text-xs font-mono text-muted-foreground">{sku.sku_code}</span>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className="text-sm font-medium text-foreground">{sku.meal_name}</span>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <Badge variant="outline" className="text-[10px]">{sku.package_type}</Badge>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <span className="text-sm font-medium tabular-nums">
-                        {currentStock !== undefined ? currentStock : '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <Input
-                        type="number"
-                        min="0"
-                        placeholder="Enter..."
-                        value={stockValues[sku.id] ?? ''}
-                        onChange={e => handleStockChange(sku.id, e.target.value)}
-                        className="w-28 ml-auto text-right h-8 text-sm"
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <StockEntryTable
+        mealRows={mealRows}
+        stockValues={stockValues}
+        onStockChange={handleStockChange}
+      />
     </div>
   );
 }

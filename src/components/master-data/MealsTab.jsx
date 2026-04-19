@@ -1,73 +1,87 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { PACKAGE_TYPES, PACKAGE_LABELS, groupSkusByMeal } from '@/lib/mealGrouping';
 
 export default function MealsTab() {
-  const { data: meals = [], isLoading } = useQuery({
+  const { data: meals = [] } = useQuery({
     queryKey: ['meals'],
     queryFn: () => base44.entities.Meal.list('-created_date', 50),
   });
 
-  const goalMeals = meals.filter(m => m.family_type === 'goal_related');
-  const lowCarbMeals = meals.filter(m => m.family_type === 'low_carb');
+  const { data: skus = [] } = useQuery({
+    queryKey: ['skus'],
+    queryFn: () => base44.entities.SKU.list('-sku_code', 200),
+  });
+
+  const mealGroups = groupSkusByMeal(skus, meals);
+  const goalMeals = mealGroups.filter(m => m.familyType === 'goal_related');
+  const lowCarbMeals = mealGroups.filter(m => m.familyType === 'low_carb');
 
   return (
     <div className="space-y-6">
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-border">
-          <h3 className="text-sm font-semibold">Goal-Related Meals ({goalMeals.length})</h3>
-        </div>
-        <table className="w-full">
-          <thead>
-            <tr className="bg-muted/50 border-b border-border">
-              <th className="text-left px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">#</th>
-              <th className="text-left px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Meal Name</th>
-              <th className="text-left px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Type</th>
-              <th className="text-left px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {goalMeals.map((meal, i) => (
-              <tr key={meal.id} className="hover:bg-muted/30 transition-colors">
-                <td className="px-6 py-3 text-sm text-muted-foreground">{i + 1}</td>
-                <td className="px-6 py-3 text-sm font-medium">{meal.meal_name}</td>
-                <td className="px-6 py-3"><Badge variant="outline" className="text-[10px]">Goal Related</Badge></td>
-                <td className="px-6 py-3">
-                  <span className={`text-xs px-2 py-1 rounded-full ${meal.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                    {meal.is_active ? 'Active' : 'Inactive'}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <MealTable title="Goal-Related Meals" items={goalMeals} count={goalMeals.length} />
+      <MealTable title="Low Carb Meals" items={lowCarbMeals} count={lowCarbMeals.length} />
+    </div>
+  );
+}
 
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-border">
-          <h3 className="text-sm font-semibold">Low Carb Meals ({lowCarbMeals.length})</h3>
-        </div>
-        <table className="w-full">
+function MealTable({ title, items, count }) {
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="px-6 py-4 border-b border-border">
+        <h3 className="text-sm font-semibold">{title} ({count})</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
           <thead>
             <tr className="bg-muted/50 border-b border-border">
-              <th className="text-left px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">#</th>
-              <th className="text-left px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Meal Name</th>
-              <th className="text-left px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Type</th>
-              <th className="text-left px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
+              <th rowSpan={2} className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase min-w-[180px]">
+                Meal Name
+              </th>
+              {PACKAGE_TYPES.map(pt => (
+                <th key={pt} colSpan={2} className="text-center px-1 py-2 text-xs font-semibold text-foreground uppercase border-l border-border">
+                  {PACKAGE_LABELS[pt]}
+                </th>
+              ))}
+            </tr>
+            <tr className="bg-muted/30 border-b border-border">
+              {PACKAGE_TYPES.map(pt => (
+                <React.Fragment key={pt}>
+                  <th className="text-center px-1 py-1.5 text-[10px] text-muted-foreground border-l border-border">Portion</th>
+                  <th className="text-center px-1 py-1.5 text-[10px] text-muted-foreground">Status</th>
+                </React.Fragment>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {lowCarbMeals.map((meal, i) => (
-              <tr key={meal.id} className="hover:bg-muted/30 transition-colors">
-                <td className="px-6 py-3 text-sm text-muted-foreground">{i + 1}</td>
-                <td className="px-6 py-3 text-sm font-medium">{meal.meal_name}</td>
-                <td className="px-6 py-3"><Badge variant="outline" className="text-[10px]">Low Carb</Badge></td>
-                <td className="px-6 py-3">
-                  <span className={`text-xs px-2 py-1 rounded-full ${meal.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                    {meal.is_active ? 'Active' : 'Inactive'}
-                  </span>
-                </td>
+            {items.length === 0 ? (
+              <tr><td colSpan={1 + PACKAGE_TYPES.length * 2} className="text-center py-8 text-sm text-muted-foreground">No meals found</td></tr>
+            ) : items.map(row => (
+              <tr key={row.mealName} className="hover:bg-muted/30 transition-colors">
+                <td className="px-4 py-2.5 text-sm font-medium">{row.mealName}</td>
+                {PACKAGE_TYPES.map(pt => {
+                  const sku = row.skusByType[pt];
+                  if (!sku) {
+                    return <td key={pt} colSpan={2} className="px-1 py-2.5 text-center text-muted-foreground text-[10px] border-l border-border">—</td>;
+                  }
+                  return (
+                    <React.Fragment key={pt}>
+                      <td className="px-1 py-2.5 text-center border-l border-border">
+                        <span className="text-xs tabular-nums">{sku.portion_size_grams ? `${sku.portion_size_grams}g` : '—'}</span>
+                      </td>
+                      <td className="px-1 py-2.5 text-center">
+                        <span className={cn(
+                          "text-[10px] px-1.5 py-0.5 rounded-full",
+                          sku.is_active !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                        )}>
+                          {sku.is_active !== false ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                    </React.Fragment>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
