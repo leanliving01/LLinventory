@@ -8,16 +8,20 @@ import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import AppLayout from '@/components/layout/AppLayout';
 import Dashboard from '@/pages/Dashboard';
 import ProductionPlanning from '@/pages/ProductionPlanning';
-import Inventory from '@/pages/Inventory';
+import NewProduction from '@/pages/NewProduction';
+import StockTake from '@/pages/StockTake';
 import ShopifySync from '@/pages/ShopifySync';
-import MasterData from '@/pages/MasterData';
+import MasterDataMeals from '@/pages/MasterDataMeals';
+import MasterDataSKUs from '@/pages/MasterDataSKUs';
+import MasterDataParLevels from '@/pages/MasterDataParLevels';
+import MasterDataPackages from '@/pages/MasterDataPackages';
+import MasterDataBOM from '@/pages/MasterDataBOM';
 import Reports from '@/pages/Reports';
 import Settings from '@/pages/Settings';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
 
-  // Show loading spinner while checking app public settings or auth
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
       <div className="fixed inset-0 flex items-center justify-center">
@@ -26,28 +30,33 @@ const AuthenticatedApp = () => {
     );
   }
 
-  // Handle authentication errors
   if (authError) {
     if (authError.type === 'user_not_registered') {
       return <UserNotRegisteredError />;
     } else if (authError.type === 'auth_required') {
-      // Redirect to login automatically
       navigateToLogin();
       return null;
     }
   }
 
-  // Render the main app
   return (
     <Routes>
       <Route element={<AppLayout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/production" element={<ProductionPlanning />} />
-        <Route path="/stock" element={<Inventory />} />
+        <Route path="/stock/new-production" element={<NewProduction />} />
+        <Route path="/stock/stock-take" element={<StockTake />} />
         <Route path="/shopify" element={<ShopifySync />} />
-        <Route path="/master-data" element={<MasterData />} />
+        <Route path="/master-data/meals" element={<MasterDataMeals />} />
+        <Route path="/master-data/skus" element={<MasterDataSKUs />} />
+        <Route path="/master-data/par-levels" element={<MasterDataParLevels />} />
+        <Route path="/master-data/packages" element={<MasterDataPackages />} />
+        <Route path="/master-data/bom" element={<MasterDataBOM />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/settings" element={<Settings />} />
+        {/* Redirects for old routes */}
+        <Route path="/stock" element={<Navigate to="/stock/new-production" replace />} />
+        <Route path="/master-data" element={<Navigate to="/master-data/meals" replace />} />
       </Route>
       <Route path="/Dashboard" element={<Navigate to="/" replace />} />
       <Route path="*" element={<PageNotFound />} />
@@ -57,7 +66,6 @@ const AuthenticatedApp = () => {
 
 
 function App() {
-
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>

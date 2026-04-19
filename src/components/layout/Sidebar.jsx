@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -9,22 +9,60 @@ import {
   FileText,
   Settings,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  ChevronDown,
+  Plus,
+  ClipboardCheck,
+  UtensilsCrossed,
+  Barcode,
+  Gauge,
+  Box,
+  List
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard },
   { label: 'Production Plan', path: '/production', icon: Factory },
-  { label: 'Inventory', path: '/stock', icon: Warehouse },
+  { 
+    label: 'Inventory', icon: Warehouse,
+    children: [
+      { label: 'New Production', path: '/stock/new-production', icon: Plus },
+      { label: 'Stock Take', path: '/stock/stock-take', icon: ClipboardCheck },
+    ]
+  },
   { label: 'Shopify Sync', path: '/shopify', icon: ShoppingCart },
-  { label: 'Master Data', path: '/master-data', icon: Package },
+  { 
+    label: 'Master Data', icon: Package,
+    children: [
+      { label: 'Meals', path: '/master-data/meals', icon: UtensilsCrossed },
+      { label: 'SKUs', path: '/master-data/skus', icon: Barcode },
+      { label: 'Par Levels', path: '/master-data/par-levels', icon: Gauge },
+      { label: 'Packages', path: '/master-data/packages', icon: Box },
+      { label: 'Bill of Materials', path: '/master-data/bom', icon: List },
+    ]
+  },
   { label: 'Reports', path: '/reports', icon: FileText },
   { label: 'Settings', path: '/settings', icon: Settings },
 ];
 
 export default function Sidebar({ collapsed, onToggle }) {
   const location = useLocation();
+  const [openSections, setOpenSections] = useState(() => {
+    // Auto-open sections based on current path
+    const sections = {};
+    navItems.forEach(item => {
+      if (item.children) {
+        const isChildActive = item.children.some(c => location.pathname === c.path);
+        if (isChildActive) sections[item.label] = true;
+      }
+    });
+    return sections;
+  });
+
+  const toggleSection = (label) => {
+    setOpenSections(prev => ({ ...prev, [label]: !prev[label] }));
+  };
 
   return (
     <aside className={cn(
@@ -52,8 +90,57 @@ export default function Sidebar({ collapsed, onToggle }) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 py-4 px-2 space-y-1">
+      <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
+          if (item.children) {
+            const isOpen = openSections[item.label];
+            const isChildActive = item.children.some(c => location.pathname === c.path);
+
+            return (
+              <div key={item.label}>
+                <button
+                  onClick={() => toggleSection(item.label)}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all w-full",
+                    isChildActive
+                      ? "text-sidebar-primary"
+                      : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                  )}
+                >
+                  <item.icon className={cn("w-5 h-5 shrink-0", isChildActive && "text-sidebar-primary")} />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 text-left">{item.label}</span>
+                      <ChevronDown className={cn("w-4 h-4 transition-transform", isOpen && "rotate-180")} />
+                    </>
+                  )}
+                </button>
+                {!collapsed && isOpen && (
+                  <div className="ml-4 pl-4 border-l border-sidebar-border space-y-0.5 mt-0.5 mb-1">
+                    {item.children.map(child => {
+                      const isActive = location.pathname === child.path;
+                      return (
+                        <Link
+                          key={child.path}
+                          to={child.path}
+                          className={cn(
+                            "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all",
+                            isActive
+                              ? "bg-sidebar-accent text-sidebar-primary"
+                              : "text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                          )}
+                        >
+                          <child.icon className={cn("w-4 h-4 shrink-0", isActive && "text-sidebar-primary")} />
+                          <span>{child.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           const isActive = location.pathname === item.path || 
             (item.path !== '/' && location.pathname.startsWith(item.path));
           return (
