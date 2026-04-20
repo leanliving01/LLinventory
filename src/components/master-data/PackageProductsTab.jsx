@@ -51,6 +51,7 @@ export default function PackageProductsTab() {
               <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Product Name</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Family</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Pack Size</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Shopify SKU</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Shopify ID</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Active</th>
             </tr>
@@ -58,7 +59,7 @@ export default function PackageProductsTab() {
           <tbody className="divide-y divide-border">
             {packages.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">No package products configured yet</td>
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">No package products configured yet</td>
               </tr>
             ) : packages.map(pkg => (
               <tr key={pkg.id} className={cn("hover:bg-muted/30 transition-colors", pkg.is_active === false && "opacity-50")}>
@@ -69,6 +70,7 @@ export default function PackageProductsTab() {
                   </span>
                 </td>
                 <td className="px-4 py-2.5 text-right text-sm tabular-nums">{pkg.pack_size}</td>
+                <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground">{pkg.shopify_sku || '—'}</td>
                 <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground">{pkg.shopify_product_id || '—'}</td>
                 <td className="px-4 py-2.5 text-center">
                   <Switch
