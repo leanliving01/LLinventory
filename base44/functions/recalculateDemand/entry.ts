@@ -10,6 +10,34 @@ async function withRetry(fn, retries = 3) {
   }
 }
 
+// ─── BYO helpers ───
+function isExcluded(lineItem) {
+  const title = (lineItem.title || '').toLowerCase();
+  const sku = (lineItem.sku || '').toLowerCase();
+  if (title.includes('supplement')) return true;
+  if (title.includes('low calorie sauce') || title.includes('sauce')) return true;
+  if (title.includes('90-day reset') || title.includes('90 day reset')) return true;
+  if (sku === 'l90c2') return true;
+  if (title.includes('dry ice') || title.includes('cooler box') || title.includes('delivery')) return true;
+  if (title.includes('snack') && !title.includes('meal')) return true;
+  if (title.includes('protein water')) return true;
+  return false;
+}
+
+function normalizeName(name) {
+  return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+async function fetchShopifyOrderLineItems(shopifyOrderId, storeDomain, accessToken) {
+  const url = `https://${storeDomain}/admin/api/2024-01/orders/${shopifyOrderId}.json?fields=id,line_items`;
+  const res = await fetch(url, {
+    headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.order?.line_items || [];
+}
+
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
@@ -20,12 +48,16 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const action = body.action || 'preview'; // 'preview' or 'commit'
 
+  const storeDomain = Deno.env.get('SHOPIFY_STORE_DOMAIN');
+  const accessToken = Deno.env.get('SHOPIFY_ACCESS_TOKEN');
+
   // Load all needed data
-  const [orders, packages, bomLines, skus] = await Promise.all([
+  const [orders, packages, bomLines, skus, meals] = await Promise.all([
     base44.asServiceRole.entities.ShopifyOrder.filter({ paid_status: 'paid', fulfilment_status: 'unfulfilled' }),
     base44.asServiceRole.entities.PackageProduct.filter({}),
     base44.asServiceRole.entities.PackageBOMLine.filter({}),
     base44.asServiceRole.entities.SKU.filter({}),
+    base44.asServiceRole.entities.Meal.filter({}),
   ]);
 
   console.log(`Loaded: ${orders.length} orders, ${packages.length} packages, ${bomLines.length} BOM lines, ${skus.length} SKUs`);
@@ -49,6 +81,19 @@ Deno.serve(async (req) => {
   // SKU lookup
   const skuById = {};
   skus.forEach(s => { skuById[s.id] = s; });
+
+  // Build meal name → MWL SKU lookup for BYO matching
+  // BYO meals are individual meals — we match to the MWL variant of each meal
+  // Also try LOW_CARB for low carb meals
+  const skuByMealNameNorm = {};
+  skus.forEach(s => {
+    if (s.is_active === false || !s.meal_name) return;
+    const key = normalizeName(s.meal_name);
+    // Prefer MWL, then LOW_CARB (since BYO can be either goal-related or low-carb)
+    if (!skuByMealNameNorm[key] || s.package_type === 'MWL' || (s.package_type === 'LOW_CARB' && skuByMealNameNorm[key].package_type !== 'MWL')) {
+      skuByMealNameNorm[key] = s;
+    }
+  });
 
   // For each order, figure out how many of each package_family they ordered
   // Then use BOM to explode into SKU demand
@@ -118,9 +163,52 @@ Deno.serve(async (req) => {
       }
     }
 
-    // BYO meals — skip for now as they need line-item-level mapping
-    if (order.byo_meals > 0) {
-      warnings.push(`Order ${order.order_number} has ${order.byo_meals} BYO meals — BYO demand not yet implemented`);
+    // ─── BYO: fetch line items from Shopify and match to SKUs ───
+    if (order.byo_meals > 0 && order.shopify_order_id && storeDomain && accessToken) {
+      const lineItems = await fetchShopifyOrderLineItems(order.shopify_order_id, storeDomain, accessToken);
+      await delay(500); // rate limit
+
+      // Identify BYO products from the Shopify product catalog
+      // BYO line items are individual meal products (not pack products)
+      let byoMatched = 0;
+      for (const li of lineItems) {
+        if (isExcluded(li)) continue;
+        const qty = li.quantity || 0;
+        const titleNorm = normalizeName(li.title);
+
+        // Try to match to a SKU by meal name
+        const matchedSku = skuByMealNameNorm[titleNorm];
+        if (matchedSku) {
+          allDemandRecords.push({
+            date: new Date().toISOString().split('T')[0],
+            sku_id: matchedSku.id,
+            sku_display_name: matchedSku.display_name || matchedSku.meal_name,
+            quantity: qty,
+            source_order_id: order.id,
+            demand_type: 'byo',
+          });
+          orderDemand.push({
+            family: 'BYO',
+            package_name: `BYO → ${matchedSku.package_type}`,
+            sku_name: matchedSku.display_name || matchedSku.meal_name,
+            quantity: qty,
+          });
+          byoMatched += qty;
+        } else {
+          // Not a known meal — could be a supplement, addon, etc. that passed exclusion
+          // Only warn if the title looks meal-like
+          const title = li.title || '';
+          if (!title.toLowerCase().includes('protein') && !title.toLowerCase().includes('water') && !title.toLowerCase().includes('supplement')) {
+            warnings.push(`BYO order ${order.order_number}: could not match "${li.title}" to any SKU`);
+          }
+        }
+      }
+
+      if (byoMatched === 0 && order.byo_meals > 0) {
+        warnings.push(`BYO order ${order.order_number}: ${order.byo_meals} BYO meals but 0 matched to SKUs`);
+      }
+    } else if (order.byo_meals > 0 && !storeDomain) {
+      warnings.push(`Order ${order.order_number} has ${order.byo_meals} BYO meals but Shopify credentials not set`);
     }
 
     if (orderDemand.length > 0) {
@@ -148,12 +236,16 @@ Deno.serve(async (req) => {
     demandBySku[d.sku_id].total += d.quantity;
   });
 
-  // Aggregate by family
-  const demandByFamily = { MWL: 0, MLM: 0, WWL: 0, WLM: 0, LOW_CARB: 0 };
+  // Aggregate by family — BYO demand counts toward the SKU's actual package_type
+  const demandByFamily = { MWL: 0, MLM: 0, WWL: 0, WLM: 0, LOW_CARB: 0, BYO: 0 };
   allDemandRecords.forEach(d => {
-    const sku = skuById[d.sku_id];
-    if (sku?.package_type) {
-      demandByFamily[sku.package_type] = (demandByFamily[sku.package_type] || 0) + d.quantity;
+    if (d.demand_type === 'byo') {
+      demandByFamily.BYO = (demandByFamily.BYO || 0) + d.quantity;
+    } else {
+      const sku = skuById[d.sku_id];
+      if (sku?.package_type) {
+        demandByFamily[sku.package_type] = (demandByFamily[sku.package_type] || 0) + d.quantity;
+      }
     }
   });
 
@@ -187,9 +279,10 @@ Deno.serve(async (req) => {
     await delay(500);
   }
 
-  // Mark orders as demand_calculated
+  // Mark orders as demand_calculated (including BYO)
   for (const order of orders) {
-    if ((order.mwl_meals || 0) + (order.mlm_meals || 0) + (order.wwl_meals || 0) + (order.wlm_meals || 0) + (order.lc_meals || 0) > 0) {
+    const hasMeals = (order.mwl_meals || 0) + (order.mlm_meals || 0) + (order.wwl_meals || 0) + (order.wlm_meals || 0) + (order.lc_meals || 0) + (order.byo_meals || 0) > 0;
+    if (hasMeals) {
       await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.update(order.id, { demand_calculated: true }));
     }
     await delay(100);

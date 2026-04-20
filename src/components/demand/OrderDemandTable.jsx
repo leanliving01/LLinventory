@@ -9,6 +9,7 @@ const familyColors = {
   WWL: 'bg-pink-100 text-pink-700',
   WLM: 'bg-orange-100 text-orange-700',
   LOW_CARB: 'bg-amber-100 text-amber-700',
+  BYO: 'bg-purple-100 text-purple-700',
 };
 
 export default function OrderDemandTable({ breakdowns }) {

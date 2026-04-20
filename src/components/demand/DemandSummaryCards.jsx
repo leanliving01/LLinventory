@@ -6,13 +6,14 @@ const FAMILY_CONFIG = [
   { key: 'WWL', label: 'WWL', color: 'text-pink-700' },
   { key: 'WLM', label: 'WLM', color: 'text-orange-700' },
   { key: 'LOW_CARB', label: 'LC', color: 'text-amber-700' },
+  { key: 'BYO', label: 'BYO', color: 'text-purple-700' },
 ];
 
 export default function DemandSummaryCards({ demandByFamily, totalOrders, ordersWithDemand, totalRecords, warnings }) {
   const totalUnits = Object.values(demandByFamily || {}).reduce((s, v) => s + v, 0);
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-3">
       <div className="bg-card border border-border rounded-xl p-4">
         <p className="text-xs text-muted-foreground uppercase tracking-wider">Orders</p>
         <p className="text-xl font-bold mt-1">{totalOrders}</p>
