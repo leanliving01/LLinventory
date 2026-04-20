@@ -17,6 +17,7 @@ import MasterDataParLevels from '@/pages/MasterDataParLevels';
 import MasterDataPackages from '@/pages/MasterDataPackages';
 import MasterDataBOM from '@/pages/MasterDataBOM';
 import Reports from '@/pages/Reports';
+import DemandAudit from '@/pages/DemandAudit';
 import Settings from '@/pages/Settings';
 
 const AuthenticatedApp = () => {
@@ -52,6 +53,7 @@ const AuthenticatedApp = () => {
         <Route path="/master-data/par-levels" element={<MasterDataParLevels />} />
         <Route path="/master-data/packages" element={<MasterDataPackages />} />
         <Route path="/master-data/bom" element={<MasterDataBOM />} />
+        <Route path="/demand" element={<DemandAudit />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/settings" element={<Settings />} />
         {/* Redirects for old routes */}

@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Plus,
   ClipboardCheck,
+  Calculator,
   UtensilsCrossed,
   Barcode,
   Gauge,
@@ -32,6 +33,7 @@ const navItems = [
     ]
   },
   { label: 'Shopify Sync', path: '/shopify', icon: ShoppingCart },
+  { label: 'Demand Audit', path: '/demand', icon: Calculator },
   { 
     label: 'Master Data', icon: Package,
     children: [
