@@ -131,29 +131,46 @@ Deno.serve(async (req) => {
   const now = new Date();
   const sixMonthsAgo = new Date(now);
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-  const sinceDate = sixMonthsAgo.toISOString();
 
-  // ─── Fetch ALL historical orders from Shopify (paid, any fulfillment status) ───
+  // ─── Fetch ALL historical orders from Shopify in 2-week chunks ───
+  // Shopify REST API has pagination limits. Small date ranges ensure we get ALL orders.
+  const apiHeaders = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
   let allShopifyOrders = [];
-  let pageUrl = `https://${storeDomain}/admin/api/2024-01/orders.json?status=any&financial_status=paid&created_at_min=${sinceDate}&limit=250`;
 
-  while (pageUrl) {
-    const res = await fetch(pageUrl, {
-      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) {
-      console.error(`Shopify API error: ${res.status}`);
-      break;
-    }
-    const data = await res.json();
-    allShopifyOrders = allShopifyOrders.concat(data.orders || []);
-    const linkHeader = res.headers.get('Link') || '';
-    const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-    pageUrl = nextMatch ? nextMatch[1] : null;
-    await delay(500); // Rate limit
+  // Fetch in 2-week chunks to stay well within Shopify's pagination limits
+  const chunkRanges = [];
+  const chunkCursor = new Date(sixMonthsAgo);
+  while (chunkCursor < now) {
+    const chunkStart = new Date(chunkCursor);
+    chunkCursor.setDate(chunkCursor.getDate() + 14); // 2-week chunks
+    const chunkEnd = chunkCursor < now ? new Date(chunkCursor) : new Date(now);
+    chunkRanges.push({ start: chunkStart.toISOString(), end: chunkEnd.toISOString() });
   }
 
-  console.log(`Fetched ${allShopifyOrders.length} historical orders from Shopify`);
+  for (const range of chunkRanges) {
+    let chunkOrders = [];
+    let pageUrl = `https://${storeDomain}/admin/api/2024-01/orders.json?status=any&financial_status=paid&created_at_min=${range.start}&created_at_max=${range.end}&limit=250`;
+
+    while (pageUrl) {
+      const res = await fetch(pageUrl, { headers: apiHeaders });
+      if (!res.ok) {
+        console.error(`Shopify API error for chunk ${range.start.slice(0, 10)}: ${res.status}`);
+        break;
+      }
+      const data = await res.json();
+      chunkOrders = chunkOrders.concat(data.orders || []);
+      const linkHeader = res.headers.get('Link') || '';
+      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+      pageUrl = nextMatch ? nextMatch[1] : null;
+      await delay(300);
+    }
+    if (chunkOrders.length > 0) {
+      console.log(`Chunk ${range.start.slice(0, 10)} to ${range.end.slice(0, 10)}: ${chunkOrders.length} orders`);
+    }
+    allShopifyOrders = allShopifyOrders.concat(chunkOrders);
+  }
+
+  console.log(`Fetched ${allShopifyOrders.length} total historical orders from Shopify`);
 
   // ─── Filter out December 2025 orders ───
   const filteredOrders = allShopifyOrders.filter(order => {
@@ -239,12 +256,31 @@ Deno.serve(async (req) => {
     }
   }
 
-  // ─── Calculate effective weeks (excluding Dec 2025 = 31 days) ───
-  const totalDays = Math.ceil((now - sixMonthsAgo) / (1000 * 60 * 60 * 24));
-  const effectiveDays = totalDays - 31; // Subtract December 2025
+  // ─── Calculate effective weeks based on ACTUAL data range ───
+  // Use the earliest and latest order dates from fetched data (not the requested range)
+  let earliestDate = now;
+  let latestDate = sixMonthsAgo;
+  for (const order of filteredOrders) {
+    const dt = new Date(order.created_at);
+    if (dt < earliestDate) earliestDate = dt;
+    if (dt > latestDate) latestDate = dt;
+  }
+
+  const actualDays = Math.max(1, Math.ceil((latestDate - earliestDate) / (1000 * 60 * 60 * 24)));
+  // If Dec 2025 falls within the actual range, subtract those days
+  const decStart = new Date('2025-12-01');
+  const decEnd = new Date('2025-12-31');
+  let decDaysToSubtract = 0;
+  if (earliestDate < decEnd && latestDate > decStart) {
+    const overlapStart = Math.max(earliestDate.getTime(), decStart.getTime());
+    const overlapEnd = Math.min(latestDate.getTime(), decEnd.getTime());
+    decDaysToSubtract = Math.max(0, Math.ceil((overlapEnd - overlapStart) / (1000 * 60 * 60 * 24)));
+  }
+  const effectiveDays = actualDays - decDaysToSubtract;
   const effectiveWeeks = Math.max(1, effectiveDays / 7);
 
-  console.log(`Effective period: ${effectiveDays} days (~${effectiveWeeks.toFixed(1)} weeks)`);
+  console.log(`Actual data range: ${earliestDate.toISOString().slice(0, 10)} to ${latestDate.toISOString().slice(0, 10)}`);
+  console.log(`Effective period: ${effectiveDays} days (~${effectiveWeeks.toFixed(1)} weeks), Dec subtract: ${decDaysToSubtract} days`);
   console.log(`SKUs with demand data: ${Object.keys(demandBySku).length}`);
 
   // ─── Generate recommendations ───
