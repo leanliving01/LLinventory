@@ -5,101 +5,266 @@ function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function withRetry(fn, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try { return await fn(); } catch (err) {
-      if (err.status === 429 && i < retries - 1) { await delay((i + 1) * 2000); } else { throw err; }
+      if (err.status === 429 && i < retries - 1) { await delay((i + 1) * 3000); } else { throw err; }
     }
   }
+}
+
+// ─── Exclusion logic (same as sync functions) ───
+function isExcluded(lineItem) {
+  const title = (lineItem.title || '').toLowerCase();
+  const sku = (lineItem.sku || '').toLowerCase();
+  if (title.includes('supplement')) return true;
+  if (title.includes('low calorie sauce') || title.includes('sauce')) return true;
+  if (title.includes('90-day reset') || title.includes('90 day reset')) return true;
+  if (sku === 'l90c2') return true;
+  if (title.includes('dry ice') || title.includes('cooler box') || title.includes('delivery')) return true;
+  if (title.includes('snack') && !title.includes('meal')) return true;
+  if (title.includes('protein water')) return true;
+  return false;
+}
+
+function isBYOItem(lineItem, orderTags, byoProductIds) {
+  const title = (lineItem.title || '').toLowerCase();
+  const tags = (orderTags || '').toLowerCase();
+  const tagList = tags.split(',').map(t => t.trim());
+  const productId = String(lineItem.product_id || '');
+  if (byoProductIds.has(productId)) return true;
+  return title.includes('build your own') || title.includes('byo') || tagList.includes('byo meals') || tagList.includes('byo');
+}
+
+function normalizeName(name) {
+  let n = (name || '').toLowerCase();
+  n = n.replace(/\(\s*\d+\s*g\s*\)/g, '');
+  n = n.replace(/chili/g, 'chilli');
+  return n.replace(/[^a-z0-9]/g, '');
+}
+
+function buildPackageLookup(packages) {
+  const byVariant = {};
+  const byProduct = {};
+  for (const p of packages) {
+    if (p.is_active === false) continue;
+    if (p.shopify_variant_id) byVariant[p.shopify_variant_id] = p;
+    if (p.shopify_product_id) {
+      if (!byProduct[p.shopify_product_id]) byProduct[p.shopify_product_id] = [];
+      byProduct[p.shopify_product_id].push(p);
+    }
+  }
+  return { byVariant, byProduct };
 }
 
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
 
-  // Load all required data
-  const [skus, parLevels, allDemand, existingRecs] = await Promise.all([
+  const storeDomain = Deno.env.get('SHOPIFY_STORE_DOMAIN');
+  const accessToken = Deno.env.get('SHOPIFY_ACCESS_TOKEN');
+  if (!storeDomain || !accessToken) {
+    return Response.json({ error: 'Shopify credentials not configured' }, { status: 400 });
+  }
+
+  // Load master data from Base44
+  const [skus, parLevels, packages, bomLines, existingRecs] = await Promise.all([
     base44.asServiceRole.entities.SKU.filter({}),
     base44.asServiceRole.entities.ParLevel.filter({}),
-    base44.asServiceRole.entities.CommittedDemand.filter({}),
+    base44.asServiceRole.entities.PackageProduct.filter({}),
+    base44.asServiceRole.entities.PackageBOMLine.filter({}),
     base44.asServiceRole.entities.ParLevelRecommendation.filter({ status: 'pending' }),
   ]);
 
-  // Also load ShopifyOrders to get historical order dates for demand weighting
-  const allOrders = await base44.asServiceRole.entities.ShopifyOrder.filter({});
+  console.log(`Loaded: ${skus.length} SKUs, ${packages.length} packages, ${bomLines.length} BOM lines`);
 
-  console.log(`Loaded: ${skus.length} SKUs, ${parLevels.length} par levels, ${allDemand.length} demand records, ${allOrders.length} orders`);
-
-  // Build lookup maps
+  // Build lookups
   const parBySkuId = {};
   parLevels.forEach(p => { parBySkuId[p.sku_id] = p; });
 
-  // Build order date lookup (source_order_id → order_date)
-  const orderDateById = {};
-  allOrders.forEach(o => { orderDateById[o.id] = o.order_date || o.created_date; });
+  const packageLookup = buildPackageLookup(packages);
 
-  // Define the 6-month historical window (excluding December 2025)
-  // Current date context: April 2026
-  // Last 6 months: Oct 2025, Nov 2025, Jan 2026, Feb 2026, Mar 2026, Apr 2026
-  // (skip Dec 2025)
+  const packagesByFamily = {};
+  packages.forEach(p => {
+    if (p.is_active === false) return;
+    if (!packagesByFamily[p.package_family]) packagesByFamily[p.package_family] = [];
+    packagesByFamily[p.package_family].push(p);
+  });
+  Object.values(packagesByFamily).forEach(arr => arr.sort((a, b) => a.pack_size - b.pack_size));
+
+  const bomByPackage = {};
+  bomLines.forEach(bl => {
+    if (!bomByPackage[bl.package_product_id]) bomByPackage[bl.package_product_id] = [];
+    bomByPackage[bl.package_product_id].push(bl);
+  });
+
+  const skuById = {};
+  skus.forEach(s => { skuById[s.id] = s; });
+
+  // BYO meal name matching
+  const skuByMealNameNorm = {};
+  skus.forEach(s => {
+    if (s.is_active === false || !s.meal_name) return;
+    const key = normalizeName(s.meal_name);
+    if (!skuByMealNameNorm[key] || s.package_type === 'MWL' || (s.package_type === 'LOW_CARB' && skuByMealNameNorm[key].package_type !== 'MWL')) {
+      skuByMealNameNorm[key] = s;
+    }
+  });
+
+  // ─── Fetch BYO product IDs from Shopify ───
+  const byoProductIds = new Set();
+  let prodUrl = `https://${storeDomain}/admin/api/2024-01/products.json?limit=250&status=active`;
+  while (prodUrl) {
+    const prodRes = await fetch(prodUrl, {
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+    });
+    if (prodRes.ok) {
+      const prodData = await prodRes.json();
+      (prodData.products || []).forEach(p => {
+        const tags = (p.tags || '').split(',').map(t => t.trim().toLowerCase());
+        if (tags.includes('byo meals') || tags.includes('byo')) byoProductIds.add(String(p.id));
+      });
+      const linkHeader = prodRes.headers.get('Link') || '';
+      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+      prodUrl = nextMatch ? nextMatch[1] : null;
+    } else { prodUrl = null; }
+  }
+  console.log(`Loaded ${byoProductIds.size} BYO product IDs`);
+
+  // ─── Define 6-month historical window (excluding Dec 2025) ───
   const now = new Date();
   const sixMonthsAgo = new Date(now);
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+  const sinceDate = sixMonthsAgo.toISOString();
 
-  // Aggregate demand per SKU from orders within the historical window (excluding Dec 2025)
-  const demandBySku = {};
-  let includedRecords = 0;
-  let excludedDec = 0;
+  // ─── Fetch ALL historical orders from Shopify (paid, any fulfillment status) ───
+  let allShopifyOrders = [];
+  let pageUrl = `https://${storeDomain}/admin/api/2024-01/orders.json?status=any&financial_status=paid&created_at_min=${sinceDate}&limit=250`;
 
-  for (const d of allDemand) {
-    const orderDate = orderDateById[d.source_order_id];
-    if (!orderDate) continue;
-
-    const dt = new Date(orderDate);
-    
-    // Must be within last 6 months
-    if (dt < sixMonthsAgo) continue;
-    if (dt > now) continue;
-
-    // Exclude December 2025
-    if (dt.getFullYear() === 2025 && dt.getMonth() === 11) {
-      excludedDec++;
-      continue;
+  while (pageUrl) {
+    const res = await fetch(pageUrl, {
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      console.error(`Shopify API error: ${res.status}`);
+      break;
     }
-
-    if (!demandBySku[d.sku_id]) {
-      demandBySku[d.sku_id] = { total: 0, records: [] };
-    }
-    demandBySku[d.sku_id].total += d.quantity;
-    demandBySku[d.sku_id].records.push({ qty: d.quantity, date: orderDate });
-    includedRecords++;
+    const data = await res.json();
+    allShopifyOrders = allShopifyOrders.concat(data.orders || []);
+    const linkHeader = res.headers.get('Link') || '';
+    const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+    pageUrl = nextMatch ? nextMatch[1] : null;
+    await delay(500); // Rate limit
   }
 
-  console.log(`Demand analysis: ${includedRecords} records included, ${excludedDec} Dec 2025 records excluded`);
+  console.log(`Fetched ${allShopifyOrders.length} historical orders from Shopify`);
 
-  // Calculate weeks in the period (approximately 26 weeks for 6 months, minus ~4 for Dec = ~22 weeks)
-  // More precise: count actual weeks between sixMonthsAgo and now, minus Dec 2025 weeks
+  // ─── Filter out December 2025 orders ───
+  const filteredOrders = allShopifyOrders.filter(order => {
+    const dt = new Date(order.created_at);
+    if (dt.getFullYear() === 2025 && dt.getMonth() === 11) return false; // Skip Dec 2025
+    return true;
+  });
+
+  const decExcluded = allShopifyOrders.length - filteredOrders.length;
+  console.log(`After excluding Dec 2025: ${filteredOrders.length} orders (${decExcluded} excluded)`);
+
+  // ─── For each order, explode into SKU-level demand using BOM ───
+  const FAMILY_KEYS = [
+    { family: 'MWL' }, { family: 'MLM' }, { family: 'WWL' }, { family: 'WLM' }, { family: 'LOW_CARB' },
+  ];
+
+  const demandBySku = {}; // sku_id → total quantity
+
+  for (const order of filteredOrders) {
+    const orderTags = order.tags || '';
+
+    // Parse each line item to count meals per family (same logic as sync)
+    let familyCounts = { MWL: 0, MLM: 0, WWL: 0, WLM: 0, LOW_CARB: 0 };
+    let byoItems = [];
+
+    for (const li of (order.line_items || [])) {
+      const qty = li.quantity || 0;
+      if (isExcluded(li)) continue;
+
+      if (isBYOItem(li, orderTags, byoProductIds)) {
+        // BYO: try to match individual meal to a SKU
+        const titleLower = (li.title || '').toLowerCase();
+        if (/^(men|women|male|female|ladies).*(meal|pack)/i.test(li.title || '')) continue;
+        if (titleLower.includes('build your own') || titleLower.includes('byo')) continue;
+        
+        const titleNorm = normalizeName(li.title);
+        const matchedSku = skuByMealNameNorm[titleNorm];
+        if (matchedSku) {
+          demandBySku[matchedSku.id] = (demandBySku[matchedSku.id] || 0) + qty;
+        }
+        continue;
+      }
+
+      // Fixed pack: match by variant/product ID
+      const variantId = String(li.variant_id || '');
+      const productId = String(li.product_id || '');
+      let matched = packageLookup.byVariant[variantId];
+      if (!matched && packageLookup.byProduct[productId]) {
+        const lineSku = (li.sku || '').toLowerCase();
+        matched = packageLookup.byProduct[productId].find(p => p.shopify_sku && p.shopify_sku.toLowerCase() === lineSku);
+      }
+
+      if (matched) {
+        const mealCount = matched.pack_size * qty;
+        if (familyCounts[matched.package_family] !== undefined) {
+          familyCounts[matched.package_family] += mealCount;
+        }
+      }
+    }
+
+    // Explode fixed pack family counts into SKU demand via BOM
+    for (const { family } of FAMILY_KEYS) {
+      const mealCount = familyCounts[family];
+      if (mealCount === 0) continue;
+
+      const familyPkgs = packagesByFamily[family] || [];
+      if (familyPkgs.length === 0) continue;
+
+      // Find best matching package
+      let bestPkg = familyPkgs[0];
+      for (const p of familyPkgs) {
+        if (p.pack_size === mealCount) { bestPkg = p; break; }
+        if (Math.abs(p.pack_size - mealCount) < Math.abs(bestPkg.pack_size - mealCount)) bestPkg = p;
+      }
+
+      const packMultiplier = bestPkg.pack_size > 0 ? mealCount / bestPkg.pack_size : 1;
+      const bom = bomByPackage[bestPkg.id] || [];
+
+      for (const bl of bom) {
+        const qty = bl.quantity_per_pack * packMultiplier;
+        demandBySku[bl.sku_id] = (demandBySku[bl.sku_id] || 0) + qty;
+      }
+    }
+  }
+
+  // ─── Calculate effective weeks (excluding Dec 2025 = 31 days) ───
   const totalDays = Math.ceil((now - sixMonthsAgo) / (1000 * 60 * 60 * 24));
-  // December 2025 has 31 days — subtract those
-  const effectiveDays = totalDays - 31;
+  const effectiveDays = totalDays - 31; // Subtract December 2025
   const effectiveWeeks = Math.max(1, effectiveDays / 7);
 
   console.log(`Effective period: ${effectiveDays} days (~${effectiveWeeks.toFixed(1)} weeks)`);
+  console.log(`SKUs with demand data: ${Object.keys(demandBySku).length}`);
 
+  // ─── Generate recommendations ───
   const SAFETY_BUFFER_PCT = 15;
   const recommendations = [];
 
   for (const sku of skus) {
     if (sku.is_active === false) continue;
 
-    const demand = demandBySku[sku.id];
-    if (!demand || demand.total === 0) continue; // No demand = no recommendation needed
+    const totalDemand = demandBySku[sku.id] || 0;
+    if (totalDemand === 0) continue;
 
-    const avgWeekly = demand.total / effectiveWeeks;
+    const avgWeekly = totalDemand / effectiveWeeks;
     const recommended = Math.ceil(avgWeekly * (1 + SAFETY_BUFFER_PCT / 100));
     const currentPar = parBySkuId[sku.id]?.par_level || 0;
 
-    // Only recommend if there's a meaningful difference (>10% change or new par)
+    // Only recommend if meaningful difference (>10% change or new par)
     const diff = Math.abs(recommended - currentPar);
     const pctChange = currentPar > 0 ? (diff / currentPar) * 100 : 100;
-    
-    if (pctChange < 10 && currentPar > 0) continue; // Skip if change is less than 10%
+    if (pctChange < 10 && currentPar > 0) continue;
 
     recommendations.push({
       sku_id: sku.id,
@@ -111,19 +276,19 @@ Deno.serve(async (req) => {
       safety_buffer_pct: SAFETY_BUFFER_PCT,
       calculation_date: now.toISOString().split('T')[0],
       status: 'pending',
-      notes: `Avg weekly demand: ${avgWeekly.toFixed(1)} units over ${effectiveWeeks.toFixed(0)} weeks (excl. Dec 2025). +${SAFETY_BUFFER_PCT}% safety buffer.`,
+      notes: `Avg weekly demand: ${avgWeekly.toFixed(1)} units. Total demand: ${Math.round(totalDemand)} over ${effectiveWeeks.toFixed(0)} weeks from ${filteredOrders.length} Shopify orders (excl. Dec 2025). +${SAFETY_BUFFER_PCT}% safety buffer.`,
     });
   }
 
   console.log(`Generated ${recommendations.length} recommendations`);
 
-  // Delete old pending recommendations before inserting new ones
-  for (const old of existingRecs) {
-    await withRetry(() => base44.asServiceRole.entities.ParLevelRecommendation.delete(old.id));
-    if (existingRecs.indexOf(old) % 20 === 19) await delay(500);
+  // ─── Clear old pending recommendations ───
+  for (let i = 0; i < existingRecs.length; i++) {
+    await withRetry(() => base44.asServiceRole.entities.ParLevelRecommendation.delete(existingRecs[i].id));
+    if ((i + 1) % 20 === 0) await delay(500);
   }
 
-  // Create new recommendations in batches
+  // ─── Create new recommendations in batches ───
   for (let i = 0; i < recommendations.length; i += 25) {
     const batch = recommendations.slice(i, i + 25);
     await withRetry(() => base44.asServiceRole.entities.ParLevelRecommendation.bulkCreate(batch));
@@ -134,11 +299,14 @@ Deno.serve(async (req) => {
   await base44.asServiceRole.entities.AuditLog.create({
     action: 'sync',
     entity_type: 'ParLevelRecommendation',
-    description: `Par level recommendations calculated: ${recommendations.length} SKUs with suggested changes. Period: last 6 months (excl. Dec 2025).`,
+    description: `Par level recommendations calculated from ${filteredOrders.length} Shopify orders (6 months, excl. Dec 2025). ${recommendations.length} SKUs with suggested changes.`,
   });
 
   return Response.json({
     success: true,
+    shopify_orders_fetched: allShopifyOrders.length,
+    orders_after_filtering: filteredOrders.length,
+    dec_2025_excluded: decExcluded,
     total_skus: skus.filter(s => s.is_active !== false).length,
     skus_with_demand: Object.keys(demandBySku).length,
     recommendations_generated: recommendations.length,
