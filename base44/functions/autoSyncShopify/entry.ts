@@ -43,20 +43,23 @@ function getPackSize(variantTitle) {
   return 0;
 }
 
-function isBYOItem(lineItem, orderTags) {
+function isBYOItem(lineItem, orderTags, byoProductIds) {
   const title = (lineItem.title || '').toLowerCase();
   const tags = (orderTags || '').toLowerCase();
-  return title.includes('build your own') || title.includes('byo') || tags.includes('byo meals');
+  const tagList = tags.split(',').map(t => t.trim());
+  const productId = String(lineItem.product_id || '');
+  if (byoProductIds.has(productId)) return true;
+  return title.includes('build your own') || title.includes('byo') || tagList.includes('byo meals') || tagList.includes('byo');
 }
 
-function parseOrder(order) {
+function parseOrder(order, byoProductIds) {
   const orderTags = order.tags || '';
   let mwlMeals = 0, mlmMeals = 0, wwlMeals = 0, wlmMeals = 0, lcMeals = 0, byoMeals = 0, totalMeals = 0;
   let orderIsByo = false;
   for (const li of (order.line_items || [])) {
     const qty = li.quantity || 0;
     if (isExcluded(li)) continue;
-    if (isBYOItem(li, orderTags)) { orderIsByo = true; byoMeals += qty; totalMeals += qty; continue; }
+    if (isBYOItem(li, orderTags, byoProductIds)) { orderIsByo = true; byoMeals += qty; totalMeals += qty; continue; }
     const mealType = getMealType(li.title, li.variant_title);
     const packSize = getPackSize(li.variant_title);
     if (mealType && packSize > 0) {
@@ -102,6 +105,30 @@ Deno.serve(async (req) => {
   const accessToken = Deno.env.get('SHOPIFY_ACCESS_TOKEN');
   if (!storeDomain || !accessToken) return Response.json({ error: 'Not configured' }, { status: 400 });
 
+  // ─── Fetch BYO product IDs (products tagged "BYO Meals") ───
+  const byoProductIds = new Set();
+  let prodUrl = `https://${storeDomain}/admin/api/2024-01/products.json?limit=250&status=active`;
+  while (prodUrl) {
+    const prodRes = await fetch(prodUrl, {
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+    });
+    if (prodRes.ok) {
+      const prodData = await prodRes.json();
+      (prodData.products || []).forEach(p => {
+        const tags = (p.tags || '').split(',').map(t => t.trim().toLowerCase());
+        if (tags.includes('byo meals') || tags.includes('byo')) {
+          byoProductIds.add(String(p.id));
+        }
+      });
+      const linkHeader = prodRes.headers.get('Link') || '';
+      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+      prodUrl = nextMatch ? nextMatch[1] : null;
+    } else {
+      prodUrl = null;
+    }
+  }
+  console.log(`Auto-sync: loaded ${byoProductIds.size} BYO product IDs`);
+
   // Fetch recent orders (last page only — most recent)
   const url = `https://${storeDomain}/admin/api/2024-01/orders.json?status=open&financial_status=paid&fulfillment_status=unfulfilled&limit=250`;
   const res = await fetch(url, {
@@ -124,7 +151,7 @@ Deno.serve(async (req) => {
   const toUpdate = [];
 
   for (const order of shopifyOrders) {
-    const parsed = parseOrder(order);
+    const parsed = parseOrder(order, byoProductIds);
     const ex = existingMap[parsed.shopify_order_id] || existingMap[parsed.order_number];
     if (ex) {
       // Only update if something changed
