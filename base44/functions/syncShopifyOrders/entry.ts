@@ -14,36 +14,6 @@ function isExcluded(lineItem) {
   return false;
 }
 
-function getMealType(productTitle, variantTitle) {
-  const title = (productTitle || '').toLowerCase();
-  const variant = (variantTitle || '').toLowerCase();
-  if (title.includes('low carb') || title.includes('smart carb') || title.includes('low-carb')) return 'LOW_CARB';
-  // IMPORTANT: Check women BEFORE men — "women" contains "men" as a substring
-  if (title.includes('lean muscle') && (title.includes("women") || title.includes("woman") || title.includes("female") || title.includes("ladies"))) return 'WLM';
-  if (title.includes('weight loss') && (title.includes("women") || title.includes("woman") || title.includes("female") || title.includes("ladies"))) return 'WWL';
-  if (title.includes('lean muscle') && (title.includes("men") || title.includes("man") || title.includes("male"))) return 'MLM';
-  if (title.includes('weight loss') && (title.includes("men") || title.includes("man") || title.includes("male"))) return 'MWL';
-  if (variant.includes('lean muscle')) {
-    if (variant.includes("women") || variant.includes("female") || variant.includes("ladies")) return 'WLM';
-    if (variant.includes("men") || variant.includes("male")) return 'MLM';
-  }
-  if (variant.includes('weight loss')) {
-    if (variant.includes("women") || variant.includes("female") || variant.includes("ladies")) return 'WWL';
-    if (variant.includes("men") || variant.includes("male")) return 'MWL';
-  }
-  return null;
-}
-
-function getPackSize(variantTitle) {
-  const v = (variantTitle || '').toLowerCase();
-  if (v.includes('60') || v.includes('ultimate')) return 60;
-  if (v.includes('30') || v.includes('serious')) return 30;
-  if (v.includes('15') || v.includes('starter')) return 15;
-  const match = v.match(/(\d+)\s*(meal|pack)/i);
-  if (match) return parseInt(match[1], 10);
-  return 0;
-}
-
 function isBYOItem(lineItem, orderTags, byoProductIds) {
   const title = (lineItem.title || '').toLowerCase();
   const tags = (orderTags || '').toLowerCase();
@@ -53,7 +23,8 @@ function isBYOItem(lineItem, orderTags, byoProductIds) {
   return title.includes('build your own') || title.includes('byo') || tagList.includes('byo meals') || tagList.includes('byo');
 }
 
-function parseOrder(order, byoProductIds) {
+// ─── ID-based matching using PackageProduct master data ───
+function parseOrder(order, byoProductIds, packageLookup) {
   const orderTags = order.tags || '';
   let mwlMeals = 0, mlmMeals = 0, wwlMeals = 0, wlmMeals = 0, lcMeals = 0, byoMeals = 0, totalMeals = 0;
   let orderIsByo = false;
@@ -67,12 +38,27 @@ function parseOrder(order, byoProductIds) {
       totalMeals += qty;
       continue;
     }
-    const mealType = getMealType(li.title, li.variant_title);
-    const packSize = getPackSize(li.variant_title);
-    if (mealType && packSize > 0) {
-      const mealCount = packSize * qty;
+
+    // Match by Shopify variant_id (most precise) or product_id + pack size
+    const variantId = String(li.variant_id || '');
+    const productId = String(li.product_id || '');
+    
+    // Try exact variant match first
+    let matched = packageLookup.byVariant[variantId];
+    
+    // Fallback: match by product_id (all variants share a product_id per family)
+    if (!matched && packageLookup.byProduct[productId]) {
+      // Multiple variants share same product_id — use SKU to disambiguate
+      const lineSku = (li.sku || '').toLowerCase();
+      matched = packageLookup.byProduct[productId].find(p => 
+        p.shopify_sku && p.shopify_sku.toLowerCase() === lineSku
+      );
+    }
+
+    if (matched) {
+      const mealCount = matched.pack_size * qty;
       totalMeals += mealCount;
-      switch (mealType) {
+      switch (matched.package_family) {
         case 'MWL': mwlMeals += mealCount; break;
         case 'MLM': mlmMeals += mealCount; break;
         case 'WWL': wwlMeals += mealCount; break;
@@ -80,6 +66,7 @@ function parseOrder(order, byoProductIds) {
         case 'LOW_CARB': lcMeals += mealCount; break;
       }
     }
+    // If no match, the line item is silently skipped (not a known package)
   }
 
   return {
@@ -103,6 +90,20 @@ function parseOrder(order, byoProductIds) {
   };
 }
 
+function buildPackageLookup(packages) {
+  const byVariant = {};
+  const byProduct = {};
+  for (const p of packages) {
+    if (p.is_active === false) continue;
+    if (p.shopify_variant_id) byVariant[p.shopify_variant_id] = p;
+    if (p.shopify_product_id) {
+      if (!byProduct[p.shopify_product_id]) byProduct[p.shopify_product_id] = [];
+      byProduct[p.shopify_product_id].push(p);
+    }
+  }
+  return { byVariant, byProduct };
+}
+
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function withRetry(fn, retries = 4) {
@@ -111,7 +112,7 @@ async function withRetry(fn, retries = 4) {
       return await fn();
     } catch (err) {
       if (err.status === 429 && i < retries - 1) {
-        const waitTime = (i + 1) * 3000; // 3s, 6s, 9s, 12s
+        const waitTime = (i + 1) * 3000;
         console.log(`Rate limited, waiting ${waitTime/1000}s...`);
         await delay(waitTime);
       } else {
@@ -133,7 +134,12 @@ Deno.serve(async (req) => {
   const accessToken = Deno.env.get('SHOPIFY_ACCESS_TOKEN');
   if (!storeDomain || !accessToken) return Response.json({ error: 'Shopify credentials not configured' }, { status: 400 });
 
-  // ─── STEP 0: Fetch BYO product IDs (products tagged "BYO Meals") ───
+  // ─── Load PackageProduct master data for ID-based matching ───
+  const packages = await base44.asServiceRole.entities.PackageProduct.filter({});
+  const packageLookup = buildPackageLookup(packages);
+  console.log(`Loaded ${packages.length} package products for ID matching`);
+
+  // ─── Fetch BYO product IDs (products tagged "BYO Meals") ───
   const byoProductIds = new Set();
   let prodUrl = `https://${storeDomain}/admin/api/2024-01/products.json?limit=250&status=active`;
   while (prodUrl) {
@@ -174,8 +180,8 @@ Deno.serve(async (req) => {
       pageUrl = nextMatch ? nextMatch[1] : null;
     }
 
-    // Parse all orders in memory
-    const parsed = allOrders.map(o => parseOrder(o, byoProductIds));
+    // Parse all orders using ID-based matching
+    const parsed = allOrders.map(o => parseOrder(o, byoProductIds, packageLookup));
 
     // Get existing orders for dedup mapping
     const existingOrders = await base44.asServiceRole.entities.ShopifyOrder.filter({});
@@ -198,11 +204,9 @@ Deno.serve(async (req) => {
   const ordersToProcess = body.orders || [];
   let created = 0, updated = 0;
 
-  // Separate creates and updates
   const toCreate = ordersToProcess.filter(o => !o._existingId);
   const toUpdate = ordersToProcess.filter(o => o._existingId);
 
-  // Bulk create new orders
   if (toCreate.length > 0) {
     const createData = toCreate.map(({ _existingId, ...rest }) => rest);
     await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.bulkCreate(createData));
@@ -210,12 +214,10 @@ Deno.serve(async (req) => {
     await delay(1000);
   }
 
-  // Update existing orders one by one with delays
   for (let i = 0; i < toUpdate.length; i++) {
     const { _existingId, shopify_order_id, order_number, order_date, ...updateData } = toUpdate[i];
     await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.update(_existingId, updateData));
     updated++;
-    // Delay every 5 updates
     if ((i + 1) % 5 === 0) await delay(1500);
   }
 

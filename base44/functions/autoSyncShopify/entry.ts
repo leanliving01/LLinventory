@@ -1,6 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
-// ─── Same parsing helpers ───
+// ─── Exclusion logic: skip non-meal items ───
 function isExcluded(lineItem) {
   const title = (lineItem.title || '').toLowerCase();
   const sku = (lineItem.sku || '').toLowerCase();
@@ -14,36 +14,6 @@ function isExcluded(lineItem) {
   return false;
 }
 
-function getMealType(productTitle, variantTitle) {
-  const title = (productTitle || '').toLowerCase();
-  const variant = (variantTitle || '').toLowerCase();
-  if (title.includes('low carb') || title.includes('smart carb') || title.includes('low-carb')) return 'LOW_CARB';
-  // IMPORTANT: Check women BEFORE men — "women" contains "men" as a substring
-  if (title.includes('lean muscle') && (title.includes("women") || title.includes("woman") || title.includes("female") || title.includes("ladies"))) return 'WLM';
-  if (title.includes('weight loss') && (title.includes("women") || title.includes("woman") || title.includes("female") || title.includes("ladies"))) return 'WWL';
-  if (title.includes('lean muscle') && (title.includes("men") || title.includes("man") || title.includes("male"))) return 'MLM';
-  if (title.includes('weight loss') && (title.includes("men") || title.includes("man") || title.includes("male"))) return 'MWL';
-  if (variant.includes('lean muscle')) {
-    if (variant.includes("women") || variant.includes("female") || variant.includes("ladies")) return 'WLM';
-    if (variant.includes("men") || variant.includes("male")) return 'MLM';
-  }
-  if (variant.includes('weight loss')) {
-    if (variant.includes("women") || variant.includes("female") || variant.includes("ladies")) return 'WWL';
-    if (variant.includes("men") || variant.includes("male")) return 'MWL';
-  }
-  return null;
-}
-
-function getPackSize(variantTitle) {
-  const v = (variantTitle || '').toLowerCase();
-  if (v.includes('60') || v.includes('ultimate')) return 60;
-  if (v.includes('30') || v.includes('serious')) return 30;
-  if (v.includes('15') || v.includes('starter')) return 15;
-  const match = v.match(/(\d+)\s*(meal|pack)/i);
-  if (match) return parseInt(match[1], 10);
-  return 0;
-}
-
 function isBYOItem(lineItem, orderTags, byoProductIds) {
   const title = (lineItem.title || '').toLowerCase();
   const tags = (orderTags || '').toLowerCase();
@@ -53,20 +23,39 @@ function isBYOItem(lineItem, orderTags, byoProductIds) {
   return title.includes('build your own') || title.includes('byo') || tagList.includes('byo meals') || tagList.includes('byo');
 }
 
-function parseOrder(order, byoProductIds) {
+// ─── ID-based matching using PackageProduct master data ───
+function parseOrder(order, byoProductIds, packageLookup) {
   const orderTags = order.tags || '';
   let mwlMeals = 0, mlmMeals = 0, wwlMeals = 0, wlmMeals = 0, lcMeals = 0, byoMeals = 0, totalMeals = 0;
   let orderIsByo = false;
+
   for (const li of (order.line_items || [])) {
     const qty = li.quantity || 0;
     if (isExcluded(li)) continue;
-    if (isBYOItem(li, orderTags, byoProductIds)) { orderIsByo = true; byoMeals += qty; totalMeals += qty; continue; }
-    const mealType = getMealType(li.title, li.variant_title);
-    const packSize = getPackSize(li.variant_title);
-    if (mealType && packSize > 0) {
-      const mealCount = packSize * qty;
+    if (isBYOItem(li, orderTags, byoProductIds)) {
+      orderIsByo = true;
+      byoMeals += qty;
+      totalMeals += qty;
+      continue;
+    }
+
+    // Match by Shopify variant_id (most precise) or product_id + SKU
+    const variantId = String(li.variant_id || '');
+    const productId = String(li.product_id || '');
+    
+    let matched = packageLookup.byVariant[variantId];
+    
+    if (!matched && packageLookup.byProduct[productId]) {
+      const lineSku = (li.sku || '').toLowerCase();
+      matched = packageLookup.byProduct[productId].find(p => 
+        p.shopify_sku && p.shopify_sku.toLowerCase() === lineSku
+      );
+    }
+
+    if (matched) {
+      const mealCount = matched.pack_size * qty;
       totalMeals += mealCount;
-      switch (mealType) {
+      switch (matched.package_family) {
         case 'MWL': mwlMeals += mealCount; break;
         case 'MLM': mlmMeals += mealCount; break;
         case 'WWL': wwlMeals += mealCount; break;
@@ -75,17 +64,40 @@ function parseOrder(order, byoProductIds) {
       }
     }
   }
+
   return {
     shopify_order_id: String(order.id),
     order_number: order.name || `#${order.order_number}`,
     order_date: order.created_at,
     customer_name: order.customer ? `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim() : '',
-    paid_status: 'paid', fulfilment_status: 'unfulfilled',
-    tags: orderTags, synced_at: new Date().toISOString(),
-    total_meals: totalMeals, mwl_meals: mwlMeals, mlm_meals: mlmMeals,
-    wwl_meals: wwlMeals, wlm_meals: wlmMeals, lc_meals: lcMeals,
-    byo_meals: byoMeals, is_byo: orderIsByo, demand_calculated: false,
+    paid_status: 'paid',
+    fulfilment_status: 'unfulfilled',
+    tags: orderTags,
+    synced_at: new Date().toISOString(),
+    total_meals: totalMeals,
+    mwl_meals: mwlMeals,
+    mlm_meals: mlmMeals,
+    wwl_meals: wwlMeals,
+    wlm_meals: wlmMeals,
+    lc_meals: lcMeals,
+    byo_meals: byoMeals,
+    is_byo: orderIsByo,
+    demand_calculated: false,
   };
+}
+
+function buildPackageLookup(packages) {
+  const byVariant = {};
+  const byProduct = {};
+  for (const p of packages) {
+    if (p.is_active === false) continue;
+    if (p.shopify_variant_id) byVariant[p.shopify_variant_id] = p;
+    if (p.shopify_product_id) {
+      if (!byProduct[p.shopify_product_id]) byProduct[p.shopify_product_id] = [];
+      byProduct[p.shopify_product_id].push(p);
+    }
+  }
+  return { byVariant, byProduct };
 }
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -98,13 +110,18 @@ async function withRetry(fn, retries = 3) {
   }
 }
 
-// This function is called by automation every 5 minutes — no user auth needed
+// This function is called by automation — no user auth needed
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
 
   const storeDomain = Deno.env.get('SHOPIFY_STORE_DOMAIN');
   const accessToken = Deno.env.get('SHOPIFY_ACCESS_TOKEN');
   if (!storeDomain || !accessToken) return Response.json({ error: 'Not configured' }, { status: 400 });
+
+  // ─── Load PackageProduct master data for ID-based matching ───
+  const packages = await base44.asServiceRole.entities.PackageProduct.filter({});
+  const packageLookup = buildPackageLookup(packages);
+  console.log(`Auto-sync: loaded ${packages.length} package products for ID matching`);
 
   // ─── Fetch BYO product IDs (products tagged "BYO Meals") ───
   const byoProductIds = new Set();
@@ -130,7 +147,7 @@ Deno.serve(async (req) => {
   }
   console.log(`Auto-sync: loaded ${byoProductIds.size} BYO product IDs`);
 
-  // Fetch recent orders (last page only — most recent)
+  // Fetch orders
   const url = `https://${storeDomain}/admin/api/2024-01/orders.json?status=open&financial_status=paid&fulfillment_status=unfulfilled&limit=250`;
   const res = await fetch(url, {
     headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
@@ -152,10 +169,9 @@ Deno.serve(async (req) => {
   const toUpdate = [];
 
   for (const order of shopifyOrders) {
-    const parsed = parseOrder(order, byoProductIds);
+    const parsed = parseOrder(order, byoProductIds, packageLookup);
     const ex = existingMap[parsed.shopify_order_id] || existingMap[parsed.order_number];
     if (ex) {
-      // Only update if something changed
       if (ex.total_meals !== parsed.total_meals || ex.tags !== parsed.tags || ex.customer_name !== parsed.customer_name) {
         toUpdate.push({ id: ex.id, data: parsed });
       }
@@ -164,7 +180,6 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Bulk create new orders
   if (toCreate.length > 0) {
     for (let i = 0; i < toCreate.length; i += 25) {
       await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.bulkCreate(toCreate.slice(i, i + 25)));
@@ -172,7 +187,6 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Update changed orders
   for (let i = 0; i < toUpdate.length; i++) {
     const { id, data } = toUpdate[i];
     const { shopify_order_id, order_number, order_date, ...updateData } = data;
