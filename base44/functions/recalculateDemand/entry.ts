@@ -25,7 +25,13 @@ function isExcluded(lineItem) {
 }
 
 function normalizeName(name) {
-  return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  let n = (name || '').toLowerCase();
+  // Strip weight suffixes like "(410g)", "( 330g)", "(460 g)" etc.
+  n = n.replace(/\(\s*\d+\s*g\s*\)/g, '');
+  // Normalize common spelling variants
+  n = n.replace(/chili/g, 'chilli');  // "Sweet Chili" → "Sweet Chilli"
+  // Strip all non-alphanumeric
+  return n.replace(/[^a-z0-9]/g, '');
 }
 
 async function fetchShopifyOrderLineItems(shopifyOrderId, storeDomain, accessToken) {
@@ -173,6 +179,10 @@ Deno.serve(async (req) => {
       let byoMatched = 0;
       for (const li of lineItems) {
         if (isExcluded(li)) continue;
+        // Skip category-level BYO titles (e.g. "Men's Lean Muscle Meals", "Women's Weight Loss Meals")
+        const titleLower = (li.title || '').toLowerCase();
+        if (/^(men|women|male|female|ladies).*(meal|pack)/i.test(li.title || '')) continue;
+        if (titleLower.includes('build your own') || titleLower.includes('byo')) continue;
         const qty = li.quantity || 0;
         const titleNorm = normalizeName(li.title);
 
