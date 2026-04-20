@@ -18,17 +18,18 @@ function getMealType(productTitle, variantTitle) {
   const title = (productTitle || '').toLowerCase();
   const variant = (variantTitle || '').toLowerCase();
   if (title.includes('low carb') || title.includes('smart carb') || title.includes('low-carb')) return 'LOW_CARB';
-  if (title.includes('lean muscle') && (title.includes("men") || title.includes("man") || title.includes("male"))) return 'MLM';
-  if (title.includes('weight loss') && (title.includes("men") || title.includes("man") || title.includes("male"))) return 'MWL';
+  // IMPORTANT: Check women BEFORE men — "women" contains "men" as a substring
   if (title.includes('lean muscle') && (title.includes("women") || title.includes("woman") || title.includes("female") || title.includes("ladies"))) return 'WLM';
   if (title.includes('weight loss') && (title.includes("women") || title.includes("woman") || title.includes("female") || title.includes("ladies"))) return 'WWL';
+  if (title.includes('lean muscle') && (title.includes("men") || title.includes("man") || title.includes("male"))) return 'MLM';
+  if (title.includes('weight loss') && (title.includes("men") || title.includes("man") || title.includes("male"))) return 'MWL';
   if (variant.includes('lean muscle')) {
-    if (variant.includes("men") || variant.includes("male")) return 'MLM';
     if (variant.includes("women") || variant.includes("female") || variant.includes("ladies")) return 'WLM';
+    if (variant.includes("men") || variant.includes("male")) return 'MLM';
   }
   if (variant.includes('weight loss')) {
-    if (variant.includes("men") || variant.includes("male")) return 'MWL';
     if (variant.includes("women") || variant.includes("female") || variant.includes("ladies")) return 'WWL';
+    if (variant.includes("men") || variant.includes("male")) return 'MWL';
   }
   return null;
 }
