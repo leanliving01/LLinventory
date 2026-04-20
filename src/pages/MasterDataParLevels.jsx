@@ -1,14 +1,27 @@
 import React from 'react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ParLevelsTab from '@/components/master-data/ParLevelsTab';
+import ParRecommendationsTab from '@/components/master-data/ParRecommendationsTab';
 
 export default function MasterDataParLevels() {
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Par Levels</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Set minimum stock thresholds for each SKU</p>
+        <p className="text-sm text-muted-foreground mt-0.5">Set minimum stock thresholds and view AI-recommended adjustments</p>
       </div>
-      <ParLevelsTab />
+      <Tabs defaultValue="current">
+        <TabsList>
+          <TabsTrigger value="current">Current Par Levels</TabsTrigger>
+          <TabsTrigger value="recommendations">Recommendations</TabsTrigger>
+        </TabsList>
+        <TabsContent value="current" className="mt-4">
+          <ParLevelsTab />
+        </TabsContent>
+        <TabsContent value="recommendations" className="mt-4">
+          <ParRecommendationsTab />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

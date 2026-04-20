@@ -1,0 +1,67 @@
+{
+  "name": "ParLevelRecommendation",
+  "type": "object",
+  "properties": {
+    "sku_id": {
+      "type": "string",
+      "description": "Reference to SKU ID"
+    },
+    "sku_display_name": {
+      "type": "string",
+      "description": "Denormalized SKU display name"
+    },
+    "package_type": {
+      "type": "string",
+      "enum": [
+        "MWL",
+        "MLM",
+        "WWL",
+        "WLM",
+        "LOW_CARB"
+      ],
+      "description": "Package type"
+    },
+    "current_par_level": {
+      "type": "number",
+      "description": "Par level at time of calculation"
+    },
+    "recommended_par_level": {
+      "type": "number",
+      "description": "Calculated recommended par level"
+    },
+    "avg_weekly_demand": {
+      "type": "number",
+      "description": "Average weekly demand used in calculation"
+    },
+    "safety_buffer_pct": {
+      "type": "number",
+      "default": 15,
+      "description": "Safety buffer percentage applied"
+    },
+    "calculation_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date this recommendation was calculated"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "applied",
+        "dismissed"
+      ],
+      "default": "pending",
+      "description": "Status of this recommendation"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Calculation details or action notes"
+    }
+  },
+  "required": [
+    "sku_id",
+    "recommended_par_level",
+    "calculation_date",
+    "status"
+  ]
+}
