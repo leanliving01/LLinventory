@@ -14,6 +14,10 @@
       "type": "string",
       "description": "Shopify variant ID"
     },
+    "shopify_sku": {
+      "type": "string",
+      "description": "Shopify SKU code for this variant"
+    },
     "package_family": {
       "type": "string",
       "enum": [
