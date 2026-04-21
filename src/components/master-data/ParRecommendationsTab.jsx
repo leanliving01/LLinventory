@@ -18,6 +18,7 @@ const FAMILY_COLORS = {
 export default function ParRecommendationsTab() {
   const queryClient = useQueryClient();
   const [calculating, setCalculating] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [applyingId, setApplyingId] = useState(null);
   const [dismissingId, setDismissingId] = useState(null);
 
@@ -34,11 +35,22 @@ export default function ParRecommendationsTab() {
   const parBySkuId = {};
   parLevels.forEach(p => { parBySkuId[p.sku_id] = p; });
 
+  const handleSyncHistorical = async () => {
+    setSyncing(true);
+    try {
+      const res = await base44.functions.invoke('syncHistoricalOrders', {});
+      toast.success(`Synced ${res.data.new_orders_archived} new orders (${res.data.total_in_archive} total in archive)`);
+    } catch (err) {
+      toast.error('Failed to sync historical data: ' + (err.message || 'Unknown error'));
+    }
+    setSyncing(false);
+  };
+
   const handleCalculate = async () => {
     setCalculating(true);
     try {
       const res = await base44.functions.invoke('calculateParRecommendations', {});
-      toast.success(`Generated ${res.data.recommendations_generated} recommendations`);
+      toast.success(`Generated ${res.data.recommendations_generated} recommendations from ${res.data.orders_in_window} orders (${res.data.effective_weeks} weeks)`);
       queryClient.invalidateQueries({ queryKey: ['parRecommendations'] });
     } catch (err) {
       toast.error('Failed to calculate recommendations: ' + (err.message || 'Unknown error'));
@@ -85,9 +97,13 @@ export default function ParRecommendationsTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
+          <Button onClick={handleSyncHistorical} disabled={syncing} variant="outline" size="sm" className="gap-2">
+            {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {syncing ? 'Syncing...' : 'Sync Historical Data'}
+          </Button>
           <Button onClick={handleCalculate} disabled={calculating} size="sm" className="gap-2">
-            {calculating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            {calculating ? 'Calculating...' : 'Recalculate Now'}
+            {calculating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <TrendingUp className="w-3.5 h-3.5" />}
+            {calculating ? 'Calculating...' : 'Recalculate Recommendations'}
           </Button>
           {recommendations.length > 0 && (
             <Button onClick={handleApplyAll} variant="outline" size="sm" className="gap-2">
@@ -97,7 +113,7 @@ export default function ParRecommendationsTab() {
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Based on 6-month rolling demand (excl. Dec 2025) + 15% safety buffer
+          Rolling 6-month demand (always excl. December) + 15% safety buffer
         </p>
       </div>
 

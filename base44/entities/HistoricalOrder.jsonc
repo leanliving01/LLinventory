@@ -1,0 +1,55 @@
+{
+  "name": "HistoricalOrder",
+  "type": "object",
+  "properties": {
+    "shopify_order_id": {
+      "type": "string",
+      "description": "Unique Shopify order ID (numeric) - used as dedup key"
+    },
+    "order_number": {
+      "type": "string",
+      "description": "Shopify order number (e.g. #28461)"
+    },
+    "order_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the order was placed"
+    },
+    "mwl_meals": {
+      "type": "number",
+      "default": 0
+    },
+    "mlm_meals": {
+      "type": "number",
+      "default": 0
+    },
+    "wwl_meals": {
+      "type": "number",
+      "default": 0
+    },
+    "wlm_meals": {
+      "type": "number",
+      "default": 0
+    },
+    "lc_meals": {
+      "type": "number",
+      "default": 0
+    },
+    "byo_items": {
+      "type": "string",
+      "description": "JSON array of BYO items [{sku_id, quantity}] for demand calculation"
+    },
+    "total_meals": {
+      "type": "number",
+      "default": 0
+    },
+    "synced_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "shopify_order_id",
+    "order_date"
+  ]
+}
