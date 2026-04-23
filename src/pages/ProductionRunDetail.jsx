@@ -4,11 +4,13 @@ import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, Play } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import RunLineTable from '@/components/production/RunLineTable';
+import StockGuardrailModal from '@/components/production/StockGuardrailModal';
+import SurplusModal from '@/components/production/SurplusModal';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import { writeAuditLog } from '@/lib/auditLog';
 
@@ -28,6 +30,10 @@ export default function ProductionRunDetail() {
   const [reasons, setReasons] = useState({});
   const [completing, setCompleting] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [showGuardrail, setShowGuardrail] = useState(false);
+  const [shortages, setShortages] = useState([]);
+  const [showSurplus, setShowSurplus] = useState(false);
+  const [surplusLines, setSurplusLines] = useState([]);
 
   const { data: run, isLoading: loadingRun } = useQuery({
     queryKey: ['production-run', runId],
@@ -69,13 +75,134 @@ export default function ProductionRunDetail() {
     setActuals(filled);
   };
 
+  // §5.1.8 Not-Enough-Stock Guardrail — check before starting
   const handleStartRun = async () => {
     setStarting(true);
+    // Check stock availability
+    const [stockRecords, boms, bomComponents, products] = await Promise.all([
+      base44.entities.StockOnHand.list('-updated_date', 2000),
+      base44.entities.Bom.filter({ is_active: true }, '-created_date', 500),
+      base44.entities.BomComponent.list('-created_date', 2000),
+      base44.entities.Product.filter({ status: 'active' }, 'name', 500),
+    ]);
+
+    const productMap = {};
+    products.forEach(p => { productMap[p.id] = p; });
+    const stockMap = {};
+    stockRecords.forEach(s => {
+      if (!stockMap[s.product_id]) stockMap[s.product_id] = 0;
+      stockMap[s.product_id] += s.qty_on_hand || 0;
+    });
+    const compsByBom = {};
+    bomComponents.forEach(c => {
+      if (!compsByBom[c.bom_id]) compsByBom[c.bom_id] = [];
+      compsByBom[c.bom_id].push(c);
+    });
+
+    // Calculate total ingredient needs
+    const ingredientNeeds = {};
+    for (const line of lines) {
+      const portionBom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
+      if (!portionBom) continue;
+      const comps = compsByBom[portionBom.id] || [];
+      for (const c of comps) {
+        const perUnit = c.qty / (portionBom.yield_qty || 1);
+        const total = perUnit * line.planned_qty;
+        if (!ingredientNeeds[c.input_product_id]) ingredientNeeds[c.input_product_id] = 0;
+        ingredientNeeds[c.input_product_id] += total;
+      }
+    }
+
+    const foundShortages = [];
+    for (const [pid, needed] of Object.entries(ingredientNeeds)) {
+      const available = stockMap[pid] || 0;
+      if (available < needed) {
+        const p = productMap[pid];
+        foundShortages.push({
+          name: p?.name || pid,
+          uom: p?.stock_uom || 'pcs',
+          needed: Math.round(needed * 100) / 100,
+          available: Math.round(available * 100) / 100,
+          short: Math.round((needed - available) * 100) / 100,
+        });
+      }
+    }
+
+    if (foundShortages.length > 0) {
+      setShortages(foundShortages);
+      setShowGuardrail(true);
+      setStarting(false);
+      return;
+    }
+
+    await doStartRun();
+  };
+
+  const doStartRun = async () => {
+    setStarting(true);
     await base44.entities.ProductionRun.update(runId, { status: 'in_progress' });
+
+    // §5.1.4/5 Generate tasks from BOM operations
+    const [boms, bomOps] = await Promise.all([
+      base44.entities.Bom.filter({ is_active: true }, '-created_date', 500),
+      base44.entities.BomOperation.list('-created_date', 2000),
+    ]);
+    const opsByBom = {};
+    bomOps.forEach(op => {
+      if (!opsByBom[op.bom_id]) opsByBom[op.bom_id] = [];
+      opsByBom[op.bom_id].push(op);
+    });
+
+    const tasksToCreate = [];
+    for (const line of lines) {
+      const portionBom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
+      if (!portionBom) continue;
+      const ops = opsByBom[portionBom.id] || [];
+      if (ops.length > 0) {
+        for (const op of ops) {
+          tasksToCreate.push({
+            run_id: runId,
+            line_id: line.id,
+            product_id: line.product_id,
+            product_sku: line.product_sku,
+            meal_name: line.product_name,
+            name: op.name,
+            station: op.station,
+            step_no: op.step_no,
+            qty: line.planned_qty,
+            status: 'pending',
+            notes: op.notes || '',
+          });
+        }
+      } else {
+        // Default task per line if no operations defined
+        tasksToCreate.push({
+          run_id: runId,
+          line_id: line.id,
+          product_id: line.product_id,
+          product_sku: line.product_sku,
+          meal_name: line.product_name,
+          name: `Produce ${line.product_name}`,
+          station: 'cook',
+          step_no: 1,
+          qty: line.planned_qty,
+          status: 'pending',
+        });
+      }
+    }
+
+    if (tasksToCreate.length > 0) {
+      // Bulk create in batches of 25
+      for (let i = 0; i < tasksToCreate.length; i += 25) {
+        await base44.entities.ProductionTask.bulkCreate(tasksToCreate.slice(i, i + 25));
+      }
+    }
+
     queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
-    writeAuditLog({ action: 'update', entity_type: 'ProductionRun', entity_id: runId, description: `Started production run ${run?.run_number}` });
-    toast.success('Run started');
+    writeAuditLog({ action: 'update', entity_type: 'ProductionRun', entity_id: runId, description: `Started production run ${run?.run_number} — ${tasksToCreate.length} tasks created` });
+    toast.success(`Run started — ${tasksToCreate.length} kitchen tasks created`);
     setStarting(false);
+    setShowGuardrail(false);
   };
 
   const handleCompleteRun = async () => {
@@ -186,6 +313,45 @@ export default function ProductionRunDetail() {
     });
     toast.success(`Run completed — ${totalActual} units produced, stock updated`);
     setCompleting(false);
+
+    // §5.1.6 Check for surplus lines
+    const surplus = lines.filter(l => {
+      const actual = Number(actuals[l.id]) || 0;
+      return actual > l.planned_qty;
+    }).map(l => ({
+      ...l,
+      surplus: (Number(actuals[l.id]) || 0) - l.planned_qty,
+    }));
+    if (surplus.length > 0) {
+      setSurplusLines(surplus);
+      setShowSurplus(true);
+    }
+  };
+
+  const handleSurplusConfirm = async (dispositions) => {
+    setCompleting(true);
+    for (const line of surplusLines) {
+      const disposition = dispositions[line.id];
+      if (!disposition || disposition === 'reuse_tomorrow') continue; // kept in stock, no action needed
+      if (disposition === 'waste') {
+        await base44.entities.StockMovement.create({
+          product_id: line.product_id,
+          product_sku: line.product_sku,
+          product_name: line.product_name,
+          qty: line.surplus,
+          uom: 'pcs',
+          reason: 'wastage_usable',
+          ref_type: 'production_run',
+          ref_id: runId,
+          notes: `Surplus waste from run ${run?.run_number}: ${line.surplus} units of ${line.product_sku}`,
+        });
+      }
+      // replate_today = keep in stock as-is (already counted in actuals)
+    }
+    setShowSurplus(false);
+    setSurplusLines([]);
+    setCompleting(false);
+    toast.success('Surplus dispositions recorded');
   };
 
   if (loadingRun || loadingLines) {
@@ -224,10 +390,24 @@ export default function ProductionRunDetail() {
         </div>
         <div className="flex items-center gap-2">
           <HelpDrawer pageKey="production-run-detail" />
+          {(run.status === 'scheduled' || run.status === 'in_progress' || run.status === 'completed') && (
+            <Link to={`/production/run/${runId}/pick-list`}>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <ClipboardList className="w-4 h-4" /> Pick List
+              </Button>
+            </Link>
+          )}
+          {(run.status === 'in_progress') && (
+            <Link to={`/production/run/${runId}/kanban`}>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <LayoutGrid className="w-4 h-4" /> Kitchen Board
+              </Button>
+            </Link>
+          )}
           {canStart && (
             <Button onClick={handleStartRun} disabled={starting} className="gap-2 bg-amber-600 hover:bg-amber-700">
               <Play className="w-4 h-4" />
-              {starting ? 'Starting...' : 'Start Run'}
+              {starting ? 'Checking stock...' : 'Start Run'}
             </Button>
           )}
           {isEditable && (
@@ -264,6 +444,26 @@ export default function ProductionRunDetail() {
         onReasonChange={handleReasonChange}
         isEditable={isEditable}
       />
+
+      {/* §5.1.8 Stock Guardrail Modal */}
+      {showGuardrail && (
+        <StockGuardrailModal
+          shortages={shortages}
+          onProceed={doStartRun}
+          onCancel={() => { setShowGuardrail(false); setStarting(false); }}
+          loading={starting}
+        />
+      )}
+
+      {/* §5.1.6 Surplus Modal */}
+      {showSurplus && (
+        <SurplusModal
+          surplusLines={surplusLines}
+          onConfirm={handleSurplusConfirm}
+          onCancel={() => { setShowSurplus(false); setSurplusLines([]); }}
+          loading={completing}
+        />
+      )}
     </div>
   );
 }

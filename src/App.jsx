@@ -29,6 +29,8 @@ import Suppliers from '@/pages/Suppliers';
 import StockTransfer from '@/pages/StockTransfer';
 import Receiving from '@/pages/Receiving';
 import StockTakeNew from '@/pages/StockTakeNew';
+import PickList from '@/pages/PickList';
+import Kanban from '@/pages/Kanban';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -60,6 +62,8 @@ const AuthenticatedApp = () => {
         <Route path="/production" element={<ProductionPlanning />} />
         <Route path="/production/runs" element={<ProductionRuns />} />
         <Route path="/production/run/:runId" element={<ProductionRunDetail />} />
+        <Route path="/production/run/:runId/pick-list" element={<PickList />} />
+        <Route path="/production/run/:runId/kanban" element={<Kanban />} />
         <Route path="/stock/new-production" element={<NewProduction />} />
         <Route path="/stock/wastage" element={<Wastage />} />
         <Route path="/stock/stock-take" element={<StockTakeNew />} />

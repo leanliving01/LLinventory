@@ -2,23 +2,29 @@
   "name": "ProductionTask",
   "type": "object",
   "properties": {
-    "run_line_id": {
+    "run_id": {
+      "type": "string",
+      "description": "FK to ProductionRun"
+    },
+    "line_id": {
       "type": "string",
       "description": "FK to ProductionRunLine"
     },
-    "run_id": {
-      "type": "string",
-      "description": "FK to ProductionRun (denormalized)"
-    },
     "product_id": {
       "type": "string",
-      "description": "FK to Product (the meal/WIP)"
-    },
-    "product_name": {
-      "type": "string"
+      "description": "FK to Product"
     },
     "product_sku": {
-      "type": "string"
+      "type": "string",
+      "description": "Denormalized SKU"
+    },
+    "meal_name": {
+      "type": "string",
+      "description": "Denormalized meal name"
+    },
+    "name": {
+      "type": "string",
+      "description": "Task name (e.g. Prep Chicken, Cook Rice)"
     },
     "station": {
       "type": "string",
@@ -27,49 +33,45 @@
         "cook",
         "portion"
       ],
-      "description": "Which station"
+      "description": "Kitchen station"
+    },
+    "step_no": {
+      "type": "number",
+      "default": 0,
+      "description": "Step order within the station"
+    },
+    "qty": {
+      "type": "number",
+      "description": "Quantity to process"
     },
     "status": {
       "type": "string",
       "enum": [
         "pending",
         "in_progress",
-        "done",
-        "blocked"
+        "paused",
+        "done"
       ],
-      "default": "pending"
+      "default": "pending",
+      "description": "Task status"
     },
-    "assigned_user_id": {
-      "type": "string"
+    "notes": {
+      "type": "string",
+      "description": "Recipe instructions or notes"
     },
     "started_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "When task was started"
     },
     "finished_at": {
       "type": "string",
-      "format": "date-time"
-    },
-    "duration_min": {
-      "type": "number"
-    },
-    "planned_qty": {
-      "type": "number"
-    },
-    "actual_qty": {
-      "type": "number"
-    },
-    "auto_consume": {
-      "type": "boolean",
-      "default": true,
-      "description": "Whether to auto-deduct BOM quantities on finish"
-    },
-    "notes": {
-      "type": "string"
+      "format": "date-time",
+      "description": "When task was finished"
     }
   },
   "required": [
-    "run_line_id",
+    "run_id",
     "station",
     "status"
   ]
