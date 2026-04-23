@@ -1,11 +1,12 @@
-import React, { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Printer } from 'lucide-react';
+import { ArrowLeft, Printer, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import HelpDrawer from '@/components/help/HelpDrawer';
 
 /**
@@ -50,9 +51,9 @@ export default function PickList() {
   });
 
   // Build ingredient pick list
-  const { pickItems, zones } = useMemo(() => {
+  const { pickItems, categories } = useMemo(() => {
     if (!lines.length || !boms.length || !bomComponents.length || !products.length) {
-      return { pickItems: [], zones: [] };
+      return { pickItems: [], categories: [] };
     }
 
     const productMap = {};
@@ -138,23 +139,48 @@ export default function PickList() {
       }
     }
 
-    // Group by storage zone
-    const items = Object.values(ingredientAgg).map(item => {
-      const loc = item.product.default_location_id ? locationMap[item.product.default_location_id] : null;
-      return {
-        ...item,
-        totalQty: Math.round(item.totalQty * 100) / 100,
-        zone: loc?.name || 'Unassigned',
-        zoneType: loc?.type || 'ambient',
-        zoneCode: loc?.code || '—',
-      };
+    // Group by pick category
+    const CATEGORY_ORDER = [
+      'Meats', 'Vegetables', 'Starches', 'Spices & Seasoning',
+      'Sauces & Condiments', 'Dairy & Eggs', 'Oils & Fats',
+      'Dry Goods', 'Packaging', 'Other', 'Uncategorized',
+    ];
+
+    const items = Object.values(ingredientAgg).map(item => ({
+      ...item,
+      totalQty: Math.round(item.totalQty * 100) / 100,
+      pickCategory: item.product.pick_category || 'Uncategorized',
+    }));
+
+    items.sort((a, b) => {
+      const ai = CATEGORY_ORDER.indexOf(a.pickCategory);
+      const bi = CATEGORY_ORDER.indexOf(b.pickCategory);
+      if (ai !== bi) return ai - bi;
+      return a.product.name.localeCompare(b.product.name);
     });
 
-    items.sort((a, b) => a.zone.localeCompare(b.zone) || a.product.name.localeCompare(b.product.name));
-    const uniqueZones = [...new Set(items.map(i => i.zone))];
+    const categories = [...new Set(items.map(i => i.pickCategory))];
+    categories.sort((a, b) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b));
 
-    return { pickItems: items, zones: uniqueZones };
+    return { pickItems: items, categories };
   }, [lines, boms, bomComponents, products, locations]);
+
+  const queryClient = useQueryClient();
+  const [categorizing, setCategorizing] = useState(false);
+
+  const hasUncategorized = pickItems.some(i => i.pickCategory === 'Uncategorized');
+
+  const handleCategorize = async () => {
+    setCategorizing(true);
+    try {
+      const res = await base44.functions.invoke('categorizeProducts', {});
+      toast.success(`${res.data.updated} products categorized`);
+      queryClient.invalidateQueries({ queryKey: ['all-products'] });
+    } catch (e) {
+      toast.error('Failed to categorize: ' + (e.message || 'Unknown error'));
+    }
+    setCategorizing(false);
+  };
 
   if (!run) {
     return <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>;
@@ -170,11 +196,17 @@ export default function PickList() {
           </Link>
           <div>
             <h1 className="text-2xl font-bold">Pick List — {run.run_number}</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">{lines.length} meals · {pickItems.length} ingredients across {zones.length} zones</p>
+            <p className="text-sm text-muted-foreground mt-0.5">{lines.length} meals · {pickItems.length} ingredients across {categories.length} categories</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <HelpDrawer pageKey="pick-list" />
+          {hasUncategorized && (
+            <Button variant="outline" onClick={handleCategorize} disabled={categorizing} className="gap-1.5">
+              <Sparkles className="w-4 h-4" />
+              {categorizing ? 'Categorizing...' : 'Auto-Categorize'}
+            </Button>
+          )}
           <Button variant="outline" onClick={() => window.print()} className="gap-1.5">
             <Printer className="w-4 h-4" /> Print
           </Button>
@@ -191,14 +223,14 @@ export default function PickList() {
         Stock is <strong>not</strong> deducted when printing the pick list — only when the run is completed.
       </div>
 
-      {/* Grouped by zone */}
-      {zones.map(zone => {
-        const zoneItems = pickItems.filter(i => i.zone === zone);
+      {/* Grouped by pick category */}
+      {categories.map(cat => {
+        const catItems = pickItems.filter(i => i.pickCategory === cat);
         return (
-          <div key={zone} className="bg-card border border-border rounded-xl overflow-hidden print:break-inside-avoid print:rounded-none print:border-black">
+          <div key={cat} className="bg-card border border-border rounded-xl overflow-hidden print:break-inside-avoid print:rounded-none print:border-black">
             <div className="px-4 py-2.5 border-b border-border bg-muted/50 flex items-center gap-2">
-              <h3 className="text-sm font-bold">{zone}</h3>
-              <Badge variant="secondary" className="text-[10px]">{zoneItems.length} items</Badge>
+              <h3 className="text-sm font-bold">{cat}</h3>
+              <Badge variant="secondary" className="text-[10px]">{catItems.length} items</Badge>
             </div>
             <table className="w-full text-sm">
               <thead>
@@ -211,7 +243,7 @@ export default function PickList() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {zoneItems.map(item => (
+                {catItems.map(item => (
                   <tr key={item.product.id} className="print:leading-8">
                     <td className="px-4 py-2">
                       <div className="w-5 h-5 border-2 border-border rounded print:border-black" />

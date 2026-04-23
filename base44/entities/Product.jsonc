@@ -34,6 +34,22 @@
       "type": "string",
       "description": "Free text category from Cin7"
     },
+    "pick_category": {
+      "type": "string",
+      "enum": [
+        "Meats",
+        "Vegetables",
+        "Starches",
+        "Spices & Seasoning",
+        "Sauces & Condiments",
+        "Dairy & Eggs",
+        "Oils & Fats",
+        "Dry Goods",
+        "Packaging",
+        "Other"
+      ],
+      "description": "Pick list grouping category (AI-assigned or manual)"
+    },
     "tags": {
       "type": "array",
       "items": {
