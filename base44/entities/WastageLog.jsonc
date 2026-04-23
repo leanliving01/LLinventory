@@ -1,0 +1,46 @@
+{
+  "name": "WastageLog",
+  "type": "object",
+  "properties": {
+    "wastage_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of wastage capture"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "submitted",
+        "locked"
+      ],
+      "default": "open",
+      "description": "Wastage log status"
+    },
+    "submitted_by": {
+      "type": "string",
+      "description": "User who submitted"
+    },
+    "submitted_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "locked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "lock_override_by": {
+      "type": "string",
+      "description": "Manager who overrode the lock"
+    },
+    "total_rand_value": {
+      "type": "number",
+      "default": 0,
+      "description": "Total wastage value in ZAR"
+    }
+  },
+  "required": [
+    "wastage_date",
+    "status"
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "name": "WastageLine",
+  "type": "object",
+  "properties": {
+    "wastage_log_id": {
+      "type": "string",
+      "description": "FK to WastageLog"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Denormalized name"
+    },
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized SKU"
+    },
+    "qty": {
+      "type": "number",
+      "description": "Quantity wasted"
+    },
+    "uom": {
+      "type": "string",
+      "description": "Unit of measure"
+    },
+    "waste_type": {
+      "type": "string",
+      "enum": [
+        "usable",
+        "unusable"
+      ],
+      "description": "Type of waste"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Why it was wasted"
+    },
+    "rand_value": {
+      "type": "number",
+      "default": 0,
+      "description": "cost_avg \u00d7 qty"
+    }
+  },
+  "required": [
+    "wastage_log_id",
+    "product_id",
+    "qty",
+    "uom",
+    "waste_type"
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "name": "Supplier",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Supplier name"
+    },
+    "contact_name": {
+      "type": "string",
+      "description": "Primary contact"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Phone number"
+    },
+    "email": {
+      "type": "string",
+      "description": "Email address"
+    },
+    "payment_terms": {
+      "type": "string",
+      "description": "e.g. 30d EOM"
+    },
+    "tax_id": {
+      "type": "string",
+      "description": "VAT registration number"
+    },
+    "default_tax_rule": {
+      "type": "string",
+      "description": "Default tax rule"
+    },
+    "billing_address": {
+      "type": "string",
+      "description": "Billing address"
+    },
+    "shipping_address": {
+      "type": "string",
+      "description": "Shipping address"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive"
+      ],
+      "default": "active",
+      "description": "Supplier status"
+    },
+    "cin7_id": {
+      "type": "string",
+      "description": "Original Cin7 supplier ID"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

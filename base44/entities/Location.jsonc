@@ -1,0 +1,40 @@
+{
+  "name": "Location",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Location name"
+    },
+    "code": {
+      "type": "string",
+      "description": "Short code (e.g. DRY, COLD, FREEZE)"
+    },
+    "parent_location_id": {
+      "type": "string",
+      "description": "FK to parent Location"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "ambient",
+        "chilled",
+        "frozen",
+        "production",
+        "packing",
+        "dispatch"
+      ],
+      "description": "Zone type"
+    },
+    "is_stock_bearing": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether stock is tracked here (Production = false)"
+    }
+  },
+  "required": [
+    "name",
+    "code",
+    "type"
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "name": "Bom",
+  "type": "object",
+  "properties": {
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product (the output)"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Denormalized output product name"
+    },
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized output product SKU"
+    },
+    "bom_type": {
+      "type": "string",
+      "enum": [
+        "cook",
+        "portion",
+        "pack"
+      ],
+      "description": "Cook (raw\u2192WIP), Portion (WIP\u2192meal), Pack (meals\u2192package)"
+    },
+    "yield_qty": {
+      "type": "number",
+      "default": 1,
+      "description": "How many units this BOM yields"
+    },
+    "yield_uom": {
+      "type": "string",
+      "description": "Unit of measure for yield"
+    },
+    "version": {
+      "type": "number",
+      "default": 1,
+      "description": "BOM version number"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether this BOM version is active"
+    },
+    "cin7_id": {
+      "type": "string",
+      "description": "Original Cin7 BOM ID for migration"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Notes about this recipe"
+    }
+  },
+  "required": [
+    "product_id",
+    "bom_type"
+  ]
+}

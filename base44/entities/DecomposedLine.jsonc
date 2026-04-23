@@ -1,0 +1,41 @@
+{
+  "name": "DecomposedLine",
+  "type": "object",
+  "properties": {
+    "sales_order_id": {
+      "type": "string",
+      "description": "FK to SalesOrder"
+    },
+    "sales_order_line_id": {
+      "type": "string",
+      "description": "FK to SalesOrderLine"
+    },
+    "meal_product_id": {
+      "type": "string",
+      "description": "FK to Product (the meal)"
+    },
+    "meal_sku": {
+      "type": "string"
+    },
+    "meal_name": {
+      "type": "string"
+    },
+    "qty": {
+      "type": "number",
+      "description": "Quantity of this meal needed"
+    },
+    "picked_qty": {
+      "type": "number",
+      "default": 0
+    },
+    "packed_qty": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "sales_order_id",
+    "meal_product_id",
+    "qty"
+  ]
+}

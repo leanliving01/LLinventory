@@ -1,0 +1,150 @@
+{
+  "name": "Product",
+  "type": "object",
+  "properties": {
+    "sku": {
+      "type": "string",
+      "description": "Unique SKU code"
+    },
+    "name": {
+      "type": "string",
+      "description": "Product name"
+    },
+    "barcode": {
+      "type": "string",
+      "description": "Code128 barcode"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "raw",
+        "packaging",
+        "wip_bulk",
+        "finished_meal",
+        "supplement",
+        "package",
+        "sauce",
+        "solo_serve",
+        "bundle",
+        "service"
+      ],
+      "description": "Product type"
+    },
+    "category": {
+      "type": "string",
+      "description": "Free text category from Cin7"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Product tags"
+    },
+    "stock_uom": {
+      "type": "string",
+      "enum": [
+        "g",
+        "kg",
+        "ml",
+        "L",
+        "pcs",
+        "box"
+      ],
+      "description": "Stock unit of measure"
+    },
+    "purchase_uom": {
+      "type": "string",
+      "description": "Purchase unit (e.g. Box of 10kg)"
+    },
+    "purchase_to_stock_factor": {
+      "type": "number",
+      "description": "Conversion factor purchase UoM \u2192 stock UoM"
+    },
+    "recipe_uom": {
+      "type": "string",
+      "description": "Recipe unit if different from stock_uom"
+    },
+    "default_location_id": {
+      "type": "string",
+      "description": "FK to Location"
+    },
+    "cost_avg": {
+      "type": "number",
+      "default": 0,
+      "description": "Weighted average cost (ZAR)"
+    },
+    "price": {
+      "type": "number",
+      "default": 0,
+      "description": "Selling price (ZAR)"
+    },
+    "min_before_reorder": {
+      "type": "number",
+      "default": 0,
+      "description": "Reorder point"
+    },
+    "reorder_qty": {
+      "type": "number",
+      "default": 0,
+      "description": "Reorder quantity"
+    },
+    "par_level": {
+      "type": "number",
+      "default": 0,
+      "description": "Production target on-hand"
+    },
+    "supplier_id": {
+      "type": "string",
+      "description": "FK to Supplier"
+    },
+    "supplier_sku": {
+      "type": "string",
+      "description": "Supplier SKU code"
+    },
+    "shopify_product_id": {
+      "type": "string",
+      "description": "Shopify product ID"
+    },
+    "shopify_variant_id": {
+      "type": "string",
+      "description": "Shopify variant ID"
+    },
+    "weight_g": {
+      "type": "number",
+      "description": "Weight in grams"
+    },
+    "description": {
+      "type": "string",
+      "description": "Product description"
+    },
+    "internal_note": {
+      "type": "string",
+      "description": "Internal notes"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "archived"
+      ],
+      "default": "active",
+      "description": "Product status"
+    },
+    "parent_product_id": {
+      "type": "string",
+      "description": "FK to parent Product for UoM variants"
+    },
+    "cin7_id": {
+      "type": "string",
+      "description": "Original Cin7 product ID for migration tracking"
+    }
+  },
+  "required": [
+    "sku",
+    "name",
+    "type",
+    "stock_uom"
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "name": "ImportLog",
+  "type": "object",
+  "properties": {
+    "import_type": {
+      "type": "string",
+      "enum": [
+        "products",
+        "boms",
+        "suppliers",
+        "stock",
+        "full"
+      ],
+      "description": "What was imported"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "running",
+        "completed",
+        "failed",
+        "completed_with_warnings"
+      ],
+      "description": "Import status"
+    },
+    "total_records": {
+      "type": "number",
+      "default": 0,
+      "description": "Total records processed"
+    },
+    "created_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Records created"
+    },
+    "updated_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Records updated"
+    },
+    "skipped_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Records skipped (already exist)"
+    },
+    "error_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Records that errored"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Warning messages"
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Error messages"
+    },
+    "details": {
+      "type": "string",
+      "description": "JSON detail log of mapping decisions"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the import started"
+    },
+    "finished_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the import finished"
+    }
+  },
+  "required": [
+    "import_type",
+    "status"
+  ]
+}

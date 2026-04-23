@@ -1,0 +1,54 @@
+{
+  "name": "StockOnHand",
+  "type": "object",
+  "properties": {
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product"
+    },
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized SKU"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Denormalized name"
+    },
+    "location_id": {
+      "type": "string",
+      "description": "FK to Location"
+    },
+    "location_name": {
+      "type": "string",
+      "description": "Denormalized location name"
+    },
+    "qty_on_hand": {
+      "type": "number",
+      "default": 0,
+      "description": "Derived: sum of all movements"
+    },
+    "qty_committed": {
+      "type": "number",
+      "default": 0,
+      "description": "Committed to open orders"
+    },
+    "qty_available": {
+      "type": "number",
+      "default": 0,
+      "description": "on_hand - committed"
+    },
+    "uom": {
+      "type": "string",
+      "description": "Unit of measure"
+    },
+    "last_updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last recalculation timestamp"
+    }
+  },
+  "required": [
+    "product_id",
+    "location_id"
+  ]
+}

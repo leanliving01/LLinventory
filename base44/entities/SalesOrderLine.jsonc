@@ -1,0 +1,38 @@
+{
+  "name": "SalesOrderLine",
+  "type": "object",
+  "properties": {
+    "sales_order_id": {
+      "type": "string",
+      "description": "FK to SalesOrder"
+    },
+    "shopify_variant_id": {
+      "type": "string"
+    },
+    "sku": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "qty": {
+      "type": "number"
+    },
+    "unit_price": {
+      "type": "number"
+    },
+    "line_total": {
+      "type": "number",
+      "default": 0
+    },
+    "our_product_id": {
+      "type": "string",
+      "description": "FK to Product (matched)"
+    }
+  },
+  "required": [
+    "sales_order_id",
+    "sku",
+    "qty"
+  ]
+}

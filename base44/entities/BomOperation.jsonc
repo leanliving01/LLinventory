@@ -1,0 +1,41 @@
+{
+  "name": "BomOperation",
+  "type": "object",
+  "properties": {
+    "bom_id": {
+      "type": "string",
+      "description": "FK to Bom"
+    },
+    "step_no": {
+      "type": "number",
+      "description": "Step sequence number"
+    },
+    "name": {
+      "type": "string",
+      "description": "Step name (e.g. Marinate, Grill)"
+    },
+    "station": {
+      "type": "string",
+      "enum": [
+        "prep",
+        "cook",
+        "portion"
+      ],
+      "description": "Which station handles this step"
+    },
+    "cycle_time_min": {
+      "type": "number",
+      "description": "Estimated time in minutes"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Instructions for this step"
+    }
+  },
+  "required": [
+    "bom_id",
+    "step_no",
+    "name",
+    "station"
+  ]
+}

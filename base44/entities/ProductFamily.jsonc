@@ -1,0 +1,36 @@
+{
+  "name": "ProductFamily",
+  "type": "object",
+  "properties": {
+    "family_sku": {
+      "type": "string",
+      "description": "Family SKU prefix (e.g. MenLeaMus)"
+    },
+    "family_name": {
+      "type": "string",
+      "description": "Display name (e.g. Men's Lean Muscle)"
+    },
+    "option_name": {
+      "type": "string",
+      "description": "Option label (e.g. Pack size)"
+    },
+    "option_values": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Possible values (e.g. ['15','30','60'])"
+    },
+    "variant_product_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Product IDs belonging to this family"
+    }
+  },
+  "required": [
+    "family_sku",
+    "family_name"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "name": "Setting",
+  "type": "object",
+  "properties": {
+    "key": {
+      "type": "string",
+      "description": "Setting key"
+    },
+    "value": {
+      "type": "string",
+      "description": "Setting value (JSON-encoded for complex values)"
+    },
+    "group": {
+      "type": "string",
+      "enum": [
+        "org",
+        "tax",
+        "shopify",
+        "cin7",
+        "production",
+        "alerts"
+      ],
+      "description": "Settings group"
+    },
+    "label": {
+      "type": "string",
+      "description": "Human-readable label"
+    }
+  },
+  "required": [
+    "key",
+    "value",
+    "group"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "name": "BomComponent",
+  "type": "object",
+  "properties": {
+    "bom_id": {
+      "type": "string",
+      "description": "FK to Bom"
+    },
+    "input_product_id": {
+      "type": "string",
+      "description": "FK to Product (the input ingredient/meal)"
+    },
+    "input_product_name": {
+      "type": "string",
+      "description": "Denormalized input product name"
+    },
+    "input_product_sku": {
+      "type": "string",
+      "description": "Denormalized input product SKU"
+    },
+    "qty": {
+      "type": "number",
+      "description": "Quantity required"
+    },
+    "uom": {
+      "type": "string",
+      "description": "Unit of measure for this component"
+    },
+    "is_consumable": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this is a consumable (oil, water, etc.)"
+    }
+  },
+  "required": [
+    "bom_id",
+    "input_product_id",
+    "qty",
+    "uom"
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "name": "NewStockTake",
+  "type": "object",
+  "properties": {
+    "stocktake_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of the stock take"
+    },
+    "location_id": {
+      "type": "string",
+      "description": "FK to Location"
+    },
+    "location_name": {
+      "type": "string",
+      "description": "Denormalized location name"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "in_progress",
+        "completed"
+      ],
+      "default": "draft"
+    },
+    "manager_override": {
+      "type": "boolean",
+      "default": false
+    },
+    "override_by": {
+      "type": "string"
+    },
+    "override_reason": {
+      "type": "string"
+    },
+    "total_variance_rand": {
+      "type": "number",
+      "default": 0,
+      "description": "Total variance in ZAR"
+    },
+    "total_lines": {
+      "type": "number",
+      "default": 0
+    },
+    "uncounted_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of products not yet counted"
+    }
+  },
+  "required": [
+    "stocktake_date",
+    "location_id",
+    "status"
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "name": "StockTakeLine",
+  "type": "object",
+  "properties": {
+    "stocktake_id": {
+      "type": "string",
+      "description": "FK to NewStockTake"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product"
+    },
+    "product_sku": {
+      "type": "string"
+    },
+    "product_name": {
+      "type": "string"
+    },
+    "system_qty": {
+      "type": "number",
+      "description": "System stock at time of count"
+    },
+    "counted_qty": {
+      "type": "number",
+      "description": "Actual counted quantity"
+    },
+    "variance_qty": {
+      "type": "number",
+      "default": 0
+    },
+    "variance_rand": {
+      "type": "number",
+      "default": 0,
+      "description": "variance_qty \u00d7 cost_avg"
+    },
+    "counted_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "counted_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "stocktake_id",
+    "product_id",
+    "counted_qty"
+  ]
+}

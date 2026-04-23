@@ -1,0 +1,92 @@
+{
+  "name": "SalesOrder",
+  "type": "object",
+  "properties": {
+    "shopify_order_id": {
+      "type": "string",
+      "description": "Shopify order ID \u2014 this IS our order number"
+    },
+    "customer_name": {
+      "type": "string"
+    },
+    "customer_email": {
+      "type": "string"
+    },
+    "customer_phone": {
+      "type": "string"
+    },
+    "customer_address": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "picking",
+        "packed",
+        "shipped",
+        "cancelled",
+        "refunded"
+      ],
+      "default": "pending"
+    },
+    "payment_status": {
+      "type": "string",
+      "enum": [
+        "paid",
+        "pending",
+        "refunded"
+      ],
+      "default": "pending"
+    },
+    "fulfillment_status": {
+      "type": "string",
+      "enum": [
+        "unfulfilled",
+        "fulfilled",
+        "partial"
+      ],
+      "default": "unfulfilled"
+    },
+    "order_date": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "total_amount": {
+      "type": "number",
+      "default": 0
+    },
+    "picking_started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "packed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "shipped_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "courier": {
+      "type": "string"
+    },
+    "tracking_number": {
+      "type": "string"
+    },
+    "shipping_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "notes": {
+      "type": "string"
+    },
+    "synced_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "shopify_order_id"
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "name": "StockMovement",
+  "type": "object",
+  "properties": {
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product"
+    },
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized SKU"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Denormalized name"
+    },
+    "from_location_id": {
+      "type": "string",
+      "description": "FK to Location (null for receipts)"
+    },
+    "to_location_id": {
+      "type": "string",
+      "description": "FK to Location (null for consumption)"
+    },
+    "qty": {
+      "type": "number",
+      "description": "Quantity moved (always positive)"
+    },
+    "uom": {
+      "type": "string",
+      "description": "Unit of measure"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "receipt",
+        "transfer",
+        "production_consume",
+        "production_yield",
+        "sale_fulfillment",
+        "wastage_usable",
+        "wastage_unusable",
+        "stocktake_adjustment",
+        "return",
+        "write_off"
+      ],
+      "description": "Movement reason"
+    },
+    "ref_type": {
+      "type": "string",
+      "description": "Reference entity type (e.g. production_run, purchase_order)"
+    },
+    "ref_id": {
+      "type": "string",
+      "description": "Reference entity ID"
+    },
+    "unit_cost_at_movement": {
+      "type": "number",
+      "default": 0,
+      "description": "Snapshot cost at time of movement (ZAR)"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Movement notes"
+    }
+  },
+  "required": [
+    "product_id",
+    "qty",
+    "uom",
+    "reason"
+  ]
+}

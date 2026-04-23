@@ -1,0 +1,80 @@
+{
+  "name": "PurchaseOrder",
+  "type": "object",
+  "properties": {
+    "po_number": {
+      "type": "string",
+      "description": "Auto: PO-YYYY-NNNN"
+    },
+    "supplier_id": {
+      "type": "string",
+      "description": "FK to Supplier"
+    },
+    "supplier_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "location_id": {
+      "type": "string",
+      "description": "Delivery location FK"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "confirmed",
+        "partially_received",
+        "received",
+        "invoiced",
+        "paid",
+        "cancelled"
+      ],
+      "default": "draft",
+      "description": "PO status"
+    },
+    "order_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "expected_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "supplier_invoice_number": {
+      "type": "string"
+    },
+    "subtotal": {
+      "type": "number",
+      "default": 0
+    },
+    "tax": {
+      "type": "number",
+      "default": 0
+    },
+    "total": {
+      "type": "number",
+      "default": 0
+    },
+    "currency": {
+      "type": "string",
+      "default": "ZAR"
+    },
+    "payment_status": {
+      "type": "string",
+      "enum": [
+        "unpaid",
+        "paid",
+        "overdue"
+      ],
+      "default": "unpaid"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "po_number",
+    "supplier_id",
+    "status"
+  ]
+}
