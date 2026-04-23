@@ -22,7 +22,9 @@ import {
   Truck,
   CookingPot,
   PlayCircle,
-  Trash2
+  Trash2,
+  ArrowLeftRight,
+  PackageCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
@@ -38,6 +40,8 @@ const navItems = [
     label: 'Inventory', icon: Warehouse,
     children: [
       { label: 'New Production', path: '/stock/new-production', icon: Plus },
+      { label: 'Receive Stock', path: '/stock/receive', icon: PackageCheck },
+      { label: 'Transfer Stock', path: '/stock/transfer', icon: ArrowLeftRight },
       { label: 'Stock Take', path: '/stock/stock-take', icon: ClipboardCheck },
       { label: 'Wastage', path: '/stock/wastage', icon: Trash2 },
     ]

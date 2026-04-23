@@ -26,6 +26,9 @@ import SettingsPage from '@/pages/SettingsPage';
 import Catalog from '@/pages/Catalog';
 import Recipes from '@/pages/Recipes';
 import Suppliers from '@/pages/Suppliers';
+import StockTransfer from '@/pages/StockTransfer';
+import Receiving from '@/pages/Receiving';
+import StockTakeNew from '@/pages/StockTakeNew';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -59,7 +62,10 @@ const AuthenticatedApp = () => {
         <Route path="/production/run/:runId" element={<ProductionRunDetail />} />
         <Route path="/stock/new-production" element={<NewProduction />} />
         <Route path="/stock/wastage" element={<Wastage />} />
-        <Route path="/stock/stock-take" element={<StockTake />} />
+        <Route path="/stock/stock-take" element={<StockTakeNew />} />
+        <Route path="/stock/stock-take-legacy" element={<StockTake />} />
+        <Route path="/stock/transfer" element={<StockTransfer />} />
+        <Route path="/stock/receive" element={<Receiving />} />
         <Route path="/shopify" element={<ShopifySync />} />
         <Route path="/master-data/meals" element={<MasterDataMeals />} />
         <Route path="/master-data/skus" element={<MasterDataSKUs />} />
