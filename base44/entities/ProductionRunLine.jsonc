@@ -2,60 +2,60 @@
   "name": "ProductionRunLine",
   "type": "object",
   "properties": {
-    "production_run_id": {
+    "run_id": {
       "type": "string",
-      "description": "Reference to ProductionRun ID"
+      "description": "FK to ProductionRun"
     },
-    "sku_id": {
+    "product_id": {
       "type": "string",
-      "description": "Reference to SKU ID"
+      "description": "FK to Product (finished_meal)"
     },
-    "sku_display_name": {
+    "product_name": {
       "type": "string",
-      "description": "Denormalized SKU display name"
+      "description": "Denormalized meal name"
     },
-    "package_type": {
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized SKU"
+    },
+    "planned_qty": {
+      "type": "number",
+      "description": "Quantity to produce"
+    },
+    "actual_qty": {
+      "type": "number",
+      "default": 0,
+      "description": "Actual produced (filled on completion)"
+    },
+    "status": {
       "type": "string",
       "enum": [
-        "MWL",
-        "MLM",
-        "WWL",
-        "WLM",
-        "LOW_CARB"
+        "pending",
+        "in_progress",
+        "done"
       ],
-      "description": "Package type"
+      "default": "pending",
+      "description": "Line status"
     },
-    "stock_on_hand": {
+    "soh_at_plan": {
       "type": "number",
-      "description": "Stock on hand at time of calculation"
+      "default": 0,
+      "description": "Snapshot: stock on hand when planned"
     },
-    "committed_stock": {
+    "committed_at_plan": {
       "type": "number",
-      "description": "Committed stock from orders"
+      "default": 0,
+      "description": "Snapshot: committed stock when planned"
     },
-    "available_stock": {
+    "par_at_plan": {
       "type": "number",
-      "description": "Available stock (stock_on_hand - committed_stock)"
-    },
-    "par_level": {
-      "type": "number",
-      "description": "Par level for this SKU"
-    },
-    "recommended_production": {
-      "type": "number",
-      "description": "System-recommended production quantity"
-    },
-    "final_production_quantity": {
-      "type": "number",
-      "description": "Admin-overridden final quantity"
-    },
-    "notes": {
-      "type": "string",
-      "description": "Optional notes"
+      "default": 0,
+      "description": "Snapshot: par level when planned"
     }
   },
   "required": [
-    "production_run_id",
-    "sku_id"
+    "run_id",
+    "product_id",
+    "planned_qty"
   ]
 }

@@ -3,11 +3,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Factory, Search } from 'lucide-react';
+import { Factory, Search, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import ProductionTable from '@/components/production/ProductionTable';
-import { PACKAGE_TYPES, GOAL_PACKAGE_TYPES, LOW_CARB_PACKAGE_TYPES, groupSkusByMeal } from '@/lib/mealGrouping';
+import RecommendationTable from '@/components/production/RecommendationTable';
+import { groupMealsForProduction, VARIANT_CODES } from '@/lib/productionGrouping';
 
 export default function ProductionPlanning() {
   const queryClient = useQueryClient();
@@ -15,212 +15,227 @@ export default function ProductionPlanning() {
   const [overrides, setOverrides] = useState({});
   const [generating, setGenerating] = useState(false);
 
-  const { data: skus = [] } = useQuery({
-    queryKey: ['skus'],
-    queryFn: () => base44.entities.SKU.list('-sku_code', 200),
+  // Fetch all finished meals
+  const { data: finishedMeals = [], isLoading: loadingMeals } = useQuery({
+    queryKey: ['finished-meals'],
+    queryFn: () => base44.entities.Product.filter({ type: 'finished_meal', status: 'active' }, '-sku', 500),
   });
 
-  const { data: meals = [] } = useQuery({
-    queryKey: ['meals'],
-    queryFn: () => base44.entities.Meal.list('-created_date', 50),
+  // Fetch stock on hand (committed = 0 until Phase 2)
+  const { data: stockRecords = [] } = useQuery({
+    queryKey: ['stock-on-hand'],
+    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 1000),
   });
 
-  const { data: parLevels = [] } = useQuery({
-    queryKey: ['parLevels'],
-    queryFn: () => base44.entities.ParLevel.list('-created_date', 200),
-  });
-
-  const { data: stockSnapshots = [] } = useQuery({
-    queryKey: ['latestStock'],
-    queryFn: () => base44.entities.StockSnapshot.list('-created_date', 500),
-  });
-
-  const { data: committedDemand = [] } = useQuery({
-    queryKey: ['committedDemand'],
-    queryFn: () => base44.entities.CommittedDemand.list('-created_date', 500),
-  });
-
-  const latestStockBySkuId = useMemo(() => {
+  // Build stock lookup: product_id → { qty_on_hand, qty_committed, qty_available }
+  const stockMap = useMemo(() => {
     const map = {};
-    stockSnapshots.forEach(snap => {
-      if (!map[snap.sku_id] || new Date(snap.created_date) > new Date(map[snap.sku_id].created_date)) {
-        map[snap.sku_id] = snap;
-      }
+    stockRecords.forEach(s => {
+      const pid = s.product_id;
+      if (!map[pid]) map[pid] = { qty_on_hand: 0, qty_committed: 0, qty_available: 0 };
+      map[pid].qty_on_hand += s.qty_on_hand || 0;
+      map[pid].qty_committed += s.qty_committed || 0;
+      map[pid].qty_available += s.qty_available || 0;
     });
     return map;
-  }, [stockSnapshots]);
+  }, [stockRecords]);
 
-  const parBySkuId = useMemo(() => {
-    const map = {};
-    parLevels.forEach(p => { map[p.sku_id] = p.par_level; });
-    return map;
-  }, [parLevels]);
+  // Group meals into rows
+  const { goalRows, lowCarbRows } = useMemo(() => {
+    return groupMealsForProduction(finishedMeals);
+  }, [finishedMeals]);
 
-  const demandBySkuId = useMemo(() => {
-    const map = {};
-    committedDemand.forEach(d => {
-      map[d.sku_id] = (map[d.sku_id] || 0) + d.quantity;
-    });
-    return map;
-  }, [committedDemand]);
+  // Filter by search
+  const filteredGoal = useMemo(() => {
+    if (!search) return goalRows;
+    const s = search.toLowerCase();
+    return goalRows.filter(r => r.baseName.toLowerCase().includes(s));
+  }, [goalRows, search]);
 
-  const mealRows = useMemo(() => {
-    const groups = groupSkusByMeal(skus, meals);
-    const filtered = search
-      ? groups.filter(g => g.mealName.toLowerCase().includes(search.toLowerCase()))
-      : groups;
+  const filteredLC = useMemo(() => {
+    if (!search) return lowCarbRows;
+    const s = search.toLowerCase();
+    return lowCarbRows.filter(r => r.baseName.toLowerCase().includes(s));
+  }, [lowCarbRows, search]);
 
-    return filtered.map(group => {
-      const dataByType = {};
-      PACKAGE_TYPES.forEach(pt => {
-        const sku = group.skusByType[pt];
-        if (!sku) return;
-        const soh = latestStockBySkuId[sku.id]?.stock_on_hand || 0;
-        const committed = demandBySkuId[sku.id] || 0;
-        const par = parBySkuId[sku.id] || 0;
-        const available = soh - committed;
-        const rawNeeded = Math.max(0, par - available);
-        const recommended = rawNeeded < 10 ? 0 : rawNeeded;
-
-        dataByType[pt] = {
-          skuId: sku.id,
-          soh,
-          committed,
-          available,
-          par,
-          recommended,
-          belowPar: available < par && par > 0,
-        };
-      });
-      return { mealName: group.mealName, dataByType };
-    });
-  }, [skus, meals, search, latestStockBySkuId, demandBySkuId, parBySkuId]);
-
+  // Calculate totals
   const { totalToProduce, belowParCount } = useMemo(() => {
     let total = 0;
     let below = 0;
-    mealRows.forEach(row => {
-      PACKAGE_TYPES.forEach(pt => {
-        const d = row.dataByType[pt];
-        if (!d) return;
-        const finalQty = overrides[d.skuId] !== undefined ? Number(overrides[d.skuId]) : d.recommended;
-        total += finalQty;
-        if (d.belowPar) below++;
-      });
-    });
-    return { totalToProduce: total, belowParCount: below };
-  }, [mealRows, overrides]);
 
-  const handleGenerateRun = async () => {
+    const countRow = (row, codes) => {
+      codes.forEach(code => {
+        const p = row.variants[code];
+        if (!p) return;
+        const soh = stockMap[p.id]?.qty_on_hand || 0;
+        const committed = stockMap[p.id]?.qty_committed || 0;
+        const available = soh - committed;
+        const par = p.par_level || 0;
+        const recommended = Math.max(0, par - available);
+        const finalQty = overrides[p.id] !== undefined ? Number(overrides[p.id]) : recommended;
+        total += finalQty;
+        if (par > 0 && available < par) below++;
+      });
+    };
+
+    goalRows.forEach(r => countRow(r, VARIANT_CODES));
+    lowCarbRows.forEach(r => countRow(r, ['LC']));
+
+    return { totalToProduce: total, belowParCount: below };
+  }, [goalRows, lowCarbRows, stockMap, overrides]);
+
+  const handleOverride = (productId, value) => {
+    setOverrides(prev => ({ ...prev, [productId]: value }));
+  };
+
+  // Generate a production run (§5.1.2)
+  const handleConfirmRun = async () => {
     setGenerating(true);
     const today = format(new Date(), 'yyyy-MM-dd');
+    const runNumber = `RUN-${format(new Date(), 'yyyy')}-${String(Date.now()).slice(-4)}`;
 
-    const run = await base44.entities.ProductionRun.create({
-      run_date: today,
-      status: 'draft',
-      total_units_to_produce: totalToProduce,
-      total_skus_below_par: belowParCount,
-    });
-
+    // Collect all lines with qty > 0
     const lines = [];
-    mealRows.forEach(row => {
-      PACKAGE_TYPES.forEach(pt => {
-        const d = row.dataByType[pt];
-        if (!d) return;
-        const finalQty = overrides[d.skuId] !== undefined ? Number(overrides[d.skuId]) : d.recommended;
-        if (finalQty > 0) {
-          const sku = skus.find(s => s.id === d.skuId);
-          lines.push({
-            production_run_id: run.id,
-            sku_id: d.skuId,
-            sku_display_name: sku?.display_name || '',
-            package_type: pt,
-            stock_on_hand: d.soh,
-            committed_stock: d.committed,
-            available_stock: d.available,
-            par_level: d.par,
-            recommended_production: d.recommended,
-            final_production_quantity: finalQty,
-          });
-        }
+    const collectLines = (rows, codes) => {
+      rows.forEach(row => {
+        codes.forEach(code => {
+          const p = row.variants[code];
+          if (!p) return;
+          const soh = stockMap[p.id]?.qty_on_hand || 0;
+          const committed = stockMap[p.id]?.qty_committed || 0;
+          const available = soh - committed;
+          const par = p.par_level || 0;
+          const recommended = Math.max(0, par - available);
+          const finalQty = overrides[p.id] !== undefined ? Number(overrides[p.id]) : recommended;
+          if (finalQty > 0) {
+            lines.push({
+              product_id: p.id,
+              product_name: p.name,
+              product_sku: p.sku,
+              planned_qty: finalQty,
+              soh_at_plan: soh,
+              committed_at_plan: committed,
+              par_at_plan: par,
+              status: 'pending',
+            });
+          }
+        });
       });
-    });
+    };
 
-    if (lines.length > 0) {
-      await base44.entities.ProductionRunLine.bulkCreate(lines);
+    collectLines(goalRows, VARIANT_CODES);
+    collectLines(lowCarbRows, ['LC']);
+
+    if (lines.length === 0) {
+      toast.error('No meals to produce — all quantities are zero');
+      setGenerating(false);
+      return;
     }
 
-    queryClient.invalidateQueries({ queryKey: ['productionRuns'] });
-    toast.success(`Production run created for ${today} with ${lines.length} SKUs`);
+    // Create the run
+    const run = await base44.entities.ProductionRun.create({
+      run_number: runNumber,
+      run_date: today,
+      status: 'scheduled',
+      total_lines: lines.length,
+      total_units: lines.reduce((s, l) => s + l.planned_qty, 0),
+    });
+
+    // Attach run_id and bulk create lines
+    const linesWithRun = lines.map(l => ({ ...l, run_id: run.id }));
+    await base44.entities.ProductionRunLine.bulkCreate(linesWithRun);
+
+    queryClient.invalidateQueries({ queryKey: ['production-runs'] });
+    toast.success(`Production run ${runNumber} created — ${lines.length} meals, ${lines.reduce((s, l) => s + l.planned_qty, 0)} units`);
+    setOverrides({});
     setGenerating(false);
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Production Planning</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Daily production recommendations — {format(new Date(), 'dd MMM yyyy')}
+            {format(new Date(), 'EEEE, dd MMM yyyy')} — par-based recommendations
           </p>
         </div>
         <Button
-          onClick={handleGenerateRun}
+          onClick={handleConfirmRun}
           disabled={generating || totalToProduce === 0}
-          className="gap-2"
+          size="lg"
+          className="gap-2 h-12 px-6 text-base"
         >
-          <Factory className="w-4 h-4" />
-          Generate Run ({totalToProduce.toLocaleString()} units)
+          <Factory className="w-5 h-5" />
+          {generating ? 'Creating...' : `Confirm Run (${totalToProduce} units)`}
         </Button>
       </div>
 
+      {/* Summary strip */}
       <div className="flex items-center gap-6 bg-card border border-border rounded-xl px-6 py-4">
         <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Below Par</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Below Par</p>
           <p className="text-lg font-bold text-red-600">{belowParCount}</p>
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Production</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Total to Produce</p>
           <p className="text-lg font-bold text-foreground">{totalToProduce.toLocaleString()}</p>
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Meals Shown</p>
-          <p className="text-lg font-bold text-foreground">{mealRows.length}</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Goal Meals</p>
+          <p className="text-lg font-bold text-foreground">{goalRows.length}</p>
+        </div>
+        <div className="w-px h-8 bg-border" />
+        <div>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Low Carb</p>
+          <p className="text-lg font-bold text-foreground">{lowCarbRows.length}</p>
         </div>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder="Search meals..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="pl-9"
-        />
+      {/* Search */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search meals..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        {search && (
+          <Button variant="ghost" size="sm" onClick={() => setSearch('')} className="gap-1">
+            <X className="w-3.5 h-3.5" /> Clear
+          </Button>
+        )}
       </div>
 
-      <ProductionTable
-        title="Goal-Related Meals"
-        mealRows={mealRows.filter(r => {
-          // A row is goal-related if it has any SKU in GOAL_PACKAGE_TYPES
-          return GOAL_PACKAGE_TYPES.some(pt => r.dataByType[pt]);
-        })}
-        packageTypes={GOAL_PACKAGE_TYPES}
-        overrides={overrides}
-        setOverrides={setOverrides}
-      />
+      {loadingMeals ? (
+        <div className="text-center py-12 text-sm text-muted-foreground">Loading meals...</div>
+      ) : (
+        <>
+          <RecommendationTable
+            title="Goal-Related Meals"
+            rows={filteredGoal}
+            variantCodes={VARIANT_CODES}
+            stockMap={stockMap}
+            overrides={overrides}
+            onOverride={handleOverride}
+          />
 
-      <ProductionTable
-        title="Low Carb Meals"
-        mealRows={mealRows.filter(r => {
-          return LOW_CARB_PACKAGE_TYPES.some(pt => r.dataByType[pt]);
-        })}
-        packageTypes={LOW_CARB_PACKAGE_TYPES}
-        overrides={overrides}
-        setOverrides={setOverrides}
-      />
+          <RecommendationTable
+            title="Low Carb Meals"
+            rows={filteredLC}
+            variantCodes={['LC']}
+            stockMap={stockMap}
+            overrides={overrides}
+            onOverride={handleOverride}
+          />
+        </>
+      )}
     </div>
   );
 }

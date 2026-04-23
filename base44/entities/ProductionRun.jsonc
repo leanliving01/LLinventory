@@ -2,6 +2,10 @@
   "name": "ProductionRun",
   "type": "object",
   "properties": {
+    "run_number": {
+      "type": "string",
+      "description": "Auto: RUN-YYYY-NNNN"
+    },
     "run_date": {
       "type": "string",
       "format": "date",
@@ -11,22 +15,27 @@
       "type": "string",
       "enum": [
         "draft",
-        "finalized"
+        "scheduled",
+        "in_progress",
+        "completed",
+        "cancelled"
       ],
       "default": "draft",
-      "description": "Status of the production run"
+      "description": "Run lifecycle status"
+    },
+    "total_lines": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of meal lines"
+    },
+    "total_units": {
+      "type": "number",
+      "default": 0,
+      "description": "Total units to produce"
     },
     "notes": {
       "type": "string",
       "description": "Optional notes"
-    },
-    "total_units_to_produce": {
-      "type": "number",
-      "description": "Total units recommended for production"
-    },
-    "total_skus_below_par": {
-      "type": "number",
-      "description": "Number of SKUs below par"
     }
   },
   "required": [
