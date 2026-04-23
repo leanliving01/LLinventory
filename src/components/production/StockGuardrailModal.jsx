@@ -1,28 +1,31 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, X, Ban, ArrowLeft } from 'lucide-react';
 
 /**
  * §5.1.8 Not-Enough-Stock Guardrail
- * Shows shortages before starting a run. User can proceed or cancel.
+ * HARD BLOCK — cannot start run with insufficient stock. No override.
  */
-export default function StockGuardrailModal({ shortages, onProceed, onCancel, loading }) {
+export default function StockGuardrailModal({ shortages, onCancel }) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-card border border-border rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col">
-        <div className="flex items-center gap-3 px-6 py-4 border-b border-border">
-          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
-            <AlertTriangle className="w-5 h-5 text-amber-600" />
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-destructive/30 bg-red-50 dark:bg-red-900/10 rounded-t-xl">
+          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+            <Ban className="w-5 h-5 text-red-600" />
           </div>
           <div className="flex-1">
-            <h2 className="text-lg font-bold text-foreground">Insufficient Stock Warning</h2>
-            <p className="text-xs text-muted-foreground">{shortages.length} ingredient{shortages.length !== 1 ? 's' : ''} below required quantity</p>
+            <h2 className="text-lg font-bold text-red-700 dark:text-red-400">Insufficient Stock — Cannot Start</h2>
+            <p className="text-xs text-red-600/80">{shortages.length} ingredient{shortages.length !== 1 ? 's' : ''} below required quantity</p>
           </div>
           <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-4 h-4" /></Button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
+          <p className="text-sm text-muted-foreground mb-3">
+            This run cannot start until all ingredients are available. Receive the missing stock or adjust the production plan.
+          </p>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
@@ -48,10 +51,9 @@ export default function StockGuardrailModal({ shortages, onProceed, onCancel, lo
         </div>
 
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border">
-          <Button variant="outline" onClick={onCancel}>Cancel — Don't Start</Button>
-          <Button onClick={onProceed} disabled={loading} className="bg-amber-600 hover:bg-amber-700 gap-1.5">
-            <AlertTriangle className="w-4 h-4" />
-            {loading ? 'Starting...' : 'Start Anyway'}
+          <Button onClick={onCancel} className="gap-1.5">
+            <ArrowLeft className="w-4 h-4" />
+            Go Back
           </Button>
         </div>
       </div>

@@ -1,8 +1,7 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, Pause, CheckCircle2, Clock } from 'lucide-react';
+import { Play, Pause, CheckCircle2, Clock, Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const STATUS_CONFIG = {
@@ -12,7 +11,57 @@ const STATUS_CONFIG = {
   done: { label: 'Done', icon: CheckCircle2, color: 'bg-green-100 text-green-700' },
 };
 
-export default function KanbanColumn({ station, tasks, onStatusChange, runId }) {
+function formatDuration(ms) {
+  if (!ms || ms <= 0) return '0:00';
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function TaskTimer({ task }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (task.status !== 'in_progress' || !task.started_at) return;
+    const start = new Date(task.started_at).getTime();
+    const tick = () => setElapsed(Date.now() - start);
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [task.status, task.started_at]);
+
+  if (task.status === 'in_progress' && task.started_at) {
+    return (
+      <span className="font-mono text-xs text-amber-700 dark:text-amber-400 tabular-nums">
+        ⏱ {formatDuration(elapsed)}
+      </span>
+    );
+  }
+
+  if (task.status === 'done' && task.started_at && task.finished_at) {
+    const duration = new Date(task.finished_at).getTime() - new Date(task.started_at).getTime();
+    return (
+      <span className="font-mono text-xs text-green-600 tabular-nums">
+        ✓ {formatDuration(duration)}
+      </span>
+    );
+  }
+
+  if (task.status === 'paused' && task.started_at) {
+    return (
+      <span className="font-mono text-xs text-blue-600 tabular-nums">
+        ⏸ paused
+      </span>
+    );
+  }
+
+  return null;
+}
+
+export default function KanbanColumn({ station, tasks, onStatusChange }) {
   const doneCount = tasks.filter(t => t.status === 'done').length;
   const activeCount = tasks.filter(t => t.status === 'in_progress').length;
 
@@ -50,31 +99,39 @@ export default function KanbanColumn({ station, tasks, onStatusChange, runId }) 
                     <Icon className="w-3 h-3 mr-1" />{config.label}
                   </Badge>
                 </div>
-                {task.qty && (
-                  <p className="text-xs text-muted-foreground">Qty: <strong>{task.qty}</strong></p>
-                )}
+                <div className="flex items-center gap-2">
+                  {task.qty && (
+                    <p className="text-xs text-muted-foreground">Qty: <strong>{task.qty}</strong></p>
+                  )}
+                  <div className="ml-auto"><TaskTimer task={task} /></div>
+                </div>
                 {task.notes && (
                   <p className="text-xs text-muted-foreground line-clamp-2">{task.notes}</p>
                 )}
                 <div className="flex items-center gap-1.5">
                   {task.status === 'pending' && (
-                    <Button size="sm" className="h-10 flex-1 gap-1 text-xs bg-amber-500 hover:bg-amber-600" onClick={() => onStatusChange(task.id, 'in_progress')}>
-                      <Play className="w-3.5 h-3.5" /> Start
+                    <Button size="sm" className="h-12 flex-1 gap-1.5 text-sm bg-amber-500 hover:bg-amber-600" onClick={() => onStatusChange(task.id, 'in_progress')}>
+                      <Play className="w-4 h-4" /> Start
                     </Button>
                   )}
                   {task.status === 'in_progress' && (
                     <>
-                      <Button size="sm" variant="outline" className="h-10 flex-1 gap-1 text-xs" onClick={() => onStatusChange(task.id, 'paused')}>
-                        <Pause className="w-3.5 h-3.5" /> Pause
+                      <Button size="sm" variant="outline" className="h-12 flex-1 gap-1.5 text-sm" onClick={() => onStatusChange(task.id, 'paused')}>
+                        <Pause className="w-4 h-4" /> Pause
                       </Button>
-                      <Button size="sm" className="h-10 flex-1 gap-1 text-xs bg-green-600 hover:bg-green-700" onClick={() => onStatusChange(task.id, 'done')}>
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Done
+                      <Button size="sm" className="h-12 flex-1 gap-1.5 text-sm bg-green-600 hover:bg-green-700" onClick={() => onStatusChange(task.id, 'done')}>
+                        <CheckCircle2 className="w-4 h-4" /> Done
                       </Button>
                     </>
                   )}
                   {task.status === 'paused' && (
-                    <Button size="sm" className="h-10 flex-1 gap-1 text-xs bg-amber-500 hover:bg-amber-600" onClick={() => onStatusChange(task.id, 'in_progress')}>
-                      <Play className="w-3.5 h-3.5" /> Resume
+                    <Button size="sm" className="h-12 flex-1 gap-1.5 text-sm bg-amber-500 hover:bg-amber-600" onClick={() => onStatusChange(task.id, 'in_progress')}>
+                      <Play className="w-4 h-4" /> Resume
+                    </Button>
+                  )}
+                  {task.status === 'done' && (
+                    <Button size="sm" variant="outline" className="h-12 flex-1 gap-1.5 text-sm text-amber-600 border-amber-300 hover:bg-amber-50" onClick={() => onStatusChange(task.id, 'undo')}>
+                      <Undo2 className="w-4 h-4" /> Undo Done
                     </Button>
                   )}
                 </div>

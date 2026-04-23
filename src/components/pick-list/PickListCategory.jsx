@@ -5,7 +5,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 
 export default function PickListCategory({ category, items, pickedState, onTogglePicked, onQtyChange }) {
-  const allPicked = items.every(i => pickedState[i.product.id]?.picked);
+  const allPicked = items.every(i => {
+    const s = pickedState[i.product.id];
+    return s?.picked && s?.qty && Number(s.qty) > 0;
+  });
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden print:break-inside-avoid print:rounded-none print:border-black">
@@ -17,58 +20,79 @@ export default function PickListCategory({ category, items, pickedState, onToggl
         <Badge variant="secondary" className="text-[10px]">{items.length} items</Badge>
         {allPicked && <Badge className="bg-green-100 text-green-700 text-[10px] ml-auto">✓ All picked</Badge>}
       </div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border">
-            <th className="text-left px-4 py-2 font-medium text-muted-foreground w-12 print:w-8">Pick</th>
-            <th className="text-left px-4 py-2 font-medium text-muted-foreground">SKU</th>
-            <th className="text-left px-4 py-2 font-medium text-muted-foreground">Ingredient</th>
-            <th className="text-right px-4 py-2 font-medium text-muted-foreground">Needed</th>
-            <th className="text-center px-4 py-2 font-medium text-muted-foreground w-28 print:hidden">Picked</th>
-            <th className="text-left px-4 py-2 font-medium text-muted-foreground w-14">UoM</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {items.map(item => {
-            const pid = item.product.id;
-            const state = pickedState[pid] || { picked: false, qty: '' };
-            return (
-              <tr
-                key={pid}
-                className={cn(
-                  "transition-colors print:leading-8",
-                  state.picked && "bg-green-50/60 dark:bg-green-900/10"
-                )}
-              >
-                <td className="px-4 py-2">
-                  <Checkbox
-                    checked={state.picked}
-                    onCheckedChange={() => onTogglePicked(pid, item.totalQty)}
-                    className="w-6 h-6 print:hidden"
-                  />
-                  <div className="hidden print:block w-5 h-5 border-2 border-black rounded" />
-                </td>
-                <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{item.product.sku}</td>
-                <td className={cn("px-4 py-2 font-medium", state.picked && "line-through text-muted-foreground")}>
-                  {item.product.name}
-                </td>
-                <td className="px-4 py-2 text-right font-bold tabular-nums">{item.totalQty.toLocaleString()}</td>
-                <td className="px-4 py-2 text-center print:hidden">
-                  <Input
-                    type="number"
-                    min="0"
-                    value={state.qty}
-                    placeholder={String(item.totalQty)}
-                    onChange={e => onQtyChange(pid, e.target.value)}
-                    className="w-24 h-9 text-right text-sm mx-auto"
-                  />
-                </td>
-                <td className="px-4 py-2 text-muted-foreground">{item.uom}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            <col className="w-14" />
+            <col className="w-24" />
+            <col />
+            <col className="w-28" />
+            <col className="w-28 print:hidden" />
+            <col className="w-16" />
+          </colgroup>
+          <thead>
+            <tr className="border-b border-border">
+              <th className="text-left px-4 py-2 font-medium text-muted-foreground">Pick</th>
+              <th className="text-left px-4 py-2 font-medium text-muted-foreground">SKU</th>
+              <th className="text-left px-4 py-2 font-medium text-muted-foreground">Ingredient</th>
+              <th className="text-right px-4 py-2 font-medium text-muted-foreground">Needed</th>
+              <th className="text-center px-4 py-2 font-medium text-muted-foreground print:hidden">Picked Qty</th>
+              <th className="text-left px-4 py-2 font-medium text-muted-foreground">UoM</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {items.map(item => {
+              const pid = item.product.id;
+              const state = pickedState[pid] || { picked: false, qty: '' };
+              const isComplete = state.picked && state.qty && Number(state.qty) > 0;
+              return (
+                <tr
+                  key={pid}
+                  className={cn(
+                    "transition-colors print:leading-8",
+                    isComplete && "bg-green-50/60 dark:bg-green-900/10",
+                    state.picked && !state.qty && "bg-amber-50/60 dark:bg-amber-900/10"
+                  )}
+                >
+                  <td className="px-4 py-2">
+                    <Checkbox
+                      checked={state.picked}
+                      onCheckedChange={() => onTogglePicked(pid)}
+                      className="w-6 h-6 print:hidden"
+                    />
+                    <div className="hidden print:block w-5 h-5 border-2 border-black rounded" />
+                  </td>
+                  <td className="px-4 py-2 font-mono text-xs text-muted-foreground truncate">{item.product.sku}</td>
+                  <td className={cn("px-4 py-2 font-medium truncate", isComplete && "line-through text-muted-foreground")}>
+                    {item.product.name}
+                  </td>
+                  <td className="px-4 py-2 text-right font-bold tabular-nums">{item.totalQty.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-center print:hidden">
+                    {state.picked ? (
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={state.qty}
+                        placeholder="Enter qty..."
+                        onChange={e => onQtyChange(pid, e.target.value)}
+                        className={cn(
+                          "w-24 h-9 text-right text-sm mx-auto",
+                          state.picked && !state.qty && "border-amber-400 ring-1 ring-amber-300"
+                        )}
+                        autoFocus={state.picked && !state.qty}
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-muted-foreground">{item.uom}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

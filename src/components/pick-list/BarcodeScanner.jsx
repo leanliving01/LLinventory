@@ -1,13 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ScanBarcode, Check, X } from 'lucide-react';
+import { ScanBarcode, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 /**
- * Barcode scanner component for pick list.
- * Listens for barcode scanner input (fast keystrokes ending with Enter).
- * Also allows manual barcode entry.
+ * Barcode scanner — scan checks the box ONLY. Staff must manually enter the qty picked.
  */
 export default function BarcodeScanner({ pickItems, onItemScanned }) {
   const [manualCode, setManualCode] = useState('');
@@ -16,8 +14,7 @@ export default function BarcodeScanner({ pickItems, onItemScanned }) {
   const timerRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Build lookup: barcode → item, sku → item
-  const lookupMap = React.useMemo(() => {
+  const lookupMap = useMemo(() => {
     const map = {};
     pickItems.forEach(item => {
       if (item.product.barcode) map[item.product.barcode.toLowerCase()] = item;
@@ -32,18 +29,17 @@ export default function BarcodeScanner({ pickItems, onItemScanned }) {
     const found = lookupMap[trimmed];
     if (found) {
       setLastScanned(found);
-      onItemScanned(found.product.id, found.totalQty);
-      toast.success(`Picked: ${found.product.name}`);
+      // Only check the box — do NOT auto-fill the picked qty
+      onItemScanned(found.product.id);
+      toast.success(`Checked: ${found.product.name} — enter qty picked`);
     } else {
       setLastScanned(null);
       toast.error(`No match for "${code.trim()}" on this pick list`);
     }
   };
 
-  // Listen for hardware scanner (rapid keypresses ending with Enter)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Ignore if user is typing in a regular input (not our scanner input)
       if (document.activeElement && document.activeElement !== inputRef.current &&
           (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
         return;
@@ -76,7 +72,7 @@ export default function BarcodeScanner({ pickItems, onItemScanned }) {
       <div className="flex items-center gap-2 text-primary">
         <ScanBarcode className="w-5 h-5" />
         <span className="font-bold text-sm">Barcode Scanner Active</span>
-        <span className="text-xs text-muted-foreground ml-2">Scan a barcode or type SKU/barcode below</span>
+        <span className="text-xs text-muted-foreground ml-2">Scan to check an item — then enter the qty you actually picked</span>
       </div>
       <form onSubmit={handleManualSubmit} className="flex gap-2">
         <Input
@@ -92,11 +88,11 @@ export default function BarcodeScanner({ pickItems, onItemScanned }) {
         </Button>
       </form>
       {lastScanned && (
-        <div className="flex items-center gap-3 bg-green-50 dark:bg-green-900/20 rounded-lg px-4 py-2.5 text-sm">
-          <Check className="w-5 h-5 text-green-600 shrink-0" />
+        <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-4 py-2.5 text-sm">
+          <Check className="w-5 h-5 text-amber-600 shrink-0" />
           <div>
             <span className="font-semibold">{lastScanned.product.name}</span>
-            <span className="text-muted-foreground ml-2">— {lastScanned.totalQty} {lastScanned.uom} auto-picked</span>
+            <span className="text-muted-foreground ml-2">— checked ✓ now enter the qty you picked</span>
           </div>
         </div>
       )}

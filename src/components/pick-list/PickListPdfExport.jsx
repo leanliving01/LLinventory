@@ -2,155 +2,127 @@ import { jsPDF } from 'jspdf';
 import { format } from 'date-fns';
 
 /**
- * Generates a professional PDF pick list with categories, checkboxes, and clean formatting.
+ * Compact, minimal PDF pick list — matches the on-screen layout.
+ * Tight row spacing to minimize pages.
  */
 export function generatePickListPdf({ run, lines, pickItems, categories }) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
-  const margin = 15;
+  const margin = 12;
   const contentW = pageW - margin * 2;
   let y = margin;
-
-  const addNewPage = () => {
-    doc.addPage();
-    y = margin;
-    drawFooter();
-  };
+  const rowH = 4.2; // tight row height
 
   const checkSpace = (needed) => {
-    if (y + needed > pageH - 20) addNewPage();
+    if (y + needed > pageH - 12) {
+      doc.addPage();
+      y = margin;
+    }
   };
 
-  const drawFooter = () => {
-    doc.setFontSize(7);
-    doc.setTextColor(150);
-    doc.text(`Lean Living Production — Pick List ${run.run_number} — Printed ${format(new Date(), 'dd MMM yyyy HH:mm')}`, margin, pageH - 8);
-    doc.text(`Page ${doc.getNumberOfPages()}`, pageW - margin, pageH - 8, { align: 'right' });
-    doc.setTextColor(0);
-  };
+  // Column positions — aligned like the screen
+  const colCheck = margin;
+  const colSku = margin + 6;
+  const colName = margin + 28;
+  const colQty = pageW - margin - 14;
+  const colUom = pageW - margin;
 
-  // ── Title Block ──
-  doc.setFontSize(18);
+  // ── Header ──
+  doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.text('PICK LIST', margin, y + 6);
-  doc.setFontSize(11);
+  doc.text('PICK LIST', margin, y + 5);
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  doc.text(run.run_number || '', pageW - margin, y + 6, { align: 'right' });
-  y += 12;
-
-  // Info row
-  doc.setFontSize(9);
-  doc.setTextColor(100);
-  const runDate = run.run_date ? format(new Date(run.run_date), 'dd MMM yyyy') : '—';
-  doc.text(`Date: ${runDate}   |   Meals: ${lines.length}   |   Ingredients: ${pickItems.length}   |   Categories: ${categories.length}`, margin, y);
-  doc.setTextColor(0);
-  y += 4;
-
-  // Divider
-  doc.setDrawColor(0);
-  doc.setLineWidth(0.5);
-  doc.line(margin, y, pageW - margin, y);
-  y += 6;
-
-  // Signature line at top
-  doc.setFontSize(8);
-  doc.setTextColor(100);
-  doc.text('Picked by: ______________________   Checked by: ______________________   Time: __________', margin, y);
-  doc.setTextColor(0);
+  doc.text(run.run_number || '', pageW - margin, y + 5, { align: 'right' });
   y += 8;
 
-  // Column positions
-  const colCheck = margin;
-  const colSku = margin + 8;
-  const colName = margin + 32;
-  const colQty = pageW - margin - 20;
-  const colUom = pageW - margin - 5;
+  doc.setFontSize(8);
+  doc.setTextColor(100);
+  const runDate = run.run_date ? format(new Date(run.run_date), 'dd MMM yyyy') : '—';
+  doc.text(`${runDate}  ·  ${lines.length} meals  ·  ${pickItems.length} ingredients`, margin, y);
+  doc.text(`Printed ${format(new Date(), 'dd MMM yyyy HH:mm')}`, pageW - margin, y, { align: 'right' });
+  doc.setTextColor(0);
+  y += 3;
+  doc.setDrawColor(0);
+  doc.setLineWidth(0.3);
+  doc.line(margin, y, pageW - margin, y);
+  y += 3;
 
-  // ── Loop through categories ──
+  // Signature line
+  doc.setFontSize(7);
+  doc.setTextColor(120);
+  doc.text('Picked by: ________________________   Checked: ________________________   Time: _________', margin, y);
+  doc.setTextColor(0);
+  y += 5;
+
+  // ── Categories ──
   for (const cat of categories) {
     const catItems = pickItems.filter(i => i.pickCategory === cat);
     if (catItems.length === 0) continue;
 
     // Category header
-    checkSpace(16);
-    doc.setFillColor(240, 240, 240);
-    doc.rect(margin, y - 1, contentW, 7, 'F');
-    doc.setFontSize(10);
+    checkSpace(8 + rowH * 2);
+    doc.setFillColor(235, 235, 235);
+    doc.rect(margin, y - 0.5, contentW, 5.5, 'F');
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${cat}  (${catItems.length})`, margin + 2, y + 4);
-    y += 9;
+    doc.setTextColor(30);
+    doc.text(`${cat}  (${catItems.length})`, margin + 1.5, y + 3.5);
+    y += 7;
 
-    // Column headers
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(120);
-    doc.text('✓', colCheck, y);
-    doc.text('SKU', colSku, y);
-    doc.text('INGREDIENT', colName, y);
-    doc.text('QTY', colQty + 15, y, { align: 'right' });
-    doc.text('UOM', colUom, y, { align: 'right' });
-    doc.setTextColor(0);
-    y += 1;
-    doc.setDrawColor(200);
-    doc.setLineWidth(0.2);
-    doc.line(margin, y, pageW - margin, y);
-    y += 3.5;
-
-    // Rows
+    // Rows — no repeating column headers per category to save space
     doc.setFont('helvetica', 'normal');
     for (const item of catItems) {
-      checkSpace(7);
-      // Checkbox
-      doc.setDrawColor(100);
-      doc.setLineWidth(0.3);
-      doc.rect(colCheck, y - 2.5, 4, 4);
+      checkSpace(rowH + 1);
 
-      doc.setFontSize(7.5);
-      doc.setTextColor(120);
+      // Checkbox
+      doc.setDrawColor(120);
+      doc.setLineWidth(0.25);
+      doc.rect(colCheck, y - 2, 3, 3);
+
+      // SKU
+      doc.setFontSize(6.5);
+      doc.setTextColor(130);
       doc.text(item.product.sku || '', colSku, y);
 
-      doc.setTextColor(30);
-      doc.setFontSize(8);
-      // Truncate long names
-      const name = item.product.name.length > 40 ? item.product.name.substring(0, 38) + '…' : item.product.name;
+      // Name
+      doc.setFontSize(7.5);
+      doc.setTextColor(20);
+      const maxNameW = colQty - colName - 4;
+      const name = doc.getStringUnitWidth(item.product.name) * 7.5 / doc.internal.scaleFactor > maxNameW
+        ? item.product.name.substring(0, 42) + '…'
+        : item.product.name;
       doc.text(name, colName, y);
 
+      // Qty
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text(item.totalQty.toLocaleString(), colQty + 15, y, { align: 'right' });
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(120);
-      doc.text(item.uom || '', colUom, y, { align: 'right' });
+      doc.setFontSize(8);
       doc.setTextColor(0);
+      doc.text(item.totalQty.toLocaleString(), colQty, y, { align: 'right' });
 
-      y += 5.5;
+      // UoM
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(130);
+      doc.text(item.uom || '', colUom, y, { align: 'right' });
+
+      doc.setTextColor(0);
+      y += rowH;
     }
 
-    y += 3;
+    y += 2; // gap between categories
   }
 
-  // Notes section
-  checkSpace(25);
-  y += 4;
-  doc.setDrawColor(200);
-  doc.setLineWidth(0.2);
-  doc.line(margin, y, pageW - margin, y);
-  y += 5;
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.text('NOTES:', margin, y);
-  y += 4;
-  doc.setFont('helvetica', 'normal');
-  for (let i = 0; i < 3; i++) {
-    doc.setDrawColor(220);
-    doc.line(margin, y + 5, pageW - margin, y + 5);
-    y += 7;
+  // Footer on all pages
+  const totalPages = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setFontSize(6);
+    doc.setTextColor(160);
+    doc.text(`Lean Living — ${run.run_number}`, margin, pageH - 6);
+    doc.text(`Page ${p}/${totalPages}`, pageW - margin, pageH - 6, { align: 'right' });
   }
-
-  drawFooter();
 
   doc.save(`Pick-List-${run.run_number || 'export'}.pdf`);
 }

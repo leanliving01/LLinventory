@@ -143,23 +143,85 @@ export default function ProductionRunDetail() {
     await base44.entities.ProductionRun.update(runId, { status: 'in_progress' });
 
     // §5.1.4/5 Generate tasks from BOM operations
-    const [boms, bomOps] = await Promise.all([
+    // Look at Cook BOM operations (bulk cooking tasks) + Portion BOM operations
+    const [boms, bomOps, bomComponents, products] = await Promise.all([
       base44.entities.Bom.filter({ is_active: true }, '-created_date', 500),
       base44.entities.BomOperation.list('-created_date', 2000),
+      base44.entities.BomComponent.list('-created_date', 2000),
+      base44.entities.Product.filter({ status: 'active' }, 'name', 500),
     ]);
+
     const opsByBom = {};
     bomOps.forEach(op => {
       if (!opsByBom[op.bom_id]) opsByBom[op.bom_id] = [];
       opsByBom[op.bom_id].push(op);
     });
 
+    const compsByBom = {};
+    bomComponents.forEach(c => {
+      if (!compsByBom[c.bom_id]) compsByBom[c.bom_id] = [];
+      compsByBom[c.bom_id].push(c);
+    });
+
+    const productMap = {};
+    products.forEach(p => { productMap[p.id] = p; });
+
+    // Collect unique WIP products from all lines' Portion BOMs to generate Cook tasks
+    const wipTasksCreated = new Set(); // track by cook BOM id to avoid duplicates
     const tasksToCreate = [];
+
     for (const line of lines) {
       const portionBom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
       if (!portionBom) continue;
-      const ops = opsByBom[portionBom.id] || [];
-      if (ops.length > 0) {
-        for (const op of ops) {
+
+      // Find WIP inputs in the Portion BOM → get their Cook BOM operations
+      const portionComps = compsByBom[portionBom.id] || [];
+      for (const comp of portionComps) {
+        const inputProduct = productMap[comp.input_product_id];
+        if (!inputProduct || inputProduct.type !== 'wip_bulk') continue;
+
+        const cookBom = boms.find(b => b.product_id === inputProduct.id && b.bom_type === 'cook');
+        if (!cookBom || wipTasksCreated.has(cookBom.id)) continue;
+        wipTasksCreated.add(cookBom.id);
+
+        const cookOps = opsByBom[cookBom.id] || [];
+        if (cookOps.length > 0) {
+          for (const op of cookOps) {
+            tasksToCreate.push({
+              run_id: runId,
+              line_id: line.id,
+              product_id: inputProduct.id,
+              product_sku: inputProduct.sku,
+              meal_name: inputProduct.name,
+              name: op.name,
+              station: op.station,
+              step_no: op.step_no,
+              qty: line.planned_qty,
+              status: 'pending',
+              notes: op.notes || '',
+            });
+          }
+        } else {
+          // Default cook task for this WIP
+          tasksToCreate.push({
+            run_id: runId,
+            line_id: line.id,
+            product_id: inputProduct.id,
+            product_sku: inputProduct.sku,
+            meal_name: inputProduct.name,
+            name: `Cook ${inputProduct.name}`,
+            station: 'cook',
+            step_no: 1,
+            qty: line.planned_qty,
+            status: 'pending',
+          });
+        }
+      }
+
+      // Also add Portion BOM operations (portioning step)
+      const portionOps = opsByBom[portionBom.id] || [];
+      if (portionOps.length > 0) {
+        for (const op of portionOps) {
           tasksToCreate.push({
             run_id: runId,
             line_id: line.id,
@@ -175,15 +237,15 @@ export default function ProductionRunDetail() {
           });
         }
       } else {
-        // Default task per line if no operations defined
+        // Default portion task
         tasksToCreate.push({
           run_id: runId,
           line_id: line.id,
           product_id: line.product_id,
           product_sku: line.product_sku,
           meal_name: line.product_name,
-          name: `Produce ${line.product_name}`,
-          station: 'cook',
+          name: `Portion ${line.product_name}`,
+          station: 'portion',
           step_no: 1,
           qty: line.planned_qty,
           status: 'pending',
@@ -445,13 +507,11 @@ export default function ProductionRunDetail() {
         isEditable={isEditable}
       />
 
-      {/* §5.1.8 Stock Guardrail Modal */}
+      {/* §5.1.8 Stock Guardrail Modal — hard block, no override */}
       {showGuardrail && (
         <StockGuardrailModal
           shortages={shortages}
-          onProceed={doStartRun}
           onCancel={() => { setShowGuardrail(false); setStarting(false); }}
-          loading={starting}
         />
       )}
 

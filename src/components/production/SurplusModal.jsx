@@ -1,20 +1,19 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, RotateCcw, Utensils, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const DISPOSITIONS = [
-  { value: 'reuse_tomorrow', label: 'Reuse Tomorrow', icon: RotateCcw, color: 'text-blue-600' },
-  { value: 'replate_today', label: 'Re-plate Today', icon: Utensils, color: 'text-green-600' },
-  { value: 'waste', label: 'Record as Waste', icon: Trash2, color: 'text-red-600' },
+  { value: 'reuse_tomorrow', label: 'Keep for Tomorrow', icon: RotateCcw, color: 'text-blue-600', desc: 'Stays in stock — tomorrow\'s pick list will need less' },
+  { value: 'replate_today', label: 'Plate Extra Today', icon: Utensils, color: 'text-green-600', desc: 'Already plated — stays as produced stock' },
+  { value: 'waste', label: 'Record as Waste', icon: Trash2, color: 'text-red-600', desc: 'Moved to wastage — removed from stock' },
 ];
 
 /**
  * §5.1.6 Surplus Handling
- * End-of-run surplus disposition: Reuse Tomorrow / Re-plate Today / Waste
+ * End-of-run surplus disposition. "Keep for Tomorrow" means leftover stock
+ * stays in StockOnHand and will be subtracted from tomorrow's pick list automatically.
  */
 export default function SurplusModal({ surplusLines, onConfirm, onCancel, loading }) {
   const [dispositions, setDispositions] = useState({});
@@ -30,15 +29,19 @@ export default function SurplusModal({ surplusLines, onConfirm, onCancel, loadin
       <div className="bg-card border border-border rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col">
         <div className="flex items-center gap-3 px-6 py-4 border-b border-border">
           <div className="flex-1">
-            <h2 className="text-lg font-bold text-foreground">Surplus Handling</h2>
+            <h2 className="text-lg font-bold text-foreground">Leftover Stock</h2>
             <p className="text-xs text-muted-foreground">
-              {surplusLines.length} item{surplusLines.length !== 1 ? 's' : ''} produced more than planned — choose what to do with the surplus.
+              {surplusLines.length} item{surplusLines.length !== 1 ? 's' : ''} produced more than planned — what should we do with the surplus?
             </p>
           </div>
           <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-4 h-4" /></Button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
+            <strong>Keep for Tomorrow</strong> = leftover stays in your stock. Tomorrow's production run will automatically need less from the warehouse because this surplus is already on hand.
+          </div>
+
           {surplusLines.map(line => {
             const surplus = line.surplus;
             const disposition = dispositions[line.id];
@@ -70,6 +73,11 @@ export default function SurplusModal({ surplusLines, onConfirm, onCancel, loadin
                     );
                   })}
                 </div>
+                {disposition && (
+                  <p className="text-[10px] text-muted-foreground italic">
+                    {DISPOSITIONS.find(d => d.value === disposition)?.desc}
+                  </p>
+                )}
               </div>
             );
           })}

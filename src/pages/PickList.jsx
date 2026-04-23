@@ -151,17 +151,18 @@ export default function PickList() {
   }, [lines, boms, bomComponents, products, locations]);
 
   const hasUncategorized = pickItems.some(i => i.pickCategory === 'Uncategorized');
-  const pickedCount = pickItems.filter(i => pickedState[i.product.id]?.picked).length;
+  const pickedCount = pickItems.filter(i => {
+    const s = pickedState[i.product.id];
+    return s?.picked && s?.qty && Number(s.qty) > 0;
+  }).length;
 
-  const handleTogglePicked = (productId, totalQty) => {
+  // Toggle checkbox only — never auto-fill qty
+  const handleTogglePicked = (productId) => {
     setPickedState(prev => {
       const current = prev[productId] || { picked: false, qty: '' };
       return {
         ...prev,
-        [productId]: {
-          picked: !current.picked,
-          qty: !current.picked ? String(totalQty) : current.qty,
-        },
+        [productId]: { picked: !current.picked, qty: current.qty },
       };
     });
   };
@@ -173,11 +174,11 @@ export default function PickList() {
     }));
   };
 
-  // Barcode scan auto-picks item
-  const handleItemScanned = (productId, totalQty) => {
+  // Barcode scan — only checks the box, does NOT fill qty
+  const handleItemScanned = (productId) => {
     setPickedState(prev => ({
       ...prev,
-      [productId]: { picked: true, qty: String(totalQty) },
+      [productId]: { picked: true, qty: prev[productId]?.qty || '' },
     }));
   };
 

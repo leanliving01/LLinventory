@@ -43,7 +43,28 @@ export default function Kanban() {
   }, [tasks]);
 
   const handleStatusChange = async (taskId, newStatus) => {
-    await base44.entities.ProductionTask.update(taskId, { status: newStatus });
+    const now = new Date().toISOString();
+    const task = tasks.find(t => t.id === taskId);
+
+    if (newStatus === 'undo') {
+      // Undo from done → back to in_progress, clear finished_at, timer resumes from started_at
+      await base44.entities.ProductionTask.update(taskId, {
+        status: 'in_progress',
+        finished_at: null,
+      });
+    } else if (newStatus === 'in_progress') {
+      // Starting or resuming — set started_at if not set yet
+      const update = { status: 'in_progress' };
+      if (!task?.started_at) update.started_at = now;
+      await base44.entities.ProductionTask.update(taskId, update);
+    } else if (newStatus === 'done') {
+      await base44.entities.ProductionTask.update(taskId, {
+        status: 'done',
+        finished_at: now,
+      });
+    } else {
+      await base44.entities.ProductionTask.update(taskId, { status: newStatus });
+    }
     queryClient.invalidateQueries({ queryKey: ['production-tasks', runId] });
   };
 
