@@ -10,6 +10,7 @@ import RecommendationTable from '@/components/production/RecommendationTable';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import { groupMealsForProduction, VARIANT_CODES } from '@/lib/productionGrouping';
 import { buildCommittedMap } from '@/lib/demandBridge';
+import { writeAuditLog } from '@/lib/auditLog';
 
 export default function ProductionPlanning() {
   const queryClient = useQueryClient();
@@ -174,6 +175,12 @@ export default function ProductionPlanning() {
     await base44.entities.ProductionRunLine.bulkCreate(linesWithRun);
 
     queryClient.invalidateQueries({ queryKey: ['production-runs'] });
+    writeAuditLog({
+      action: 'create',
+      entity_type: 'ProductionRun',
+      entity_id: run.id,
+      description: `Created production run ${runNumber} — ${lines.length} meals, ${lines.reduce((s, l) => s + l.planned_qty, 0)} units`,
+    });
     toast.success(`Production run ${runNumber} created — ${lines.length} meals, ${lines.reduce((s, l) => s + l.planned_qty, 0)} units`);
     setOverrides({});
     setGenerating(false);

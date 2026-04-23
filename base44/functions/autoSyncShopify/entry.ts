@@ -23,7 +23,6 @@ function isBYOItem(lineItem, orderTags, byoProductIds) {
   return title.includes('build your own') || title.includes('byo') || tagList.includes('byo meals') || tagList.includes('byo');
 }
 
-// ─── ID-based matching using PackageProduct master data ───
 function parseOrder(order, byoProductIds, packageLookup) {
   const orderTags = order.tags || '';
   let mwlMeals = 0, mlmMeals = 0, wwlMeals = 0, wlmMeals = 0, lcMeals = 0, byoMeals = 0, totalMeals = 0;
@@ -39,12 +38,10 @@ function parseOrder(order, byoProductIds, packageLookup) {
       continue;
     }
 
-    // Match by Shopify variant_id (most precise) or product_id + SKU
     const variantId = String(li.variant_id || '');
     const productId = String(li.product_id || '');
     
     let matched = packageLookup.byVariant[variantId];
-    
     if (!matched && packageLookup.byProduct[productId]) {
       const lineSku = (li.sku || '').toLowerCase();
       matched = packageLookup.byProduct[productId].find(p => 
@@ -102,98 +99,208 @@ function buildPackageLookup(packages) {
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function withRetry(fn, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try { return await fn(); } catch (err) {
-      if (err.status === 429 && i < retries - 1) { await delay((i + 1) * 3000); } else { throw err; }
+async function withRetry(fn, label = 'operation', retries = 4) {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = err.status || err.response?.status;
+      const isRetryable = status === 429 || status === 500 || status === 502 || status === 503;
+      if (isRetryable && attempt < retries - 1) {
+        const waitTime = Math.min((attempt + 1) * 3000, 15000);
+        console.warn(`[Retry ${attempt + 1}/${retries}] ${label} failed (${status}), waiting ${waitTime / 1000}s...`);
+        await delay(waitTime);
+      } else {
+        console.error(`[FAIL] ${label} after ${attempt + 1} attempts: ${err.message || err}`);
+        throw err;
+      }
     }
   }
 }
 
-// This function is called by automation — no user auth needed
+// Paginated Shopify fetch with retry
+async function fetchAllShopifyOrders(storeDomain, accessToken) {
+  let allOrders = [];
+  let pageUrl = `https://${storeDomain}/admin/api/2024-01/orders.json?status=open&financial_status=paid&fulfillment_status=unfulfilled&limit=250`;
+  let pageNum = 0;
+
+  while (pageUrl) {
+    pageNum++;
+    const res = await withRetry(async () => {
+      const r = await fetch(pageUrl, {
+        headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+      });
+      if (!r.ok) {
+        const err = new Error(`Shopify API ${r.status}`);
+        err.status = r.status;
+        throw err;
+      }
+      return r;
+    }, `Shopify orders page ${pageNum}`);
+
+    const data = await res.json();
+    allOrders = allOrders.concat(data.orders || []);
+
+    const linkHeader = res.headers.get('Link') || '';
+    const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+    pageUrl = nextMatch ? nextMatch[1] : null;
+
+    if (pageUrl) await delay(500); // Respect rate limits
+  }
+
+  return allOrders;
+}
+
+async function fetchBYOProductIds(storeDomain, accessToken) {
+  const byoProductIds = new Set();
+  let prodUrl = `https://${storeDomain}/admin/api/2024-01/products.json?limit=250&status=active`;
+
+  while (prodUrl) {
+    const prodRes = await withRetry(async () => {
+      const r = await fetch(prodUrl, {
+        headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+      });
+      if (!r.ok) {
+        const err = new Error(`Shopify products API ${r.status}`);
+        err.status = r.status;
+        throw err;
+      }
+      return r;
+    }, 'Shopify BYO products');
+
+    const prodData = await prodRes.json();
+    (prodData.products || []).forEach(p => {
+      const tags = (p.tags || '').split(',').map(t => t.trim().toLowerCase());
+      if (tags.includes('byo meals') || tags.includes('byo')) {
+        byoProductIds.add(String(p.id));
+      }
+    });
+
+    const linkHeader = prodRes.headers.get('Link') || '';
+    const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+    prodUrl = nextMatch ? nextMatch[1] : null;
+
+    if (prodUrl) await delay(500);
+  }
+
+  return byoProductIds;
+}
+
 Deno.serve(async (req) => {
+  const startTime = Date.now();
   const base44 = createClientFromRequest(req);
+  const errors = [];
 
   const storeDomain = Deno.env.get('SHOPIFY_STORE_DOMAIN');
   const accessToken = Deno.env.get('SHOPIFY_ACCESS_TOKEN');
-  if (!storeDomain || !accessToken) return Response.json({ error: 'Not configured' }, { status: 400 });
+  if (!storeDomain || !accessToken) {
+    return Response.json({ error: 'Shopify not configured' }, { status: 400 });
+  }
 
-  // ─── Load PackageProduct master data for ID-based matching ───
-  const packages = await base44.asServiceRole.entities.PackageProduct.filter({});
-  const packageLookup = buildPackageLookup(packages);
-  console.log(`Auto-sync: loaded ${packages.length} package products for ID matching`);
+  try {
+    // 1. Load package master data
+    const packages = await withRetry(
+      () => base44.asServiceRole.entities.PackageProduct.filter({}),
+      'Load PackageProducts'
+    );
+    const packageLookup = buildPackageLookup(packages);
+    console.log(`[Sync] Loaded ${packages.length} package products`);
 
-  // ─── Fetch BYO product IDs (products tagged "BYO Meals") ───
-  const byoProductIds = new Set();
-  let prodUrl = `https://${storeDomain}/admin/api/2024-01/products.json?limit=250&status=active`;
-  while (prodUrl) {
-    const prodRes = await fetch(prodUrl, {
-      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+    // 2. Fetch BYO product IDs
+    const byoProductIds = await fetchBYOProductIds(storeDomain, accessToken);
+    console.log(`[Sync] Loaded ${byoProductIds.size} BYO product IDs`);
+
+    // 3. Fetch ALL Shopify orders (paginated)
+    const shopifyOrders = await fetchAllShopifyOrders(storeDomain, accessToken);
+    console.log(`[Sync] Fetched ${shopifyOrders.length} Shopify orders`);
+
+    // 4. Load existing orders for dedup
+    const existing = await withRetry(
+      () => base44.asServiceRole.entities.ShopifyOrder.filter({}),
+      'Load existing orders'
+    );
+    const existingMap = {};
+    existing.forEach(o => {
+      if (o.shopify_order_id) existingMap[o.shopify_order_id] = o;
+      if (o.order_number) existingMap[o.order_number] = o;
     });
-    if (prodRes.ok) {
-      const prodData = await prodRes.json();
-      (prodData.products || []).forEach(p => {
-        const tags = (p.tags || '').split(',').map(t => t.trim().toLowerCase());
-        if (tags.includes('byo meals') || tags.includes('byo')) {
-          byoProductIds.add(String(p.id));
+
+    // 5. Parse and diff
+    const toCreate = [];
+    const toUpdate = [];
+
+    for (const order of shopifyOrders) {
+      const parsed = parseOrder(order, byoProductIds, packageLookup);
+      const ex = existingMap[parsed.shopify_order_id] || existingMap[parsed.order_number];
+      if (ex) {
+        if (ex.total_meals !== parsed.total_meals || ex.tags !== parsed.tags || ex.customer_name !== parsed.customer_name) {
+          toUpdate.push({ id: ex.id, data: parsed });
         }
-      });
-      const linkHeader = prodRes.headers.get('Link') || '';
-      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-      prodUrl = nextMatch ? nextMatch[1] : null;
-    } else {
-      prodUrl = null;
-    }
-  }
-  console.log(`Auto-sync: loaded ${byoProductIds.size} BYO product IDs`);
-
-  // Fetch orders
-  const url = `https://${storeDomain}/admin/api/2024-01/orders.json?status=open&financial_status=paid&fulfillment_status=unfulfilled&limit=250`;
-  const res = await fetch(url, {
-    headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-  });
-  if (!res.ok) return Response.json({ error: `Shopify error: ${res.status}` }, { status: 502 });
-
-  const { orders: shopifyOrders } = await res.json();
-  console.log(`Auto-sync: fetched ${shopifyOrders.length} orders`);
-
-  // Load existing
-  const existing = await base44.asServiceRole.entities.ShopifyOrder.filter({});
-  const existingMap = {};
-  existing.forEach(o => {
-    if (o.shopify_order_id) existingMap[o.shopify_order_id] = o;
-    if (o.order_number) existingMap[o.order_number] = o;
-  });
-
-  const toCreate = [];
-  const toUpdate = [];
-
-  for (const order of shopifyOrders) {
-    const parsed = parseOrder(order, byoProductIds, packageLookup);
-    const ex = existingMap[parsed.shopify_order_id] || existingMap[parsed.order_number];
-    if (ex) {
-      if (ex.total_meals !== parsed.total_meals || ex.tags !== parsed.tags || ex.customer_name !== parsed.customer_name) {
-        toUpdate.push({ id: ex.id, data: parsed });
+      } else {
+        toCreate.push(parsed);
       }
-    } else {
-      toCreate.push(parsed);
     }
-  }
 
-  if (toCreate.length > 0) {
+    // 6. Batch create (chunks of 25)
+    let createdCount = 0;
     for (let i = 0; i < toCreate.length; i += 25) {
-      await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.bulkCreate(toCreate.slice(i, i + 25)));
+      const batch = toCreate.slice(i, i + 25);
+      await withRetry(
+        () => base44.asServiceRole.entities.ShopifyOrder.bulkCreate(batch),
+        `Create orders batch ${Math.floor(i / 25) + 1}`
+      );
+      createdCount += batch.length;
       await delay(1000);
     }
-  }
 
-  for (let i = 0; i < toUpdate.length; i++) {
-    const { id, data } = toUpdate[i];
-    const { shopify_order_id, order_number, order_date, ...updateData } = data;
-    await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.update(id, updateData));
-    if ((i + 1) % 5 === 0) await delay(1500);
-  }
+    // 7. Update changed orders
+    let updatedCount = 0;
+    for (const { id, data } of toUpdate) {
+      const { shopify_order_id, order_number, order_date, ...updateData } = data;
+      await withRetry(
+        () => base44.asServiceRole.entities.ShopifyOrder.update(id, updateData),
+        `Update order ${data.order_number}`
+      );
+      updatedCount++;
+      if (updatedCount % 5 === 0) await delay(1500);
+    }
 
-  console.log(`Auto-sync complete: ${toCreate.length} created, ${toUpdate.length} updated`);
-  return Response.json({ created: toCreate.length, updated: toUpdate.length });
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`[Sync] Complete in ${elapsed}s: ${createdCount} created, ${updatedCount} updated, ${shopifyOrders.length} total`);
+
+    // 8. Write audit log for significant syncs
+    if (createdCount > 0 || updatedCount > 0) {
+      await base44.asServiceRole.entities.AuditLog.create({
+        action: 'sync',
+        entity_type: 'ShopifyOrder',
+        description: `Auto-sync: ${createdCount} new, ${updatedCount} updated (${shopifyOrders.length} total orders, ${elapsed}s)`,
+      }).catch(() => {});
+    }
+
+    return Response.json({
+      success: true,
+      created: createdCount,
+      updated: updatedCount,
+      total_orders: shopifyOrders.length,
+      elapsed_seconds: Number(elapsed),
+      errors: errors.length > 0 ? errors : undefined,
+    });
+
+  } catch (err) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.error(`[Sync FAILED] ${err.message} after ${elapsed}s`);
+
+    // Log failure to audit
+    await base44.asServiceRole.entities.AuditLog.create({
+      action: 'sync',
+      entity_type: 'ShopifyOrder',
+      description: `Auto-sync FAILED: ${err.message} (after ${elapsed}s)`,
+    }).catch(() => {});
+
+    return Response.json({
+      success: false,
+      error: err.message,
+      elapsed_seconds: Number(elapsed),
+    }, { status: 500 });
+  }
 });

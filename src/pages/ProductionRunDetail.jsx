@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import RunLineTable from '@/components/production/RunLineTable';
 import HelpDrawer from '@/components/help/HelpDrawer';
+import { writeAuditLog } from '@/lib/auditLog';
 
 const STATUS_STYLES = {
   draft: 'bg-muted text-muted-foreground',
@@ -72,6 +73,7 @@ export default function ProductionRunDetail() {
     setStarting(true);
     await base44.entities.ProductionRun.update(runId, { status: 'in_progress' });
     queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
+    writeAuditLog({ action: 'update', entity_type: 'ProductionRun', entity_id: runId, description: `Started production run ${run?.run_number}` });
     toast.success('Run started');
     setStarting(false);
   };
@@ -175,6 +177,13 @@ export default function ProductionRunDetail() {
     queryClient.invalidateQueries({ queryKey: ['production-run-lines', runId] });
     queryClient.invalidateQueries({ queryKey: ['production-runs'] });
     queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+    writeAuditLog({
+      action: 'finalize',
+      entity_type: 'ProductionRun',
+      entity_id: runId,
+      description: `Completed run ${run?.run_number} — ${totalActual} units produced (${lines.length} meals)`,
+      new_value: { total_actual: totalActual, lines_count: lines.length },
+    });
     toast.success(`Run completed — ${totalActual} units produced, stock updated`);
     setCompleting(false);
   };

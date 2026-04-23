@@ -10,6 +10,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import WastageTable from '@/components/wastage/WastageTable';
 import HelpDrawer from '@/components/help/HelpDrawer';
+import { writeAuditLog } from '@/lib/auditLog';
 
 export default function Wastage() {
   const queryClient = useQueryClient();
@@ -98,6 +99,12 @@ export default function Wastage() {
     }
 
     queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+    writeAuditLog({
+      action: 'create',
+      entity_type: 'StockMovement',
+      description: `Recorded ${validEntries.length} end-of-day wastage entries (${productType})`,
+      new_value: { entries: validEntries.length, type: productType },
+    });
     setEntries({});
     toast.success(`Recorded ${validEntries.length} wastage entries — stock updated`);
     setSaving(false);
