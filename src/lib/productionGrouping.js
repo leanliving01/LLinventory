@@ -1,6 +1,10 @@
 /**
  * Production grouping utilities for Phase 1.
  * Groups finished_meal Products by base recipe across portion variants (MLM/MWL/WLM/WWL).
+ *
+ * MWL SKUs are descriptive names (e.g. SweChiChi, BeeTri) because they double
+ * as BYO SKUs. MLM/WLM/WWL use numbered SKUs (MLM1-15, WLM1-15, WWL1-15).
+ * This map links MWL descriptive SKUs to their meal number.
  */
 
 // Portion variant codes and their display info
@@ -16,28 +20,61 @@ export const VARIANT_INFO = {
 };
 
 /**
+ * MWL SKU → meal number mapping.
+ * MWL SKUs use descriptive names because they double as BYO (Build Your Own) SKUs.
+ * This is the canonical mapping from Cin7 — includes the known anomaly BeeandBea-2 = MWL1.
+ */
+const MWL_SKU_TO_MEAL = {
+  'MWL1': 1,           // Cin7 anomaly: also maps from BeeandBea-2
+  'BeeandBea-2': 1,    // Known Cin7 anomaly
+  'BeeTri': 2,
+  'ChiBreSwePotandMixVeg': 3,
+  'ChiBreButandStialowitaSweandSouSau': 4,
+  'ChiBreCouandMixVeg': 5,
+  'ChiBrePotWedandCreSpi': 6,
+  'ChiCur': 7,
+  'CotPie': 8,
+  'KetButChi': 9,
+  'LeaMinPasSheandCor': 10,
+  'LeaMinWhiBasRicandBro': 11,
+  'LeaMinWhiBasRicandGreBea': 12,
+  'SteBroRicandCar': 13,
+  'SteSwePotandBro': 14,
+  'SweChiChi': 15,
+};
+
+/**
  * Detect the variant code from a product SKU.
- * Examples: MLM3 → MLM, WLM13 → WLM, SweChiChi → null (BYO/base), LC5 → LC
+ * MLM3 → MLM, WLM13 → WLM, SweChiChi → MWL (via map), LC5 → null (handled separately)
  */
 export function detectVariant(sku) {
   if (!sku) return null;
-  for (const code of VARIANT_CODES) {
+  // Check numbered variants: MLM, WLM, WWL
+  for (const code of ['MLM', 'WLM', 'WWL']) {
     if (sku.startsWith(code) && /^\d+$/.test(sku.slice(code.length))) {
       return code;
     }
   }
+  // Check MWL map (descriptive SKUs)
+  if (MWL_SKU_TO_MEAL[sku] !== undefined) return 'MWL';
   return null;
 }
 
 /**
  * Extract the meal number from a variant SKU.
- * MLM3 → 3, WLM13 → 13
+ * MLM3 → 3, WLM13 → 13, SweChiChi → 15 (via map)
  */
 export function extractMealNumber(sku) {
   if (!sku) return null;
-  const variant = detectVariant(sku);
-  if (!variant) return null;
-  return parseInt(sku.slice(variant.length), 10);
+  // Check MWL map first
+  if (MWL_SKU_TO_MEAL[sku] !== undefined) return MWL_SKU_TO_MEAL[sku];
+  // Check numbered variants
+  for (const code of ['MLM', 'WLM', 'WWL']) {
+    if (sku.startsWith(code) && /^\d+$/.test(sku.slice(code.length))) {
+      return parseInt(sku.slice(code.length), 10);
+    }
+  }
+  return null;
 }
 
 /**
@@ -45,28 +82,25 @@ export function extractMealNumber(sku) {
  */
 export function isLowCarb(product) {
   if (product.category === LOW_CARB_CATEGORY) return true;
-  if (product.tags?.includes('low carb') || product.tags?.includes('Low Carb')) return true;
-  // LC SKU prefix check
-  if (product.sku && product.sku.startsWith('LC') && /^\d+$/.test(product.sku.slice(2))) return true;
+  if (product.tags?.includes('low carb') || product.tags?.includes('Low Carb') || product.tags?.includes('Smart carb')) return true;
   return false;
 }
 
 /**
  * Group finished_meal products into rows for the production table.
  * Each row = one base recipe with variant columns (MLM/MWL/WLM/WWL) or a single LC column.
- * 
+ *
  * Returns: { goalRows: [...], lowCarbRows: [...] }
  * Each row: { mealNumber, baseName, variants: { MLM: product, MWL: product, ... } }
  */
 export function groupMealsForProduction(finishedMeals) {
   const goalMap = {}; // mealNumber → { baseName, variants }
   const lowCarbRows = [];
-  const unmatched = []; // BYO base products to match later
 
   for (const product of finishedMeals) {
     if (product.status !== 'active') continue;
 
-    // Check Low Carb
+    // Check Low Carb first
     if (isLowCarb(product)) {
       lowCarbRows.push({
         mealNumber: product.sku,
@@ -77,52 +111,21 @@ export function groupMealsForProduction(finishedMeals) {
     }
 
     const variant = detectVariant(product.sku);
-    if (!variant) {
-      // BYO / base product — try to match to MWL column later
-      unmatched.push(product);
-      continue;
-    }
-
     const mealNum = extractMealNumber(product.sku);
-    if (mealNum === null) continue;
+    if (!variant || mealNum === null) continue; // skip unrecognized products (e.g. SSBR)
 
     if (!goalMap[mealNum]) {
       goalMap[mealNum] = { mealNumber: mealNum, baseName: null, variants: {} };
     }
     goalMap[mealNum].variants[variant] = product;
 
-    // Use MWL name as base (cleanest — no variant suffix), else strip suffix
-    if (variant === 'MWL' || !goalMap[mealNum].baseName) {
+    // Use MWL name as base (cleanest name), else strip variant suffix from other variants
+    if (variant === 'MWL') {
+      goalMap[mealNum].baseName = product.name;
+    } else if (!goalMap[mealNum].baseName) {
       let baseName = product.name;
-      // Remove trailing variant suffixes: " MLM", " MWL", " WLM", " WWL", " WWL12", etc.
       baseName = baseName.replace(/\s+(MLM|MWL|WLM|WWL)\d*\s*$/, '').trim();
       goalMap[mealNum].baseName = baseName;
-    }
-  }
-
-  // Match BYO base products (e.g. SweChiChi) to MWL column by finding
-  // the meal group that doesn't yet have an MWL variant.
-  // BYO products are 300g = MWL weight and represent the same meal.
-  for (const product of unmatched) {
-    // Try to find a meal group where this product's name is similar
-    // The MLM variant name usually matches closest (same as base but with " MLM" suffix)
-    let matched = false;
-    for (const group of Object.values(goalMap)) {
-      if (group.variants.MWL) continue; // already has MWL
-
-      // Check if product name matches any variant's base name
-      const mlmProduct = group.variants.MLM;
-      if (mlmProduct) {
-        const mlmBase = mlmProduct.name.replace(/\s+MLM\d*\s*$/, '').trim();
-        // Compare cleaned names
-        if (product.name === mlmBase || product.name.startsWith(mlmBase.slice(0, 20))) {
-          group.variants.MWL = product;
-          // Update base name to use this cleaner name
-          group.baseName = product.name;
-          matched = true;
-          break;
-        }
-      }
     }
   }
 
