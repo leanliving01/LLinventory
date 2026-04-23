@@ -48,18 +48,31 @@ export default function Wastage() {
     setSaving(true);
     const today = format(new Date(), 'yyyy-MM-dd');
 
+    // UoM conversion factors to stock UoM
+    const convertToStockUom = (qty, entryUom, stockUom) => {
+      if (entryUom === stockUom || !entryUom) return qty;
+      if (entryUom === 'g' && stockUom === 'kg') return qty / 1000;
+      if (entryUom === 'kg' && stockUom === 'g') return qty * 1000;
+      if (entryUom === 'ml' && stockUom === 'L') return qty / 1000;
+      if (entryUom === 'L' && stockUom === 'ml') return qty * 1000;
+      return qty; // fallback — same unit or unknown
+    };
+
     // Create StockMovement records for each wastage entry
     const movements = validEntries.map(([productId, entry]) => {
       const product = products.find(p => p.id === productId);
+      const stockUom = product?.stock_uom || 'pcs';
+      const entryUom = entry.uom || stockUom;
       const reason = entry.type === 'usable' ? 'wastage_usable' : 'wastage_unusable';
+      const convertedQty = convertToStockUom(Number(entry.qty), entryUom, stockUom);
       return {
         product_id: productId,
         product_sku: product?.sku || '',
         product_name: product?.name || '',
-        qty: Number(entry.qty),
-        uom: product?.stock_uom || 'pcs',
+        qty: convertedQty,
+        uom: stockUom,
         reason,
-        notes: entry.notes || `End-of-day wastage ${today}`,
+        notes: entry.notes || `End-of-day wastage ${today}` + (entryUom !== stockUom ? ` (entered as ${entry.qty} ${entryUom})` : ''),
       };
     });
 
