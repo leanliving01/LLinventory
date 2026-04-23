@@ -287,6 +287,51 @@ Deno.serve(async (req) => {
     return Response.json({ productId: data.ProductID, boms });
   }
 
+  // ─── LOCATIONS: List all Cin7 warehouse locations ───
+  if (action === 'locations') {
+    const data = await cin7Fetch('/ref/location', accountId, appKey);
+    return Response.json({ locations: data.LocationList || data.Locations || data });
+  }
+
+  // ─── SUPPLIER_CHECK: Scan ALL products for supplier links ───
+  if (action === 'supplier_check') {
+    const withSuppliers = [];
+    const withoutSuppliers = [];
+    let page = 1;
+    let scanned = 0;
+    const maxPages = body.max_pages || 3;
+
+    while (page <= maxPages) {
+      const data = await cin7Fetch(`/Product?Page=${page}&Limit=250`, accountId, appKey);
+      const products = data.Products || [];
+      if (products.length === 0) break;
+      scanned += products.length;
+
+      for (const p of products) {
+        const suppliers = p.Suppliers || [];
+        if (suppliers.length > 0) {
+          withSuppliers.push({
+            sku: p.SKU, name: p.Name, category: p.Category,
+            suppliers: suppliers.map(s => ({ name: s.SupplierName, id: s.SupplierID, cost: s.Cost, allKeys: Object.keys(s) })),
+          });
+        } else {
+          withoutSuppliers.push(p.SKU);
+        }
+      }
+      if (products.length < 250) break;
+      page++;
+      await delay(1100);
+    }
+
+    return Response.json({
+      scanned,
+      with_suppliers: withSuppliers.length,
+      without_suppliers: withoutSuppliers.length,
+      samples_with: withSuppliers.slice(0, 10),
+      sample_without: withoutSuppliers.slice(0, 20),
+    });
+  }
+
   return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });
   } catch (error) {
     console.error('BOM Probe error:', error.message);
