@@ -19,6 +19,8 @@ import MasterDataBOM from '@/pages/MasterDataBOM';
 import Reports from '@/pages/Reports';
 import DemandAudit from '@/pages/DemandAudit';
 import Settings from '@/pages/Settings';
+import SettingsPage from '@/pages/SettingsPage';
+import Catalog from '@/pages/Catalog';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -44,6 +46,7 @@ const AuthenticatedApp = () => {
     <Routes>
       <Route element={<AppLayout />}>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/catalog" element={<Catalog />} />
         <Route path="/production" element={<ProductionPlanning />} />
         <Route path="/stock/new-production" element={<NewProduction />} />
         <Route path="/stock/stock-take" element={<StockTake />} />
@@ -55,7 +58,7 @@ const AuthenticatedApp = () => {
         <Route path="/master-data/bom" element={<MasterDataBOM />} />
         <Route path="/demand" element={<DemandAudit />} />
         <Route path="/reports" element={<Reports />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route path="/settings" element={<SettingsPage />} />
         {/* Redirects for old routes */}
         <Route path="/stock" element={<Navigate to="/stock/new-production" replace />} />
         <Route path="/master-data" element={<Navigate to="/master-data/meals" replace />} />

@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard },
+  { label: 'Catalog', path: '/catalog', icon: Package },
   { label: 'Production Plan', path: '/production', icon: Factory },
   { 
     label: 'Inventory', icon: Warehouse,
@@ -35,13 +36,13 @@ const navItems = [
   { label: 'Shopify Sync', path: '/shopify', icon: ShoppingCart },
   { label: 'Demand Audit', path: '/demand', icon: Calculator },
   { 
-    label: 'Master Data', icon: Package,
+    label: 'Master Data', icon: List,
     children: [
       { label: 'Meals', path: '/master-data/meals', icon: UtensilsCrossed },
       { label: 'SKUs', path: '/master-data/skus', icon: Barcode },
       { label: 'Par Levels', path: '/master-data/par-levels', icon: Gauge },
       { label: 'Packages', path: '/master-data/packages', icon: Box },
-      { label: 'Bill of Materials', path: '/master-data/bom', icon: List },
+      { label: 'Recipes', path: '/master-data/bom', icon: ClipboardCheck },
     ]
   },
   { label: 'Reports', path: '/reports', icon: FileText },
