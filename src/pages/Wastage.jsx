@@ -9,6 +9,7 @@ import { Trash2, Save, Search, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import WastageTable from '@/components/wastage/WastageTable';
+import HelpDrawer from '@/components/help/HelpDrawer';
 
 export default function Wastage() {
   const queryClient = useQueryClient();
@@ -98,6 +99,8 @@ export default function Wastage() {
             {format(new Date(), 'EEEE, dd MMM yyyy')} — record unusable or reusable waste
           </p>
         </div>
+        <div className="flex items-center gap-2">
+        <HelpDrawer pageKey="wastage" />
         <Button
           onClick={handleSave}
           disabled={saving || entryCount === 0}
@@ -107,6 +110,7 @@ export default function Wastage() {
           <Save className="w-5 h-5" />
           {saving ? 'Saving...' : `Record Wastage (${entryCount})`}
         </Button>
+        </div>
       </div>
 
       <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">

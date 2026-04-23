@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Factory, ChevronRight, Plus } from 'lucide-react';
+import HelpDrawer from '@/components/help/HelpDrawer';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -40,11 +41,14 @@ export default function ProductionRuns() {
           <h1 className="text-2xl font-bold text-foreground">Production Runs</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Manage and complete production runs</p>
         </div>
-        <Link to="/production">
-          <Button className="gap-2">
-            <Plus className="w-4 h-4" /> New Run
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <HelpDrawer pageKey="production-runs" />
+          <Link to="/production">
+            <Button className="gap-2">
+              <Plus className="w-4 h-4" /> New Run
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {isLoading ? (

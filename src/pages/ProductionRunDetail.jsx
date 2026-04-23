@@ -4,11 +4,12 @@ import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, Play, XCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Play } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import RunLineTable from '@/components/production/RunLineTable';
+import HelpDrawer from '@/components/help/HelpDrawer';
 
 const STATUS_STYLES = {
   draft: 'bg-muted text-muted-foreground',
@@ -23,6 +24,7 @@ export default function ProductionRunDetail() {
   const runId = window.location.pathname.split('/').pop();
   const queryClient = useQueryClient();
   const [actuals, setActuals] = useState({});
+  const [reasons, setReasons] = useState({});
   const [completing, setCompleting] = useState(false);
   const [starting, setStarting] = useState(false);
 
@@ -55,6 +57,10 @@ export default function ProductionRunDetail() {
     setActuals(prev => ({ ...prev, [lineId]: value }));
   };
 
+  const handleReasonChange = (lineId, value) => {
+    setReasons(prev => ({ ...prev, [lineId]: value }));
+  };
+
   // Pre-fill all actuals = planned
   const handleFillPlanned = () => {
     const filled = {};
@@ -78,13 +84,28 @@ export default function ProductionRunDetail() {
       return;
     }
 
+    // Validate variance lines have reasons
+    const varianceWithoutReason = lines.filter(l => {
+      const actual = Number(actuals[l.id]) || 0;
+      const hasVariance = actual !== l.planned_qty;
+      return hasVariance && !reasons[l.id] && !l.variance_reason;
+    });
+    if (varianceWithoutReason.length > 0) {
+      toast.error(`${varianceWithoutReason.length} meals with variance still need a reason`);
+      return;
+    }
+
     setCompleting(true);
 
-    // 1. Update each run line with actual_qty and status=done
+    // 1. Update each run line with actual_qty, reason, and status=done
     for (const line of lines) {
       const actualQty = Number(actuals[line.id]) || 0;
+      const variance = actualQty - line.planned_qty;
+      const reason = variance === 0 ? 'as_planned' : (reasons[line.id] || line.variance_reason || 'as_planned');
       await base44.entities.ProductionRunLine.update(line.id, {
         actual_qty: actualQty,
+        variance_reason: reason,
+        variance_notes: '',
         status: 'done',
       });
     }
@@ -193,6 +214,7 @@ export default function ProductionRunDetail() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <HelpDrawer pageKey="production-run-detail" />
           {canStart && (
             <Button onClick={handleStartRun} disabled={starting} className="gap-2 bg-amber-600 hover:bg-amber-700">
               <Play className="w-4 h-4" />
@@ -228,7 +250,9 @@ export default function ProductionRunDetail() {
       <RunLineTable
         lines={lines}
         actuals={actuals}
+        reasons={reasons}
         onActualChange={handleActualChange}
+        onReasonChange={handleReasonChange}
         isEditable={isEditable}
       />
     </div>

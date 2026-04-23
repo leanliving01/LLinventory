@@ -7,6 +7,7 @@ import { Factory, Search, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import RecommendationTable from '@/components/production/RecommendationTable';
+import HelpDrawer from '@/components/help/HelpDrawer';
 import { groupMealsForProduction, VARIANT_CODES } from '@/lib/productionGrouping';
 import { buildCommittedMap } from '@/lib/demandBridge';
 
@@ -188,6 +189,8 @@ export default function ProductionPlanning() {
             {format(new Date(), 'EEEE, dd MMM yyyy')} — par-based recommendations
           </p>
         </div>
+        <div className="flex items-center gap-2">
+        <HelpDrawer pageKey="production-plan" />
         <Button
           onClick={handleConfirmRun}
           disabled={generating || totalToProduce === 0}
@@ -197,6 +200,7 @@ export default function ProductionPlanning() {
           <Factory className="w-5 h-5" />
           {generating ? 'Creating...' : `Confirm Run (${totalToProduce} units)`}
         </Button>
+        </div>
       </div>
 
       {/* Summary strip */}

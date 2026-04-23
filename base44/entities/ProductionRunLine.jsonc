@@ -27,6 +27,26 @@
       "default": 0,
       "description": "Actual produced (filled on completion)"
     },
+    "variance_reason": {
+      "type": "string",
+      "enum": [
+        "as_planned",
+        "higher_yield",
+        "lower_yield",
+        "power_outage",
+        "equipment_failure",
+        "ingredient_shortage",
+        "recipe_error",
+        "staff_error",
+        "quality_rejected",
+        "other"
+      ],
+      "description": "Reason for variance between planned and actual"
+    },
+    "variance_notes": {
+      "type": "string",
+      "description": "Optional detail about variance"
+    },
     "status": {
       "type": "string",
       "enum": [
