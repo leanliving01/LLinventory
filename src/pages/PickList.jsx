@@ -1,18 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { Link } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Printer, Sparkles } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import HelpDrawer from '@/components/help/HelpDrawer';
+import PickListHeader from '@/components/pick-list/PickListHeader';
+import PickListCategory from '@/components/pick-list/PickListCategory';
+import BarcodeScanner from '@/components/pick-list/BarcodeScanner';
+import { generatePickListPdf } from '@/components/pick-list/PickListPdfExport';
 
 /**
  * §5.1.3 Master Pick List
  * Aggregates raw ingredients across Cook BOMs for a production run.
- * Groups by storage zone. Printer-friendly. Stock NOT deducted here.
+ * Groups by pick_category. Interactive tablet picking + barcode scanner + PDF export.
  */
 export default function PickList() {
   const runId = window.location.pathname.split('/').filter(Boolean).find((_, i, arr) => arr[i - 1] === 'run');
@@ -29,7 +27,6 @@ export default function PickList() {
     enabled: !!runId,
   });
 
-  // Load BOMs (Cook + Portion) and their components
   const { data: boms = [] } = useQuery({
     queryKey: ['boms-active'],
     queryFn: () => base44.entities.Bom.filter({ is_active: true }, '-created_date', 500),
@@ -50,6 +47,12 @@ export default function PickList() {
     queryFn: () => base44.entities.Location.list('name', 50),
   });
 
+  // Picked state: { [productId]: { picked: bool, qty: string } }
+  const [pickedState, setPickedState] = useState({});
+  const [showScanner, setShowScanner] = useState(false);
+  const [categorizing, setCategorizing] = useState(false);
+  const queryClient = useQueryClient();
+
   // Build ingredient pick list
   const { pickItems, categories } = useMemo(() => {
     if (!lines.length || !boms.length || !bomComponents.length || !products.length) {
@@ -59,78 +62,61 @@ export default function PickList() {
     const productMap = {};
     products.forEach(p => { productMap[p.id] = p; });
 
-    const locationMap = {};
-    locations.forEach(l => { locationMap[l.id] = l; });
-
-    // For each run line (finished meal), find its Portion BOM to get the WIP input,
-    // then find the Cook BOM for that WIP to get raw ingredients
-    const ingredientAgg = {}; // product_id → { product, totalQty, uom }
-
-    const bomByProduct = {};
-    boms.forEach(b => {
-      const key = `${b.product_id}_${b.bom_type}`;
-      bomByProduct[key] = b;
-    });
-
     const compsByBom = {};
     bomComponents.forEach(c => {
       if (!compsByBom[c.bom_id]) compsByBom[c.bom_id] = [];
       compsByBom[c.bom_id].push(c);
     });
 
+    const ingredientAgg = {};
+
     for (const line of lines) {
       const qty = line.planned_qty;
       if (qty <= 0) continue;
 
-      // 1. Find Portion BOM for this finished meal
       const portionBom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
-      if (portionBom) {
-        const portionComps = compsByBom[portionBom.id] || [];
-        for (const comp of portionComps) {
-          // Each portion component is a WIP (bulk cooked) or raw ingredient
-          const inputProduct = productMap[comp.input_product_id];
-          if (!inputProduct) continue;
+      if (!portionBom) continue;
 
-          const portionYield = portionBom.yield_qty || 1;
-          const neededPerUnit = comp.qty / portionYield;
-          const totalNeeded = neededPerUnit * qty;
+      const portionComps = compsByBom[portionBom.id] || [];
+      for (const comp of portionComps) {
+        const inputProduct = productMap[comp.input_product_id];
+        if (!inputProduct) continue;
 
-          if (inputProduct.type === 'wip_bulk') {
-            // 2. Find Cook BOM for this WIP to get raw ingredients
-            const cookBom = boms.find(b => b.product_id === inputProduct.id && b.bom_type === 'cook');
-            if (cookBom) {
-              const cookComps = compsByBom[cookBom.id] || [];
-              const cookYield = cookBom.yield_qty || 1;
-              for (const cc of cookComps) {
-                if (cc.is_consumable) continue;
-                const rawProduct = productMap[cc.input_product_id];
-                if (!rawProduct) continue;
-                const rawPerUnit = cc.qty / cookYield;
-                const rawTotal = rawPerUnit * totalNeeded;
-                if (!ingredientAgg[rawProduct.id]) {
-                  ingredientAgg[rawProduct.id] = { product: rawProduct, totalQty: 0, uom: cc.uom || rawProduct.stock_uom };
-                }
-                ingredientAgg[rawProduct.id].totalQty += rawTotal;
+        const portionYield = portionBom.yield_qty || 1;
+        const neededPerUnit = comp.qty / portionYield;
+        const totalNeeded = neededPerUnit * qty;
+
+        if (inputProduct.type === 'wip_bulk') {
+          const cookBom = boms.find(b => b.product_id === inputProduct.id && b.bom_type === 'cook');
+          if (cookBom) {
+            const cookComps = compsByBom[cookBom.id] || [];
+            const cookYield = cookBom.yield_qty || 1;
+            for (const cc of cookComps) {
+              if (cc.is_consumable) continue;
+              const rawProduct = productMap[cc.input_product_id];
+              if (!rawProduct) continue;
+              const rawTotal = (cc.qty / cookYield) * totalNeeded;
+              if (!ingredientAgg[rawProduct.id]) {
+                ingredientAgg[rawProduct.id] = { product: rawProduct, totalQty: 0, uom: cc.uom || rawProduct.stock_uom };
               }
-            } else {
-              // No cook BOM — treat the WIP itself as a pick item
-              if (!ingredientAgg[inputProduct.id]) {
-                ingredientAgg[inputProduct.id] = { product: inputProduct, totalQty: 0, uom: comp.uom || inputProduct.stock_uom };
-              }
-              ingredientAgg[inputProduct.id].totalQty += totalNeeded;
+              ingredientAgg[rawProduct.id].totalQty += rawTotal;
             }
           } else {
-            // Direct raw/packaging ingredient in portion BOM
             if (!ingredientAgg[inputProduct.id]) {
               ingredientAgg[inputProduct.id] = { product: inputProduct, totalQty: 0, uom: comp.uom || inputProduct.stock_uom };
             }
             ingredientAgg[inputProduct.id].totalQty += totalNeeded;
           }
+        } else {
+          if (!ingredientAgg[inputProduct.id]) {
+            ingredientAgg[inputProduct.id] = { product: inputProduct, totalQty: 0, uom: comp.uom || inputProduct.stock_uom };
+          }
+          ingredientAgg[inputProduct.id].totalQty += totalNeeded;
         }
       }
     }
 
-    // Exclude items that don't need picking (sleeves are at the production line, vacuum skin is on the machine)
+    // Exclude non-pickable items
     const PICK_EXCLUDE_PATTERNS = ['sleeve', 'vacuum'];
     for (const pid of Object.keys(ingredientAgg)) {
       const name = (ingredientAgg[pid].product.name || '').toLowerCase();
@@ -139,7 +125,6 @@ export default function PickList() {
       }
     }
 
-    // Group by pick category
     const CATEGORY_ORDER = [
       'Meats', 'Vegetables', 'Starches', 'Spices & Seasoning',
       'Sauces & Condiments', 'Dairy & Eggs', 'Oils & Fats',
@@ -159,16 +144,42 @@ export default function PickList() {
       return a.product.name.localeCompare(b.product.name);
     });
 
-    const categories = [...new Set(items.map(i => i.pickCategory))];
-    categories.sort((a, b) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b));
+    const cats = [...new Set(items.map(i => i.pickCategory))];
+    cats.sort((a, b) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b));
 
-    return { pickItems: items, categories };
+    return { pickItems: items, categories: cats };
   }, [lines, boms, bomComponents, products, locations]);
 
-  const queryClient = useQueryClient();
-  const [categorizing, setCategorizing] = useState(false);
-
   const hasUncategorized = pickItems.some(i => i.pickCategory === 'Uncategorized');
+  const pickedCount = pickItems.filter(i => pickedState[i.product.id]?.picked).length;
+
+  const handleTogglePicked = (productId, totalQty) => {
+    setPickedState(prev => {
+      const current = prev[productId] || { picked: false, qty: '' };
+      return {
+        ...prev,
+        [productId]: {
+          picked: !current.picked,
+          qty: !current.picked ? String(totalQty) : current.qty,
+        },
+      };
+    });
+  };
+
+  const handleQtyChange = (productId, value) => {
+    setPickedState(prev => ({
+      ...prev,
+      [productId]: { ...(prev[productId] || { picked: false }), qty: value },
+    }));
+  };
+
+  // Barcode scan auto-picks item
+  const handleItemScanned = (productId, totalQty) => {
+    setPickedState(prev => ({
+      ...prev,
+      [productId]: { picked: true, qty: String(totalQty) },
+    }));
+  };
 
   const handleCategorize = async () => {
     setCategorizing(true);
@@ -182,36 +193,33 @@ export default function PickList() {
     setCategorizing(false);
   };
 
+  const handleExportPdf = () => {
+    if (!run || pickItems.length === 0) return;
+    generatePickListPdf({ run, lines, pickItems, categories });
+    toast.success('PDF downloaded');
+  };
+
   if (!run) {
     return <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>;
   }
 
   return (
     <div className="space-y-4 print:space-y-2">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3 print:hidden">
-        <div className="flex items-center gap-3">
-          <Link to={`/production/run/${runId}`}>
-            <Button variant="ghost" size="icon"><ArrowLeft className="w-4 h-4" /></Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold">Pick List — {run.run_number}</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">{lines.length} meals · {pickItems.length} ingredients across {categories.length} categories</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <HelpDrawer pageKey="pick-list" />
-          {hasUncategorized && (
-            <Button variant="outline" onClick={handleCategorize} disabled={categorizing} className="gap-1.5">
-              <Sparkles className="w-4 h-4" />
-              {categorizing ? 'Categorizing...' : 'Auto-Categorize'}
-            </Button>
-          )}
-          <Button variant="outline" onClick={() => window.print()} className="gap-1.5">
-            <Printer className="w-4 h-4" /> Print
-          </Button>
-        </div>
-      </div>
+      <PickListHeader
+        runId={runId}
+        runNumber={run.run_number}
+        lineCount={lines.length}
+        itemCount={pickItems.length}
+        categoryCount={categories.length}
+        pickedCount={pickedCount}
+        hasUncategorized={hasUncategorized}
+        categorizing={categorizing}
+        onCategorize={handleCategorize}
+        onPrint={() => window.print()}
+        onExportPdf={handleExportPdf}
+        onToggleScanner={() => setShowScanner(v => !v)}
+        showScanner={showScanner}
+      />
 
       {/* Print header */}
       <div className="hidden print:block">
@@ -219,46 +227,42 @@ export default function PickList() {
         <p className="text-sm">{lines.length} meals · {pickItems.length} ingredients</p>
       </div>
 
+      {/* Scanner */}
+      {showScanner && (
+        <BarcodeScanner pickItems={pickItems} onItemScanned={handleItemScanned} />
+      )}
+
       <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm text-amber-800 print:hidden">
-        Stock is <strong>not</strong> deducted when printing the pick list — only when the run is completed.
+        Stock is <strong>not</strong> deducted when picking — only when the run is completed. Tap checkboxes or scan barcodes to mark items as picked.
       </div>
 
-      {/* Grouped by pick category */}
-      {categories.map(cat => {
-        const catItems = pickItems.filter(i => i.pickCategory === cat);
-        return (
-          <div key={cat} className="bg-card border border-border rounded-xl overflow-hidden print:break-inside-avoid print:rounded-none print:border-black">
-            <div className="px-4 py-2.5 border-b border-border bg-muted/50 flex items-center gap-2">
-              <h3 className="text-sm font-bold">{cat}</h3>
-              <Badge variant="secondary" className="text-[10px]">{catItems.length} items</Badge>
-            </div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground w-8">✓</th>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">SKU</th>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">Ingredient</th>
-                  <th className="text-right px-4 py-2 font-medium text-muted-foreground">Qty Needed</th>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">UoM</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {catItems.map(item => (
-                  <tr key={item.product.id} className="print:leading-8">
-                    <td className="px-4 py-2">
-                      <div className="w-5 h-5 border-2 border-border rounded print:border-black" />
-                    </td>
-                    <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{item.product.sku}</td>
-                    <td className="px-4 py-2 font-medium">{item.product.name}</td>
-                    <td className="px-4 py-2 text-right font-bold tabular-nums">{item.totalQty.toLocaleString()}</td>
-                    <td className="px-4 py-2 text-muted-foreground">{item.uom}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {/* Progress bar */}
+      {pickItems.length > 0 && (
+        <div className="print:hidden">
+          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+            <span>Pick progress</span>
+            <span className="font-semibold">{pickedCount} / {pickItems.length}</span>
           </div>
-        );
-      })}
+          <div className="w-full bg-muted rounded-full h-2.5">
+            <div
+              className="bg-green-500 h-2.5 rounded-full transition-all duration-300"
+              style={{ width: `${pickItems.length ? (pickedCount / pickItems.length) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Categories */}
+      {categories.map(cat => (
+        <PickListCategory
+          key={cat}
+          category={cat}
+          items={pickItems.filter(i => i.pickCategory === cat)}
+          pickedState={pickedState}
+          onTogglePicked={handleTogglePicked}
+          onQtyChange={handleQtyChange}
+        />
+      ))}
 
       {pickItems.length === 0 && (
         <div className="bg-card border border-border rounded-xl px-6 py-12 text-center text-sm text-muted-foreground">
