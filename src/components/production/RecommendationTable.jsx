@@ -39,7 +39,7 @@ export default function RecommendationTable({ title, rows, variantCodes, stockMa
               {variantCodes.map(code => {
                 const info = VARIANT_INFO[code];
                 return (
-                  <th key={code} colSpan={5} className={cn("text-center px-1 py-2 text-xs font-bold uppercase border-l border-border", info.bg, info.text)}>
+                  <th key={code} colSpan={6} className={cn("text-center px-1 py-2 text-xs font-bold uppercase border-l border-border", info.bg, info.text)}>
                     {info.label}
                   </th>
                 );
@@ -49,6 +49,7 @@ export default function RecommendationTable({ title, rows, variantCodes, stockMa
               {variantCodes.map(code => (
                 <React.Fragment key={code}>
                   <th className="text-right px-1.5 py-1.5 text-[10px] text-muted-foreground border-l border-border">SOH</th>
+                  <th className="text-right px-1.5 py-1.5 text-[10px] text-muted-foreground">COM</th>
                   <th className="text-right px-1.5 py-1.5 text-[10px] text-muted-foreground">AVL</th>
                   <th className="text-right px-1.5 py-1.5 text-[10px] text-muted-foreground">PAR</th>
                   <th className="text-right px-1.5 py-1.5 text-[10px] text-muted-foreground">REC</th>
@@ -83,7 +84,7 @@ export default function RecommendationTable({ title, rows, variantCodes, stockMa
                   {variantCodes.map(code => {
                     const product = row.variants[code];
                     if (!product) {
-                      return <td key={code} colSpan={5} className="px-1 py-2 text-center text-muted-foreground text-[10px] border-l border-border">—</td>;
+                      return <td key={code} colSpan={6} className="px-1 py-2 text-center text-muted-foreground text-[10px] border-l border-border">—</td>;
                     }
                     const soh = stockMap[product.id]?.qty_on_hand || 0;
                     const committed = stockMap[product.id]?.qty_committed || 0;
@@ -95,6 +96,9 @@ export default function RecommendationTable({ title, rows, variantCodes, stockMa
                     return (
                       <React.Fragment key={code}>
                         <td className="px-1.5 py-2 text-right border-l border-border"><Cell value={soh} /></td>
+                        <td className="px-1.5 py-2 text-right">
+                          <Cell value={committed || '—'} className={cn(committed > 0 && "text-amber-600 font-medium")} />
+                        </td>
                         <td className="px-1.5 py-2 text-right">
                           <Cell value={available} className={cn("font-medium", available < 0 && "text-red-600")} />
                         </td>

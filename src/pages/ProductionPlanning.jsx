@@ -8,6 +8,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import RecommendationTable from '@/components/production/RecommendationTable';
 import { groupMealsForProduction, VARIANT_CODES } from '@/lib/productionGrouping';
+import { buildCommittedMap } from '@/lib/demandBridge';
 
 export default function ProductionPlanning() {
   const queryClient = useQueryClient();
@@ -21,11 +22,29 @@ export default function ProductionPlanning() {
     queryFn: () => base44.entities.Product.filter({ type: 'finished_meal', status: 'active' }, '-sku', 500),
   });
 
-  // Fetch stock on hand (committed = 0 until Phase 2)
+  // Fetch stock on hand
   const { data: stockRecords = [] } = useQuery({
     queryKey: ['stock-on-hand'],
     queryFn: () => base44.entities.StockOnHand.list('-updated_date', 1000),
   });
+
+  // Fetch committed demand data
+  const { data: demandRecords = [] } = useQuery({
+    queryKey: ['committed-demand'],
+    queryFn: () => base44.entities.CommittedDemand.list('-created_date', 1000),
+  });
+
+  // Fetch SKU entities for bridging demand → products
+  const { data: skuRecords = [] } = useQuery({
+    queryKey: ['sku-records'],
+    queryFn: () => base44.entities.SKU.filter({ is_active: true }, '-created_date', 500),
+  });
+
+  // Build committed demand map: product_id → total committed qty
+  const committedMap = useMemo(() => {
+    if (!demandRecords.length || !skuRecords.length || !finishedMeals.length) return {};
+    return buildCommittedMap(demandRecords, skuRecords, finishedMeals);
+  }, [demandRecords, skuRecords, finishedMeals]);
 
   // Build stock lookup: product_id → { qty_on_hand, qty_committed, qty_available }
   const stockMap = useMemo(() => {
@@ -37,8 +56,14 @@ export default function ProductionPlanning() {
       map[pid].qty_committed += s.qty_committed || 0;
       map[pid].qty_available += s.qty_available || 0;
     });
+    // Overlay real committed demand from Shopify orders
+    for (const [pid, committed] of Object.entries(committedMap)) {
+      if (!map[pid]) map[pid] = { qty_on_hand: 0, qty_committed: 0, qty_available: 0 };
+      map[pid].qty_committed = committed;
+      map[pid].qty_available = map[pid].qty_on_hand - committed;
+    }
     return map;
-  }, [stockRecords]);
+  }, [stockRecords, committedMap]);
 
   // Group meals into rows
   const { goalRows, lowCarbRows } = useMemo(() => {
@@ -59,21 +84,23 @@ export default function ProductionPlanning() {
   }, [lowCarbRows, search]);
 
   // Calculate totals
-  const { totalToProduce, belowParCount } = useMemo(() => {
+  const { totalToProduce, belowParCount, totalCommitted } = useMemo(() => {
     let total = 0;
     let below = 0;
+    let committed = 0;
 
     const countRow = (row, codes) => {
       codes.forEach(code => {
         const p = row.variants[code];
         if (!p) return;
         const soh = stockMap[p.id]?.qty_on_hand || 0;
-        const committed = stockMap[p.id]?.qty_committed || 0;
-        const available = soh - committed;
+        const com = stockMap[p.id]?.qty_committed || 0;
+        const available = soh - com;
         const par = p.par_level || 0;
         const recommended = Math.max(0, par - available);
         const finalQty = overrides[p.id] !== undefined ? Number(overrides[p.id]) : recommended;
         total += finalQty;
+        committed += com;
         if (par > 0 && available < par) below++;
       });
     };
@@ -81,7 +108,7 @@ export default function ProductionPlanning() {
     goalRows.forEach(r => countRow(r, VARIANT_CODES));
     lowCarbRows.forEach(r => countRow(r, ['LC']));
 
-    return { totalToProduce: total, belowParCount: below };
+    return { totalToProduce: total, belowParCount: below, totalCommitted: committed };
   }, [goalRows, lowCarbRows, stockMap, overrides]);
 
   const handleOverride = (productId, value) => {
@@ -177,6 +204,11 @@ export default function ProductionPlanning() {
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Below Par</p>
           <p className="text-lg font-bold text-red-600">{belowParCount}</p>
+        </div>
+        <div className="w-px h-8 bg-border" />
+        <div>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Committed</p>
+          <p className="text-lg font-bold text-amber-600">{totalCommitted.toLocaleString()}</p>
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
