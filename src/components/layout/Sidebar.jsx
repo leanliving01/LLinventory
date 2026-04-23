@@ -18,13 +18,17 @@ import {
   Barcode,
   Gauge,
   Box,
-  List
+  List,
+  Truck,
+  CookingPot
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard },
   { label: 'Catalog', path: '/catalog', icon: Package },
+  { label: 'Recipes', path: '/recipes', icon: CookingPot },
+  { label: 'Suppliers', path: '/suppliers', icon: Truck },
   { label: 'Production Plan', path: '/production', icon: Factory },
   { 
     label: 'Inventory', icon: Warehouse,

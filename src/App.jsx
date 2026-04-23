@@ -21,6 +21,8 @@ import DemandAudit from '@/pages/DemandAudit';
 import Settings from '@/pages/Settings';
 import SettingsPage from '@/pages/SettingsPage';
 import Catalog from '@/pages/Catalog';
+import Recipes from '@/pages/Recipes';
+import Suppliers from '@/pages/Suppliers';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -47,6 +49,8 @@ const AuthenticatedApp = () => {
       <Route element={<AppLayout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/catalog" element={<Catalog />} />
+        <Route path="/recipes" element={<Recipes />} />
+        <Route path="/suppliers" element={<Suppliers />} />
         <Route path="/production" element={<ProductionPlanning />} />
         <Route path="/stock/new-production" element={<NewProduction />} />
         <Route path="/stock/stock-take" element={<StockTake />} />
