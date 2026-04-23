@@ -18,6 +18,9 @@ import MasterDataPackages from '@/pages/MasterDataPackages';
 import MasterDataBOM from '@/pages/MasterDataBOM';
 import Reports from '@/pages/Reports';
 import DemandAudit from '@/pages/DemandAudit';
+import ProductionRuns from '@/pages/ProductionRuns';
+import ProductionRunDetail from '@/pages/ProductionRunDetail';
+import Wastage from '@/pages/Wastage';
 import Settings from '@/pages/Settings';
 import SettingsPage from '@/pages/SettingsPage';
 import Catalog from '@/pages/Catalog';
@@ -52,7 +55,10 @@ const AuthenticatedApp = () => {
         <Route path="/recipes" element={<Recipes />} />
         <Route path="/suppliers" element={<Suppliers />} />
         <Route path="/production" element={<ProductionPlanning />} />
+        <Route path="/production/runs" element={<ProductionRuns />} />
+        <Route path="/production/run/:runId" element={<ProductionRunDetail />} />
         <Route path="/stock/new-production" element={<NewProduction />} />
+        <Route path="/stock/wastage" element={<Wastage />} />
         <Route path="/stock/stock-take" element={<StockTake />} />
         <Route path="/shopify" element={<ShopifySync />} />
         <Route path="/master-data/meals" element={<MasterDataMeals />} />

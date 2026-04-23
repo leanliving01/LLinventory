@@ -20,7 +20,9 @@ import {
   Box,
   List,
   Truck,
-  CookingPot
+  CookingPot,
+  PlayCircle,
+  Trash2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -30,11 +32,13 @@ const navItems = [
   { label: 'Recipes', path: '/recipes', icon: CookingPot },
   { label: 'Suppliers', path: '/suppliers', icon: Truck },
   { label: 'Production Plan', path: '/production', icon: Factory },
+  { label: 'Production Runs', path: '/production/runs', icon: PlayCircle },
   { 
     label: 'Inventory', icon: Warehouse,
     children: [
       { label: 'New Production', path: '/stock/new-production', icon: Plus },
       { label: 'Stock Take', path: '/stock/stock-take', icon: ClipboardCheck },
+      { label: 'Wastage', path: '/stock/wastage', icon: Trash2 },
     ]
   },
   { label: 'Shopify Sync', path: '/shopify', icon: ShoppingCart },
@@ -149,7 +153,7 @@ export default function Sidebar({ collapsed, onToggle }) {
           }
 
           const isActive = location.pathname === item.path || 
-            (item.path !== '/' && location.pathname.startsWith(item.path));
+            (item.path !== '/' && item.path.length > 1 && location.pathname.startsWith(item.path + '/'));
           return (
             <Link
               key={item.path}
