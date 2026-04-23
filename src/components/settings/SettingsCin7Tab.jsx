@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
-import { Database, Wifi, Package, Users as UsersIcon, Boxes, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Database, Wifi, Package, Users as UsersIcon, Boxes, Loader2, CheckCircle2, AlertCircle, ChefHat } from 'lucide-react';
 import { toast } from 'sonner';
 
 const importSteps = [
-  { action: 'import_products', label: 'Products', description: 'Import all 422 products from Cin7 with type mapping', icon: Package },
-  { action: 'import_suppliers', label: 'Suppliers', description: 'Import supplier contacts and payment terms', icon: UsersIcon },
-  { action: 'import_stock', label: 'Stock Levels', description: 'Import current stock on hand per location', icon: Boxes },
+  { action: 'import_products', label: 'Products', description: 'Import all 422 products from Cin7 with type mapping', icon: Package, fn: 'cin7Import' },
+  { action: 'import_suppliers', label: 'Suppliers', description: 'Import supplier contacts and payment terms', icon: UsersIcon, fn: 'cin7Import' },
+  { action: 'import_stock', label: 'Stock Levels', description: 'Import current stock on hand per location', icon: Boxes, fn: 'cin7Import' },
+  { action: 'import', label: 'Recipes (BOMs)', description: 'Import Cook, Portion, and Pack recipes from Cin7 — Assembly + Production BOMs', icon: ChefHat, fn: 'cin7BomImport' },
 ];
 
 export default function SettingsCin7Tab() {
@@ -33,10 +34,14 @@ export default function SettingsCin7Tab() {
   const handleImport = async (action) => {
     setRunning(action);
     try {
-      const res = await base44.functions.invoke('cin7Import', { action });
+      const step = importSteps.find(s => s.action === action);
+      const fnName = step?.fn || 'cin7Import';
+      const res = await base44.functions.invoke(fnName, { action });
       setResults(prev => ({ ...prev, [action]: res.data }));
       const d = res.data;
-      toast.success(`${d.created || 0} created, ${d.updated || 0} updated${d.errors ? `, ${d.errors} errors` : ''}`);
+      const created = d.created || d.created_count || d.boms_created || 0;
+      const updated = d.updated || d.updated_count || d.boms_updated || 0;
+      toast.success(`${created} created, ${updated} updated${d.errors ? `, ${d.errors} errors` : ''}`);
     } catch (err) {
       toast.error('Import failed: ' + (err.response?.data?.error || err.message));
       setResults(prev => ({ ...prev, [action]: { error: true } }));
@@ -96,7 +101,9 @@ export default function SettingsCin7Tab() {
                     <p className="text-xs text-muted-foreground">{step.description}</p>
                     {result && !result.error && (
                       <p className="text-xs text-green-600 mt-0.5">
-                        {result.created || 0} created · {result.updated || 0} updated · {result.total || 0} total
+                        {result.boms_created || result.created || 0} created · {result.boms_updated || result.updated || 0} updated
+                        {result.components_created ? ` · ${result.components_created} components` : ''}
+                        {result.total ? ` · ${result.total} total` : ''}
                         {result.errors > 0 && <span className="text-red-500"> · {result.errors} errors</span>}
                       </p>
                     )}

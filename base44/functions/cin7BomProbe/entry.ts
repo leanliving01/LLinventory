@@ -240,7 +240,7 @@ Deno.serve(async (req) => {
     if (!productId) return Response.json({ error: 'product_id required' }, { status: 400 });
     
     // Try fetching by ID parameter
-    const data = await cin7Fetch(`/Product?ID=${encodeURIComponent(productId)}`, accountId, appKey);
+    const data = await cin7Fetch(`/Product?ID=${encodeURIComponent(productId)}&IncludeBOM=true`, accountId, appKey);
     const products = data.Products || [];
     if (products.length === 0) return Response.json({ error: 'Product not found' });
     
@@ -253,6 +253,38 @@ Deno.serve(async (req) => {
       bomProducts: p.BillOfMaterialsProducts || [],
       bomServices: p.BillOfMaterialsServices || [],
     });
+  }
+
+  // ─── PRODUCTION_BOM: Get the Production BOM for a product ───
+  if (action === 'production_bom') {
+    const productId = body.product_id;
+    if (!productId) return Response.json({ error: 'product_id required' }, { status: 400 });
+    
+    const data = await cin7Fetch(`/production/productionbom?ProductID=${productId}`, accountId, appKey);
+    
+    // Flatten for readability
+    const boms = (data.ProductionBoms || []).map(bom => ({
+      bomId: bom.BomID,
+      outputQty: bom.OutputQuantity,
+      version: bom.Version,
+      isDefault: bom.IsDefault,
+      operations: (bom.Operations || []).map(op => ({
+        name: op.Name,
+        order: op.Order,
+        workCenter: op.WorkCenterName,
+        cycleTime: op.CycleTime,
+        components: (op.Components || []).map(c => ({
+          productId: c.ProductID,
+          sku: c.ProductSku,
+          name: c.ProductName,
+          qty: c.Quantity,
+          wastageQty: c.WastageQty,
+          wastagePct: c.WastagePercent,
+        })),
+      })),
+    }));
+    
+    return Response.json({ productId: data.ProductID, boms });
   }
 
   return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });
