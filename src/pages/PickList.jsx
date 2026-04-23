@@ -129,6 +129,15 @@ export default function PickList() {
       }
     }
 
+    // Exclude items that don't need picking (sleeves are at the production line, vacuum skin is on the machine)
+    const PICK_EXCLUDE_PATTERNS = ['sleeve', 'vacuum'];
+    for (const pid of Object.keys(ingredientAgg)) {
+      const name = (ingredientAgg[pid].product.name || '').toLowerCase();
+      if (PICK_EXCLUDE_PATTERNS.some(pat => name.includes(pat))) {
+        delete ingredientAgg[pid];
+      }
+    }
+
     // Group by storage zone
     const items = Object.values(ingredientAgg).map(item => {
       const loc = item.product.default_location_id ? locationMap[item.product.default_location_id] : null;
