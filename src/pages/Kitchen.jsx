@@ -63,13 +63,15 @@ export default function Kitchen() {
 
   const doneCount = tasks.filter(t => t.status === 'done').length;
 
-  // Check if prerequisite station tasks are done for a given task
+  // Check if prerequisite station tasks are done for a given task + pick list
   const checkDependencies = (task) => {
-    // Dependency chain: prep → cook → portion
-    // Cook tasks need all prep tasks for the same product to be done
-    // Portion tasks need all cook tasks for the same product to be done
+    // Pick list must be confirmed before any task can start
+    if (!activeRun?.pick_list_confirmed) {
+      return 'The pick list has not been confirmed yet. Stock must be picked from storage before kitchen tasks can begin.';
+    }
+
     const prereqStation = task.station === 'cook' ? 'prep' : task.station === 'portion' ? 'cook' : null;
-    if (!prereqStation) return null; // prep has no prerequisites
+    if (!prereqStation) return null;
 
     const prereqTasks = allRunTasks.filter(t =>
       t.station === prereqStation &&
@@ -77,12 +79,15 @@ export default function Kitchen() {
       !t.archived
     );
 
-    if (prereqTasks.length === 0) return null; // no prerequisites exist
+    if (prereqTasks.length === 0) return null;
     const incomplete = prereqTasks.filter(t => t.status !== 'done');
-    if (incomplete.length === 0) return null; // all done
+    if (incomplete.length === 0) return null;
 
-    const stationLabel = prereqStation === 'prep' ? 'Prep' : 'Cook';
-    return `${stationLabel} needs to be done for ${task.meal_name || task.name} first before you can start ${task.station === 'cook' ? 'cooking' : 'portioning'}.`;
+    const taskNames = incomplete.map(t => `"${t.name || t.meal_name}"`).join(', ');
+    if (task.station === 'cook') {
+      return `First prepare ${taskNames} before you can start cooking ${task.meal_name || task.name}.`;
+    }
+    return `First finish cooking ${taskNames} before you can start portioning ${task.meal_name || task.name}.`;
   };
 
   const handleStatusChange = async (taskId, newStatus) => {
@@ -113,8 +118,12 @@ export default function Kitchen() {
 
   const handleTaskCompleted = async (taskId, consumption) => {
     const consumptionSummary = consumption
-      .filter(c => c.actual !== c.picked)
-      .map(c => `${c.name}: picked ${c.picked}, used ${c.actual} ${c.uom}`)
+      .filter(c => c.actual !== c.picked || (c.unusable_wastage || 0) > 0)
+      .map(c => {
+        let s = `${c.name}: picked ${c.picked}, used ${c.actual} ${c.uom}`;
+        if (c.unusable_wastage > 0) s += `, waste ${c.unusable_wastage} ${c.uom}`;
+        return s;
+      })
       .join('; ');
 
     setUpdating(true);
@@ -133,6 +142,23 @@ export default function Kitchen() {
         ref_type: 'production_run',
         ref_id: activeRun?.id,
         notes: `Returned from task: picked ${r.picked}, consumed ${r.actual} ${r.uom}`,
+      });
+    }
+
+    // Record unusable wastage as stock movements
+    const wastageItems = consumption.filter(c => (c.unusable_wastage || 0) > 0);
+    for (const w of wastageItems) {
+      await base44.entities.StockMovement.create({
+        product_id: w.input_product_id,
+        product_sku: w.sku,
+        product_name: w.name,
+        qty: w.unusable_wastage,
+        uom: w.uom,
+        reason: 'wastage_unusable',
+        ref_type: 'production_run',
+        ref_id: activeRun?.id,
+        unit_cost_at_movement: w.cost_per_unit || 0,
+        notes: `Unusable waste (peels/offcuts): ${w.unusable_wastage} ${w.uom} of ${w.name}`,
       });
     }
 

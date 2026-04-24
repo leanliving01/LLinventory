@@ -53,8 +53,13 @@ export default function Kanban() {
     return cols;
   }, [tasks]);
 
-  // Dependency check: prep→cook→portion
+  // Dependency check: prep→cook→portion + pick list must be confirmed
   const checkDependencies = (task) => {
+    // Pick list must be confirmed before any task can start
+    if (!run?.pick_list_confirmed) {
+      return 'The pick list has not been confirmed yet. Stock must be picked from storage before kitchen tasks can begin. Go to the Pick List page to confirm.';
+    }
+
     const prereqStation = task.station === 'cook' ? 'prep' : task.station === 'portion' ? 'cook' : null;
     if (!prereqStation) return null;
     const prereqTasks = tasks.filter(t =>
@@ -65,8 +70,12 @@ export default function Kanban() {
     if (prereqTasks.length === 0) return null;
     const incomplete = prereqTasks.filter(t => t.status !== 'done');
     if (incomplete.length === 0) return null;
-    const stationLabel = prereqStation === 'prep' ? 'Prep' : 'Cook';
-    return `${stationLabel} needs to be done for ${task.meal_name || task.name} first before you can start ${task.station === 'cook' ? 'cooking' : 'portioning'}.`;
+
+    const taskNames = incomplete.map(t => `"${t.name || t.meal_name}"`).join(', ');
+    if (task.station === 'cook') {
+      return `First prepare ${taskNames} before you can start cooking ${task.meal_name || task.name}.`;
+    }
+    return `First finish cooking ${taskNames} before you can start portioning ${task.meal_name || task.name}.`;
   };
 
   const handleStatusChange = async (taskId, newStatus) => {
@@ -109,8 +118,12 @@ export default function Kanban() {
 
   const handleTaskCompleted = async (taskId, consumption) => {
     const consumptionSummary = consumption
-      .filter(c => c.actual !== c.picked)
-      .map(c => `${c.name}: picked ${c.picked}, used ${c.actual} ${c.uom}`)
+      .filter(c => c.actual !== c.picked || (c.unusable_wastage || 0) > 0)
+      .map(c => {
+        let s = `${c.name}: picked ${c.picked}, used ${c.actual} ${c.uom}`;
+        if (c.unusable_wastage > 0) s += `, waste ${c.unusable_wastage} ${c.uom}`;
+        return s;
+      })
       .join('; ');
 
     // Return unconsumed quantities to stock
@@ -127,6 +140,23 @@ export default function Kanban() {
         ref_type: 'production_run',
         ref_id: runId,
         notes: `Returned from task: picked ${r.picked}, consumed ${r.actual} ${r.uom}`,
+      });
+    }
+
+    // Record unusable wastage as stock movements
+    const wastageItems = consumption.filter(c => (c.unusable_wastage || 0) > 0);
+    for (const w of wastageItems) {
+      await base44.entities.StockMovement.create({
+        product_id: w.input_product_id,
+        product_sku: w.sku,
+        product_name: w.name,
+        qty: w.unusable_wastage,
+        uom: w.uom,
+        reason: 'wastage_unusable',
+        ref_type: 'production_run',
+        ref_id: runId,
+        unit_cost_at_movement: w.cost_per_unit || 0,
+        notes: `Unusable waste (peels/offcuts): ${w.unusable_wastage} ${w.uom} of ${w.name}`,
       });
     }
 

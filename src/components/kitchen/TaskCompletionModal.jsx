@@ -4,11 +4,14 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { X, CheckCircle2, Loader2 } from 'lucide-react';
+import { X, CheckCircle2, Loader2, Trash2 } from 'lucide-react';
 
 export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
   const [actuals, setActuals] = useState({});
+  const [wastage, setWastage] = useState({});
   const [confirming, setConfirming] = useState(false);
+
+  const showWastageSection = task.station === 'prep' || task.station === 'cook';
 
   // Load the relevant BOM and its components for this task's product
   const { data: boms = [] } = useQuery({
@@ -21,6 +24,19 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
     queryKey: ['bom-components-all'],
     queryFn: () => base44.entities.BomComponent.list('-created_date', 2000),
   });
+
+  // Load products for cost lookup
+  const { data: products = [] } = useQuery({
+    queryKey: ['products-for-cost'],
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
+    enabled: showWastageSection,
+  });
+
+  const productMap = useMemo(() => {
+    const map = {};
+    products.forEach(p => { map[p.id] = p; });
+    return map;
+  }, [products]);
 
   // Get relevant BOM for this task's station
   const relevantBom = useMemo(() => {
@@ -41,6 +57,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
     return components.map(c => {
       const requiredPerUnit = c.qty / yieldQty;
       const totalRequired = Math.round(requiredPerUnit * (task.qty || 1) * 100) / 100;
+      const product = productMap[c.input_product_id];
       return {
         id: c.id,
         input_product_id: c.input_product_id,
@@ -48,9 +65,10 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
         sku: c.input_product_sku || '',
         uom: c.uom || '',
         picked: totalRequired,
+        cost_per_unit: product?.cost_avg || 0,
       };
     });
-  }, [components, task.qty, relevantBom]);
+  }, [components, task.qty, relevantBom, productMap]);
 
   // Pre-fill actuals with picked values on first load
   useMemo(() => {
@@ -65,9 +83,12 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
     setActuals(prev => ({ ...prev, [compId]: value }));
   };
 
+  const handleWastageChange = (compId, value) => {
+    setWastage(prev => ({ ...prev, [compId]: value }));
+  };
+
   const handleConfirm = async () => {
     setConfirming(true);
-    // Build consumption data
     const consumption = componentRows.map(r => ({
       component_id: r.id,
       input_product_id: r.input_product_id,
@@ -76,6 +97,8 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
       uom: r.uom,
       picked: r.picked,
       actual: Number(actuals[r.id]) || 0,
+      unusable_wastage: Number(wastage[r.id]) || 0,
+      cost_per_unit: r.cost_per_unit,
     }));
     await onConfirm(task.id, consumption);
     setConfirming(false);
@@ -115,6 +138,8 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                 {componentRows.map(row => {
                   const actual = actuals[row.id] ?? row.picked;
                   const diff = Number(actual) - row.picked;
+                  const wastageQty = Number(wastage[row.id]) || 0;
+                  const wastageCost = wastageQty * row.cost_per_unit;
                   return (
                     <div key={row.id} className="bg-muted/50 rounded-xl p-4 space-y-2">
                       <div className="flex items-center justify-between">
@@ -144,6 +169,35 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                         <p className={`text-[11px] font-medium ${diff > 0 ? 'text-amber-600' : 'text-blue-600'}`}>
                           {diff > 0 ? `+${diff.toFixed(2)} over picked` : `${Math.abs(diff).toFixed(2)} ${row.uom} returning to stock`}
                         </p>
+                      )}
+
+                      {/* Unusable wastage row — prep & cook only */}
+                      {showWastageSection && (
+                        <div className="border-t border-border/50 pt-2 mt-2">
+                          <div className="flex items-center gap-2">
+                            <Trash2 className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                            <label className="text-[10px] text-red-500 uppercase tracking-wider font-medium">Unusable Waste (peels, offcuts, bones)</label>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3 mt-1">
+                            <div>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="0"
+                                value={wastage[row.id] || ''}
+                                onChange={e => handleWastageChange(row.id, e.target.value)}
+                                className="h-9 border-red-200 focus-visible:ring-red-300"
+                              />
+                            </div>
+                            <div className="flex items-center">
+                              {wastageCost > 0 && (
+                                <p className="text-[11px] text-red-500 font-medium">
+                                  ≈ R{wastageCost.toFixed(2)} waste cost
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       )}
                     </div>
                   );

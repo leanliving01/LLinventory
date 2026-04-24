@@ -23,6 +23,11 @@
       "default": "draft",
       "description": "Run lifecycle status"
     },
+    "pick_list_confirmed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the pick list has been confirmed and stock consumed from storage"
+    },
     "total_lines": {
       "type": "number",
       "default": 0,

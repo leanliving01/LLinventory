@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import PickListHeader from '@/components/pick-list/PickListHeader';
 import PickListCategory from '@/components/pick-list/PickListCategory';
 import BarcodeScanner from '@/components/pick-list/BarcodeScanner';
@@ -51,6 +52,7 @@ export default function PickList() {
   const [pickedState, setPickedState] = useState({});
   const [showScanner, setShowScanner] = useState(false);
   const [categorizing, setCategorizing] = useState(false);
+  const [confirmingPick, setConfirmingPick] = useState(false);
   const queryClient = useQueryClient();
 
   // Build ingredient pick list
@@ -200,6 +202,38 @@ export default function PickList() {
     toast.success('PDF downloaded');
   };
 
+  const handleConfirmPickList = async () => {
+    if (pickedCount < pickItems.length) {
+      toast.error(`Only ${pickedCount} of ${pickItems.length} items picked. Pick all items before confirming.`);
+      return;
+    }
+    setConfirmingPick(true);
+
+    // Create stock consumption movements for all picked items
+    for (const item of pickItems) {
+      const state = pickedState[item.product.id];
+      const qty = Number(state?.qty) || item.totalQty;
+      await base44.entities.StockMovement.create({
+        product_id: item.product.id,
+        product_sku: item.product.sku,
+        product_name: item.product.name,
+        qty,
+        uom: item.uom,
+        reason: 'production_consume',
+        ref_type: 'production_run',
+        ref_id: runId,
+        notes: `Pick list confirmed for run ${run?.run_number}`,
+      });
+    }
+
+    // Mark the run as pick list confirmed
+    await base44.entities.ProductionRun.update(runId, { pick_list_confirmed: true });
+    queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
+    queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+    toast.success('Pick list confirmed — stock consumed from storage');
+    setConfirmingPick(false);
+  };
+
   if (!run) {
     return <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>;
   }
@@ -233,9 +267,23 @@ export default function PickList() {
         <BarcodeScanner pickItems={pickItems} onItemScanned={handleItemScanned} />
       )}
 
-      <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm text-amber-800 print:hidden">
-        Stock is <strong>not</strong> deducted when picking — only when the run is completed. Tap checkboxes or scan barcodes to mark items as picked.
-      </div>
+      {run?.pick_list_confirmed ? (
+        <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2.5 text-sm text-green-700 print:hidden">
+          ✓ Pick list confirmed — stock has been consumed from storage. Kitchen tasks can now begin.
+        </div>
+      ) : (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm text-amber-800 print:hidden flex items-center justify-between gap-3">
+          <span>Pick all items then confirm to consume stock from storage. Kitchen tasks are blocked until this is done.</span>
+          <Button
+            onClick={handleConfirmPickList}
+            disabled={confirmingPick || pickedCount < pickItems.length}
+            className="shrink-0 bg-green-600 hover:bg-green-700 text-white gap-1.5"
+            size="sm"
+          >
+            {confirmingPick ? 'Confirming...' : `Confirm Pick List (${pickedCount}/${pickItems.length})`}
+          </Button>
+        </div>
+      )}
 
       {/* Progress bar */}
       {pickItems.length > 0 && (
