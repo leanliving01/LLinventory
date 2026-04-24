@@ -122,36 +122,78 @@ export default function Kitchen() {
     if (newStatus === 'in_progress') setActiveTaskId(taskId);
   };
 
-  const handleTaskCompleted = async (taskId, consumption) => {
-    const consumptionSummary = consumption
-      .filter(c => c.actual !== c.picked)
-      .map(c => `${c.name}: picked ${c.picked}, used ${c.actual} ${c.uom}`)
-      .join('; ');
-
+  const handleTaskCompleted = async (taskId, consumption, meta = {}) => {
     setUpdating(true);
 
-    // Return unconsumed quantities to stock
-    const returns = consumption.filter(c => c.actual < c.picked);
-    for (const r of returns) {
-      const returnQty = Math.round((r.picked - r.actual) * 100) / 100;
-      await base44.entities.StockMovement.create({
-        product_id: r.input_product_id,
-        product_sku: r.sku,
-        product_name: r.name,
-        qty: returnQty,
-        uom: r.uom,
-        reason: 'return',
-        ref_type: 'production_run',
-        ref_id: activeRun?.id,
-        notes: `Returned from task: picked ${r.picked}, consumed ${r.actual} ${r.uom}`,
+    const isPortioningTask = consumption.length > 0 && consumption[0].is_portioning;
+
+    if (isPortioningTask) {
+      // PORTIONING: Auto-calculated consumption, log variance only (no stock return)
+      const varianceParts = consumption
+        .filter(c => c.actual !== c.picked)
+        .map(c => `${c.name}: recipe ${c.picked}, calc ${c.actual} ${c.uom} (excess ${Math.round((c.picked - c.actual) * 100) / 100})`);
+      
+      let notes = `Plates produced: ${meta.plates_produced || 0}`;
+      if (varianceParts.length > 0) notes += ` | Variance: ${varianceParts.join('; ')}`;
+      if (meta.variance_note) notes += ` | Note: ${meta.variance_note}`;
+
+      await base44.entities.ProductionTask.update(taskId, {
+        status: 'done',
+        finished_at: new Date().toISOString(),
+        notes,
+      });
+    } else {
+      // PREP/COOK: Manual actual + unusable wastage + stock returns
+      const consumptionSummary = consumption
+        .filter(c => c.actual !== c.picked || (c.unusable_wastage || 0) > 0)
+        .map(c => {
+          let s = `${c.name}: picked ${c.picked}, used ${c.actual} ${c.uom}`;
+          if (c.unusable_wastage > 0) s += `, waste ${c.unusable_wastage} ${c.uom}`;
+          return s;
+        })
+        .join('; ');
+
+      // Return unconsumed quantities to stock
+      const returns = consumption.filter(c => c.actual < c.picked);
+      for (const r of returns) {
+        const returnQty = Math.round((r.picked - r.actual) * 100) / 100;
+        await base44.entities.StockMovement.create({
+          product_id: r.input_product_id,
+          product_sku: r.sku,
+          product_name: r.name,
+          qty: returnQty,
+          uom: r.uom,
+          reason: 'return',
+          ref_type: 'production_run',
+          ref_id: activeRun?.id,
+          notes: `Returned from task: picked ${r.picked}, consumed ${r.actual} ${r.uom}`,
+        });
+      }
+
+      // Record unusable wastage as stock movements
+      const wastageItems = consumption.filter(c => (c.unusable_wastage || 0) > 0);
+      for (const w of wastageItems) {
+        await base44.entities.StockMovement.create({
+          product_id: w.input_product_id,
+          product_sku: w.sku,
+          product_name: w.name,
+          qty: w.unusable_wastage,
+          uom: w.uom,
+          reason: 'wastage_unusable',
+          ref_type: 'production_run',
+          ref_id: activeRun?.id,
+          unit_cost_at_movement: w.cost_per_unit || 0,
+          notes: `Unusable waste (peels/offcuts): ${w.unusable_wastage} ${w.uom} of ${w.name}`,
+        });
+      }
+
+      await base44.entities.ProductionTask.update(taskId, {
+        status: 'done',
+        finished_at: new Date().toISOString(),
+        notes: consumptionSummary || undefined,
       });
     }
 
-    await base44.entities.ProductionTask.update(taskId, {
-      status: 'done',
-      finished_at: new Date().toISOString(),
-      notes: consumptionSummary || undefined,
-    });
     setPendingDone(null);
     queryClient.invalidateQueries({ queryKey: ['kitchen-tasks', activeRun?.id, station] });
     queryClient.invalidateQueries({ queryKey: ['all-run-tasks', activeRun?.id] });

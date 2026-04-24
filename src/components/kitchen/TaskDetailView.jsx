@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Pause, CheckCircle2, Play, ChevronDown, ChevronRight, UtensilsCrossed, FileText } from 'lucide-react';
+import { ArrowLeft, Pause, CheckCircle2, Play, ChevronDown, ChevronRight, UtensilsCrossed, FileText, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function formatDuration(ms) {
@@ -289,7 +289,7 @@ export default function TaskDetailView({ task, onStatusChange, onBack, loading }
                 )}
               </div>
             ) : (
-              /* PREP / COOK VIEW: Show ingredients with consumed input */
+              /* PREP / COOK VIEW: Show ingredients with consumed + wastage input */
               <div className="space-y-3">
                 {ingredients.map(ing => {
                   const consumedVal = consumed[ing.id] ?? '';
@@ -315,6 +315,17 @@ export default function TaskDetailView({ task, onStatusChange, onBack, loading }
                             placeholder="0"
                             value={consumedVal}
                             onChange={e => setConsumed(prev => ({ ...prev, [ing.id]: e.target.value }))}
+                            className="w-28 h-9 text-right"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm text-muted-foreground flex items-center gap-1">
+                            <Trash2 className="w-3 h-3 text-red-500" /> Unusable Waste:
+                          </span>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            placeholder="0"
                             className="w-28 h-9 text-right"
                           />
                         </div>

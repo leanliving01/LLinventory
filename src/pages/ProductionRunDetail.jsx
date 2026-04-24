@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,7 @@ import StockGuardrailModal from '@/components/production/StockGuardrailModal';
 import SurplusModal from '@/components/production/SurplusModal';
 import ProductionSummaryModal from '@/components/production/ProductionSummaryModal';
 import HelpDrawer from '@/components/help/HelpDrawer';
+import VarianceReport from '@/components/production/VarianceReport';
 import { writeAuditLog } from '@/lib/auditLog';
 
 const STATUS_STYLES = {
@@ -36,6 +37,7 @@ export default function ProductionRunDetail() {
   const [showSurplus, setShowSurplus] = useState(false);
   const [surplusLines, setSurplusLines] = useState([]);
   const [showSummary, setShowSummary] = useState(false);
+  const [showVariance, setShowVariance] = useState(false);
 
   const { data: run, isLoading: loadingRun } = useQuery({
     queryKey: ['production-run', runId],
@@ -517,6 +519,14 @@ export default function ProductionRunDetail() {
               variant="outline"
               size="sm"
               className="gap-1.5 border-green-300 text-green-700 hover:bg-green-100"
+              onClick={() => setShowVariance(true)}
+            >
+              <BarChart3 className="w-4 h-4" /> Variance Report
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-green-300 text-green-700 hover:bg-green-100"
               onClick={() => {
                 const surplus = lines.filter(l => (l.actual_qty || 0) > l.planned_qty).map(l => ({
                   ...l,
@@ -571,6 +581,16 @@ export default function ProductionRunDetail() {
           runNumber={run?.run_number}
           lines={lines}
           onClose={() => setShowSummary(false)}
+        />
+      )}
+
+      {/* Variance Report Modal */}
+      {showVariance && (
+        <VarianceReport
+          runId={runId}
+          runNumber={run?.run_number}
+          lines={lines}
+          onClose={() => setShowVariance(false)}
         />
       )}
     </div>
