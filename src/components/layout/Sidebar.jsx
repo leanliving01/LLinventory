@@ -24,7 +24,8 @@ import {
   PlayCircle,
   Trash2,
   ArrowLeftRight,
-  PackageCheck
+  PackageCheck,
+  Users
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
@@ -58,7 +59,13 @@ const navItems = [
       { label: 'Recipes', path: '/master-data/bom', icon: ClipboardCheck },
     ]
   },
-  { label: 'Reports', path: '/reports', icon: FileText },
+  { 
+    label: 'Reports', icon: FileText,
+    children: [
+      { label: 'Audit & Runs', path: '/reports', icon: FileText },
+      { label: 'Team Performance', path: '/reports/team', icon: Users },
+    ]
+  },
   { label: 'Settings', path: '/settings', icon: Settings },
 ];
 

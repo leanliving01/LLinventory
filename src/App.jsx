@@ -33,6 +33,7 @@ import PickList from '@/pages/PickList';
 import Kanban from '@/pages/Kanban';
 import Kitchen from '@/pages/Kitchen';
 import KitchenSettings from '@/pages/KitchenSettings';
+import TeamPerformance from '@/pages/TeamPerformance';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -87,6 +88,7 @@ const AuthenticatedApp = () => {
         <Route path="/master-data/bom" element={<MasterDataBOM />} />
         <Route path="/demand" element={<DemandAudit />} />
         <Route path="/reports" element={<Reports />} />
+        <Route path="/reports/team" element={<TeamPerformance />} />
         <Route path="/settings" element={<SettingsPage />} />
         {/* Redirects for old routes */}
         <Route path="/stock" element={<Navigate to="/stock/new-production" replace />} />
