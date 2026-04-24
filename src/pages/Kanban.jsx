@@ -160,7 +160,7 @@ export default function Kanban() {
           reason: 'return',
           ref_type: 'production_run',
           ref_id: runId,
-          notes: `Returned from task: picked ${r.picked}, consumed ${r.actual} ${r.uom}`,
+          notes: `[task:${taskId}] Returned: picked ${r.picked}, consumed ${r.actual} ${r.uom}`,
         });
       }
 
@@ -177,7 +177,7 @@ export default function Kanban() {
           ref_type: 'production_run',
           ref_id: runId,
           unit_cost_at_movement: w.cost_per_unit || 0,
-          notes: `Unusable waste (peels/offcuts): ${w.unusable_wastage} ${w.uom} of ${w.name}`,
+          notes: `[task:${taskId}] Unusable waste: ${w.unusable_wastage} ${w.uom} of ${w.name}`,
         });
       }
 
@@ -197,6 +197,24 @@ export default function Kanban() {
     const task = tasks.find(t => t.id === taskId);
 
     if (newStatus === 'undo') {
+      // Reverse any stock movements created when the task was completed
+      const tag = `[task:${taskId}]`;
+      const movements = await base44.entities.StockMovement.filter({ ref_type: 'production_run', ref_id: runId }, '-created_date', 200);
+      const taskMovements = movements.filter(m => m.notes && m.notes.includes(tag));
+      for (const m of taskMovements) {
+        const reverseReason = m.reason === 'return' ? 'production_consume' : 'return';
+        await base44.entities.StockMovement.create({
+          product_id: m.product_id,
+          product_sku: m.product_sku,
+          product_name: m.product_name,
+          qty: m.qty,
+          uom: m.uom,
+          reason: reverseReason,
+          ref_type: 'production_run',
+          ref_id: runId,
+          notes: `[undo:${taskId}] Reversed: ${m.notes}`,
+        });
+      }
       await base44.entities.ProductionTask.update(taskId, {
         status: 'in_progress',
         finished_at: null,
