@@ -322,7 +322,7 @@ Deno.serve(async (req) => {
       started_at: new Date().toISOString(),
     });
 
-    // Load products and locations for matching
+    // Load products, locations, and existing SOH for matching
     const products = await base44.asServiceRole.entities.Product.filter({});
     const productBySku = {};
     products.forEach(p => { productBySku[p.sku] = p; });
@@ -332,6 +332,11 @@ Deno.serve(async (req) => {
     const locations = await base44.asServiceRole.entities.Location.filter({});
     const locationByName = {};
     locations.forEach(l => { locationByName[l.name.toLowerCase()] = l; });
+
+    // Load existing StockOnHand so we can upsert
+    const existingSoh = await base44.asServiceRole.entities.StockOnHand.filter({});
+    const sohByKey = {};
+    existingSoh.forEach(s => { sohByKey[`${s.product_id}__${s.location_id}`] = s; });
 
     // Default location for unmatched
     const defaultLoc = locations.find(l => l.code === 'OTHER') || locations[0];
@@ -398,6 +403,34 @@ Deno.serve(async (req) => {
             unit_cost_at_movement: product.cost_avg || 0,
             notes: 'Initial stock from Cin7 import',
           });
+
+          // Upsert StockOnHand
+          const sohKey = `${product.id}__${location.id}`;
+          const existingRec = sohByKey[sohKey];
+          if (existingRec) {
+            const newQty = (existingRec.qty_on_hand || 0) + qty;
+            await base44.asServiceRole.entities.StockOnHand.update(existingRec.id, {
+              qty_on_hand: newQty,
+              qty_available: newQty - (existingRec.qty_committed || 0),
+              last_updated_at: new Date().toISOString(),
+            });
+            existingRec.qty_on_hand = newQty;
+          } else {
+            const newSoh = await base44.asServiceRole.entities.StockOnHand.create({
+              product_id: product.id,
+              product_sku: product.sku,
+              product_name: product.name,
+              location_id: location.id,
+              location_name: location?.name || 'Unknown',
+              qty_on_hand: qty,
+              qty_committed: 0,
+              qty_available: qty,
+              uom: product.stock_uom,
+              last_updated_at: new Date().toISOString(),
+            });
+            sohByKey[sohKey] = newSoh;
+          }
+
           created++;
         } catch (err) {
           errors.push(`Stock ${product.sku}: ${err.message}`);
