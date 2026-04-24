@@ -55,6 +55,14 @@
       "default": "pending",
       "description": "Task status"
     },
+    "assigned_to": {
+      "type": "string",
+      "description": "FK to TeamMember \u2014 who is working on this task"
+    },
+    "assigned_name": {
+      "type": "string",
+      "description": "Denormalized team member name for display"
+    },
     "notes": {
       "type": "string",
       "description": "Recipe instructions or notes"

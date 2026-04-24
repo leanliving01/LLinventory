@@ -32,6 +32,12 @@ function LiveTimer({ startedAt }) {
   );
 }
 
+const STATION_BUTTON_COLORS = {
+  prep: 'bg-blue-500 hover:bg-blue-600',
+  cook: 'bg-amber-500 hover:bg-amber-600',
+  portion: 'bg-green-500 hover:bg-green-600',
+};
+
 export default function KitchenTaskCard({ task, onStatusChange, loading }) {
   const [showNotes, setShowNotes] = useState(false);
 
@@ -75,6 +81,14 @@ export default function KitchenTaskCard({ task, onStatusChange, loading }) {
         </div>
       </div>
 
+      {/* Assigned to */}
+      {task.assigned_name && (
+        <div className="flex items-center gap-1.5 mb-2">
+          <span className="text-xs text-muted-foreground">Assigned to:</span>
+          <Badge variant="outline" className="text-xs font-medium">{task.assigned_name}</Badge>
+        </div>
+      )}
+
       {/* Timer */}
       <div className="flex items-center justify-center py-3 mb-3 rounded-xl bg-muted/50">
         {isPending && (
@@ -114,55 +128,60 @@ export default function KitchenTaskCard({ task, onStatusChange, loading }) {
       )}
 
       {/* Action buttons — 80px tall, huge tap targets */}
-      <div className="flex items-center gap-3">
-        {isPending && (
-          <Button
-            disabled={loading}
-            onClick={() => onStatusChange(task.id, 'in_progress')}
-            className="h-20 flex-1 gap-3 text-xl font-bold bg-amber-500 hover:bg-amber-600 rounded-xl"
-          >
-            <Play className="w-7 h-7" /> Start
-          </Button>
-        )}
-        {isActive && (
-          <>
-            <Button
-              disabled={loading}
-              variant="outline"
-              onClick={() => onStatusChange(task.id, 'paused')}
-              className="h-20 flex-1 gap-3 text-xl font-bold rounded-xl"
-            >
-              <Pause className="w-7 h-7" /> Pause
-            </Button>
-            <Button
-              disabled={loading}
-              onClick={() => onStatusChange(task.id, 'done')}
-              className="h-20 flex-1 gap-3 text-xl font-bold bg-green-600 hover:bg-green-700 rounded-xl"
-            >
-              <CheckCircle2 className="w-7 h-7" /> Done
-            </Button>
-          </>
-        )}
-        {isPaused && (
-          <Button
-            disabled={loading}
-            onClick={() => onStatusChange(task.id, 'in_progress')}
-            className="h-20 flex-1 gap-3 text-xl font-bold bg-amber-500 hover:bg-amber-600 rounded-xl"
-          >
-            <Play className="w-7 h-7" /> Resume
-          </Button>
-        )}
-        {isDone && (
-          <Button
-            disabled={loading}
-            variant="outline"
-            onClick={() => onStatusChange(task.id, 'undo')}
-            className="h-20 flex-1 gap-3 text-lg font-bold text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950 rounded-xl"
-          >
-            <Undo2 className="w-6 h-6" /> Undo
-          </Button>
-        )}
-      </div>
+      {(() => {
+        const btnColor = STATION_BUTTON_COLORS[task.station] || STATION_BUTTON_COLORS.cook;
+        return (
+          <div className="flex items-center gap-3">
+            {isPending && (
+              <Button
+                disabled={loading}
+                onClick={() => onStatusChange(task.id, 'in_progress')}
+                className={`h-20 flex-1 gap-3 text-xl font-bold rounded-xl text-white ${btnColor}`}
+              >
+                <Play className="w-7 h-7" /> Start
+              </Button>
+            )}
+            {isActive && (
+              <>
+                <Button
+                  disabled={loading}
+                  variant="outline"
+                  onClick={() => onStatusChange(task.id, 'paused')}
+                  className="h-20 flex-1 gap-3 text-xl font-bold rounded-xl"
+                >
+                  <Pause className="w-7 h-7" /> Pause
+                </Button>
+                <Button
+                  disabled={loading}
+                  onClick={() => onStatusChange(task.id, 'done')}
+                  className="h-20 flex-1 gap-3 text-xl font-bold bg-green-600 hover:bg-green-700 rounded-xl text-white"
+                >
+                  <CheckCircle2 className="w-7 h-7" /> Done
+                </Button>
+              </>
+            )}
+            {isPaused && (
+              <Button
+                disabled={loading}
+                onClick={() => onStatusChange(task.id, 'in_progress')}
+                className={`h-20 flex-1 gap-3 text-xl font-bold rounded-xl text-white ${btnColor}`}
+              >
+                <Play className="w-7 h-7" /> Resume
+              </Button>
+            )}
+            {isDone && (
+              <Button
+                disabled={loading}
+                variant="outline"
+                onClick={() => onStatusChange(task.id, 'undo')}
+                className="h-20 flex-1 gap-3 text-lg font-bold text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950 rounded-xl"
+              >
+                <Undo2 className="w-6 h-6" /> Undo
+              </Button>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

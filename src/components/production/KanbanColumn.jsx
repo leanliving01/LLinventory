@@ -61,6 +61,12 @@ function TaskTimer({ task }) {
   return null;
 }
 
+const STATION_BTN_COLORS = {
+  prep: 'bg-blue-500 hover:bg-blue-600',
+  cook: 'bg-amber-500 hover:bg-amber-600',
+  portion: 'bg-green-500 hover:bg-green-600',
+};
+
 export default function KanbanColumn({ station, tasks, onStatusChange }) {
   const doneCount = tasks.filter(t => t.status === 'done').length;
   const activeCount = tasks.filter(t => t.status === 'in_progress').length;
@@ -103,38 +109,46 @@ export default function KanbanColumn({ station, tasks, onStatusChange }) {
                   {task.qty && (
                     <p className="text-xs text-muted-foreground">Qty: <strong>{task.qty}</strong></p>
                   )}
+                  {task.assigned_name && (
+                    <Badge variant="outline" className="text-[10px]">{task.assigned_name}</Badge>
+                  )}
                   <div className="ml-auto"><TaskTimer task={task} /></div>
                 </div>
                 {task.notes && (
                   <p className="text-xs text-muted-foreground line-clamp-2">{task.notes}</p>
                 )}
-                <div className="flex items-center gap-1.5">
-                  {task.status === 'pending' && (
-                    <Button size="sm" className="h-12 flex-1 gap-1.5 text-sm bg-amber-500 hover:bg-amber-600" onClick={() => onStatusChange(task.id, 'in_progress')}>
-                      <Play className="w-4 h-4" /> Start
-                    </Button>
-                  )}
-                  {task.status === 'in_progress' && (
-                    <>
-                      <Button size="sm" variant="outline" className="h-12 flex-1 gap-1.5 text-sm" onClick={() => onStatusChange(task.id, 'paused')}>
-                        <Pause className="w-4 h-4" /> Pause
-                      </Button>
-                      <Button size="sm" className="h-12 flex-1 gap-1.5 text-sm bg-green-600 hover:bg-green-700" onClick={() => onStatusChange(task.id, 'done')}>
-                        <CheckCircle2 className="w-4 h-4" /> Done
-                      </Button>
-                    </>
-                  )}
-                  {task.status === 'paused' && (
-                    <Button size="sm" className="h-12 flex-1 gap-1.5 text-sm bg-amber-500 hover:bg-amber-600" onClick={() => onStatusChange(task.id, 'in_progress')}>
-                      <Play className="w-4 h-4" /> Resume
-                    </Button>
-                  )}
-                  {task.status === 'done' && (
-                    <Button size="sm" variant="outline" className="h-12 flex-1 gap-1.5 text-sm text-amber-600 border-amber-300 hover:bg-amber-50" onClick={() => onStatusChange(task.id, 'undo')}>
-                      <Undo2 className="w-4 h-4" /> Undo Done
-                    </Button>
-                  )}
-                </div>
+                {(() => {
+                  const btnColor = STATION_BTN_COLORS[station.id] || STATION_BTN_COLORS.cook;
+                  return (
+                    <div className="flex items-center gap-1.5">
+                      {task.status === 'pending' && (
+                        <Button size="sm" className={`h-12 flex-1 gap-1.5 text-sm text-white ${btnColor}`} onClick={() => onStatusChange(task.id, 'in_progress')}>
+                          <Play className="w-4 h-4" /> Start
+                        </Button>
+                      )}
+                      {task.status === 'in_progress' && (
+                        <>
+                          <Button size="sm" variant="outline" className="h-12 flex-1 gap-1.5 text-sm" onClick={() => onStatusChange(task.id, 'paused')}>
+                            <Pause className="w-4 h-4" /> Pause
+                          </Button>
+                          <Button size="sm" className="h-12 flex-1 gap-1.5 text-sm bg-green-600 hover:bg-green-700 text-white" onClick={() => onStatusChange(task.id, 'done')}>
+                            <CheckCircle2 className="w-4 h-4" /> Done
+                          </Button>
+                        </>
+                      )}
+                      {task.status === 'paused' && (
+                        <Button size="sm" className={`h-12 flex-1 gap-1.5 text-sm text-white ${btnColor}`} onClick={() => onStatusChange(task.id, 'in_progress')}>
+                          <Play className="w-4 h-4" /> Resume
+                        </Button>
+                      )}
+                      {task.status === 'done' && (
+                        <Button size="sm" variant="outline" className="h-12 flex-1 gap-1.5 text-sm text-amber-600 border-amber-300 hover:bg-amber-50" onClick={() => onStatusChange(task.id, 'undo')}>
+                          <Undo2 className="w-4 h-4" /> Undo Done
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })

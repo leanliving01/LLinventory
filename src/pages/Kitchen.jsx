@@ -5,11 +5,13 @@ import { useAuth } from '@/lib/AuthContext';
 import { toast } from 'sonner';
 import KitchenTopBar from '@/components/kitchen/KitchenTopBar';
 import KitchenTaskCard from '@/components/kitchen/KitchenTaskCard';
+import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
 
 export default function Kitchen() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [updating, setUpdating] = useState(false);
+  const [pendingStart, setPendingStart] = useState(null); // { taskId, newStatus }
 
   const station = user?.station || 'cook';
 
@@ -32,6 +34,19 @@ export default function Kitchen() {
     refetchInterval: 10000,
   });
 
+  // Load ALL tasks for this run (for dependency checks across stations)
+  const { data: allRunTasks = [] } = useQuery({
+    queryKey: ['all-run-tasks', activeRun?.id],
+    queryFn: () => base44.entities.ProductionTask.filter({ run_id: activeRun.id, archived: false }, 'step_no', 500),
+    enabled: !!activeRun?.id,
+  });
+
+  // Load team members for this station
+  const { data: teamMembers = [] } = useQuery({
+    queryKey: ['team-members', station],
+    queryFn: () => base44.entities.TeamMember.filter({ station, is_active: true }, 'name', 50),
+  });
+
   // Sort: active first, then pending, then paused, then done
   const sortedTasks = useMemo(() => {
     const order = { in_progress: 0, pending: 1, paused: 2, done: 3 };
@@ -40,7 +55,61 @@ export default function Kitchen() {
 
   const doneCount = tasks.filter(t => t.status === 'done').length;
 
+  // Check if prerequisite station tasks are done for a given task
+  const checkDependencies = (task) => {
+    // Dependency chain: prep → cook → portion
+    // Cook tasks need all prep tasks for the same product to be done
+    // Portion tasks need all cook tasks for the same product to be done
+    const prereqStation = task.station === 'cook' ? 'prep' : task.station === 'portion' ? 'cook' : null;
+    if (!prereqStation) return null; // prep has no prerequisites
+
+    const prereqTasks = allRunTasks.filter(t =>
+      t.station === prereqStation &&
+      t.product_id === task.product_id &&
+      !t.archived
+    );
+
+    if (prereqTasks.length === 0) return null; // no prerequisites exist
+    const incomplete = prereqTasks.filter(t => t.status !== 'done');
+    if (incomplete.length === 0) return null; // all done
+
+    const stationLabel = prereqStation === 'prep' ? 'Prep' : 'Cook';
+    return `${stationLabel} needs to be done for ${task.meal_name || task.name} first before you can start ${task.station === 'cook' ? 'cooking' : 'portioning'}.`;
+  };
+
   const handleStatusChange = async (taskId, newStatus) => {
+    const task = tasks.find(t => t.id === taskId);
+
+    // If starting or resuming, check dependencies first
+    if (newStatus === 'in_progress' && task) {
+      const depError = checkDependencies(task);
+      if (depError) {
+        toast.error(depError);
+        return;
+      }
+      // If starting fresh (not resuming) and team members exist, ask for name
+      if (!task.started_at && teamMembers.length > 0 && !task.assigned_to) {
+        setPendingStart({ taskId, newStatus });
+        return;
+      }
+    }
+
+    await doStatusChange(taskId, newStatus);
+  };
+
+  const handleTeamMemberSelected = async (member) => {
+    if (!pendingStart) return;
+    const { taskId, newStatus } = pendingStart;
+    setPendingStart(null);
+    // Assign member and then start
+    await base44.entities.ProductionTask.update(taskId, {
+      assigned_to: member.id,
+      assigned_name: member.name,
+    });
+    await doStatusChange(taskId, newStatus);
+  };
+
+  const doStatusChange = async (taskId, newStatus) => {
     setUpdating(true);
     const now = new Date().toISOString();
     const task = tasks.find(t => t.id === taskId);
@@ -64,6 +133,7 @@ export default function Kitchen() {
     }
 
     queryClient.invalidateQueries({ queryKey: ['kitchen-tasks', activeRun?.id, station] });
+    queryClient.invalidateQueries({ queryKey: ['all-run-tasks', activeRun?.id] });
     setUpdating(false);
   };
 
@@ -71,7 +141,7 @@ export default function Kitchen() {
   if (!activeRun) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
-        <KitchenTopBar station={station} taskCount={0} doneCount={0} />
+        <KitchenTopBar station={station} taskCount={0} doneCount={0} runId={null} />
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="text-center space-y-3">
             <div className="text-6xl">🍳</div>
@@ -93,6 +163,7 @@ export default function Kitchen() {
         runNumber={activeRun.run_number}
         taskCount={tasks.length}
         doneCount={doneCount}
+        runId={activeRun.id}
       />
 
       {/* Progress bar */}
@@ -127,6 +198,16 @@ export default function Kitchen() {
               loading={updating}
             />
           ))
+        )}
+
+        {/* Team member selection modal */}
+        {pendingStart && (
+          <TeamMemberSelect
+            members={teamMembers}
+            station={station}
+            onSelect={handleTeamMemberSelected}
+            onCancel={() => setPendingStart(null)}
+          />
         )}
 
         {/* All done celebration */}

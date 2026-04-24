@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Settings, Moon, Sun, Utensils, Flame, ChefHat } from 'lucide-react';
+import { Settings, Moon, Sun, Utensils, Flame, ChefHat, ArrowLeft } from 'lucide-react';
 
 const STATION_META = {
   prep: { label: 'PREP', icon: Utensils, color: 'bg-blue-500' },
@@ -10,7 +10,7 @@ const STATION_META = {
   portion: { label: 'PORTION', icon: ChefHat, color: 'bg-green-500' },
 };
 
-export default function KitchenTopBar({ station, runNumber, taskCount, doneCount }) {
+export default function KitchenTopBar({ station, runNumber, taskCount, doneCount, runId }) {
   const meta = STATION_META[station] || STATION_META.prep;
   const Icon = meta.icon;
 
@@ -29,6 +29,11 @@ export default function KitchenTopBar({ station, runNumber, taskCount, doneCount
   return (
     <div className="flex items-center justify-between px-4 py-3 bg-card border-b border-border">
       <div className="flex items-center gap-3">
+        <Link to={runId ? `/production/run/${runId}/kanban` : '/production/runs'}>
+          <Button variant="ghost" size="icon" className="h-10 w-10">
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+        </Link>
         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-white ${meta.color}`}>
           <Icon className="w-5 h-5" />
           <span className="font-bold text-sm">{meta.label} Station</span>

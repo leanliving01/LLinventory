@@ -1,0 +1,28 @@
+{
+  "name": "TeamMember",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Team member's name"
+    },
+    "station": {
+      "type": "string",
+      "enum": [
+        "prep",
+        "cook",
+        "portion"
+      ],
+      "description": "Assigned kitchen station"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether this team member is currently active"
+    }
+  },
+  "required": [
+    "name",
+    "station"
+  ]
+}
