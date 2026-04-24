@@ -124,12 +124,8 @@ export default function Kitchen() {
 
   const handleTaskCompleted = async (taskId, consumption) => {
     const consumptionSummary = consumption
-      .filter(c => c.actual !== c.picked || (c.unusable_wastage || 0) > 0)
-      .map(c => {
-        let s = `${c.name}: picked ${c.picked}, used ${c.actual} ${c.uom}`;
-        if (c.unusable_wastage > 0) s += `, waste ${c.unusable_wastage} ${c.uom}`;
-        return s;
-      })
+      .filter(c => c.actual !== c.picked)
+      .map(c => `${c.name}: picked ${c.picked}, used ${c.actual} ${c.uom}`)
       .join('; ');
 
     setUpdating(true);
@@ -148,23 +144,6 @@ export default function Kitchen() {
         ref_type: 'production_run',
         ref_id: activeRun?.id,
         notes: `Returned from task: picked ${r.picked}, consumed ${r.actual} ${r.uom}`,
-      });
-    }
-
-    // Record unusable wastage as stock movements
-    const wastageItems = consumption.filter(c => (c.unusable_wastage || 0) > 0);
-    for (const w of wastageItems) {
-      await base44.entities.StockMovement.create({
-        product_id: w.input_product_id,
-        product_sku: w.sku,
-        product_name: w.name,
-        qty: w.unusable_wastage,
-        uom: w.uom,
-        reason: 'wastage_unusable',
-        ref_type: 'production_run',
-        ref_id: activeRun?.id,
-        unit_cost_at_movement: w.cost_per_unit || 0,
-        notes: `Unusable waste (peels/offcuts): ${w.unusable_wastage} ${w.uom} of ${w.name}`,
       });
     }
 
