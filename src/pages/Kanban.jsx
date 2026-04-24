@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import KanbanColumn from '@/components/production/KanbanColumn';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
+import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
 
 const STATIONS = [
   { id: 'prep', label: 'PREP', icon: Utensils, color: 'bg-blue-500' },
@@ -23,6 +24,7 @@ export default function Kanban() {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState('all');
   const [pendingStart, setPendingStart] = useState(null); // { taskId, newStatus, station }
+  const [pendingDone, setPendingDone] = useState(null); // task object for completion modal
 
   const { data: run } = useQuery({
     queryKey: ['production-run', runId],
@@ -85,6 +87,12 @@ export default function Kanban() {
       }
     }
 
+    // Intercept "done" — show completion modal for actual consumption
+    if (newStatus === 'done' && task) {
+      setPendingDone(task);
+      return;
+    }
+
     await doStatusChange(taskId, newStatus);
   };
 
@@ -97,6 +105,22 @@ export default function Kanban() {
       assigned_name: member.name,
     });
     await doStatusChange(taskId, newStatus);
+  };
+
+  const handleTaskCompleted = async (taskId, consumption) => {
+    // Save consumption data on the task (as JSON notes for now)
+    const consumptionSummary = consumption
+      .filter(c => c.actual !== c.required)
+      .map(c => `${c.name}: required ${c.required}, actual ${c.actual} ${c.uom}`)
+      .join('; ');
+
+    await base44.entities.ProductionTask.update(taskId, {
+      status: 'done',
+      finished_at: new Date().toISOString(),
+      notes: consumptionSummary ? `Consumption: ${consumptionSummary}` : undefined,
+    });
+    setPendingDone(null);
+    queryClient.invalidateQueries({ queryKey: ['production-tasks', runId] });
   };
 
   const doStatusChange = async (taskId, newStatus) => {
@@ -164,6 +188,15 @@ export default function Kanban() {
             />
           ))}
         </div>
+      )}
+
+      {/* Task completion modal */}
+      {pendingDone && (
+        <TaskCompletionModal
+          task={pendingDone}
+          onConfirm={handleTaskCompleted}
+          onCancel={() => setPendingDone(null)}
+        />
       )}
 
       {/* Team member selection modal */}

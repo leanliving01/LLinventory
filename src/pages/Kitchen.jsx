@@ -6,12 +6,14 @@ import { toast } from 'sonner';
 import KitchenTopBar from '@/components/kitchen/KitchenTopBar';
 import KitchenTaskCard from '@/components/kitchen/KitchenTaskCard';
 import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
+import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
 
 export default function Kitchen() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [updating, setUpdating] = useState(false);
   const [pendingStart, setPendingStart] = useState(null); // { taskId, newStatus }
+  const [pendingDone, setPendingDone] = useState(null); // task for completion modal
 
   const station = user?.station || 'cook';
 
@@ -100,7 +102,31 @@ export default function Kitchen() {
       }
     }
 
+    // Intercept "done" — show completion modal for actual consumption
+    if (newStatus === 'done' && task) {
+      setPendingDone(task);
+      return;
+    }
+
     await doStatusChange(taskId, newStatus);
+  };
+
+  const handleTaskCompleted = async (taskId, consumption) => {
+    const consumptionSummary = consumption
+      .filter(c => c.actual !== c.required)
+      .map(c => `${c.name}: required ${c.required}, actual ${c.actual} ${c.uom}`)
+      .join('; ');
+
+    setUpdating(true);
+    await base44.entities.ProductionTask.update(taskId, {
+      status: 'done',
+      finished_at: new Date().toISOString(),
+      notes: consumptionSummary ? `Consumption: ${consumptionSummary}` : undefined,
+    });
+    setPendingDone(null);
+    queryClient.invalidateQueries({ queryKey: ['kitchen-tasks', activeRun?.id, station] });
+    queryClient.invalidateQueries({ queryKey: ['all-run-tasks', activeRun?.id] });
+    setUpdating(false);
   };
 
   const handleTeamMemberSelected = async (member) => {
@@ -204,6 +230,15 @@ export default function Kitchen() {
               loading={updating}
             />
           ))
+        )}
+
+        {/* Task completion modal */}
+        {pendingDone && (
+          <TaskCompletionModal
+            task={pendingDone}
+            onConfirm={handleTaskCompleted}
+            onCancel={() => setPendingDone(null)}
+          />
         )}
 
         {/* Team member selection modal */}
