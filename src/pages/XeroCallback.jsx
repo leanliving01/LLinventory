@@ -33,6 +33,10 @@ export default function XeroCallback() {
           setStatus('success');
           setMessage('Xero connected successfully!');
           setTenant(res.data.tenant || '');
+          // If opened as popup, close after brief delay
+          if (window.opener) {
+            setTimeout(() => window.close(), 2000);
+          }
         } else {
           setStatus('error');
           setMessage(res.data.error || 'Token exchange failed');

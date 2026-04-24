@@ -2,6 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Building2, MapPin, DollarSign, Calendar } from 'lucide-react';
+import XeroConnectionCard from './XeroConnectionCard';
 
 export default function SettingsOrgTab() {
   const { data: settings = [] } = useQuery({
@@ -30,6 +31,8 @@ export default function SettingsOrgTab() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <XeroConnectionCard />
+
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
           <h3 className="text-sm font-semibold">Organisation Details</h3>
