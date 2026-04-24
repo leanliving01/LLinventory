@@ -31,9 +31,11 @@ import Receiving from '@/pages/Receiving';
 import StockTakeNew from '@/pages/StockTakeNew';
 import PickList from '@/pages/PickList';
 import Kanban from '@/pages/Kanban';
+import Kitchen from '@/pages/Kitchen';
+import KitchenSettings from '@/pages/KitchenSettings';
 
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
 
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
@@ -52,10 +54,17 @@ const AuthenticatedApp = () => {
     }
   }
 
+  // Kitchen-role users go straight to /kitchen
+  const isKitchenUser = user?.role === 'kitchen';
+
   return (
     <Routes>
+      {/* Kitchen tablet routes — no sidebar */}
+      <Route path="/kitchen" element={<Kitchen />} />
+      <Route path="/kitchen/settings" element={<KitchenSettings />} />
+
       <Route element={<AppLayout />}>
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/" element={isKitchenUser ? <Navigate to="/kitchen" replace /> : <Dashboard />} />
         <Route path="/catalog" element={<Catalog />} />
         <Route path="/recipes" element={<Recipes />} />
         <Route path="/suppliers" element={<Suppliers />} />

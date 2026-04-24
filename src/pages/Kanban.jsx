@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, ChefHat, Flame, Utensils } from 'lucide-react';
+import { ArrowLeft, ChefHat, Flame, Utensils, Tablet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import KanbanColumn from '@/components/production/KanbanColumn';
 import HelpDrawer from '@/components/help/HelpDrawer';
@@ -84,6 +84,11 @@ export default function Kanban() {
             <p className="text-sm text-muted-foreground mt-0.5">{tasks.length} tasks across 3 stations</p>
           </div>
         </div>
+        <Link to="/kitchen">
+          <Button variant="outline" size="sm" className="gap-1.5">
+            <Tablet className="w-4 h-4" /> Tablet View
+          </Button>
+        </Link>
         <HelpDrawer pageKey="kanban" />
       </div>
 

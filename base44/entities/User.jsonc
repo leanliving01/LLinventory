@@ -7,11 +7,22 @@
       "enum": [
         "admin",
         "kitchen_manager",
+        "kitchen",
         "stock_controller",
         "viewer"
       ],
       "default": "viewer",
       "description": "User role for permissions"
+    },
+    "station": {
+      "type": "string",
+      "enum": [
+        "prep",
+        "cook",
+        "portion"
+      ],
+      "description": "Default kitchen station for tablet view"
     }
-  }
+  },
+  "required": []
 }
