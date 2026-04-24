@@ -7,6 +7,7 @@ import KitchenTopBar from '@/components/kitchen/KitchenTopBar';
 import KitchenTaskCard from '@/components/kitchen/KitchenTaskCard';
 import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
 import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
+import DependencyBlockModal from '@/components/kitchen/DependencyBlockModal';
 
 export default function Kitchen() {
   const { user } = useAuth();
@@ -14,6 +15,7 @@ export default function Kitchen() {
   const [updating, setUpdating] = useState(false);
   const [pendingStart, setPendingStart] = useState(null); // { taskId, newStatus }
   const [pendingDone, setPendingDone] = useState(null); // task for completion modal
+  const [blockMessage, setBlockMessage] = useState(null);
 
   const station = user?.station || 'cook';
 
@@ -97,7 +99,7 @@ export default function Kitchen() {
     if (newStatus === 'in_progress' && task) {
       const depError = checkDependencies(task);
       if (depError) {
-        toast.error(depError);
+        setBlockMessage(depError);
         return;
       }
       // If starting fresh (not resuming) and team members exist, ask for name
@@ -274,6 +276,14 @@ export default function Kitchen() {
               loading={updating}
             />
           ))
+        )}
+
+        {/* Dependency block modal */}
+        {blockMessage && (
+          <DependencyBlockModal
+            message={blockMessage}
+            onClose={() => setBlockMessage(null)}
+          />
         )}
 
         {/* Task completion modal */}

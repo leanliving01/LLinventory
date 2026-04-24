@@ -12,6 +12,7 @@ import KanbanColumn from '@/components/production/KanbanColumn';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
 import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
+import DependencyBlockModal from '@/components/kitchen/DependencyBlockModal';
 
 const STATIONS = [
   { id: 'prep', label: 'PREP', icon: Utensils, color: 'bg-blue-500' },
@@ -25,6 +26,7 @@ export default function Kanban() {
   const [filter, setFilter] = useState('all');
   const [pendingStart, setPendingStart] = useState(null); // { taskId, newStatus, station }
   const [pendingDone, setPendingDone] = useState(null); // task object for completion modal
+  const [blockMessage, setBlockMessage] = useState(null); // dependency error message
 
   const { data: run } = useQuery({
     queryKey: ['production-run', runId],
@@ -84,7 +86,7 @@ export default function Kanban() {
     if (newStatus === 'in_progress' && task) {
       const depError = checkDependencies(task);
       if (depError) {
-        toast.error(depError);
+        setBlockMessage(depError);
         return;
       }
       // Ask for team member if starting fresh and members exist
@@ -234,6 +236,14 @@ export default function Kanban() {
             />
           ))}
         </div>
+      )}
+
+      {/* Dependency block modal */}
+      {blockMessage && (
+        <DependencyBlockModal
+          message={blockMessage}
+          onClose={() => setBlockMessage(null)}
+        />
       )}
 
       {/* Task completion modal */}
