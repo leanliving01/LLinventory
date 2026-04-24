@@ -8,10 +8,8 @@ const SCOPES = 'openid profile email accounting.invoices.read accounting.contact
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user || user.role !== 'admin') {
-      return Response.json({ error: 'Admin access required' }, { status: 403 });
-    }
+    let user = null;
+    try { user = await base44.auth.me(); } catch (_) { /* popup may not be authenticated */ }
 
     const { action, code } = await req.json();
 
@@ -20,6 +18,15 @@ Deno.serve(async (req) => {
 
     if (!clientId || !clientSecret) {
       return Response.json({ error: 'Xero credentials not configured' }, { status: 500 });
+    }
+
+    // exchangeCode is called from the OAuth popup where the user may not be
+    // authenticated (separate browser window). Validate using the Xero auth
+    // code itself — skip the admin check for this action only.
+    if (action !== 'exchangeCode') {
+      if (!user || user.role !== 'admin') {
+        return Response.json({ error: 'Admin access required' }, { status: 403 });
+      }
     }
 
     // Step 1: Generate the authorization URL

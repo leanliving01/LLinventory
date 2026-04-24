@@ -31,11 +31,11 @@ export default function XeroCallback() {
         const res = await base44.functions.invoke('xeroAuth', { action: 'exchangeCode', code });
         if (res.data.success) {
           setStatus('success');
-          setMessage('Xero connected successfully!');
           setTenant(res.data.tenant || '');
+          setMessage(`Connected to ${res.data.tenant || 'Xero'}! You can close this page.`);
           // If opened as popup, close after brief delay
           if (window.opener) {
-            setTimeout(() => window.close(), 2000);
+            setTimeout(() => window.close(), 3000);
           }
         } else {
           setStatus('error');
