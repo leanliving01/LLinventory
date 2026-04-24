@@ -77,7 +77,8 @@ export default function Kanban() {
         return;
       }
       // Ask for team member if starting fresh and members exist
-      const stationMembers = allTeamMembers.filter(m => m.station === task.station);
+      const memberStations = (m) => Array.isArray(m.stations) && m.stations.length > 0 ? m.stations : m.station ? [m.station] : [];
+      const stationMembers = allTeamMembers.filter(m => memberStations(m).includes(task.station));
       if (!task.started_at && stationMembers.length > 0 && !task.assigned_to) {
         setPendingStart({ taskId, newStatus, station: task.station });
         return;
@@ -168,7 +169,10 @@ export default function Kanban() {
       {/* Team member selection modal */}
       {pendingStart && (
         <TeamMemberSelect
-          members={allTeamMembers.filter(m => m.station === pendingStart.station)}
+          members={allTeamMembers.filter(m => {
+            const s = Array.isArray(m.stations) && m.stations.length > 0 ? m.stations : m.station ? [m.station] : [];
+            return s.includes(pendingStart.station);
+          })}
           station={pendingStart.station}
           onSelect={handleTeamMemberSelected}
           onCancel={() => setPendingStart(null)}

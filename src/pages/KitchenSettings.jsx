@@ -17,6 +17,7 @@ const STATIONS = [
 export default function KitchenSettings() {
   const { user } = useAuth();
   const [selected, setSelected] = useState(user?.station || 'cook');
+  // Note: KitchenSettings still saves a single station for the user's *active* view
   const [saving, setSaving] = useState(false);
   const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark');
 

@@ -41,11 +41,17 @@ export default function Kitchen() {
     enabled: !!activeRun?.id,
   });
 
-  // Load team members for this station
-  const { data: teamMembers = [] } = useQuery({
-    queryKey: ['team-members', station],
-    queryFn: () => base44.entities.TeamMember.filter({ station, is_active: true }, 'name', 50),
+  // Load team members for this station (supports both old `station` and new `stations` array)
+  const { data: allStationMembers = [] } = useQuery({
+    queryKey: ['team-members-all'],
+    queryFn: () => base44.entities.TeamMember.filter({ is_active: true }, 'name', 100),
   });
+  const teamMembers = useMemo(() => {
+    return allStationMembers.filter(m => {
+      const stations = Array.isArray(m.stations) && m.stations.length > 0 ? m.stations : m.station ? [m.station] : [];
+      return stations.includes(station);
+    });
+  }, [allStationMembers, station]);
 
   // Sort: active first, then pending, then paused, then done
   const sortedTasks = useMemo(() => {

@@ -6,14 +6,18 @@
       "type": "string",
       "description": "Team member's name"
     },
-    "station": {
-      "type": "string",
-      "enum": [
-        "prep",
-        "cook",
-        "portion"
-      ],
-      "description": "Assigned kitchen station"
+    "stations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "prep",
+          "cook",
+          "portion"
+        ]
+      },
+      "default": [],
+      "description": "Assigned kitchen stations (can be multiple)"
     },
     "is_active": {
       "type": "boolean",
@@ -23,6 +27,6 @@
   },
   "required": [
     "name",
-    "station"
+    "stations"
   ]
 }

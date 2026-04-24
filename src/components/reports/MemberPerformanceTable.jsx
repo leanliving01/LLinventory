@@ -79,9 +79,13 @@ export default function MemberPerformanceTable({ members, tasks, onSelectMember 
                 >
                   <td className="px-4 py-3 font-medium">{m.name}</td>
                   <td className="px-4 py-3">
-                    <Badge className={cn("text-[10px]", STATION_COLORS[m.station])}>
-                      {m.station}
-                    </Badge>
+                    <div className="flex gap-1 flex-wrap">
+                      {(Array.isArray(m.stations) && m.stations.length > 0 ? m.stations : m.station ? [m.station] : []).map(s => (
+                        <Badge key={s} className={cn("text-[10px]", STATION_COLORS[s])}>
+                          {s}
+                        </Badge>
+                      ))}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-center font-semibold">{m.tasksCompleted}</td>
                   <td className="px-4 py-3 text-center font-mono text-xs">{formatDuration(m.avgTime)}</td>
