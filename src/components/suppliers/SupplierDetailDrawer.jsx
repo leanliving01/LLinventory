@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { X, Truck, User, Mail, Phone, CreditCard, MapPin, Package, Save, Loader2, Pencil } from 'lucide-react';
+import { X, Truck, User, Mail, Phone, CreditCard, MapPin, Package, Save, Loader2, Pencil, FileText } from 'lucide-react';
 import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
 
 function ReadOnlyField({ icon: Icon, label, value }) {
   if (!value) return null;
@@ -59,6 +60,15 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
     queryKey: ['supplier-products', supplier.id],
     queryFn: () => base44.entities.Product.filter({ supplier_id: supplier.id }),
   });
+
+  // Fetch POs for this supplier
+  const { data: supplierPOs = [] } = useQuery({
+    queryKey: ['supplier-pos', supplier.id],
+    queryFn: () => base44.entities.PurchaseOrder.filter({ supplier_id: supplier.id }, '-created_date', 50),
+  });
+
+  const openPOs = useMemo(() => supplierPOs.filter(po => !['received', 'cancelled', 'paid'].includes(po.status)), [supplierPOs]);
+  const outstandingTotal = useMemo(() => openPOs.reduce((sum, po) => sum + (po.total || 0), 0), [openPOs]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -144,6 +154,65 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
                 {supplier.tax_id && <ReadOnlyField icon={CreditCard} label="VAT Number" value={supplier.tax_id} />}
                 {!supplier.contact_name && !supplier.email && !supplier.phone && (
                   <p className="text-xs text-muted-foreground italic">No contact details on file — click the pencil to add them</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Open Purchase Orders */}
+          <div>
+            <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
+              <FileText className="w-4 h-4 text-primary" />
+              Purchase Orders ({supplierPOs.length})
+              {outstandingTotal > 0 && (
+                <Badge className="text-[10px] bg-amber-100 text-amber-700 ml-auto">
+                  R {outstandingTotal.toLocaleString('en-ZA', { minimumFractionDigits: 2 })} outstanding
+                </Badge>
+              )}
+            </h3>
+            {openPOs.length === 0 && supplierPOs.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">No purchase orders yet</p>
+            ) : (
+              <div className="bg-card border border-border rounded-lg overflow-hidden">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-muted/50 border-b border-border">
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">PO #</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Date</th>
+                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Total</th>
+                      <th className="text-center px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {supplierPOs.slice(0, 10).map(po => {
+                      const statusColors = {
+                        draft: 'bg-gray-100 text-gray-600',
+                        confirmed: 'bg-blue-100 text-blue-700',
+                        partially_received: 'bg-amber-100 text-amber-700',
+                        received: 'bg-green-100 text-green-700',
+                        invoiced: 'bg-purple-100 text-purple-700',
+                        paid: 'bg-green-100 text-green-700',
+                        cancelled: 'bg-red-100 text-red-600',
+                      };
+                      return (
+                        <tr key={po.id} className="hover:bg-muted/20">
+                          <td className="px-3 py-2 text-xs font-mono font-medium">{po.po_number}</td>
+                          <td className="px-3 py-2 text-xs text-muted-foreground">{po.order_date || '—'}</td>
+                          <td className="px-3 py-2 text-xs text-right font-medium">R {(po.total || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2 text-center">
+                            <Badge className={`text-[10px] ${statusColors[po.status] || 'bg-gray-100 text-gray-600'}`}>
+                              {(po.status || 'draft').replace('_', ' ')}
+                            </Badge>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {supplierPOs.length > 10 && (
+                  <div className="px-3 py-2 bg-muted/30 border-t border-border">
+                    <p className="text-xs text-muted-foreground">+{supplierPOs.length - 10} more orders</p>
+                  </div>
                 )}
               </div>
             )}

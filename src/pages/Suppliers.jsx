@@ -4,19 +4,41 @@ import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Search, X, ChevronRight, Truck } from 'lucide-react';
+import { Search, X, ChevronRight, Truck, Plus } from 'lucide-react';
 import SupplierDetailDrawer from '@/components/suppliers/SupplierDetailDrawer';
+import CreateSupplierModal from '@/components/suppliers/CreateSupplierModal';
 
 export default function Suppliers() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
   const [selectedSupplier, setSelectedSupplier] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const { data: suppliers = [], isLoading } = useQuery({
     queryKey: ['suppliers-list'],
     queryFn: () => base44.entities.Supplier.list('name', 200),
   });
+
+  // Fetch open POs (not received/cancelled/paid) for all suppliers
+  const { data: openPOs = [] } = useQuery({
+    queryKey: ['open-pos'],
+    queryFn: async () => {
+      const all = await base44.entities.PurchaseOrder.list('-created_date', 500);
+      return all.filter(po => !['received', 'cancelled', 'paid'].includes(po.status));
+    },
+  });
+
+  // Aggregate open PO count and outstanding balance per supplier
+  const supplierPOStats = useMemo(() => {
+    const stats = {};
+    openPOs.forEach(po => {
+      if (!stats[po.supplier_id]) stats[po.supplier_id] = { count: 0, outstanding: 0 };
+      stats[po.supplier_id].count += 1;
+      stats[po.supplier_id].outstanding += (po.total || 0);
+    });
+    return stats;
+  }, [openPOs]);
 
   const filtered = useMemo(() => {
     return suppliers.filter(s => {
@@ -43,6 +65,9 @@ export default function Suppliers() {
             {filtered.length} of {suppliers.length} suppliers
           </p>
         </div>
+        <Button onClick={() => setShowCreate(true)} className="gap-2">
+          <Plus className="w-4 h-4" /> Add Supplier
+        </Button>
       </div>
 
       {/* Status chips */}
@@ -102,6 +127,8 @@ export default function Suppliers() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Phone</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Email</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Payment Terms</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Open POs</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Outstanding</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
                 <th className="w-10"></th>
               </tr>
@@ -125,6 +152,20 @@ export default function Suppliers() {
                   <td className="px-4 py-2.5 text-sm text-muted-foreground">{s.phone || '—'}</td>
                   <td className="px-4 py-2.5 text-sm text-muted-foreground">{s.email || '—'}</td>
                   <td className="px-4 py-2.5 text-sm text-muted-foreground">{s.payment_terms || '—'}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    {supplierPOStats[s.id]?.count ? (
+                      <Badge variant="outline" className="text-[10px]">{supplierPOStats[s.id].count}</Badge>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-sm font-medium">
+                    {supplierPOStats[s.id]?.outstanding ? (
+                      <span className="text-amber-600">R {supplierPOStats[s.id].outstanding.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-center">
                     <Badge className={`text-[10px] ${s.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                       {s.status || 'active'}
@@ -137,7 +178,7 @@ export default function Suppliers() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     {suppliers.length === 0 ? 'No suppliers imported yet.' : 'No suppliers match your search.'}
                   </td>
                 </tr>
@@ -152,6 +193,16 @@ export default function Suppliers() {
           supplier={selectedSupplier}
           onClose={() => setSelectedSupplier(null)}
           onUpdated={() => queryClient.invalidateQueries({ queryKey: ['suppliers-list'] })}
+        />
+      )}
+
+      {showCreate && (
+        <CreateSupplierModal
+          onCreated={() => {
+            setShowCreate(false);
+            queryClient.invalidateQueries({ queryKey: ['suppliers-list'] });
+          }}
+          onCancel={() => setShowCreate(false)}
         />
       )}
     </div>

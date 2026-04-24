@@ -25,7 +25,9 @@ import {
   Trash2,
   ArrowLeftRight,
   PackageCheck,
-  Users
+  Users,
+  Receipt,
+  AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
@@ -34,7 +36,14 @@ const navItems = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard },
   { label: 'Catalog', path: '/catalog', icon: Package },
   { label: 'Bill of Materials', path: '/recipes', icon: CookingPot },
-  { label: 'Suppliers', path: '/suppliers', icon: Truck },
+  { 
+    label: 'Purchasing', icon: Truck,
+    children: [
+      { label: 'Suppliers', path: '/suppliers', icon: Truck },
+      { label: 'Purchase Orders', path: '/purchasing/orders', icon: Receipt },
+      { label: 'Reorder Report', path: '/purchasing/reorder', icon: AlertTriangle },
+    ]
+  },
   { label: 'Production Plan', path: '/production', icon: Factory },
   { label: 'Production Runs', path: '/production/runs', icon: PlayCircle },
   { 
