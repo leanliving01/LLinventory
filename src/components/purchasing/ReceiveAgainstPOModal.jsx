@@ -129,8 +129,8 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-      <div className="bg-card rounded-2xl border border-border w-full max-w-xl shadow-xl flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-stretch justify-center">
+      <div className="bg-card w-full max-w-4xl shadow-xl flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div>
             <h3 className="text-lg font-bold">Receive Against {po.po_number}</h3>

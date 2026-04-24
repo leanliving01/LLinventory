@@ -188,14 +188,14 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
   // Actions available based on status
   const canConfirm = po.status === 'draft';
   const canReceive = ['confirmed', 'partially_received'].includes(po.status);
-  const canInvoice = ['received'].includes(po.status);
+  const canInvoice = ['received', 'partially_received'].includes(po.status);
   const canPay = ['invoiced'].includes(po.status);
   const canCancel = ['draft', 'confirmed'].includes(po.status);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative w-full max-w-lg bg-card shadow-xl flex flex-col">
+      <div className="relative w-full max-w-4xl bg-card shadow-xl flex flex-col">
         {/* Header */}
         <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-start justify-between z-10 shrink-0">
           <div>
@@ -418,43 +418,43 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
         </div>
 
         {/* Action footer */}
-        <div className="sticky bottom-0 bg-card border-t border-border px-6 py-3 shrink-0 flex gap-2 flex-wrap">
+        <div className="sticky bottom-0 bg-card border-t border-border px-6 py-4 shrink-0 flex gap-3 flex-wrap relative z-10">
           {editing ? (
             <>
-              <Button variant="outline" size="sm" onClick={() => setEditing(false)}>Cancel Edit</Button>
+              <Button variant="outline" onClick={() => setEditing(false)} className="h-10">Cancel Edit</Button>
               <div className="flex-1" />
-              <Button size="sm" onClick={handleSaveEdit} disabled={updating} className="gap-1">
-                {updating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              <Button onClick={handleSaveEdit} disabled={updating} className="gap-2 h-10">
+                {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Save Changes
               </Button>
             </>
           ) : (
             <>
               {canCancel && (
-                <Button variant="outline" size="sm" onClick={handleCancel} disabled={updating} className="gap-1 text-destructive hover:text-destructive">
-                  <Ban className="w-3.5 h-3.5" /> Cancel PO
+                <Button variant="outline" onClick={handleCancel} disabled={updating} className="gap-2 h-10 text-destructive hover:text-destructive">
+                  <Ban className="w-4 h-4" /> Cancel PO
                 </Button>
               )}
               <div className="flex-1" />
               {canConfirm && (
-                <Button size="sm" onClick={handleConfirm} disabled={updating} className="gap-1">
-                  {updating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                <Button onClick={handleConfirm} disabled={updating} className="gap-2 h-10">
+                  {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                   Confirm
                 </Button>
               )}
               {canReceive && (
-                <Button size="sm" onClick={() => setShowReceive(true)} className="gap-1 bg-green-600 hover:bg-green-700">
-                  <Truck className="w-3.5 h-3.5" /> Receive Stock
+                <Button onClick={() => setShowReceive(true)} className="gap-2 h-10 bg-green-600 hover:bg-green-700">
+                  <Truck className="w-4 h-4" /> Receive Stock
                 </Button>
               )}
               {canInvoice && (
-                <Button size="sm" onClick={handleMarkInvoiced} disabled={updating} className="gap-1 bg-purple-600 hover:bg-purple-700">
-                  <FileText className="w-3.5 h-3.5" /> Mark Invoiced
+                <Button onClick={handleMarkInvoiced} disabled={updating} className="gap-2 h-10 bg-purple-600 hover:bg-purple-700">
+                  <FileText className="w-4 h-4" /> Mark Invoiced
                 </Button>
               )}
               {canPay && (
-                <Button size="sm" onClick={handleMarkPaid} disabled={updating} className="gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Mark Paid
+                <Button onClick={handleMarkPaid} disabled={updating} className="gap-2 h-10">
+                  <CheckCircle2 className="w-4 h-4" /> Mark Paid
                 </Button>
               )}
             </>
