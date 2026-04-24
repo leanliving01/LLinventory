@@ -4,6 +4,24 @@ const CIN7_BASE = 'https://inventory.dearsystems.com/ExternalApi/v2';
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Retry wrapper for Base44 entity calls (handles 429 rate limits)
+async function base44Call(fn, maxRetries = 5) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const is429 = err?.message?.includes('429') || err?.message?.includes('Rate limit');
+      if (is429 && attempt < maxRetries - 1) {
+        const wait = Math.min(2000 * Math.pow(2, attempt), 30000); // 2s, 4s, 8s, 16s, 30s
+        console.log(`Base44 rate limited, retry ${attempt + 1}/${maxRetries} in ${wait}ms`);
+        await delay(wait);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 async function cin7Fetch(path, accountId, appKey) {
   const url = `${CIN7_BASE}${path}`;
   const headers = {
@@ -105,11 +123,11 @@ Deno.serve(async (req) => {
   // ─── IMPORT PRODUCTS ───
   if (action === 'import_products') {
     // Create import log
-    const log = await base44.asServiceRole.entities.ImportLog.create({
+    const log = await base44Call(() => base44.asServiceRole.entities.ImportLog.create({
       import_type: 'products',
       status: 'running',
       started_at: new Date().toISOString(),
-    });
+    }));
 
     const warnings = [];
     const errors = [];
@@ -186,11 +204,11 @@ Deno.serve(async (req) => {
         
         try {
           if (existing) {
-            await base44.asServiceRole.entities.Product.update(existing.id, productData);
+            await base44Call(() => base44.asServiceRole.entities.Product.update(existing.id, productData));
             updated++;
             details.push({ sku, action: 'updated', type: productType, category });
           } else {
-            const newProd = await base44.asServiceRole.entities.Product.create(productData);
+            const newProd = await base44Call(() => base44.asServiceRole.entities.Product.create(productData));
             created++;
             existingBySku[sku] = newProd;
             existingByCin7Id[cin7Id] = newProd;
@@ -200,8 +218,8 @@ Deno.serve(async (req) => {
           errors.push(`SKU ${sku}: ${err.message}`);
         }
         
-        // Small delay to avoid rate limits on Base44
-        if (total % 25 === 0) await delay(300);
+        // Throttle Base44 writes: pause every 10 records
+        if (total % 10 === 0) await delay(1000);
       }
 
       page++;
@@ -209,7 +227,7 @@ Deno.serve(async (req) => {
     }
 
     // Update import log
-    await base44.asServiceRole.entities.ImportLog.update(log.id, {
+    await base44Call(() => base44.asServiceRole.entities.ImportLog.update(log.id, {
       status: errors.length > 0 ? 'completed_with_warnings' : 'completed',
       total_records: total,
       created_count: created,
@@ -220,7 +238,7 @@ Deno.serve(async (req) => {
       errors: errors.slice(0, 50),
       details: JSON.stringify(details.slice(0, 200)),
       finished_at: new Date().toISOString(),
-    });
+    }));
 
     return Response.json({
       success: true,
@@ -233,11 +251,11 @@ Deno.serve(async (req) => {
 
   // ─── IMPORT SUPPLIERS ───
   if (action === 'import_suppliers') {
-    const log = await base44.asServiceRole.entities.ImportLog.create({
+    const log = await base44Call(() => base44.asServiceRole.entities.ImportLog.create({
       import_type: 'suppliers',
       status: 'running',
       started_at: new Date().toISOString(),
-    });
+    }));
 
     const existingSuppliers = await base44.asServiceRole.entities.Supplier.filter({});
     const existingByName = {};
@@ -287,40 +305,42 @@ Deno.serve(async (req) => {
         const existing = existingByCin7[cin7Id] || existingByName[name.toLowerCase()];
         try {
           if (existing) {
-            await base44.asServiceRole.entities.Supplier.update(existing.id, supplierData);
+            await base44Call(() => base44.asServiceRole.entities.Supplier.update(existing.id, supplierData));
             updated++;
           } else {
-            await base44.asServiceRole.entities.Supplier.create(supplierData);
+            await base44Call(() => base44.asServiceRole.entities.Supplier.create(supplierData));
             created++;
           }
         } catch (err) {
           errors.push(`Supplier ${name}: ${err.message}`);
         }
+        // Throttle Base44 writes
+        if (total % 10 === 0) await delay(1000);
       }
 
       page++;
       await delay(1100);
     }
 
-    await base44.asServiceRole.entities.ImportLog.update(log.id, {
+    await base44Call(() => base44.asServiceRole.entities.ImportLog.update(log.id, {
       status: errors.length > 0 ? 'completed_with_warnings' : 'completed',
       total_records: total, created_count: created, updated_count: updated,
       error_count: errors.length,
       warnings: warnings.slice(0, 50),
       errors: errors.slice(0, 50),
       finished_at: new Date().toISOString(),
-    });
+    }));
 
     return Response.json({ success: true, total, created, updated, errors: errors.length, log_id: log.id });
   }
 
   // ─── IMPORT STOCK ON HAND ───
   if (action === 'import_stock') {
-    const log = await base44.asServiceRole.entities.ImportLog.create({
+    const log = await base44Call(() => base44.asServiceRole.entities.ImportLog.create({
       import_type: 'stock',
       status: 'running',
       started_at: new Date().toISOString(),
-    });
+    }));
 
     // Load products, locations, and existing SOH for matching
     const products = await base44.asServiceRole.entities.Product.filter({});
@@ -390,7 +410,7 @@ Deno.serve(async (req) => {
 
         try {
           // Create a StockMovement as initial receipt
-          await base44.asServiceRole.entities.StockMovement.create({
+          await base44Call(() => base44.asServiceRole.entities.StockMovement.create({
             product_id: product.id,
             product_sku: product.sku,
             product_name: product.name,
@@ -402,21 +422,21 @@ Deno.serve(async (req) => {
             ref_id: cin7ProductId,
             unit_cost_at_movement: product.cost_avg || 0,
             notes: 'Initial stock from Cin7 import',
-          });
+          }));
 
           // Upsert StockOnHand
           const sohKey = `${product.id}__${location.id}`;
           const existingRec = sohByKey[sohKey];
           if (existingRec) {
             const newQty = (existingRec.qty_on_hand || 0) + qty;
-            await base44.asServiceRole.entities.StockOnHand.update(existingRec.id, {
+            await base44Call(() => base44.asServiceRole.entities.StockOnHand.update(existingRec.id, {
               qty_on_hand: newQty,
               qty_available: newQty - (existingRec.qty_committed || 0),
               last_updated_at: new Date().toISOString(),
-            });
+            }));
             existingRec.qty_on_hand = newQty;
           } else {
-            const newSoh = await base44.asServiceRole.entities.StockOnHand.create({
+            const newSoh = await base44Call(() => base44.asServiceRole.entities.StockOnHand.create({
               product_id: product.id,
               product_sku: product.sku,
               product_name: product.name,
@@ -427,7 +447,7 @@ Deno.serve(async (req) => {
               qty_available: qty,
               uom: product.stock_uom,
               last_updated_at: new Date().toISOString(),
-            });
+            }));
             sohByKey[sohKey] = newSoh;
           }
 
@@ -436,21 +456,22 @@ Deno.serve(async (req) => {
           errors.push(`Stock ${product.sku}: ${err.message}`);
         }
 
-        if (total % 20 === 0) await delay(500);
+        // Throttle Base44 writes (2 calls per item: movement + SOH)
+        if (total % 5 === 0) await delay(1000);
       }
 
       page++;
       await delay(1100);
     }
 
-    await base44.asServiceRole.entities.ImportLog.update(log.id, {
+    await base44Call(() => base44.asServiceRole.entities.ImportLog.update(log.id, {
       status: errors.length > 0 ? 'completed_with_warnings' : 'completed',
       total_records: total, created_count: created,
       error_count: errors.length,
       warnings: warnings.slice(0, 50),
       errors: errors.slice(0, 50),
       finished_at: new Date().toISOString(),
-    });
+    }));
 
     return Response.json({ success: true, total, created, errors: errors.length, log_id: log.id });
   }

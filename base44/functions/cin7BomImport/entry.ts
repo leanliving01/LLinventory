@@ -4,6 +4,24 @@ const CIN7_BASE = 'https://inventory.dearsystems.com/ExternalApi/v2';
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Retry wrapper for Base44 entity calls (handles 429 rate limits)
+async function base44Call(fn, maxRetries = 5) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const is429 = err?.message?.includes('429') || err?.message?.includes('Rate limit');
+      if (is429 && attempt < maxRetries - 1) {
+        const wait = Math.min(2000 * Math.pow(2, attempt), 30000);
+        console.log(`Base44 rate limited, retry ${attempt + 1}/${maxRetries} in ${wait}ms`);
+        await delay(wait);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 async function cin7Fetch(path, accountId, appKey) {
   const url = `${CIN7_BASE}${path}`;
   const headers = {
@@ -127,11 +145,11 @@ Deno.serve(async (req) => {
     const batchOffset = body.offset || 0;
     const batchSize = body.batch_size || 30;
 
-    const log = await base44.asServiceRole.entities.ImportLog.create({
+    const log = await base44Call(() => base44.asServiceRole.entities.ImportLog.create({
       import_type: 'boms',
       status: 'running',
       started_at: new Date().toISOString(),
-    });
+    }));
 
     const warnings = [];
     const errors = [];
@@ -180,30 +198,34 @@ Deno.serve(async (req) => {
 
         try {
           if (existing) {
-            await base44.asServiceRole.entities.Bom.update(existing.id, bomData);
+            await base44Call(() => base44.asServiceRole.entities.Bom.update(existing.id, bomData));
             bomRecord = { ...existing, ...bomData };
             bomsUpdated++;
           } else {
-            bomRecord = await base44.asServiceRole.entities.Bom.create(bomData);
+            bomRecord = await base44Call(() => base44.asServiceRole.entities.Bom.create(bomData));
             existingBomByCin7Id[cin7BomId] = bomRecord;
             bomsCreated++;
           }
         } catch (err) { errors.push(`BOM ${item.sku}: ${err.message}`); await delay(1100); continue; }
 
         // Clean replace components
-        const oldComps = await base44.asServiceRole.entities.BomComponent.filter({ bom_id: bomRecord.id });
-        for (const oc of oldComps) { await base44.asServiceRole.entities.BomComponent.delete(oc.id); }
+        const oldComps = await base44Call(() => base44.asServiceRole.entities.BomComponent.filter({ bom_id: bomRecord.id }));
+        for (const oc of oldComps) {
+          await base44Call(() => base44.asServiceRole.entities.BomComponent.delete(oc.id));
+          await delay(200);
+        }
 
         for (const c of components) {
           const inp = productByCin7Id[c.ComponentProductID] || productBySku[c.ProductCode];
           if (!inp) { warnings.push(`Pack ${item.sku}: component ${c.ProductCode} not found`); continue; }
           try {
-            await base44.asServiceRole.entities.BomComponent.create({
+            await base44Call(() => base44.asServiceRole.entities.BomComponent.create({
               bom_id: bomRecord.id, input_product_id: inp.id,
               input_product_name: inp.name, input_product_sku: inp.sku,
               qty: c.Quantity || 1, uom: inp.stock_uom, is_consumable: false,
-            });
+            }));
             componentsCreated++;
+            await delay(200);
           } catch (err) { errors.push(`Comp ${c.ProductCode} for ${item.sku}: ${err.message}`); }
         }
 
@@ -232,23 +254,27 @@ Deno.serve(async (req) => {
 
         try {
           if (existing) {
-            await base44.asServiceRole.entities.Bom.update(existing.id, bomData);
+            await base44Call(() => base44.asServiceRole.entities.Bom.update(existing.id, bomData));
             bomRecord = { ...existing, ...bomData };
             bomsUpdated++;
           } else {
-            bomRecord = await base44.asServiceRole.entities.Bom.create(bomData);
+            bomRecord = await base44Call(() => base44.asServiceRole.entities.Bom.create(bomData));
             existingBomByCin7Id[cin7BomId] = bomRecord;
             bomsCreated++;
           }
         } catch (err) { errors.push(`BOM ${item.sku}: ${err.message}`); await delay(1100); continue; }
 
         // Clean replace
-        const [oldComps, oldOps] = await Promise.all([
-          base44.asServiceRole.entities.BomComponent.filter({ bom_id: bomRecord.id }),
-          base44.asServiceRole.entities.BomOperation.filter({ bom_id: bomRecord.id }),
-        ]);
-        for (const oc of oldComps) { await base44.asServiceRole.entities.BomComponent.delete(oc.id); }
-        for (const oo of oldOps) { await base44.asServiceRole.entities.BomOperation.delete(oo.id); }
+        const oldComps2 = await base44Call(() => base44.asServiceRole.entities.BomComponent.filter({ bom_id: bomRecord.id }));
+        const oldOps = await base44Call(() => base44.asServiceRole.entities.BomOperation.filter({ bom_id: bomRecord.id }));
+        for (const oc of oldComps2) {
+          await base44Call(() => base44.asServiceRole.entities.BomComponent.delete(oc.id));
+          await delay(200);
+        }
+        for (const oo of oldOps) {
+          await base44Call(() => base44.asServiceRole.entities.BomOperation.delete(oo.id));
+          await delay(200);
+        }
 
         for (const op of (defaultBom.Operations || [])) {
           let station = 'cook';
@@ -258,12 +284,13 @@ Deno.serve(async (req) => {
           else if (wc.includes('sleeve') || wc.includes('pack')) station = 'portion';
 
           try {
-            await base44.asServiceRole.entities.BomOperation.create({
+            await base44Call(() => base44.asServiceRole.entities.BomOperation.create({
               bom_id: bomRecord.id, step_no: op.Order || 1, name: op.Name || 'Step',
               station, cycle_time_min: op.CycleTime ? Math.round(op.CycleTime / 60) : null,
               notes: op.WorkCenterName || '',
-            });
+            }));
             opsCreated++;
+            await delay(200);
           } catch (err) { errors.push(`Op ${op.Name} for ${item.sku}: ${err.message}`); }
 
           for (const c of (op.Components || [])) {
@@ -274,12 +301,13 @@ Deno.serve(async (req) => {
               (inp.name || '').toLowerCase().includes('plate') ||
               (inp.name || '').toLowerCase().includes('lid');
             try {
-              await base44.asServiceRole.entities.BomComponent.create({
+              await base44Call(() => base44.asServiceRole.entities.BomComponent.create({
                 bom_id: bomRecord.id, input_product_id: inp.id,
                 input_product_name: inp.name, input_product_sku: inp.sku,
                 qty: c.Quantity || 0, uom: inp.stock_uom, is_consumable: isConsumable,
-              });
+              }));
               componentsCreated++;
+              await delay(200);
             } catch (err) { errors.push(`Comp ${c.ProductSku} for ${item.sku}: ${err.message}`); }
           }
         }
@@ -290,7 +318,7 @@ Deno.serve(async (req) => {
 
     // Update log
     const status = errors.length > 0 ? 'completed_with_warnings' : 'completed';
-    await base44.asServiceRole.entities.ImportLog.update(log.id, {
+    await base44Call(() => base44.asServiceRole.entities.ImportLog.update(log.id, {
       status,
       total_records: batch.length,
       created_count: bomsCreated,
@@ -300,7 +328,7 @@ Deno.serve(async (req) => {
       errors: errors.slice(0, 50),
       details: JSON.stringify({ batch_offset: batchOffset, batch_size: batch.length, total_items: allItems.length, components_created: componentsCreated, operations_created: opsCreated }),
       finished_at: new Date().toISOString(),
-    });
+    }));
 
     return Response.json({
       success: true,
