@@ -66,7 +66,7 @@ export default function Kanban() {
     if (!prereqStation) return null;
     const prereqTasks = tasks.filter(t =>
       t.station === prereqStation &&
-      t.product_id === task.product_id &&
+      t.line_id === task.line_id &&
       !t.archived
     );
     if (prereqTasks.length === 0) return null;

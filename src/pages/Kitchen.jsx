@@ -79,7 +79,7 @@ export default function Kitchen() {
 
     const prereqTasks = allRunTasks.filter(t =>
       t.station === prereqStation &&
-      t.product_id === task.product_id &&
+      t.line_id === task.line_id &&
       !t.archived
     );
 
