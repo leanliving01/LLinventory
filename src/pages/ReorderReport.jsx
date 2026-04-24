@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertTriangle, Search, ShoppingCart, X, CheckCircle2, Clock } from 'lucide-react';
+import { AlertTriangle, Search, ShoppingCart, X, CheckCircle2, Clock, Pencil, Check, Loader2 } from 'lucide-react';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
 import HelpDrawer from '@/components/help/HelpDrawer';
+import { toast } from 'sonner';
 
 export default function ReorderReport() {
   const queryClient = useQueryClient();
@@ -16,6 +17,9 @@ export default function ReorderReport() {
   const [viewFilter, setViewFilter] = useState('low_first'); // low_first | low_only | all_alpha
   const [showCreatePO, setShowCreatePO] = useState(false);
   const [selectedItems, setSelectedItems] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [editValues, setEditValues] = useState({});
+  const [saving, setSaving] = useState(false);
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['products-reorder'],
@@ -95,6 +99,32 @@ export default function ReorderReport() {
 
     return list;
   }, [allItems, typeFilter, search, viewFilter]);
+
+  const startEdit = (item) => {
+    setEditingId(item.id);
+    setEditValues({
+      min_before_reorder: item.min_before_reorder || 0,
+      reorder_qty: item.reorder_qty || 0,
+      lead_time_days: item.lead_time_days || 0,
+    });
+  };
+
+  const cancelEdit = () => { setEditingId(null); setEditValues({}); };
+
+  const saveEdit = async () => {
+    if (!editingId) return;
+    setSaving(true);
+    await base44.entities.Product.update(editingId, {
+      min_before_reorder: Number(editValues.min_before_reorder) || 0,
+      reorder_qty: Number(editValues.reorder_qty) || 0,
+      lead_time_days: Number(editValues.lead_time_days) || 0,
+    });
+    queryClient.invalidateQueries({ queryKey: ['products-reorder'] });
+    setEditingId(null);
+    setEditValues({});
+    setSaving(false);
+    toast.success('Product updated');
+  };
 
   const toggleSelect = (id) => {
     setSelectedItems(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -213,6 +243,7 @@ export default function ReorderReport() {
                 <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Reorder Qty</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Lead Time</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
+                <th className="w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -239,7 +270,13 @@ export default function ReorderReport() {
                   </td>
                   <td className="px-4 py-2.5 text-sm text-muted-foreground">{item.supplier_name}</td>
                   <td className="px-4 py-2.5 text-right text-sm font-medium">{item.total_on_hand}</td>
-                  <td className="px-4 py-2.5 text-right text-sm text-muted-foreground">{item.min_before_reorder || '—'}</td>
+                  <td className="px-4 py-2.5 text-right text-sm">
+                    {editingId === item.id ? (
+                      <Input type="number" className="w-20 h-7 text-right text-sm ml-auto" value={editValues.min_before_reorder} onChange={e => setEditValues(v => ({ ...v, min_before_reorder: e.target.value }))} />
+                    ) : (
+                      <span className="text-muted-foreground">{item.min_before_reorder || '—'}</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-right text-sm">
                     {item.shortfall > 0 ? (
                       <span className="font-bold text-red-600">{item.shortfall}</span>
@@ -247,9 +284,17 @@ export default function ReorderReport() {
                       <span className="text-muted-foreground">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-sm">{item.reorder_qty || '—'}</td>
+                  <td className="px-4 py-2.5 text-right text-sm">
+                    {editingId === item.id ? (
+                      <Input type="number" className="w-20 h-7 text-right text-sm ml-auto" value={editValues.reorder_qty} onChange={e => setEditValues(v => ({ ...v, reorder_qty: e.target.value }))} />
+                    ) : (
+                      <span>{item.reorder_qty || '—'}</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-center text-sm">
-                    {item.lead_time_days ? (
+                    {editingId === item.id ? (
+                      <Input type="number" className="w-16 h-7 text-center text-sm mx-auto" value={editValues.lead_time_days} onChange={e => setEditValues(v => ({ ...v, lead_time_days: e.target.value }))} />
+                    ) : item.lead_time_days ? (
                       <span className="flex items-center justify-center gap-1 text-muted-foreground">
                         <Clock className="w-3 h-3" /> {item.lead_time_days}d
                       </span>
@@ -268,11 +313,27 @@ export default function ReorderReport() {
                       <Badge className="text-[10px] bg-green-100 text-green-700">OK</Badge>
                     )}
                   </td>
+                  <td className="px-4 py-2.5">
+                    {editingId === item.id ? (
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={saveEdit} disabled={saving}>
+                          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5 text-green-600" />}
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cancelEdit}>
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(item)}>
+                        <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                      </Button>
+                    )}
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                  <td colSpan={10} className="px-4 py-12 text-center text-sm text-muted-foreground">
                     No products match your filters.
                   </td>
                 </tr>
