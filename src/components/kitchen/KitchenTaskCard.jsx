@@ -1,36 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Play, Pause, CheckCircle2, Clock, Undo2, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-function formatDuration(ms) {
-  if (!ms || ms <= 0) return '0:00';
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-function LiveTimer({ startedAt }) {
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (!startedAt) return;
-    const start = new Date(startedAt).getTime();
-    const tick = () => setElapsed(Date.now() - start);
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [startedAt]);
-
-  return (
-    <span className="font-mono text-2xl font-bold text-amber-600 dark:text-amber-400 tabular-nums">
-      {formatDuration(elapsed)}
-    </span>
-  );
-}
+import LiveTimer, { formatDuration } from '@/components/kitchen/LiveTimer';
 
 const STATION_BUTTON_COLORS = {
   prep: 'bg-blue-500 hover:bg-blue-600',
@@ -38,7 +11,7 @@ const STATION_BUTTON_COLORS = {
   portion: 'bg-green-500 hover:bg-green-600',
 };
 
-export default function KitchenTaskCard({ task, onStatusChange, onTap, loading }) {
+export default function KitchenTaskCard({ task, onStatusChange, onTap, loading, taskLogs = [] }) {
   const [showNotes, setShowNotes] = useState(false);
 
   const isDone = task.status === 'done';
@@ -99,11 +72,24 @@ export default function KitchenTaskCard({ task, onStatusChange, onTap, loading }
             <Clock className="w-5 h-5" /> Waiting to start
           </span>
         )}
-        {isActive && task.started_at && <LiveTimer startedAt={task.started_at} />}
-        {isPaused && (
-          <span className="text-lg text-blue-600 font-medium flex items-center gap-2">
-            <Pause className="w-5 h-5" /> Paused
-          </span>
+        {isActive && task.started_at && (
+          <LiveTimer
+            startedAt={task.started_at}
+            isActive={true}
+            logs={taskLogs}
+            className="font-mono text-2xl font-bold text-amber-600 dark:text-amber-400 tabular-nums"
+          />
+        )}
+        {isPaused && task.started_at && (
+          <div className="flex items-center gap-2">
+            <Pause className="w-5 h-5 text-blue-600" />
+            <LiveTimer
+              startedAt={task.started_at}
+              isActive={false}
+              logs={taskLogs}
+              className="font-mono text-2xl font-bold text-blue-600 tabular-nums"
+            />
+          </div>
         )}
         {isDone && completedDuration && (
           <span className="font-mono text-2xl font-bold text-green-600 tabular-nums flex items-center gap-2">

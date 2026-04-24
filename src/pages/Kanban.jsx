@@ -13,6 +13,7 @@ import HelpDrawer from '@/components/help/HelpDrawer';
 import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
 import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
 import DependencyBlockModal from '@/components/kitchen/DependencyBlockModal';
+import { logTaskEvent } from '@/lib/taskEventLog';
 
 const STATIONS = [
   { id: 'prep', label: 'PREP', icon: Utensils, color: 'bg-blue-500' },
@@ -38,6 +39,14 @@ export default function Kanban() {
     queryKey: ['production-tasks', runId],
     queryFn: () => base44.entities.ProductionTask.filter({ run_id: runId }, 'step_no', 500),
     enabled: !!runId,
+  });
+
+  // Load task event logs
+  const { data: taskLogs = [] } = useQuery({
+    queryKey: ['task-logs', runId],
+    queryFn: () => base44.entities.ProductionTaskLog.filter({ run_id: runId }, 'timestamp', 2000),
+    enabled: !!runId,
+    refetchInterval: 15000,
   });
 
   // Load team members for all stations
@@ -119,6 +128,9 @@ export default function Kanban() {
   };
 
   const handleTaskCompleted = async (taskId, consumption, meta = {}) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (task) logTaskEvent(task, 'completed');
+
     const isPortioningTask = consumption.length > 0 && consumption[0].is_portioning;
 
     if (isPortioningTask) {
@@ -229,11 +241,18 @@ export default function Kanban() {
 
     setPendingDone(null);
     queryClient.invalidateQueries({ queryKey: ['production-tasks', runId] });
+    queryClient.invalidateQueries({ queryKey: ['task-logs', runId] });
   };
 
   const doStatusChange = async (taskId, newStatus) => {
     const now = new Date().toISOString();
     const task = tasks.find(t => t.id === taskId);
+
+    // Log the event
+    const eventMap = { in_progress: task?.status === 'paused' ? 'resumed' : 'started', paused: 'paused', done: 'completed', undo: 'undone' };
+    if (task && eventMap[newStatus]) {
+      logTaskEvent(task, eventMap[newStatus]);
+    }
 
     if (newStatus === 'undo') {
       // Reverse any stock movements created when the task was completed
@@ -271,6 +290,7 @@ export default function Kanban() {
       await base44.entities.ProductionTask.update(taskId, { status: newStatus });
     }
     queryClient.invalidateQueries({ queryKey: ['production-tasks', runId] });
+    queryClient.invalidateQueries({ queryKey: ['task-logs', runId] });
   };
 
   if (!run) {
@@ -311,6 +331,7 @@ export default function Kanban() {
               tasks={columns[station.id] || []}
               onStatusChange={handleStatusChange}
               runId={runId}
+              taskLogs={taskLogs}
             />
           ))}
         </div>

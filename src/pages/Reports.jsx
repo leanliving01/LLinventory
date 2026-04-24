@@ -4,10 +4,11 @@ import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { FileText, Clock, Search, User } from 'lucide-react';
+import { FileText, Clock, Search, User, ChevronDown, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
+import ProductionTimeBreakdown from '@/components/reports/ProductionTimeBreakdown';
 
 const STATUS_STYLES = {
   draft: 'bg-muted text-muted-foreground',
@@ -30,6 +31,7 @@ const ACTION_COLORS = {
 export default function Reports() {
   const [actionFilter, setActionFilter] = useState('all');
   const [searchAudit, setSearchAudit] = useState('');
+  const [expandedRun, setExpandedRun] = useState(null);
 
   const { data: auditLogs = [] } = useQuery({
     queryKey: ['auditLogs'],
@@ -78,17 +80,38 @@ export default function Reports() {
         ) : (
           <div className="divide-y divide-border">
             {productionRuns.map(run => (
-              <Link key={run.id} to={`/production/run/${run.id}`} className="px-6 py-3 flex items-center justify-between hover:bg-muted/30 block">
-                <div>
-                  <p className="text-sm font-medium">{run.run_number || format(new Date(run.run_date), 'dd MMM yyyy')}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {run.run_date ? format(new Date(run.run_date), 'dd MMM yyyy') : '—'} · {run.total_units || 0} units · {run.total_lines || 0} meals
-                  </p>
+              <div key={run.id}>
+                <div className="px-6 py-3 flex items-center justify-between hover:bg-muted/30">
+                  <Link to={`/production/run/${run.id}`} className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">{run.run_number || format(new Date(run.run_date), 'dd MMM yyyy')}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {run.run_date ? format(new Date(run.run_date), 'dd MMM yyyy') : '—'}
+                      {run.started_at ? ` · Started ${format(new Date(run.started_at), 'HH:mm')}` : ''}
+                      {' · '}{run.total_units || 0} units · {run.total_lines || 0} meals
+                    </p>
+                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Badge className={cn(STATUS_STYLES[run.status] || 'bg-muted text-muted-foreground')}>
+                      {run.status?.replace('_', ' ')}
+                    </Badge>
+                    {run.status === 'completed' && (
+                      <button
+                        onClick={() => setExpandedRun(expandedRun === run.id ? null : run.id)}
+                        className="p-1 rounded hover:bg-muted"
+                      >
+                        {expandedRun === run.id
+                          ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                          : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <Badge className={cn(STATUS_STYLES[run.status] || 'bg-muted text-muted-foreground')}>
-                  {run.status?.replace('_', ' ')}
-                </Badge>
-              </Link>
+                {expandedRun === run.id && (
+                  <div className="px-6 pb-4">
+                    <ProductionTimeBreakdown runId={run.id} run={run} />
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         )}

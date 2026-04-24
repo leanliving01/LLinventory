@@ -1,0 +1,53 @@
+{
+  "name": "ProductionTaskLog",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "FK to ProductionTask"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "FK to ProductionRun"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "started",
+        "paused",
+        "resumed",
+        "completed",
+        "undone"
+      ],
+      "description": "What happened"
+    },
+    "station": {
+      "type": "string",
+      "enum": [
+        "prep",
+        "cook",
+        "portion"
+      ],
+      "description": "Kitchen station"
+    },
+    "task_name": {
+      "type": "string",
+      "description": "Denormalized task/meal name"
+    },
+    "assigned_name": {
+      "type": "string",
+      "description": "Who was assigned at time of event"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the event occurred"
+    }
+  },
+  "required": [
+    "task_id",
+    "run_id",
+    "event_type",
+    "timestamp"
+  ]
+}

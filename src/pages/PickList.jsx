@@ -7,6 +7,7 @@ import PickListHeader from '@/components/pick-list/PickListHeader';
 import PickListCategory from '@/components/pick-list/PickListCategory';
 import BarcodeScanner from '@/components/pick-list/BarcodeScanner';
 import { generatePickListPdf } from '@/components/pick-list/PickListPdfExport';
+import LiveTimer from '@/components/kitchen/LiveTimer';
 
 /**
  * §5.1.3 Master Pick List
@@ -196,6 +197,12 @@ export default function PickList() {
     setCategorizing(false);
   };
 
+  const handleStartPicking = async () => {
+    await base44.entities.ProductionRun.update(runId, { picking_started_at: new Date().toISOString() });
+    queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
+    toast.success('Picking timer started');
+  };
+
   const handleExportPdf = () => {
     if (!run || pickItems.length === 0) return;
     generatePickListPdf({ run, lines, pickItems, categories });
@@ -226,8 +233,11 @@ export default function PickList() {
       });
     }
 
-    // Mark the run as pick list confirmed
-    await base44.entities.ProductionRun.update(runId, { pick_list_confirmed: true });
+    // Mark the run as pick list confirmed with finished timestamp
+    await base44.entities.ProductionRun.update(runId, {
+      pick_list_confirmed: true,
+      picking_finished_at: new Date().toISOString(),
+    });
     queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
     queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
     toast.success('Pick list confirmed — stock consumed from storage');
@@ -264,19 +274,55 @@ export default function PickList() {
 
       {/* Scanner */}
       {showScanner && (
-        <BarcodeScanner pickItems={pickItems} onItemScanned={handleItemScanned} />
+        <div className="print:hidden">
+          <BarcodeScanner pickItems={pickItems} onItemScanned={handleItemScanned} />
+        </div>
       )}
 
       {run?.pick_list_confirmed ? (
-        <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2.5 text-sm text-green-700 print:hidden">
-          ✓ Pick list confirmed — stock has been consumed from storage. Kitchen tasks can now begin.
+        <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2.5 text-sm text-green-700 print:hidden flex items-center justify-between">
+          <span>✓ Pick list confirmed — stock has been consumed from storage. Kitchen tasks can now begin.</span>
+          {run.picking_started_at && run.picking_finished_at && (
+            <span className="text-xs font-mono text-green-600">
+              Picking time: {(() => {
+                const ms = new Date(run.picking_finished_at).getTime() - new Date(run.picking_started_at).getTime();
+                const m = Math.floor(ms / 60000);
+                const s = Math.floor((ms % 60000) / 1000);
+                return `${m}m ${s}s`;
+              })()}
+            </span>
+          )}
         </div>
       ) : (
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm text-amber-800 print:hidden flex items-center justify-between gap-3">
-          <span>Pick all items then confirm to consume stock from storage. Kitchen tasks are blocked until this is done.</span>
+          <div className="flex items-center gap-3">
+            {!run.picking_started_at ? (
+              <>
+                <span>Start picking to begin the timer, then confirm when done.</span>
+                <Button
+                  onClick={handleStartPicking}
+                  disabled={pickItems.length === 0}
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-1.5 border-amber-400 text-amber-800 hover:bg-amber-100"
+                >
+                  Start Picking
+                </Button>
+              </>
+            ) : (
+              <>
+                <span>Picking in progress</span>
+                <LiveTimer
+                  startedAt={run.picking_started_at}
+                  isActive={true}
+                  className="font-mono text-sm font-bold text-amber-700"
+                />
+              </>
+            )}
+          </div>
           <Button
             onClick={handleConfirmPickList}
-            disabled={confirmingPick || pickedCount < pickItems.length}
+            disabled={confirmingPick || pickedCount < pickItems.length || !run.picking_started_at}
             className="shrink-0 bg-green-600 hover:bg-green-700 text-white gap-1.5"
             size="sm"
           >

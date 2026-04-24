@@ -144,7 +144,10 @@ export default function ProductionRunDetail() {
 
   const doStartRun = async () => {
     setStarting(true);
-    await base44.entities.ProductionRun.update(runId, { status: 'in_progress' });
+    await base44.entities.ProductionRun.update(runId, {
+      status: 'in_progress',
+      started_at: new Date().toISOString(),
+    });
 
     // §5.1.4/5 Generate tasks from BOM operations
     // Look at Cook BOM operations (bulk cooking tasks) + Portion BOM operations
@@ -370,6 +373,7 @@ export default function ProductionRunDetail() {
     await base44.entities.ProductionRun.update(runId, {
       status: 'completed',
       total_units: totalActual,
+      completed_at: new Date().toISOString(),
     });
 
     queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
@@ -459,7 +463,10 @@ export default function ProductionRunDetail() {
             <Badge className={cn(STATUS_STYLES[run.status])}>{run.status?.replace('_', ' ')}</Badge>
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {run.run_date ? format(new Date(run.run_date), 'dd MMM yyyy') : '—'} · {lines.length} meals · {run.total_units} planned units
+            {run.run_date ? format(new Date(run.run_date), 'dd MMM yyyy') : '—'}
+            {run.started_at ? ` · Started ${format(new Date(run.started_at), 'HH:mm')}` : ''}
+            {run.completed_at ? ` · Finished ${format(new Date(run.completed_at), 'HH:mm')}` : ''}
+            {' · '}{lines.length} meals · {run.total_units} planned units
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -8,12 +8,14 @@ export default function AppLayout() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+      <div className="print:hidden" data-sidebar>
+        <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+      </div>
       <main className={cn(
-        "transition-all duration-300 min-h-screen",
+        "transition-all duration-300 min-h-screen print:ml-0",
         collapsed ? "ml-16" : "ml-60"
       )}>
-        <div className="p-6 max-w-[1600px]">
+        <div className="p-6 max-w-[1600px] print:p-2 print:max-w-none">
           <Outlet />
         </div>
       </main>

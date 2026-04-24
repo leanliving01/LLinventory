@@ -97,6 +97,7 @@ module.exports = {
     'bg-blue-100', 'bg-green-100', 'bg-orange-100', 'bg-pink-100', 'bg-yellow-100', 'bg-amber-100',
     'text-amber-700',
     'bg-purple-100', 'text-purple-700', 'border-purple-200',
+    'bg-purple-50', 'text-purple-600',
   ],
   plugins: [require("tailwindcss-animate")],
 }

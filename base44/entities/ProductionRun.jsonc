@@ -38,6 +38,26 @@
       "default": 0,
       "description": "Total units to produce"
     },
+    "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Actual timestamp when the run was started"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Actual timestamp when the run was completed"
+    },
+    "picking_started_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When pick list picking began"
+    },
+    "picking_finished_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When pick list was confirmed complete"
+    },
     "notes": {
       "type": "string",
       "description": "Optional notes"

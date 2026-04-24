@@ -9,6 +9,7 @@ import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
 import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
 import DependencyBlockModal from '@/components/kitchen/DependencyBlockModal';
 import TaskDetailView from '@/components/kitchen/TaskDetailView';
+import { logTaskEvent } from '@/lib/taskEventLog';
 
 export default function Kitchen() {
   const { user } = useAuth();
@@ -45,6 +46,14 @@ export default function Kitchen() {
     queryKey: ['all-run-tasks', activeRun?.id],
     queryFn: () => base44.entities.ProductionTask.filter({ run_id: activeRun.id, archived: false }, 'step_no', 500),
     enabled: !!activeRun?.id,
+  });
+
+  // Load task event logs for timer accuracy
+  const { data: taskLogs = [] } = useQuery({
+    queryKey: ['task-logs', activeRun?.id],
+    queryFn: () => base44.entities.ProductionTaskLog.filter({ run_id: activeRun.id }, 'timestamp', 2000),
+    enabled: !!activeRun?.id,
+    refetchInterval: 15000,
   });
 
   // Load team members for this station (supports both old `station` and new `stations` array)
@@ -124,6 +133,8 @@ export default function Kitchen() {
 
   const handleTaskCompleted = async (taskId, consumption, meta = {}) => {
     setUpdating(true);
+    const task = tasks.find(t => t.id === taskId);
+    if (task) logTaskEvent(task, 'completed');
 
     const isPortioningTask = consumption.length > 0 && consumption[0].is_portioning;
 
@@ -236,6 +247,7 @@ export default function Kitchen() {
     setPendingDone(null);
     queryClient.invalidateQueries({ queryKey: ['kitchen-tasks', activeRun?.id, station] });
     queryClient.invalidateQueries({ queryKey: ['all-run-tasks', activeRun?.id] });
+    queryClient.invalidateQueries({ queryKey: ['task-logs', activeRun?.id] });
     setUpdating(false);
   };
 
@@ -257,6 +269,12 @@ export default function Kitchen() {
     setUpdating(true);
     const now = new Date().toISOString();
     const task = tasks.find(t => t.id === taskId);
+
+    // Log the event
+    const eventMap = { in_progress: task?.status === 'paused' ? 'resumed' : 'started', paused: 'paused', done: 'completed', undo: 'undone' };
+    if (task && eventMap[newStatus]) {
+      logTaskEvent(task, eventMap[newStatus]);
+    }
 
     if (newStatus === 'undo') {
       // Reverse any stock movements created when the task was completed
@@ -296,6 +314,7 @@ export default function Kitchen() {
 
     queryClient.invalidateQueries({ queryKey: ['kitchen-tasks', activeRun?.id, station] });
     queryClient.invalidateQueries({ queryKey: ['all-run-tasks', activeRun?.id] });
+    queryClient.invalidateQueries({ queryKey: ['task-logs', activeRun?.id] });
     setUpdating(false);
   };
 
@@ -309,6 +328,7 @@ export default function Kitchen() {
           onStatusChange={handleStatusChange}
           onBack={() => setActiveTaskId(null)}
           loading={updating}
+          taskLogs={taskLogs.filter(l => l.task_id === activeDetailTask.id)}
         />
         {/* Modals still need to work in detail view */}
         {blockMessage && (
@@ -384,6 +404,7 @@ export default function Kitchen() {
               onStatusChange={handleStatusChange}
               onTap={(id) => setActiveTaskId(id)}
               loading={updating}
+              taskLogs={taskLogs.filter(l => l.task_id === task.id)}
             />
           ))
         )}

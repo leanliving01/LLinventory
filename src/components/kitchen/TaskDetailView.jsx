@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -6,28 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Pause, CheckCircle2, Play, ChevronDown, ChevronRight, UtensilsCrossed, FileText, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-function formatDuration(ms) {
-  if (!ms || ms <= 0) return '00:00:00';
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-function LiveTimer({ startedAt }) {
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (!startedAt) return;
-    const start = new Date(startedAt).getTime();
-    const tick = () => setElapsed(Date.now() - start);
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [startedAt]);
-  return <span className="font-mono text-2xl font-bold tabular-nums">{formatDuration(elapsed)}</span>;
-}
+import LiveTimer, { formatDuration } from '@/components/kitchen/LiveTimer';
 
 const STATION_COLORS = {
   prep: { bg: 'bg-blue-600', text: 'text-blue-600', light: 'bg-blue-50 dark:bg-blue-950' },
@@ -37,7 +16,7 @@ const STATION_COLORS = {
 
 const GENERIC_NOTES = ['Kitchen Cooking', 'Kitchen Prep', 'Portioning'];
 
-export default function TaskDetailView({ task, onStatusChange, onBack, loading }) {
+export default function TaskDetailView({ task, onStatusChange, onBack, loading, taskLogs = [] }) {
   const [consumed, setConsumed] = useState({});
   const [actualYield, setActualYield] = useState('');
   const [openSection, setOpenSection] = useState(null); // null | 'ingredients' | 'notes'
@@ -144,8 +123,12 @@ export default function TaskDetailView({ task, onStatusChange, onBack, loading }
         </div>
         <div className="text-right">
           <p className="text-xs text-muted-foreground uppercase tracking-wider">Time</p>
-          {isActive && task.started_at && <LiveTimer startedAt={task.started_at} />}
-          {isPaused && <span className="font-mono text-2xl font-bold text-blue-600 tabular-nums">Paused</span>}
+          {isActive && task.started_at && (
+            <LiveTimer startedAt={task.started_at} isActive={true} logs={taskLogs} className="font-mono text-2xl font-bold tabular-nums" />
+          )}
+          {isPaused && task.started_at && (
+            <LiveTimer startedAt={task.started_at} isActive={false} logs={taskLogs} className="font-mono text-2xl font-bold text-blue-600 tabular-nums" />
+          )}
           {isPending && <span className="font-mono text-2xl font-bold text-muted-foreground tabular-nums">00:00:00</span>}
           {isDone && <span className="font-mono text-2xl font-bold text-green-600 tabular-nums">{formatDuration(completedDuration)}</span>}
         </div>

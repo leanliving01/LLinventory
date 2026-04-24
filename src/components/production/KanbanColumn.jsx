@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Play, Pause, CheckCircle2, Clock, Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import LiveTimer, { formatDuration } from '@/components/kitchen/LiveTimer';
 
 const STATUS_CONFIG = {
   pending: { label: 'Pending', icon: Clock, color: 'bg-muted text-muted-foreground' },
@@ -11,33 +12,10 @@ const STATUS_CONFIG = {
   done: { label: 'Done', icon: CheckCircle2, color: 'bg-green-100 text-green-700' },
 };
 
-function formatDuration(ms) {
-  if (!ms || ms <= 0) return '0:00';
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-function TaskTimer({ task }) {
-  const [elapsed, setElapsed] = useState(0);
-
-  useEffect(() => {
-    if (task.status !== 'in_progress' || !task.started_at) return;
-    const start = new Date(task.started_at).getTime();
-    const tick = () => setElapsed(Date.now() - start);
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [task.status, task.started_at]);
-
+function TaskTimer({ task, logs = [] }) {
   if (task.status === 'in_progress' && task.started_at) {
     return (
-      <span className="font-mono text-xs text-amber-700 dark:text-amber-400 tabular-nums">
-        ⏱ {formatDuration(elapsed)}
-      </span>
+      <LiveTimer startedAt={task.started_at} isActive={true} logs={logs} className="font-mono text-xs text-amber-700 dark:text-amber-400 tabular-nums" />
     );
   }
 
@@ -52,9 +30,7 @@ function TaskTimer({ task }) {
 
   if (task.status === 'paused' && task.started_at) {
     return (
-      <span className="font-mono text-xs text-blue-600 tabular-nums">
-        ⏸ paused
-      </span>
+      <LiveTimer startedAt={task.started_at} isActive={false} logs={logs} className="font-mono text-xs text-blue-600 tabular-nums" />
     );
   }
 
@@ -67,7 +43,7 @@ const STATION_BTN_COLORS = {
   portion: 'bg-green-500 hover:bg-green-600',
 };
 
-export default function KanbanColumn({ station, tasks, onStatusChange }) {
+export default function KanbanColumn({ station, tasks, onStatusChange, taskLogs = [] }) {
   const doneCount = tasks.filter(t => t.status === 'done').length;
   const activeCount = tasks.filter(t => t.status === 'in_progress').length;
 
@@ -112,7 +88,7 @@ export default function KanbanColumn({ station, tasks, onStatusChange }) {
                   {task.assigned_name && (
                     <Badge variant="outline" className="text-[10px]">{task.assigned_name}</Badge>
                   )}
-                  <div className="ml-auto"><TaskTimer task={task} /></div>
+                  <div className="ml-auto"><TaskTimer task={task} logs={taskLogs.filter(l => l.task_id === task.id)} /></div>
                 </div>
                 {task.notes && (
                   <p className="text-xs text-muted-foreground line-clamp-2">{task.notes}</p>

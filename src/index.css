@@ -86,3 +86,42 @@
     @apply bg-background text-foreground font-inter;
   }
 }
+
+/* ── Print styles ── */
+@media print {
+  /* Hide sidebar, navigation, and interactive controls */
+  nav,
+  [data-sidebar],
+  .print\\:hidden {
+    display: none !important;
+  }
+
+  /* Remove sidebar margin so content fills the page */
+  main {
+    margin-left: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Let the page content fill full width */
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11pt;
+  }
+
+  /* Show print-only elements */
+  .print\\:block {
+    display: block !important;
+  }
+
+  /* Remove shadows and borders for cleaner print */
+  .bg-card,
+  .border {
+    box-shadow: none !important;
+  }
+
+  /* Prevent page breaks inside categories/tables */
+  .break-inside-avoid {
+    break-inside: avoid;
+  }
+}
