@@ -4,10 +4,12 @@ import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { X, Package, Utensils, Wrench, Plus, Trash2, Save, Loader2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { X, Package, Utensils, Plus, Trash2, Save, Loader2, ArrowRightLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import AddComponentModal from '@/components/recipes/AddComponentModal';
+import OperationsEditor from '@/components/recipes/OperationsEditor';
 
 const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack' };
 const LAYER_COLORS = {
@@ -28,18 +30,13 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
   const [editedQtys, setEditedQtys] = useState({});
   const [yieldQty, setYieldQty] = useState(String(bom.yield_qty || 1));
   const [yieldUom, setYieldUom] = useState(bom.yield_uom || '');
+  const [bomType, setBomType] = useState(bom.bom_type);
 
   const { data: components = [], isLoading: loadingComps } = useQuery({
     queryKey: ['bom-components', bom.id],
     queryFn: () => base44.entities.BomComponent.filter({ bom_id: bom.id }),
   });
 
-  const { data: operations = [] } = useQuery({
-    queryKey: ['bom-operations', bom.id],
-    queryFn: () => base44.entities.BomOperation.filter({ bom_id: bom.id }),
-  });
-
-  const sortedOps = [...operations].sort((a, b) => (a.step_no || 0) - (b.step_no || 0));
   const ingredients = components.filter(c => !c.is_consumable);
   const consumables = components.filter(c => c.is_consumable);
 
@@ -50,19 +47,21 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
   const hasUnsavedChanges = () => {
     const qtyChanged = Object.keys(editedQtys).length > 0;
     const yieldChanged = String(bom.yield_qty || 1) !== yieldQty || (bom.yield_uom || '') !== yieldUom;
-    return qtyChanged || yieldChanged;
+    const typeChanged = bomType !== bom.bom_type;
+    return qtyChanged || yieldChanged || typeChanged;
   };
 
   const handleSave = async () => {
     setSaving(true);
 
-    // Save yield changes
+    // Save yield + type changes
     const newYield = Number(yieldQty);
-    if (newYield !== (bom.yield_qty || 1) || yieldUom !== (bom.yield_uom || '')) {
-      await base44.entities.Bom.update(bom.id, {
-        yield_qty: newYield || 1,
-        yield_uom: yieldUom,
-      });
+    const bomUpdate = {};
+    if (newYield !== (bom.yield_qty || 1)) bomUpdate.yield_qty = newYield || 1;
+    if (yieldUom !== (bom.yield_uom || '')) bomUpdate.yield_uom = yieldUom;
+    if (bomType !== bom.bom_type) bomUpdate.bom_type = bomType;
+    if (Object.keys(bomUpdate).length > 0) {
+      await base44.entities.Bom.update(bom.id, bomUpdate);
     }
 
     // Save component qty changes
@@ -187,6 +186,27 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+          {/* Layer type — editable */}
+          <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <ArrowRightLeft className="w-4 h-4 text-primary" />
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Layer</span>
+            </div>
+            <Select value={bomType} onValueChange={setBomType}>
+              <SelectTrigger className="h-8 text-sm w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cook">Cook</SelectItem>
+                <SelectItem value="portion">Portion</SelectItem>
+                <SelectItem value="pack">Pack</SelectItem>
+              </SelectContent>
+            </Select>
+            {bomType !== bom.bom_type && (
+              <p className="text-[10px] text-amber-600 font-medium">Layer changed from {LAYER_LABELS[bom.bom_type]} → {LAYER_LABELS[bomType]}. Save to apply.</p>
+            )}
+          </div>
+
           {/* Yield — editable */}
           <div className="bg-muted/50 rounded-lg p-4">
             <div className="flex items-center gap-3 mb-2">
@@ -218,28 +238,8 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
           {/* Consumables */}
           {consumables.length > 0 && renderComponentTable(consumables, 'Packaging / Consumables', <Package className="w-4 h-4 text-muted-foreground" />)}
 
-          {/* Operations */}
-          {sortedOps.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
-                <Wrench className="w-4 h-4 text-primary" />
-                Steps ({sortedOps.length})
-              </h3>
-              <div className="space-y-2">
-                {sortedOps.map((op, i) => (
-                  <div key={op.id} className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2.5">
-                    <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">
-                      {op.step_no || i + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{op.name}</p>
-                      <p className="text-xs text-muted-foreground capitalize">{op.station} station{op.cycle_time_min ? ` · ~${op.cycle_time_min} min` : ''}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Operations — full editor */}
+          <OperationsEditor bomId={bom.id} />
 
           {bom.notes && (
             <div>

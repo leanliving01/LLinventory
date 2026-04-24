@@ -291,11 +291,20 @@ Deno.serve(async (req) => {
         const name = (s.Name || s.Company || '').trim();
         if (!name) { warnings.push(`Supplier cin7_id=${cin7Id}: no name, skipped`); continue; }
 
+        // Cin7 API uses 'Contact' field for contact name, also try 'ContactName' for safety
+        // Try to get additional contacts from Contacts array if present
+        const primaryContact = s.Contact || s.ContactName || '';
+        const primaryPhone = s.Phone || '';
+        const primaryEmail = s.Email || '';
+        // Some Cin7 accounts have a Contacts array with multiple contacts
+        const contacts = Array.isArray(s.Contacts) ? s.Contacts : [];
+        const firstContact = contacts[0] || {};
+        
         const supplierData = {
           name,
-          contact_name: s.ContactName || '',
-          phone: s.Phone || '',
-          email: s.Email || '',
+          contact_name: primaryContact || firstContact.Name || '',
+          phone: primaryPhone || firstContact.Phone || '',
+          email: primaryEmail || firstContact.Email || '',
           payment_terms: s.PaymentTerm || '',
           billing_address: [s.Address1, s.Address2, s.City, s.State, s.Postcode, s.Country].filter(Boolean).join(', '),
           status: s.Status === 'Active' ? 'active' : 'inactive',

@@ -4,8 +4,9 @@ import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Search, X, ChevronRight } from 'lucide-react';
+import { Search, X, ChevronRight, Plus } from 'lucide-react';
 import RecipeDetailDrawer from '@/components/recipes/RecipeDetailDrawer';
+import CreateBomModal from '@/components/recipes/CreateBomModal';
 
 const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack' };
 const LAYER_COLORS = {
@@ -20,6 +21,7 @@ export default function Recipes() {
   const [layerFilter, setLayerFilter] = useState('all');
   const [selectedBom, setSelectedBom] = useState(null);
   const [page, setPage] = useState(0);
+  const [showCreate, setShowCreate] = useState(false);
   const PAGE_SIZE = 15;
 
   const { data: boms = [], isLoading } = useQuery({
@@ -50,11 +52,16 @@ export default function Recipes() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Bill of Materials</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          {filtered.length} of {boms.length} BOMs — 3-layer model: Cook → Portion → Pack
-        </p>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Bill of Materials</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {filtered.length} of {boms.length} BOMs — 3-layer model: Cook → Portion → Pack
+          </p>
+        </div>
+        <Button className="gap-2" onClick={() => setShowCreate(true)}>
+          <Plus className="w-4 h-4" /> Create Recipe
+        </Button>
       </div>
 
       {/* Layer chips */}
@@ -164,6 +171,16 @@ export default function Recipes() {
           bom={selectedBom}
           onClose={() => setSelectedBom(null)}
           onUpdated={() => queryClient.invalidateQueries({ queryKey: ['recipes-boms'] })}
+        />
+      )}
+
+      {showCreate && (
+        <CreateBomModal
+          onCreated={() => {
+            setShowCreate(false);
+            queryClient.invalidateQueries({ queryKey: ['recipes-boms'] });
+          }}
+          onCancel={() => setShowCreate(false)}
         />
       )}
     </div>

@@ -19,15 +19,15 @@ export default function AddComponentModal({ bomId, existingProductIds, onAdded, 
   });
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return [];
+    const available = products.filter(p => !existingProductIds.includes(p.id));
+    if (!search.trim()) return available.slice(0, 50);
     const q = search.toLowerCase();
-    return products
-      .filter(p => !existingProductIds.includes(p.id))
+    return available
       .filter(p =>
         (p.name || '').toLowerCase().includes(q) ||
         (p.sku || '').toLowerCase().includes(q)
       )
-      .slice(0, 15);
+      .slice(0, 50);
   }, [products, search, existingProductIds]);
 
   const handleAdd = async () => {
@@ -72,33 +72,31 @@ export default function AddComponentModal({ bomId, existingProductIds, onAdded, 
                 />
               </div>
 
-              {search.trim() && (
-                <div className="space-y-1 max-h-[40vh] overflow-y-auto">
-                  {filtered.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">No products found</p>
-                  ) : (
-                    filtered.map(p => (
-                      <button
-                        key={p.id}
-                        onClick={() => {
-                          setSelectedProduct(p);
-                          setUom(p.stock_uom || '');
-                        }}
-                        className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors flex items-center justify-between"
-                      >
-                        <div>
-                          <p className="text-sm font-medium">{p.name}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{p.sku}</p>
-                        </div>
-                        <Badge variant="outline" className="text-[10px]">{p.type}</Badge>
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-              {!search.trim() && (
-                <p className="text-sm text-muted-foreground text-center py-4">Type to search for a product to add</p>
-              )}
+              <div className="space-y-1 max-h-[40vh] overflow-y-auto">
+                {filtered.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No products found</p>
+                ) : (
+                  filtered.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        setSelectedProduct(p);
+                        setUom(p.stock_uom || '');
+                      }}
+                      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors flex items-center justify-between"
+                    >
+                      <div>
+                        <p className="text-sm font-medium">{p.name}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{p.sku}</p>
+                      </div>
+                      <Badge variant="outline" className="text-[10px]">{p.type}</Badge>
+                    </button>
+                  ))
+                )}
+                {!search.trim() && filtered.length > 0 && (
+                  <p className="text-[10px] text-muted-foreground text-center py-1">Showing first 50 — search to narrow down</p>
+                )}
+              </div>
             </>
           ) : (
             <>
