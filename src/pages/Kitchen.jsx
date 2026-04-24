@@ -113,15 +113,33 @@ export default function Kitchen() {
 
   const handleTaskCompleted = async (taskId, consumption) => {
     const consumptionSummary = consumption
-      .filter(c => c.actual !== c.required)
-      .map(c => `${c.name}: required ${c.required}, actual ${c.actual} ${c.uom}`)
+      .filter(c => c.actual !== c.picked)
+      .map(c => `${c.name}: picked ${c.picked}, used ${c.actual} ${c.uom}`)
       .join('; ');
 
     setUpdating(true);
+
+    // Return unconsumed quantities to stock
+    const returns = consumption.filter(c => c.actual < c.picked);
+    for (const r of returns) {
+      const returnQty = Math.round((r.picked - r.actual) * 100) / 100;
+      await base44.entities.StockMovement.create({
+        product_id: r.input_product_id,
+        product_sku: r.sku,
+        product_name: r.name,
+        qty: returnQty,
+        uom: r.uom,
+        reason: 'return',
+        ref_type: 'production_run',
+        ref_id: activeRun?.id,
+        notes: `Returned from task: picked ${r.picked}, consumed ${r.actual} ${r.uom}`,
+      });
+    }
+
     await base44.entities.ProductionTask.update(taskId, {
       status: 'done',
       finished_at: new Date().toISOString(),
-      notes: consumptionSummary ? `Consumption: ${consumptionSummary}` : undefined,
+      notes: consumptionSummary || undefined,
     });
     setPendingDone(null);
     queryClient.invalidateQueries({ queryKey: ['kitchen-tasks', activeRun?.id, station] });

@@ -43,19 +43,20 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
       const totalRequired = Math.round(requiredPerUnit * (task.qty || 1) * 100) / 100;
       return {
         id: c.id,
+        input_product_id: c.input_product_id,
         name: c.input_product_name || c.input_product_sku || 'Unknown',
         sku: c.input_product_sku || '',
         uom: c.uom || '',
-        required: totalRequired,
+        picked: totalRequired,
       };
     });
   }, [components, task.qty, relevantBom]);
 
-  // Pre-fill actuals with required values on first load
+  // Pre-fill actuals with picked values on first load
   useMemo(() => {
     if (componentRows.length > 0 && Object.keys(actuals).length === 0) {
       const prefilled = {};
-      componentRows.forEach(r => { prefilled[r.id] = r.required; });
+      componentRows.forEach(r => { prefilled[r.id] = r.picked; });
       setActuals(prefilled);
     }
   }, [componentRows]);
@@ -69,10 +70,11 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
     // Build consumption data
     const consumption = componentRows.map(r => ({
       component_id: r.id,
+      input_product_id: r.input_product_id,
       name: r.name,
       sku: r.sku,
       uom: r.uom,
-      required: r.required,
+      picked: r.picked,
       actual: Number(actuals[r.id]) || 0,
     }));
     await onConfirm(task.id, consumption);
@@ -105,14 +107,14 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
-                Confirm actual quantities consumed for <strong>{task.meal_name || task.name}</strong> (Qty: {task.qty || 1}).
+                Confirm actual quantities consumed for <strong>{task.meal_name || task.name}</strong> (Qty: {task.qty || 1}). Anything not consumed will be returned to stock.
               </p>
 
               {/* Ingredient rows */}
               <div className="space-y-3">
                 {componentRows.map(row => {
-                  const actual = actuals[row.id] ?? row.required;
-                  const diff = Number(actual) - row.required;
+                  const actual = actuals[row.id] ?? row.picked;
+                  const diff = Number(actual) - row.picked;
                   return (
                     <div key={row.id} className="bg-muted/50 rounded-xl p-4 space-y-2">
                       <div className="flex items-center justify-between">
@@ -124,8 +126,8 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Required</label>
-                          <p className="text-sm font-bold">{row.required}</p>
+                          <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Picked Amount</label>
+                          <p className="text-sm font-bold">{row.picked}</p>
                         </div>
                         <div>
                           <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Actual Consumed</label>
@@ -139,8 +141,8 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                         </div>
                       </div>
                       {diff !== 0 && (
-                        <p className={`text-[11px] font-medium ${diff > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                          {diff > 0 ? `+${diff.toFixed(2)} over` : `${Math.abs(diff).toFixed(2)} under`} required
+                        <p className={`text-[11px] font-medium ${diff > 0 ? 'text-amber-600' : 'text-blue-600'}`}>
+                          {diff > 0 ? `+${diff.toFixed(2)} over picked` : `${Math.abs(diff).toFixed(2)} ${row.uom} returning to stock`}
                         </p>
                       )}
                     </div>
