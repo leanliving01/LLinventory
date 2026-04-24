@@ -60,7 +60,7 @@ export default function Recipes() {
           </p>
         </div>
         <Button className="gap-2" onClick={() => setShowCreate(true)}>
-          <Plus className="w-4 h-4" /> Create Recipe
+          <Plus className="w-4 h-4" /> Create BOM
         </Button>
       </div>
 

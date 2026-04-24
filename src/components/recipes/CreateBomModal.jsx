@@ -59,7 +59,7 @@ export default function CreateBomModal({ onCreated, onCancel }) {
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
       <div className="bg-card rounded-2xl border border-border w-full max-w-md shadow-xl flex flex-col max-h-[85vh]">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-          <h3 className="text-lg font-bold">Create New Recipe</h3>
+          <h3 className="text-lg font-bold">Create New BOM</h3>
           <Button variant="ghost" size="icon" onClick={onCancel}>
             <X className="w-5 h-5" />
           </Button>
@@ -170,7 +170,7 @@ export default function CreateBomModal({ onCreated, onCancel }) {
             disabled={creating || !selectedProduct}
           >
             {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            Create Recipe
+            Create BOM
           </Button>
         </div>
       </div>
