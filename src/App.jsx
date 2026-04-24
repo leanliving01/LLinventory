@@ -36,6 +36,7 @@ import KitchenSettings from '@/pages/KitchenSettings';
 import TeamPerformance from '@/pages/TeamPerformance';
 import PurchaseOrders from '@/pages/PurchaseOrders';
 import ReorderReport from '@/pages/ReorderReport';
+import XeroCallback from '@/pages/XeroCallback';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -62,6 +63,9 @@ const AuthenticatedApp = () => {
 
   return (
     <Routes>
+      {/* Xero OAuth callback — no sidebar */}
+      <Route path="/XeroCallback" element={<XeroCallback />} />
+
       {/* Kitchen tablet routes — no sidebar */}
       <Route path="/kitchen" element={<Kitchen />} />
       <Route path="/kitchen/settings" element={<KitchenSettings />} />
