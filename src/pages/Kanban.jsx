@@ -35,7 +35,7 @@ export default function Kanban() {
 
   const columns = useMemo(() => {
     const cols = { prep: [], cook: [], portion: [] };
-    tasks.forEach(t => {
+    tasks.filter(t => !t.archived).forEach(t => {
       const station = t.station || 'prep';
       if (cols[station]) cols[station].push(t);
     });

@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -355,7 +355,13 @@ export default function ProductionRunDetail() {
       }
     }
 
-    // 4. Mark run as completed
+    // 4. Archive all production tasks for this run
+    const runTasks = await base44.entities.ProductionTask.filter({ run_id: runId }, 'step_no', 500);
+    for (let i = 0; i < runTasks.length; i++) {
+      await base44.entities.ProductionTask.update(runTasks[i].id, { archived: true });
+    }
+
+    // 5. Mark run as completed
     const totalActual = lines.reduce((s, l) => s + (Number(actuals[l.id]) || 0), 0);
     await base44.entities.ProductionRun.update(runId, {
       status: 'completed',
@@ -366,6 +372,7 @@ export default function ProductionRunDetail() {
     queryClient.invalidateQueries({ queryKey: ['production-run-lines', runId] });
     queryClient.invalidateQueries({ queryKey: ['production-runs'] });
     queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+    queryClient.invalidateQueries({ queryKey: ['production-tasks', runId] });
     writeAuditLog({
       action: 'finalize',
       entity_type: 'ProductionRun',
@@ -492,8 +499,27 @@ export default function ProductionRunDetail() {
       </div>
 
       {run.status === 'completed' && (
-        <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700">
-          ✓ This run is completed. Stock movements have been recorded.
+        <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700 flex items-center justify-between">
+          <span>✓ This run is completed. Stock movements have been recorded.</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 border-green-300 text-green-700 hover:bg-green-100"
+            onClick={() => {
+              const surplus = lines.filter(l => (l.actual_qty || 0) > l.planned_qty).map(l => ({
+                ...l,
+                surplus: (l.actual_qty || 0) - l.planned_qty,
+              }));
+              if (surplus.length === 0) {
+                toast.info('No surplus lines on this run — all actuals matched or were below planned.');
+                return;
+              }
+              setSurplusLines(surplus);
+              setShowSurplus(true);
+            }}
+          >
+            <Package className="w-4 h-4" /> Review Leftover Stock
+          </Button>
         </div>
       )}
 

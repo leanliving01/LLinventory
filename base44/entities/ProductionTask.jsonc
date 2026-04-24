@@ -68,6 +68,11 @@
       "type": "string",
       "format": "date-time",
       "description": "When task was finished"
+    },
+    "archived": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when the parent production run is completed \u2014 keeps task list clean"
     }
   },
   "required": [
