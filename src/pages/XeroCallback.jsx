@@ -27,14 +27,22 @@ export default function XeroCallback() {
     }
 
     const exchangeCode = async () => {
-      const res = await base44.functions.invoke('xeroAuth', { action: 'exchangeCode', code });
-      if (res.data.success) {
-        setStatus('success');
-        setMessage('Xero connected successfully!');
-        setTenant(res.data.tenant || '');
-      } else {
+      try {
+        const res = await base44.functions.invoke('xeroAuth', { action: 'exchangeCode', code });
+        if (res.data.success) {
+          setStatus('success');
+          setMessage('Xero connected successfully!');
+          setTenant(res.data.tenant || '');
+        } else {
+          setStatus('error');
+          setMessage(res.data.error || 'Token exchange failed');
+          if (res.data.details) {
+            console.error('Xero error details:', res.data.details);
+          }
+        }
+      } catch (err) {
         setStatus('error');
-        setMessage(res.data.error || 'Token exchange failed');
+        setMessage(err?.response?.data?.error || err.message || 'Unexpected error during token exchange');
       }
     };
 
