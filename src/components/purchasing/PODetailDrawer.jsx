@@ -4,7 +4,8 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { X, Receipt, Truck, MapPin, Calendar, FileText, CheckCircle2, Loader2, Ban, Package } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { X, Receipt, Truck, MapPin, Calendar, FileText, CheckCircle2, Loader2, Ban, Package, Pencil, Save, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
 
@@ -23,6 +24,12 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
   const [updating, setUpdating] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState(po.supplier_invoice_number || '');
+  const [editing, setEditing] = useState(false);
+  const [editExpectedDate, setEditExpectedDate] = useState(po.expected_date || '');
+  const [editNotes, setEditNotes] = useState(po.notes || '');
+  const [editLocationId, setEditLocationId] = useState(po.location_id || '');
+  const [editLines, setEditLines] = useState([]);
+  const [search, setSearch] = useState('');
 
   const { data: lines = [] } = useQuery({
     queryKey: ['po-lines', po.id],
@@ -34,9 +41,108 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
     queryFn: () => base44.entities.Location.filter({ is_stock_bearing: true }, 'name', 50),
   });
 
+  const { data: products = [] } = useQuery({
+    queryKey: ['active-products'],
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
+    enabled: editing,
+  });
+
+  const filteredProducts = useMemo(() => {
+    if (!search) return products.slice(0, 15);
+    const q = search.toLowerCase();
+    return products.filter(p => p.name.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)).slice(0, 15);
+  }, [products, search]);
+
   const location = useMemo(() => locations.find(l => l.id === po.location_id), [locations, po.location_id]);
 
   const allReceived = lines.length > 0 && lines.every(l => (l.received_qty || 0) >= l.ordered_qty);
+  const canEdit = ['draft', 'confirmed'].includes(po.status);
+
+  const startEditing = () => {
+    setEditLines(lines.map(l => ({
+      id: l.id,
+      product_id: l.product_id,
+      product_name: l.product_name,
+      product_sku: l.product_sku,
+      ordered_qty: String(l.ordered_qty),
+      unit_cost: String(l.unit_cost),
+      uom: l.uom,
+      _isNew: false,
+    })));
+    setEditExpectedDate(po.expected_date || '');
+    setEditNotes(po.notes || '');
+    setEditLocationId(po.location_id || '');
+    setEditing(true);
+  };
+
+  const addEditLine = () => setEditLines(prev => [...prev, { id: null, product_id: '', product_name: '', product_sku: '', ordered_qty: '', unit_cost: '', uom: '', _isNew: true }]);
+  const removeEditLine = (idx) => setEditLines(prev => prev.filter((_, i) => i !== idx));
+  const updateEditLine = (idx, field, value) => setEditLines(prev => prev.map((l, i) => i === idx ? { ...l, [field]: value } : l));
+
+  const handleSaveEdit = async () => {
+    setUpdating(true);
+
+    const validEditLines = editLines.filter(l => l.product_id && Number(l.ordered_qty) > 0);
+    const subtotal = validEditLines.reduce((s, l) => s + (Number(l.ordered_qty) * Number(l.unit_cost)), 0);
+    const tax = Math.round(subtotal * 0.15 * 100) / 100;
+    const total = Math.round((subtotal + tax) * 100) / 100;
+
+    // Update PO header
+    await base44.entities.PurchaseOrder.update(po.id, {
+      expected_date: editExpectedDate || null,
+      notes: editNotes || null,
+      location_id: editLocationId || null,
+      subtotal: Math.round(subtotal * 100) / 100,
+      tax,
+      total,
+    });
+
+    // Delete removed lines
+    const editLineIds = editLines.filter(l => l.id).map(l => l.id);
+    for (const existingLine of lines) {
+      if (!editLineIds.includes(existingLine.id)) {
+        await base44.entities.PurchaseOrderLine.delete(existingLine.id);
+      }
+    }
+
+    // Update existing and create new lines
+    for (const el of validEditLines) {
+      const qty = Number(el.ordered_qty);
+      const unitCost = Number(el.unit_cost);
+      const lineTotal = Math.round(qty * unitCost * 100) / 100;
+      const product = products.find(p => p.id === el.product_id);
+
+      if (el.id && !el._isNew) {
+        await base44.entities.PurchaseOrderLine.update(el.id, {
+          product_id: el.product_id,
+          product_name: product?.name || el.product_name,
+          product_sku: product?.sku || el.product_sku,
+          ordered_qty: qty,
+          unit_cost: unitCost,
+          uom: product?.purchase_uom || product?.stock_uom || el.uom || 'pcs',
+          line_total: lineTotal,
+        });
+      } else {
+        await base44.entities.PurchaseOrderLine.create({
+          purchase_order_id: po.id,
+          product_id: el.product_id,
+          product_name: product?.name || '',
+          product_sku: product?.sku || '',
+          ordered_qty: qty,
+          received_qty: 0,
+          unit_cost: unitCost,
+          uom: product?.purchase_uom || product?.stock_uom || 'pcs',
+          line_total: lineTotal,
+        });
+      }
+    }
+
+    toast.success('Purchase order updated');
+    setEditing(false);
+    setUpdating(false);
+    queryClient.invalidateQueries({ queryKey: ['po-lines', po.id] });
+    onUpdated();
+  };
 
   const handleConfirm = async () => {
     setUpdating(true);
@@ -100,87 +206,193 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
             </h2>
             <p className="text-sm text-muted-foreground">{po.supplier_name}</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="w-5 h-5" /></Button>
+          <div className="flex items-center gap-1">
+            {canEdit && !editing && (
+              <Button variant="ghost" size="icon" onClick={startEditing} title="Edit PO">
+                <Pencil className="w-4 h-4" />
+              </Button>
+            )}
+            <Button variant="ghost" size="icon" onClick={onClose}><X className="w-5 h-5" /></Button>
+          </div>
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
           {/* Info row */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex items-start gap-2">
-              <Calendar className="w-4 h-4 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-[10px] text-muted-foreground uppercase font-semibold">Order Date</p>
-                <p className="text-sm">{po.order_date || '—'}</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2">
-              <Calendar className="w-4 h-4 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-[10px] text-muted-foreground uppercase font-semibold">Expected</p>
-                <p className="text-sm">{po.expected_date || '—'}</p>
-              </div>
-            </div>
-            {location && (
-              <div className="flex items-start gap-2">
-                <MapPin className="w-4 h-4 text-muted-foreground mt-0.5" />
+          {editing ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-semibold">Deliver To</p>
-                  <p className="text-sm">{location.name}</p>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase">Expected Delivery</label>
+                  <Input type="date" value={editExpectedDate} onChange={e => setEditExpectedDate(e.target.value)} className="mt-1" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase">Deliver To</label>
+                  <Select value={editLocationId} onValueChange={setEditLocationId}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select location..." /></SelectTrigger>
+                    <SelectContent>
+                      {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name} ({l.code})</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-            )}
-            {po.notes && (
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase">Notes</label>
+                <Input value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Internal notes..." className="mt-1" />
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
               <div className="flex items-start gap-2">
-                <FileText className="w-4 h-4 text-muted-foreground mt-0.5" />
+                <Calendar className="w-4 h-4 text-muted-foreground mt-0.5" />
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-semibold">Notes</p>
-                  <p className="text-sm">{po.notes}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase font-semibold">Order Date</p>
+                  <p className="text-sm">{po.order_date || '—'}</p>
                 </div>
               </div>
-            )}
-          </div>
+              <div className="flex items-start gap-2">
+                <Calendar className="w-4 h-4 text-muted-foreground mt-0.5" />
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase font-semibold">Expected</p>
+                  <p className="text-sm">{po.expected_date || '—'}</p>
+                </div>
+              </div>
+              {location && (
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-4 h-4 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase font-semibold">Deliver To</p>
+                    <p className="text-sm">{location.name}</p>
+                  </div>
+                </div>
+              )}
+              {po.notes && (
+                <div className="flex items-start gap-2">
+                  <FileText className="w-4 h-4 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase font-semibold">Notes</p>
+                    <p className="text-sm">{po.notes}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Line items */}
           <div>
             <h3 className="text-sm font-semibold flex items-center gap-2 mb-2">
               <Package className="w-4 h-4 text-primary" />
-              Line Items ({lines.length})
+              Line Items ({editing ? editLines.length : lines.length})
+              {editing && (
+                <Button variant="outline" size="sm" onClick={addEditLine} className="gap-1 ml-auto"><Plus className="w-3.5 h-3.5" /> Add</Button>
+              )}
             </h3>
-            <div className="border border-border rounded-lg overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-muted/50 border-b border-border">
-                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
-                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Ordered</th>
-                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Received</th>
-                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Cost</th>
-                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {lines.map(l => {
-                    const pct = l.ordered_qty > 0 ? Math.round((l.received_qty || 0) / l.ordered_qty * 100) : 0;
-                    return (
-                      <tr key={l.id}>
-                        <td className="px-3 py-2">
-                          <p className="text-xs font-medium">{l.product_name}</p>
-                          <p className="text-[10px] font-mono text-muted-foreground">{l.product_sku} · {l.uom}</p>
-                        </td>
-                        <td className="px-3 py-2 text-right text-xs">{l.ordered_qty}</td>
-                        <td className="px-3 py-2 text-right">
-                          <span className={`text-xs font-medium ${pct >= 100 ? 'text-green-600' : pct > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
-                            {l.received_qty || 0}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-right text-xs text-muted-foreground">R {(l.unit_cost || 0).toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right text-xs font-medium">R {(l.line_total || 0).toFixed(2)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+
+            {editing ? (
+              /* ===== EDIT MODE ===== */
+              <div className="border border-border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/50 border-b border-border">
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Qty</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-32">Unit Cost</th>
+                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Total</th>
+                      <th className="w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {editLines.map((el, idx) => {
+                      const lt = (Number(el.ordered_qty) || 0) * (Number(el.unit_cost) || 0);
+                      return (
+                        <tr key={el.id || `new-${idx}`}>
+                          <td className="px-3 py-2">
+                            {el._isNew ? (
+                              <Select value={el.product_id} onValueChange={v => {
+                                const p = products.find(pr => pr.id === v);
+                                updateEditLine(idx, 'product_id', v);
+                                if (p) {
+                                  updateEditLine(idx, 'product_name', p.name);
+                                  updateEditLine(idx, 'product_sku', p.sku);
+                                  if (!el.unit_cost) updateEditLine(idx, 'unit_cost', String(p.cost_avg || 0));
+                                }
+                              }}>
+                                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
+                                <SelectContent>
+                                  <div className="px-2 pb-2">
+                                    <Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="h-7 text-xs" />
+                                  </div>
+                                  {filteredProducts.map(p => (
+                                    <SelectItem key={p.id} value={p.id}>{p.sku} — {p.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <div>
+                                <p className="text-xs font-medium">{el.product_name}</p>
+                                <p className="text-[10px] font-mono text-muted-foreground">{el.product_sku}</p>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <Input type="number" value={el.ordered_qty} onChange={e => updateEditLine(idx, 'ordered_qty', e.target.value)} className="h-9 text-sm bg-background" min="0" />
+                          </td>
+                          <td className="px-3 py-2">
+                            <Input type="number" value={el.unit_cost} onChange={e => updateEditLine(idx, 'unit_cost', e.target.value)} className="h-9 text-sm bg-background" min="0" step="0.01" />
+                          </td>
+                          <td className="px-3 py-2 text-right text-sm font-medium whitespace-nowrap">
+                            {lt > 0 ? `R ${lt.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : '—'}
+                          </td>
+                          <td className="px-3 py-2">
+                            {editLines.length > 1 && (
+                              <Button variant="ghost" size="icon" onClick={() => removeEditLine(idx)} className="h-7 w-7 text-muted-foreground hover:text-destructive">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              /* ===== READ MODE ===== */
+              <div className="border border-border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/50 border-b border-border">
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
+                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Ordered</th>
+                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Received</th>
+                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Cost</th>
+                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {lines.map(l => {
+                      const pct = l.ordered_qty > 0 ? Math.round((l.received_qty || 0) / l.ordered_qty * 100) : 0;
+                      return (
+                        <tr key={l.id}>
+                          <td className="px-3 py-2">
+                            <p className="text-xs font-medium">{l.product_name}</p>
+                            <p className="text-[10px] font-mono text-muted-foreground">{l.product_sku} · {l.uom}</p>
+                          </td>
+                          <td className="px-3 py-2 text-right text-xs">{l.ordered_qty}</td>
+                          <td className="px-3 py-2 text-right">
+                            <span className={`text-xs font-medium ${pct >= 100 ? 'text-green-600' : pct > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                              {l.received_qty || 0}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right text-xs text-muted-foreground whitespace-nowrap">R {(l.unit_cost || 0).toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right text-xs font-medium whitespace-nowrap">R {(l.line_total || 0).toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Totals */}
@@ -207,32 +419,45 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
 
         {/* Action footer */}
         <div className="sticky bottom-0 bg-card border-t border-border px-6 py-3 shrink-0 flex gap-2 flex-wrap">
-          {canCancel && (
-            <Button variant="outline" size="sm" onClick={handleCancel} disabled={updating} className="gap-1 text-destructive hover:text-destructive">
-              <Ban className="w-3.5 h-3.5" /> Cancel PO
-            </Button>
-          )}
-          <div className="flex-1" />
-          {canConfirm && (
-            <Button size="sm" onClick={handleConfirm} disabled={updating} className="gap-1">
-              {updating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-              Confirm
-            </Button>
-          )}
-          {canReceive && (
-            <Button size="sm" onClick={() => setShowReceive(true)} className="gap-1 bg-green-600 hover:bg-green-700">
-              <Truck className="w-3.5 h-3.5" /> Receive Stock
-            </Button>
-          )}
-          {canInvoice && (
-            <Button size="sm" onClick={handleMarkInvoiced} disabled={updating} className="gap-1 bg-purple-600 hover:bg-purple-700">
-              <FileText className="w-3.5 h-3.5" /> Mark Invoiced
-            </Button>
-          )}
-          {canPay && (
-            <Button size="sm" onClick={handleMarkPaid} disabled={updating} className="gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Mark Paid
-            </Button>
+          {editing ? (
+            <>
+              <Button variant="outline" size="sm" onClick={() => setEditing(false)}>Cancel Edit</Button>
+              <div className="flex-1" />
+              <Button size="sm" onClick={handleSaveEdit} disabled={updating} className="gap-1">
+                {updating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Save Changes
+              </Button>
+            </>
+          ) : (
+            <>
+              {canCancel && (
+                <Button variant="outline" size="sm" onClick={handleCancel} disabled={updating} className="gap-1 text-destructive hover:text-destructive">
+                  <Ban className="w-3.5 h-3.5" /> Cancel PO
+                </Button>
+              )}
+              <div className="flex-1" />
+              {canConfirm && (
+                <Button size="sm" onClick={handleConfirm} disabled={updating} className="gap-1">
+                  {updating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  Confirm
+                </Button>
+              )}
+              {canReceive && (
+                <Button size="sm" onClick={() => setShowReceive(true)} className="gap-1 bg-green-600 hover:bg-green-700">
+                  <Truck className="w-3.5 h-3.5" /> Receive Stock
+                </Button>
+              )}
+              {canInvoice && (
+                <Button size="sm" onClick={handleMarkInvoiced} disabled={updating} className="gap-1 bg-purple-600 hover:bg-purple-700">
+                  <FileText className="w-3.5 h-3.5" /> Mark Invoiced
+                </Button>
+              )}
+              {canPay && (
+                <Button size="sm" onClick={handleMarkPaid} disabled={updating} className="gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Mark Paid
+                </Button>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -12,7 +12,7 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
   const [saving, setSaving] = useState(false);
   const [supplierId, setSupplierId] = useState('');
   const [locationId, setLocationId] = useState('');
-  const [expectedDate, setExpectedDate] = useState('');
+  const [expectedDate, setExpectedDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState(prefillLines || [{ product_id: '', qty: '', unit_cost: '' }]);
   const [search, setSearch] = useState('');
@@ -164,9 +164,9 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
                     <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Qty</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Unit Cost</th>
-                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Total</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Qty</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-32">Unit Cost</th>
+                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Total</th>
                     <th className="w-10"></th>
                   </tr>
                 </thead>
@@ -195,13 +195,13 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
                           {product && <p className="text-[10px] text-muted-foreground mt-0.5">{product.purchase_uom || product.stock_uom || ''}</p>}
                         </td>
                         <td className="px-3 py-2">
-                          <Input type="number" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} placeholder="0" className="h-8 text-xs" min="0" />
+                          <Input type="number" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} placeholder="0" className="h-9 text-sm bg-background" min="0" />
                         </td>
                         <td className="px-3 py-2">
-                          <Input type="number" value={line.unit_cost} onChange={e => updateLine(idx, 'unit_cost', e.target.value)} placeholder="0.00" className="h-8 text-xs" min="0" step="0.01" />
+                          <Input type="number" value={line.unit_cost} onChange={e => updateLine(idx, 'unit_cost', e.target.value)} placeholder="0.00" className="h-9 text-sm bg-background" min="0" step="0.01" />
                         </td>
-                        <td className="px-3 py-2 text-right text-xs font-medium">
-                          {lt > 0 ? `R ${lt.toFixed(2)}` : '—'}
+                        <td className="px-3 py-2 text-right text-sm font-medium whitespace-nowrap">
+                          {lt > 0 ? `R ${lt.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : '—'}
                         </td>
                         <td className="px-3 py-2">
                           {lines.length > 1 && (
