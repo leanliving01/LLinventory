@@ -86,6 +86,8 @@ export default function PurchaseOrders() {
           { key: 'draft', label: `Draft (${statusCounts.draft || 0})` },
           { key: 'confirmed', label: `Confirmed (${statusCounts.confirmed || 0})` },
           { key: 'partially_received', label: `Partial (${statusCounts.partially_received || 0})` },
+          { key: 'received', label: `Received (${statusCounts.received || 0})` },
+          { key: 'invoiced', label: `Invoiced (${statusCounts.invoiced || 0})` },
           { key: 'all', label: 'All' },
         ].map(chip => (
           <button
