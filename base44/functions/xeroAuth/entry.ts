@@ -2,7 +2,7 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 const XERO_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
-const REDIRECT_URI = 'https://preview-sandbox--69a7fb1d041b776feb98c895.base44.app/XeroCallback';
+const REDIRECT_URI = 'https://preview-sandbox--69e3a2c87f6ad3cb731372b6.base44.app/XeroCallback';
 const SCOPES = 'openid profile email accounting.invoices.read accounting.contacts.read offline_access';
 
 Deno.serve(async (req) => {

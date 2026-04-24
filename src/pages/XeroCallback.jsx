@@ -1,13 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Link } from 'react-router-dom';
 
 export default function XeroCallback() {
   const [status, setStatus] = useState('processing');
-  const [message, setMessage] = useState('Exchanging authorization code with Xero...');
-  const [tenant, setTenant] = useState('');
+  const [message, setMessage] = useState('Completing Xero authorisation...');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -26,31 +22,17 @@ export default function XeroCallback() {
       return;
     }
 
-    const exchangeCode = async () => {
-      try {
-        const res = await base44.functions.invoke('xeroAuth', { action: 'exchangeCode', code });
-        if (res.data.success) {
-          setStatus('success');
-          setTenant(res.data.tenant || '');
-          setMessage(`Connected to ${res.data.tenant || 'Xero'}! You can close this page.`);
-          // If opened as popup, close after brief delay
-          if (window.opener) {
-            setTimeout(() => window.close(), 3000);
-          }
-        } else {
-          setStatus('error');
-          setMessage(res.data.error || 'Token exchange failed');
-          if (res.data.details) {
-            console.error('Xero error details:', res.data.details);
-          }
-        }
-      } catch (err) {
-        setStatus('error');
-        setMessage(err?.response?.data?.error || err.message || 'Unexpected error during token exchange');
-      }
-    };
-
-    exchangeCode();
+    // Pass the code back to the opener (Settings page) which is authenticated
+    if (window.opener) {
+      window.opener.postMessage({ type: 'XERO_AUTH_CODE', code }, '*');
+      setStatus('success');
+      setMessage('Authorisation received! This window will close...');
+      setTimeout(() => window.close(), 2000);
+    } else {
+      // Opened directly (not as popup) — show the code for manual use
+      setStatus('error');
+      setMessage('Please use the "Connect to Xero" button on the Settings page. This page should open as a popup.');
+    }
   }, []);
 
   return (
@@ -66,22 +48,15 @@ export default function XeroCallback() {
         {status === 'success' && (
           <>
             <CheckCircle className="w-12 h-12 text-green-500 mx-auto" />
-            <h2 className="text-lg font-semibold text-green-700">Connected!</h2>
+            <h2 className="text-lg font-semibold text-green-700">Done!</h2>
             <p className="text-sm text-muted-foreground">{message}</p>
-            {tenant && <p className="text-sm font-medium">Organisation: {tenant}</p>}
-            <Link to="/settings">
-              <Button className="mt-4">Go to Settings</Button>
-            </Link>
           </>
         )}
         {status === 'error' && (
           <>
             <XCircle className="w-12 h-12 text-red-500 mx-auto" />
-            <h2 className="text-lg font-semibold text-red-700">Connection Failed</h2>
+            <h2 className="text-lg font-semibold text-red-700">Error</h2>
             <p className="text-sm text-muted-foreground">{message}</p>
-            <Link to="/settings">
-              <Button variant="outline" className="mt-4">Back to Settings</Button>
-            </Link>
           </>
         )}
       </div>
