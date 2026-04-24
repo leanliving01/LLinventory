@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 
-export default function PickListCategory({ category, items, pickedState, onTogglePicked, onQtyChange }) {
+export default function PickListCategory({ category, items, pickedState, onTogglePicked, onQtyChange, disabled = false }) {
   const allPicked = items.every(i => {
     const s = pickedState[i.product.id];
     return s?.picked && s?.qty && Number(s.qty) > 0;
@@ -58,6 +58,7 @@ export default function PickListCategory({ category, items, pickedState, onToggl
                     <Checkbox
                       checked={state.picked}
                       onCheckedChange={() => onTogglePicked(pid)}
+                      disabled={disabled}
                       className="w-6 h-6 print:hidden"
                     />
                     <div className="hidden print:block w-5 h-5 border-2 border-black rounded" />
@@ -68,7 +69,7 @@ export default function PickListCategory({ category, items, pickedState, onToggl
                   </td>
                   <td className="px-4 py-2 text-right font-bold tabular-nums">{item.totalQty.toLocaleString()}</td>
                   <td className="px-4 py-2 text-center print:hidden">
-                    {state.picked ? (
+                    {state.picked && !disabled ? (
                       <Input
                         type="number"
                         min="0"

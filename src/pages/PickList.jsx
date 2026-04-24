@@ -293,36 +293,34 @@ export default function PickList() {
             </span>
           )}
         </div>
+      ) : !run.picking_started_at ? (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg px-5 py-4 text-sm text-blue-800 print:hidden flex items-center justify-between gap-4">
+          <div>
+            <p className="font-semibold">Ready to pick?</p>
+            <p className="text-xs text-blue-600 mt-0.5">Items are locked until you start. Timer begins when you press the button.</p>
+          </div>
+          <Button
+            onClick={handleStartPicking}
+            disabled={pickItems.length === 0}
+            size="lg"
+            className="shrink-0 gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8"
+          >
+            Start Picking
+          </Button>
+        </div>
       ) : (
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm text-amber-800 print:hidden flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            {!run.picking_started_at ? (
-              <>
-                <span>Start picking to begin the timer, then confirm when done.</span>
-                <Button
-                  onClick={handleStartPicking}
-                  disabled={pickItems.length === 0}
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 gap-1.5 border-amber-400 text-amber-800 hover:bg-amber-100"
-                >
-                  Start Picking
-                </Button>
-              </>
-            ) : (
-              <>
-                <span>Picking in progress</span>
-                <LiveTimer
-                  startedAt={run.picking_started_at}
-                  isActive={true}
-                  className="font-mono text-sm font-bold text-amber-700"
-                />
-              </>
-            )}
+            <span>Picking in progress</span>
+            <LiveTimer
+              startedAt={run.picking_started_at}
+              isActive={true}
+              className="font-mono text-sm font-bold text-amber-700"
+            />
           </div>
           <Button
             onClick={handleConfirmPickList}
-            disabled={confirmingPick || pickedCount < pickItems.length || !run.picking_started_at}
+            disabled={confirmingPick || pickedCount < pickItems.length}
             className="shrink-0 bg-green-600 hover:bg-green-700 text-white gap-1.5"
             size="sm"
           >
@@ -356,6 +354,7 @@ export default function PickList() {
           pickedState={pickedState}
           onTogglePicked={handleTogglePicked}
           onQtyChange={handleQtyChange}
+          disabled={!run.picking_started_at || run.pick_list_confirmed}
         />
       ))}
 

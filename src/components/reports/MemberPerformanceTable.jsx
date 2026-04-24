@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { getTaskActiveDuration, formatDurationShort } from '@/lib/taskDuration';
 
 const STATION_COLORS = {
   prep: 'bg-blue-100 text-blue-700',
@@ -8,51 +9,35 @@ const STATION_COLORS = {
   portion: 'bg-green-100 text-green-700',
 };
 
-function formatDuration(ms) {
-  if (!ms || ms <= 0) return '—';
-  const totalMin = Math.round(ms / 60000);
-  if (totalMin < 60) return `${totalMin}m`;
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
-}
+export default function MemberPerformanceTable({ members, tasks, logsByTask = {}, onSelectMember }) {
+  const memberStats = useMemo(() => {
+    const completedTasks = tasks.filter(t => t.status === 'done' && t.started_at && t.finished_at);
 
-export default function MemberPerformanceTable({ members, tasks, onSelectMember }) {
-  const completedTasks = tasks.filter(t => t.status === 'done' && t.started_at && t.finished_at);
+    return members.filter(m => m.is_active).map(member => {
+      const memberTasks = completedTasks.filter(t => t.assigned_to === member.id);
+      const durations = memberTasks.map(t => getTaskActiveDuration(t, logsByTask[t.id] || []));
 
-  const memberStats = members.filter(m => m.is_active).map(member => {
-    const memberTasks = completedTasks.filter(t => t.assigned_to === member.id);
-    const durations = memberTasks.map(t => new Date(t.finished_at) - new Date(t.started_at));
+      const totalTime = durations.reduce((s, d) => s + d, 0);
+      const avgTime = durations.length > 0 ? totalTime / durations.length : 0;
+      const minTime = durations.length > 0 ? Math.min(...durations) : 0;
+      const maxTime = durations.length > 0 ? Math.max(...durations) : 0;
 
-    const totalTime = durations.reduce((s, d) => s + d, 0);
-    const avgTime = durations.length > 0 ? totalTime / durations.length : 0;
-    const minTime = durations.length > 0 ? Math.min(...durations) : 0;
-    const maxTime = durations.length > 0 ? Math.max(...durations) : 0;
-
-    // Station breakdown
-    const stationBreakdown = {};
-    memberTasks.forEach(t => {
-      if (!stationBreakdown[t.station]) stationBreakdown[t.station] = { count: 0, totalMs: 0 };
-      stationBreakdown[t.station].count += 1;
-      stationBreakdown[t.station].totalMs += new Date(t.finished_at) - new Date(t.started_at);
-    });
-
-    return {
-      ...member,
-      tasksCompleted: durations.length,
-      avgTime,
-      minTime,
-      maxTime,
-      totalTime,
-      stationBreakdown,
-    };
-  }).sort((a, b) => b.tasksCompleted - a.tasksCompleted);
+      return {
+        ...member,
+        tasksCompleted: durations.length,
+        avgTime,
+        minTime,
+        maxTime,
+        totalTime,
+      };
+    }).sort((a, b) => b.tasksCompleted - a.tasksCompleted);
+  }, [members, tasks, logsByTask]);
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
       <div className="px-6 py-4 border-b border-border">
         <h3 className="text-sm font-semibold">Team Member Performance</h3>
-        <p className="text-xs text-muted-foreground mt-0.5">Click a row for task history</p>
+        <p className="text-xs text-muted-foreground mt-0.5">Click a row for detailed history</p>
       </div>
       {memberStats.length === 0 ? (
         <div className="px-6 py-12 text-center text-sm text-muted-foreground">No active team members</div>
@@ -88,10 +73,10 @@ export default function MemberPerformanceTable({ members, tasks, onSelectMember 
                     </div>
                   </td>
                   <td className="px-4 py-3 text-center font-semibold">{m.tasksCompleted}</td>
-                  <td className="px-4 py-3 text-center font-mono text-xs">{formatDuration(m.avgTime)}</td>
-                  <td className="px-4 py-3 text-center font-mono text-xs text-green-600">{formatDuration(m.minTime)}</td>
-                  <td className="px-4 py-3 text-center font-mono text-xs text-red-500">{formatDuration(m.maxTime)}</td>
-                  <td className="px-4 py-3 text-center font-mono text-xs">{formatDuration(m.totalTime)}</td>
+                  <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationShort(m.avgTime)}</td>
+                  <td className="px-4 py-3 text-center font-mono text-xs text-green-600">{formatDurationShort(m.minTime)}</td>
+                  <td className="px-4 py-3 text-center font-mono text-xs text-red-500">{formatDurationShort(m.maxTime)}</td>
+                  <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationShort(m.totalTime)}</td>
                 </tr>
               ))}
             </tbody>

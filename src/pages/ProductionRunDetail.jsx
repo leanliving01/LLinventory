@@ -462,12 +462,34 @@ export default function ProductionRunDetail() {
             <h1 className="text-2xl font-bold">{run.run_number || 'Production Run'}</h1>
             <Badge className={cn(STATUS_STYLES[run.status])}>{run.status?.replace('_', ' ')}</Badge>
           </div>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {run.run_date ? format(new Date(run.run_date), 'dd MMM yyyy') : '—'}
-            {run.started_at ? ` · Started ${format(new Date(run.started_at), 'HH:mm')}` : ''}
-            {run.completed_at ? ` · Finished ${format(new Date(run.completed_at), 'HH:mm')}` : ''}
-            {' · '}{lines.length} meals · {run.total_units} planned units
-          </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+            <span className="text-sm text-muted-foreground">{run.run_date ? format(new Date(run.run_date), 'dd MMM yyyy') : '—'}</span>
+            <span className="text-sm text-muted-foreground">·</span>
+            <span className="text-sm text-muted-foreground">{lines.length} meals · {run.total_units} planned units</span>
+            {run.started_at && (
+              <>
+                <span className="text-sm text-muted-foreground">·</span>
+                <Badge variant="outline" className="text-xs font-mono gap-1">
+                  Started {format(new Date(run.started_at), 'HH:mm')}
+                </Badge>
+              </>
+            )}
+            {run.completed_at && (
+              <>
+                <Badge variant="outline" className="text-xs font-mono gap-1 bg-green-50 text-green-700 border-green-200">
+                  Finished {format(new Date(run.completed_at), 'HH:mm')}
+                </Badge>
+                <Badge variant="outline" className="text-xs font-mono gap-1">
+                  Duration: {(() => {
+                    const ms = new Date(run.completed_at) - new Date(run.started_at);
+                    const h = Math.floor(ms / 3600000);
+                    const m = Math.floor((ms % 3600000) / 60000);
+                    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+                  })()}
+                </Badge>
+              </>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <HelpDrawer pageKey="production-run-detail" />
