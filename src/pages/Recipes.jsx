@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +15,7 @@ const LAYER_COLORS = {
 };
 
 export default function Recipes() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [layerFilter, setLayerFilter] = useState('all');
   const [selectedBom, setSelectedBom] = useState(null);
@@ -50,9 +51,9 @@ export default function Recipes() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Recipes</h1>
+        <h1 className="text-2xl font-bold text-foreground">Bill of Materials</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          {filtered.length} of {boms.length} recipes — 3-layer model: Cook → Portion → Pack
+          {filtered.length} of {boms.length} BOMs — 3-layer model: Cook → Portion → Pack
         </p>
       </div>
 
@@ -159,7 +160,11 @@ export default function Recipes() {
       )}
 
       {selectedBom && (
-        <RecipeDetailDrawer bom={selectedBom} onClose={() => setSelectedBom(null)} />
+        <RecipeDetailDrawer
+          bom={selectedBom}
+          onClose={() => setSelectedBom(null)}
+          onUpdated={() => queryClient.invalidateQueries({ queryKey: ['recipes-boms'] })}
+        />
       )}
     </div>
   );

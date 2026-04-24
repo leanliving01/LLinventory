@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -8,6 +8,7 @@ import { Search, X, ChevronRight, Truck } from 'lucide-react';
 import SupplierDetailDrawer from '@/components/suppliers/SupplierDetailDrawer';
 
 export default function Suppliers() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
   const [selectedSupplier, setSelectedSupplier] = useState(null);
@@ -98,6 +99,7 @@ export default function Suppliers() {
               <tr className="bg-muted/50 border-b border-border">
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Supplier</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Contact</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Phone</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Email</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Payment Terms</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
@@ -120,6 +122,7 @@ export default function Suppliers() {
                     </div>
                   </td>
                   <td className="px-4 py-2.5 text-sm text-muted-foreground">{s.contact_name || '—'}</td>
+                  <td className="px-4 py-2.5 text-sm text-muted-foreground">{s.phone || '—'}</td>
                   <td className="px-4 py-2.5 text-sm text-muted-foreground">{s.email || '—'}</td>
                   <td className="px-4 py-2.5 text-sm text-muted-foreground">{s.payment_terms || '—'}</td>
                   <td className="px-4 py-2.5 text-center">
@@ -134,7 +137,7 @@ export default function Suppliers() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     {suppliers.length === 0 ? 'No suppliers imported yet.' : 'No suppliers match your search.'}
                   </td>
                 </tr>
@@ -145,7 +148,11 @@ export default function Suppliers() {
       )}
 
       {selectedSupplier && (
-        <SupplierDetailDrawer supplier={selectedSupplier} onClose={() => setSelectedSupplier(null)} />
+        <SupplierDetailDrawer
+          supplier={selectedSupplier}
+          onClose={() => setSelectedSupplier(null)}
+          onUpdated={() => queryClient.invalidateQueries({ queryKey: ['suppliers-list'] })}
+        />
       )}
     </div>
   );
