@@ -4,13 +4,14 @@ import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import RunLineTable from '@/components/production/RunLineTable';
 import StockGuardrailModal from '@/components/production/StockGuardrailModal';
 import SurplusModal from '@/components/production/SurplusModal';
+import ProductionSummaryModal from '@/components/production/ProductionSummaryModal';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import { writeAuditLog } from '@/lib/auditLog';
 
@@ -34,6 +35,7 @@ export default function ProductionRunDetail() {
   const [shortages, setShortages] = useState([]);
   const [showSurplus, setShowSurplus] = useState(false);
   const [surplusLines, setSurplusLines] = useState([]);
+  const [showSummary, setShowSummary] = useState(false);
 
   const { data: run, isLoading: loadingRun } = useQuery({
     queryKey: ['production-run', runId],
@@ -382,6 +384,7 @@ export default function ProductionRunDetail() {
     });
     toast.success(`Run completed — ${totalActual} units produced, stock updated`);
     setCompleting(false);
+    setShowSummary(true);
 
     // §5.1.6 Check for surplus lines
     const surplus = lines.filter(l => {
@@ -501,25 +504,35 @@ export default function ProductionRunDetail() {
       {run.status === 'completed' && (
         <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700 flex items-center justify-between">
           <span>✓ This run is completed. Stock movements have been recorded.</span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 border-green-300 text-green-700 hover:bg-green-100"
-            onClick={() => {
-              const surplus = lines.filter(l => (l.actual_qty || 0) > l.planned_qty).map(l => ({
-                ...l,
-                surplus: (l.actual_qty || 0) - l.planned_qty,
-              }));
-              if (surplus.length === 0) {
-                toast.info('No surplus lines on this run — all actuals matched or were below planned.');
-                return;
-              }
-              setSurplusLines(surplus);
-              setShowSurplus(true);
-            }}
-          >
-            <Package className="w-4 h-4" /> Review Leftover Stock
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-green-300 text-green-700 hover:bg-green-100"
+              onClick={() => setShowSummary(true)}
+            >
+              <FileText className="w-4 h-4" /> View Summary
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-green-300 text-green-700 hover:bg-green-100"
+              onClick={() => {
+                const surplus = lines.filter(l => (l.actual_qty || 0) > l.planned_qty).map(l => ({
+                  ...l,
+                  surplus: (l.actual_qty || 0) - l.planned_qty,
+                }));
+                if (surplus.length === 0) {
+                  toast.info('No surplus lines on this run — all actuals matched or were below planned.');
+                  return;
+                }
+                setSurplusLines(surplus);
+                setShowSurplus(true);
+              }}
+            >
+              <Package className="w-4 h-4" /> Review Leftover Stock
+            </Button>
+          </div>
         </div>
       )}
 
@@ -548,6 +561,16 @@ export default function ProductionRunDetail() {
           onConfirm={handleSurplusConfirm}
           onCancel={() => { setShowSurplus(false); setSurplusLines([]); }}
           loading={completing}
+        />
+      )}
+
+      {/* Production Summary Modal */}
+      {showSummary && (
+        <ProductionSummaryModal
+          runId={runId}
+          runNumber={run?.run_number}
+          lines={lines}
+          onClose={() => setShowSummary(false)}
         />
       )}
     </div>
