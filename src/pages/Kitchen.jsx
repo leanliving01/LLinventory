@@ -8,6 +8,7 @@ import KitchenTaskCard from '@/components/kitchen/KitchenTaskCard';
 import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
 import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
 import DependencyBlockModal from '@/components/kitchen/DependencyBlockModal';
+import TaskDetailView from '@/components/kitchen/TaskDetailView';
 
 export default function Kitchen() {
   const { user } = useAuth();
@@ -16,6 +17,7 @@ export default function Kitchen() {
   const [pendingStart, setPendingStart] = useState(null); // { taskId, newStatus }
   const [pendingDone, setPendingDone] = useState(null); // task for completion modal
   const [blockMessage, setBlockMessage] = useState(null);
+  const [activeTaskId, setActiveTaskId] = useState(null); // task detail view
 
   const station = user?.station || 'cook';
 
@@ -116,6 +118,8 @@ export default function Kitchen() {
     }
 
     await doStatusChange(taskId, newStatus);
+    // Open detail view when starting a task
+    if (newStatus === 'in_progress') setActiveTaskId(taskId);
   };
 
   const handleTaskCompleted = async (taskId, consumption) => {
@@ -185,6 +189,8 @@ export default function Kitchen() {
       assigned_name: member.name,
     });
     await doStatusChange(taskId, newStatus);
+    // Open detail view when starting a task
+    if (newStatus === 'in_progress') setActiveTaskId(taskId);
   };
 
   const doStatusChange = async (taskId, newStatus) => {
@@ -214,6 +220,31 @@ export default function Kitchen() {
     queryClient.invalidateQueries({ queryKey: ['all-run-tasks', activeRun?.id] });
     setUpdating(false);
   };
+
+  // Task detail view — full screen overlay
+  const activeDetailTask = activeTaskId ? tasks.find(t => t.id === activeTaskId) : null;
+  if (activeDetailTask) {
+    return (
+      <>
+        <TaskDetailView
+          task={activeDetailTask}
+          onStatusChange={handleStatusChange}
+          onBack={() => setActiveTaskId(null)}
+          loading={updating}
+        />
+        {/* Modals still need to work in detail view */}
+        {blockMessage && (
+          <DependencyBlockModal message={blockMessage} onClose={() => setBlockMessage(null)} />
+        )}
+        {pendingDone && (
+          <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} />
+        )}
+        {pendingStart && (
+          <TeamMemberSelect members={teamMembers} station={station} onSelect={handleTeamMemberSelected} onCancel={() => setPendingStart(null)} />
+        )}
+      </>
+    );
+  }
 
   // No active run
   if (!activeRun) {
@@ -273,6 +304,7 @@ export default function Kitchen() {
               key={task.id}
               task={task}
               onStatusChange={handleStatusChange}
+              onTap={(id) => setActiveTaskId(id)}
               loading={updating}
             />
           ))

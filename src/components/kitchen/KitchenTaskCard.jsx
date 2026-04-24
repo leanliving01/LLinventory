@@ -38,7 +38,7 @@ const STATION_BUTTON_COLORS = {
   portion: 'bg-green-500 hover:bg-green-600',
 };
 
-export default function KitchenTaskCard({ task, onStatusChange, loading }) {
+export default function KitchenTaskCard({ task, onStatusChange, onTap, loading }) {
   const [showNotes, setShowNotes] = useState(false);
 
   const isDone = task.status === 'done';
@@ -58,8 +58,11 @@ export default function KitchenTaskCard({ task, onStatusChange, loading }) {
       isPaused && "border-blue-300",
       isPending && "border-border",
     )}>
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-3 mb-3">
+      {/* Header row — tap to open detail */}
+      <div
+        className="flex items-start justify-between gap-3 mb-3 cursor-pointer active:opacity-70"
+        onClick={() => onTap && onTap(task.id)}
+      >
         <div className="flex-1 min-w-0">
           <h2 className="text-2xl font-bold leading-tight truncate">
             {task.meal_name || task.name}
