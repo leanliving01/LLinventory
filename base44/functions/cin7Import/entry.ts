@@ -135,7 +135,7 @@ Deno.serve(async (req) => {
     const details = [];
 
     // Load existing products for idempotent upsert
-    const existingProducts = await base44.asServiceRole.entities.Product.filter({});
+    const existingProducts = await base44Call(() => base44.asServiceRole.entities.Product.filter({}));
     const existingBySku = {};
     existingProducts.forEach(p => { existingBySku[p.sku] = p; });
     // Also index by cin7_id
@@ -257,7 +257,7 @@ Deno.serve(async (req) => {
       started_at: new Date().toISOString(),
     }));
 
-    const existingSuppliers = await base44.asServiceRole.entities.Supplier.filter({});
+    const existingSuppliers = await base44Call(() => base44.asServiceRole.entities.Supplier.filter({}));
     const existingByName = {};
     existingSuppliers.forEach(s => { existingByName[s.name?.toLowerCase()] = s; });
     const existingByCin7 = {};
@@ -334,146 +334,144 @@ Deno.serve(async (req) => {
     return Response.json({ success: true, total, created, updated, errors: errors.length, log_id: log.id });
   }
 
-  // ─── IMPORT STOCK ON HAND ───
+  // ─── IMPORT STOCK ON HAND (batched — one Cin7 page per call) ───
   if (action === 'import_stock') {
-    const log = await base44Call(() => base44.asServiceRole.entities.ImportLog.create({
-      import_type: 'stock',
-      status: 'running',
-      started_at: new Date().toISOString(),
-    }));
+    const cin7Page = body.page || 1;
+    const isFirstPage = cin7Page === 1;
 
-    // Load products, locations, and existing SOH for matching
-    const products = await base44.asServiceRole.entities.Product.filter({});
+    // Only create a log on the first page
+    let logId = body.log_id || null;
+    if (isFirstPage) {
+      const log = await base44Call(() => base44.asServiceRole.entities.ImportLog.create({
+        import_type: 'stock',
+        status: 'running',
+        started_at: new Date().toISOString(),
+      }));
+      logId = log.id;
+    }
+
+    // Load reference data (staggered)
+    console.log('Loading products...');
+    const products = await base44Call(() => base44.asServiceRole.entities.Product.filter({}));
+    console.log(`Loaded ${products.length} products`);
     const productBySku = {};
     products.forEach(p => { productBySku[p.sku] = p; });
     const productByCin7Id = {};
     products.forEach(p => { if (p.cin7_id) productByCin7Id[p.cin7_id] = p; });
+    await delay(500);
 
-    const locations = await base44.asServiceRole.entities.Location.filter({});
+    console.log('Loading locations...');
+    const locations = await base44Call(() => base44.asServiceRole.entities.Location.filter({}));
+    console.log(`Loaded ${locations.length} locations`);
     const locationByName = {};
     locations.forEach(l => { locationByName[l.name.toLowerCase()] = l; });
+    await delay(500);
 
-    // Load existing StockOnHand so we can upsert
-    const existingSoh = await base44.asServiceRole.entities.StockOnHand.filter({});
+    console.log('Loading existing SOH...');
+    const existingSoh = await base44Call(() => base44.asServiceRole.entities.StockOnHand.filter({}));
+    console.log(`Loaded ${existingSoh.length} SOH records`);
     const sohByKey = {};
     existingSoh.forEach(s => { sohByKey[`${s.product_id}__${s.location_id}`] = s; });
 
-    // Default location for unmatched
     const defaultLoc = locations.find(l => l.code === 'OTHER') || locations[0];
 
     let created = 0, total = 0;
     const warnings = [];
     const errors = [];
-    let page = 1;
-    let hasMore = true;
 
-    while (hasMore) {
-      let availability;
-      try {
-        availability = await cin7Fetch(`/ref/productavailability?Page=${page}&Limit=250`, accountId, appKey);
-      } catch (err) {
-        errors.push(`Page ${page}: ${err.message}`);
-        break;
-      }
-
-      const stockList = availability.ProductAvailabilityList || [];
-      if (stockList.length === 0) {
-        hasMore = false;
-        break;
-      }
-
-      for (const item of stockList) {
-        total++;
-        const cin7ProductId = String(item.ID || item.ProductID || '');
-        const sku = item.SKU || '';
-        const product = productByCin7Id[cin7ProductId] || productBySku[sku];
-        
-        if (!product) {
-          warnings.push(`Stock for unknown product cin7_id=${cin7ProductId} sku=${sku}`);
-          continue;
-        }
-
-        const qty = item.Available || item.OnHand || 0;
-        if (qty === 0) continue;
-
-        // Match location
-        const cin7Location = (item.Location || item.Warehouse || '').toLowerCase();
-        let location = null;
-        for (const [name, loc] of Object.entries(locationByName)) {
-          if (cin7Location.includes('dry')) { location = locationByName['main warehouse: dry storage']; break; }
-          if (cin7Location.includes('cold') || cin7Location.includes('chill')) { location = locationByName['main warehouse: cold storage']; break; }
-          if (cin7Location.includes('pack')) { location = locationByName['main warehouse: packing storage']; break; }
-          if (cin7Location.includes('freezer') && cin7Location.includes('dispatch')) { location = locationByName['main warehouse: dispatch freezer']; break; }
-          if (cin7Location.includes('freezer') || cin7Location.includes('freeze')) { location = locationByName['main warehouse: meal freezer']; break; }
-        }
-        if (!location) location = defaultLoc;
-
-        try {
-          // Create a StockMovement as initial receipt
-          await base44Call(() => base44.asServiceRole.entities.StockMovement.create({
-            product_id: product.id,
-            product_sku: product.sku,
-            product_name: product.name,
-            to_location_id: location.id,
-            qty: qty,
-            uom: product.stock_uom,
-            reason: 'receipt',
-            ref_type: 'cin7_import',
-            ref_id: cin7ProductId,
-            unit_cost_at_movement: product.cost_avg || 0,
-            notes: 'Initial stock from Cin7 import',
-          }));
-
-          // Upsert StockOnHand
-          const sohKey = `${product.id}__${location.id}`;
-          const existingRec = sohByKey[sohKey];
-          if (existingRec) {
-            const newQty = (existingRec.qty_on_hand || 0) + qty;
-            await base44Call(() => base44.asServiceRole.entities.StockOnHand.update(existingRec.id, {
-              qty_on_hand: newQty,
-              qty_available: newQty - (existingRec.qty_committed || 0),
-              last_updated_at: new Date().toISOString(),
-            }));
-            existingRec.qty_on_hand = newQty;
-          } else {
-            const newSoh = await base44Call(() => base44.asServiceRole.entities.StockOnHand.create({
-              product_id: product.id,
-              product_sku: product.sku,
-              product_name: product.name,
-              location_id: location.id,
-              location_name: location?.name || 'Unknown',
-              qty_on_hand: qty,
-              qty_committed: 0,
-              qty_available: qty,
-              uom: product.stock_uom,
-              last_updated_at: new Date().toISOString(),
-            }));
-            sohByKey[sohKey] = newSoh;
-          }
-
-          created++;
-        } catch (err) {
-          errors.push(`Stock ${product.sku}: ${err.message}`);
-        }
-
-        // Throttle Base44 writes (2 calls per item: movement + SOH)
-        if (total % 5 === 0) await delay(1000);
-      }
-
-      page++;
-      await delay(1100);
+    // Fetch ONE page from Cin7
+    console.log(`Fetching Cin7 stock page ${cin7Page}...`);
+    let availability;
+    try {
+      availability = await cin7Fetch(`/ref/productavailability?Page=${cin7Page}&Limit=50`, accountId, appKey);
+    } catch (err) {
+      console.log(`Cin7 fetch failed: ${err.message}`);
+      return Response.json({ success: false, error: `Cin7 page ${cin7Page}: ${err.message}` }, { status: 500 });
     }
 
-    await base44Call(() => base44.asServiceRole.entities.ImportLog.update(log.id, {
-      status: errors.length > 0 ? 'completed_with_warnings' : 'completed',
-      total_records: total, created_count: created,
-      error_count: errors.length,
-      warnings: warnings.slice(0, 50),
-      errors: errors.slice(0, 50),
-      finished_at: new Date().toISOString(),
-    }));
+    const stockList = availability.ProductAvailabilityList || [];
+    const hasMore = stockList.length >= 50;
+    console.log(`Got ${stockList.length} stock items from Cin7, hasMore=${hasMore}`);
 
-    return Response.json({ success: true, total, created, errors: errors.length, log_id: log.id });
+    for (const item of stockList) {
+      total++;
+      const cin7ProductId = String(item.ID || item.ProductID || '');
+      const sku = item.SKU || '';
+      const product = productByCin7Id[cin7ProductId] || productBySku[sku];
+
+      if (!product) {
+        warnings.push(`Stock for unknown product cin7_id=${cin7ProductId} sku=${sku}`);
+        continue;
+      }
+
+      const qty = item.Available || item.OnHand || 0;
+      if (qty === 0) continue;
+
+      // Match location
+      const cin7Location = (item.Location || item.Warehouse || '').toLowerCase();
+      let location = null;
+      if (cin7Location.includes('dry')) location = locationByName['main warehouse: dry storage'];
+      else if (cin7Location.includes('cold') || cin7Location.includes('chill')) location = locationByName['main warehouse: cold storage'];
+      else if (cin7Location.includes('pack')) location = locationByName['main warehouse: packing storage'];
+      else if (cin7Location.includes('freezer') && cin7Location.includes('dispatch')) location = locationByName['main warehouse: dispatch freezer'];
+      else if (cin7Location.includes('freezer') || cin7Location.includes('freeze')) location = locationByName['main warehouse: meal freezer'];
+      if (!location) location = defaultLoc;
+
+      try {
+        await base44Call(() => base44.asServiceRole.entities.StockMovement.create({
+          product_id: product.id, product_sku: product.sku, product_name: product.name,
+          to_location_id: location.id, qty, uom: product.stock_uom,
+          reason: 'receipt', ref_type: 'cin7_import', ref_id: cin7ProductId,
+          unit_cost_at_movement: product.cost_avg || 0,
+          notes: 'Initial stock from Cin7 import',
+        }));
+
+        const sohKey = `${product.id}__${location.id}`;
+        const existingRec = sohByKey[sohKey];
+        if (existingRec) {
+          const newQty = (existingRec.qty_on_hand || 0) + qty;
+          await base44Call(() => base44.asServiceRole.entities.StockOnHand.update(existingRec.id, {
+            qty_on_hand: newQty,
+            qty_available: newQty - (existingRec.qty_committed || 0),
+            last_updated_at: new Date().toISOString(),
+          }));
+          existingRec.qty_on_hand = newQty;
+        } else {
+          const newSoh = await base44Call(() => base44.asServiceRole.entities.StockOnHand.create({
+            product_id: product.id, product_sku: product.sku, product_name: product.name,
+            location_id: location.id, location_name: location?.name || 'Unknown',
+            qty_on_hand: qty, qty_committed: 0, qty_available: qty,
+            uom: product.stock_uom, last_updated_at: new Date().toISOString(),
+          }));
+          sohByKey[sohKey] = newSoh;
+        }
+        // Throttle every 3 items
+        if (total % 3 === 0) await delay(500);
+
+        created++;
+      } catch (err) {
+        errors.push(`Stock ${product.sku}: ${err.message}`);
+      }
+    }
+
+    // Update log when done (last page)
+    if (!hasMore && logId) {
+      await base44Call(() => base44.asServiceRole.entities.ImportLog.update(logId, {
+        status: errors.length > 0 ? 'completed_with_warnings' : 'completed',
+        total_records: total, created_count: created,
+        error_count: errors.length,
+        warnings: warnings.slice(0, 50),
+        errors: errors.slice(0, 50),
+        finished_at: new Date().toISOString(),
+      }));
+    }
+
+    return Response.json({
+      success: true, page: cin7Page, processed: total, created,
+      warnings: warnings.length, errors: errors.length,
+      has_more: hasMore, next_page: cin7Page + 1,
+      log_id: logId,
+    });
   }
 
   return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });

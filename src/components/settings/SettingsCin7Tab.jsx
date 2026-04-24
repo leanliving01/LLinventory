@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 const importSteps = [
   { action: 'import_products', label: 'Products', description: 'Import all products from Cin7 with type mapping', icon: Package, fn: 'cin7Import' },
   { action: 'import_suppliers', label: 'Suppliers', description: 'Import supplier contacts and payment terms', icon: UsersIcon, fn: 'cin7Import' },
-  { action: 'import_stock', label: 'Stock Levels', description: 'Import current stock on hand per location', icon: Boxes, fn: 'cin7Import' },
+  { action: 'import_stock', label: 'Stock Levels', description: 'Import current stock on hand per location — runs in pages', icon: Boxes, fn: 'cin7Import', paged: true },
   { action: 'import', label: 'Recipes (BOMs)', description: 'Import Cook, Portion & Pack recipes — runs in batches', icon: ChefHat, fn: 'cin7BomImport', batched: true },
 ];
 
@@ -40,7 +40,36 @@ export default function SettingsCin7Tab() {
     setBatchProgress(null);
 
     try {
-      if (step?.batched) {
+      if (step?.paged) {
+        // Paginated import (one Cin7 API page per call)
+        let page = 1;
+        let logId = null;
+        let totals = { created: 0, processed: 0, warnings: 0, errors: 0 };
+        let keepGoing = true;
+
+        while (keepGoing) {
+          const payload = { action, page };
+          if (logId) payload.log_id = logId;
+          const res = await base44.functions.invoke(fnName, payload);
+          const d = res.data;
+          if (!logId) logId = d.log_id;
+          totals.created += d.created || 0;
+          totals.processed += d.processed || 0;
+          totals.warnings += d.warnings || 0;
+          totals.errors += d.errors || 0;
+
+          setBatchProgress({ processed: totals.processed, total: totals.processed + (d.has_more ? 100 : 0) });
+
+          if (d.has_more) {
+            page = d.next_page;
+          } else {
+            keepGoing = false;
+          }
+        }
+
+        setResults(prev => ({ ...prev, [action]: totals }));
+        toast.success(`${totals.created} stock records imported across ${page} pages`);
+      } else if (step?.batched) {
         // Run batched import — chain calls until has_more = false
         let offset = 0;
         let totals = { boms_created: 0, boms_updated: 0, components_created: 0, operations_created: 0, warnings: 0, errors: 0 };
