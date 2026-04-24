@@ -1,107 +1,138 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import StatCard from '../components/dashboard/StatCard';
-import ShortageTable from '../components/dashboard/ShortageTable';
-import { 
-  Package, 
-  AlertTriangle, 
-  Factory, 
-  Warehouse, 
-  ShoppingCart,
-  Clock
-} from 'lucide-react';
-import { format } from 'date-fns';
+import { format, subDays, isWithinInterval, startOfDay } from 'date-fns';
+import { Clock, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+
+import DateRangePicker from '@/components/dashboard/DateRangePicker';
+import KPICards from '@/components/dashboard/KPICards';
+import RevenueChart from '@/components/dashboard/RevenueChart';
+import PackageBreakdownChart from '@/components/dashboard/PackageBreakdownChart';
+import ProductionChart from '@/components/dashboard/ProductionChart';
+import WastageChart from '@/components/dashboard/WastageChart';
+import RecentRunsList from '@/components/dashboard/RecentRunsList';
+import POAgingTable from '@/components/dashboard/POAgingTable';
+import ShortageTable from '@/components/dashboard/ShortageTable';
 
 export default function Dashboard() {
-  const { data: skus = [] } = useQuery({
-    queryKey: ['skus'],
-    queryFn: () => base44.entities.SKU.list('-created_date', 100),
-  });
+  const now = new Date();
+  const [from, setFrom] = useState(subDays(now, 30));
+  const [to, setTo] = useState(now);
 
-  const { data: parLevels = [] } = useQuery({
-    queryKey: ['parLevels'],
-    queryFn: () => base44.entities.ParLevel.list('-created_date', 100),
-  });
+  const handleDateChange = (newFrom, newTo) => { setFrom(newFrom); setTo(newTo); };
 
-  const { data: stockSnapshots = [] } = useQuery({
-    queryKey: ['latestStock'],
-    queryFn: () => base44.entities.StockSnapshot.list('-created_date', 200),
-  });
+  // Helper: is a record within the date range?
+  const inRange = (dateStr) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    return isWithinInterval(d, { start: startOfDay(from), end: to });
+  };
 
-  const { data: committedDemand = [] } = useQuery({
-    queryKey: ['committedDemand'],
-    queryFn: () => base44.entities.CommittedDemand.list('-created_date', 500),
+  // ── Data fetching ──
+  const { data: salesOrders = [] } = useQuery({
+    queryKey: ['dash-sales'],
+    queryFn: () => base44.entities.SalesOrder.list('-order_date', 1000),
   });
 
   const { data: shopifyOrders = [] } = useQuery({
-    queryKey: ['shopifyOrders'],
-    queryFn: () => base44.entities.ShopifyOrder.filter({ paid_status: 'paid', fulfilment_status: 'unfulfilled' }, '-created_date', 100),
+    queryKey: ['dash-shopify-orders'],
+    queryFn: () => base44.entities.ShopifyOrder.list('-order_date', 1000),
+  });
+
+  const { data: purchaseOrders = [] } = useQuery({
+    queryKey: ['dash-pos'],
+    queryFn: () => base44.entities.PurchaseOrder.list('-order_date', 500),
   });
 
   const { data: productionRuns = [] } = useQuery({
-    queryKey: ['productionRuns'],
-    queryFn: () => base44.entities.ProductionRun.list('-created_date', 5),
+    queryKey: ['dash-runs'],
+    queryFn: () => base44.entities.ProductionRun.list('-run_date', 200),
   });
 
-  // Calculate latest stock by SKU (most recent entry per SKU)
-  const latestStockBySkuId = {};
-  stockSnapshots.forEach(snap => {
-    if (!latestStockBySkuId[snap.sku_id] || new Date(snap.created_date) > new Date(latestStockBySkuId[snap.sku_id].created_date)) {
-      latestStockBySkuId[snap.sku_id] = snap;
-    }
+  const { data: wastageLogs = [] } = useQuery({
+    queryKey: ['dash-wastage'],
+    queryFn: () => base44.entities.WastageLog.list('-wastage_date', 200),
   });
 
-  // Par levels by SKU
-  const parBySkuId = {};
-  parLevels.forEach(p => { parBySkuId[p.sku_id] = p.par_level; });
-
-  // Committed demand by SKU
-  const demandBySkuId = {};
-  committedDemand.forEach(d => {
-    demandBySkuId[d.sku_id] = (demandBySkuId[d.sku_id] || 0) + d.quantity;
+  const { data: products = [] } = useQuery({
+    queryKey: ['dash-products'],
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
   });
 
-  // Production calculations
-  let totalStockOnHand = 0;
-  let totalCommitted = 0;
-  let totalToProduce = 0;
-  let skusBelowPar = 0;
-  const shortages = [];
-
-  skus.forEach(sku => {
-    const soh = latestStockBySkuId[sku.id]?.stock_on_hand || 0;
-    const committed = demandBySkuId[sku.id] || 0;
-    const par = parBySkuId[sku.id] || 0;
-    const available = soh - committed;
-    const needed = Math.max(0, par - available);
-    const production = needed < 10 ? 0 : needed;
-
-    totalStockOnHand += soh;
-    totalCommitted += committed;
-    totalToProduce += production;
-
-    if (available < par && par > 0) {
-      skusBelowPar++;
-      shortages.push({
-        meal_name: sku.meal_name,
-        package_type: sku.package_type,
-        shortage: par - available,
-        sku_code: sku.sku_code,
-      });
-    }
+  const { data: stockRecords = [] } = useQuery({
+    queryKey: ['dash-stock'],
+    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 2000),
   });
 
-  shortages.sort((a, b) => b.shortage - a.shortage);
+  // ── Filter to date range ──
+  const rangedSales = useMemo(() => salesOrders.filter(o => inRange(o.order_date)), [salesOrders, from, to]);
+  const rangedShopify = useMemo(() => shopifyOrders.filter(o => inRange(o.order_date)), [shopifyOrders, from, to]);
+  const rangedPOs = useMemo(() => purchaseOrders.filter(o => inRange(o.order_date)), [purchaseOrders, from, to]);
+  const rangedRuns = useMemo(() => productionRuns.filter(r => inRange(r.run_date)), [productionRuns, from, to]);
+  const rangedWastage = useMemo(() => wastageLogs.filter(w => inRange(w.wastage_date)), [wastageLogs, from, to]);
 
-  const unfulfilled = shopifyOrders.length;
+  // ── KPI calculations ──
+  const kpiData = useMemo(() => {
+    const revenue = rangedSales.reduce((s, o) => s + (o.total_amount || 0), 0);
+    const pendingOrders = salesOrders.filter(o => o.fulfillment_status === 'unfulfilled' && o.payment_status === 'paid').length;
+    const poSpend = rangedPOs
+      .filter(po => !['draft', 'cancelled'].includes(po.status))
+      .reduce((s, po) => s + (po.total || 0), 0);
+    const poOutstanding = purchaseOrders
+      .filter(po => ['confirmed', 'partially_received', 'received', 'invoiced'].includes(po.status) && po.payment_status !== 'paid')
+      .reduce((s, po) => s + (po.total || 0), 0);
+    const wastageValue = rangedWastage.reduce((s, w) => s + (w.total_rand_value || 0), 0);
+    const completedRuns = rangedRuns.filter(r => r.status === 'completed' || r.status === 'in_progress');
+    const productionUnits = completedRuns.reduce((s, r) => s + (r.total_units || 0), 0);
+
+    // Low stock: products with reorder point where on-hand < reorder point
+    let lowStockCount = 0;
+    products.forEach(p => {
+      if (p.min_before_reorder > 0) {
+        const soh = stockRecords.filter(s => s.product_id === p.id).reduce((sum, s) => sum + (s.qty_on_hand || 0), 0);
+        if (soh < p.min_before_reorder) lowStockCount++;
+      }
+    });
+
+    return {
+      revenue,
+      pendingOrders,
+      poSpend,
+      poOutstanding,
+      wastageValue,
+      productionRuns: rangedRuns.length,
+      productionUnits,
+      lowStockCount,
+      activeProducts: products.length,
+    };
+  }, [rangedSales, rangedPOs, rangedRuns, rangedWastage, salesOrders, purchaseOrders, products, stockRecords]);
+
+  // ── Shortage table (same as before but from products/stock) ──
+  const shortages = useMemo(() => {
+    const list = [];
+    products.forEach(p => {
+      if (p.min_before_reorder > 0) {
+        const soh = stockRecords.filter(s => s.product_id === p.id).reduce((sum, s) => sum + (s.qty_on_hand || 0), 0);
+        if (soh < p.min_before_reorder) {
+          list.push({
+            meal_name: p.name,
+            package_type: p.type,
+            shortage: p.min_before_reorder - soh,
+            sku_code: p.sku,
+          });
+        }
+      }
+    });
+    return list.sort((a, b) => b.shortage - a.shortage);
+  }, [products, stockRecords]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Production Dashboard</h1>
+          <h1 className="text-2xl font-bold text-foreground">Executive Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {format(new Date(), 'EEEE, d MMMM yyyy')}
           </p>
@@ -112,76 +143,29 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-        <StatCard
-          title="SKUs Below Par"
-          value={skusBelowPar}
-          icon={AlertTriangle}
-          variant={skusBelowPar > 0 ? 'danger' : 'success'}
-        />
-        <StatCard
-          title="Total Stock"
-          value={totalStockOnHand.toLocaleString()}
-          icon={Warehouse}
-          variant="info"
-        />
-        <StatCard
-          title="Committed"
-          value={totalCommitted.toLocaleString()}
-          icon={ShoppingCart}
-          variant="warning"
-        />
-        <StatCard
-          title="To Produce"
-          value={totalToProduce.toLocaleString()}
-          icon={Factory}
-          variant={totalToProduce > 0 ? 'warning' : 'success'}
-        />
-        <StatCard
-          title="Unfulfilled Orders"
-          value={unfulfilled}
-          icon={Package}
-          variant="default"
-        />
-        <StatCard
-          title="Active SKUs"
-          value={skus.filter(s => s.is_active).length}
-          icon={Package}
-          variant="default"
-        />
+      {/* Date Range */}
+      <DateRangePicker from={from} to={to} onChange={handleDateChange} />
+
+      {/* KPI Cards */}
+      <KPICards data={kpiData} />
+
+      {/* Charts Row 1: Revenue + Package Breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <RevenueChart orders={rangedSales} from={from} to={to} />
+        <PackageBreakdownChart orders={rangedShopify} />
       </div>
 
-      {/* Bottom row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ShortageTable items={shortages} />
+      {/* Charts Row 2: Production + Wastage */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ProductionChart runs={rangedRuns} />
+        <WastageChart wastageLogs={rangedWastage} />
+      </div>
 
-        {/* Recent Production Runs */}
-        <div className="bg-card border border-border rounded-xl p-6">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Recent Production Runs</h3>
-          {productionRuns.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground text-sm">
-              <Factory className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
-              No production runs yet
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {productionRuns.map(run => (
-                <div key={run.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                  <div>
-                    <p className="text-sm font-medium">{format(new Date(run.run_date), 'dd MMM yyyy')}</p>
-                    <p className="text-xs text-muted-foreground">{run.total_units_to_produce || 0} units</p>
-                  </div>
-                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                    run.status === 'finalized' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                  }`}>
-                    {run.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Bottom Row: Recent Runs + PO Aging + Shortages */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <RecentRunsList runs={rangedRuns} />
+        <POAgingTable purchaseOrders={purchaseOrders} />
+        <ShortageTable items={shortages} />
       </div>
     </div>
   );
