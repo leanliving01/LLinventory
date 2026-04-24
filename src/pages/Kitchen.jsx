@@ -128,7 +128,7 @@ export default function Kitchen() {
     const isPortioningTask = consumption.length > 0 && consumption[0].is_portioning;
 
     if (isPortioningTask) {
-      // PORTIONING: Auto-calculated consumption, log variance only (no stock return)
+      // PORTIONING: Auto-calculated consumption + packaging stock movements
       const varianceParts = consumption
         .filter(c => c.actual !== c.picked)
         .map(c => `${c.name}: recipe ${c.picked}, calc ${c.actual} ${c.uom} (excess ${Math.round((c.picked - c.actual) * 100) / 100})`);
@@ -136,6 +136,45 @@ export default function Kitchen() {
       let notes = `Plates produced: ${meta.plates_produced || 0}`;
       if (varianceParts.length > 0) notes += ` | Variance: ${varianceParts.join('; ')}`;
       if (meta.variance_note) notes += ` | Note: ${meta.variance_note}`;
+
+      // Create stock movements for packaging components (plates, skin vacuum, sleeves)
+      const packagingItems = consumption.filter(c => {
+        const sku = (c.sku || '').toUpperCase();
+        return sku === 'BPM' || sku === 'SVP' || sku.includes('SLEEVE');
+      });
+
+      for (const item of packagingItems) {
+        const diff = Math.round((item.actual - item.picked) * 100) / 100;
+        if (diff === 0) continue;
+
+        if (diff < 0) {
+          // Fewer plates produced than planned — return unused packaging
+          await base44.entities.StockMovement.create({
+            product_id: item.input_product_id,
+            product_sku: item.sku,
+            product_name: item.name,
+            qty: Math.abs(diff),
+            uom: item.uom,
+            reason: 'return',
+            ref_type: 'production_run',
+            ref_id: activeRun?.id,
+            notes: `[task:${taskId}] Unused packaging returned (planned ${item.picked}, used ${item.actual})`,
+          });
+        } else {
+          // More plates produced than planned — deduct extra packaging
+          await base44.entities.StockMovement.create({
+            product_id: item.input_product_id,
+            product_sku: item.sku,
+            product_name: item.name,
+            qty: diff,
+            uom: item.uom,
+            reason: 'production_consume',
+            ref_type: 'production_run',
+            ref_id: activeRun?.id,
+            notes: `[task:${taskId}] Extra packaging consumed (planned ${item.picked}, used ${item.actual})`,
+          });
+        }
+      }
 
       await base44.entities.ProductionTask.update(taskId, {
         status: 'done',
