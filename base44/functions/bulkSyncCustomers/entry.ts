@@ -1,8 +1,8 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 const SYNC_KEY = 'shopify_customers';
-const PAGE_SIZE = 25;
-const THROTTLE_MS = 250; // delay between each record to avoid Base44 rate limits
+const PAGE_SIZE = 50;
+const THROTTLE_MS = 150; // delay between each record to avoid Base44 rate limits
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
