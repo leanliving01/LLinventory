@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
-import { ShoppingCart } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ShoppingCart, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 import SalesKPICards from '@/components/sales/SalesKPICards';
 import SalesFilters from '@/components/sales/SalesFilters';
 import SalesOrderRow from '@/components/sales/SalesOrderRow';
@@ -9,6 +11,42 @@ import SalesOrderRow from '@/components/sales/SalesOrderRow';
 export default function Sales() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [syncing, setSyncing] = useState(false);
+  const queryClient = useQueryClient();
+
+  const [syncProgress, setSyncProgress] = useState('');
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncProgress('Starting…');
+    let nextPageUrl = '';
+    let totalCreated = 0;
+    let totalUpdated = 0;
+    let totalProcessed = 0;
+
+    try {
+      let hasMore = true;
+      while (hasMore) {
+        const params = { financial_status: 'paid', fulfillment_status: 'unfulfilled' };
+        if (nextPageUrl) params.next_page_url = nextPageUrl;
+        const res = await base44.functions.invoke('bulkSyncOrders', params);
+        const d = res.data;
+        totalCreated += d.created;
+        totalUpdated += d.updated;
+        totalProcessed += d.chunk_size;
+        nextPageUrl = d.next_page_url || '';
+        hasMore = d.has_more;
+        setSyncProgress(`${totalProcessed} orders processed…`);
+      }
+      toast.success(`Synced ${totalProcessed} orders (${totalCreated} new, ${totalUpdated} updated)`);
+      queryClient.invalidateQueries({ queryKey: ['sales-orders'] });
+    } catch (err) {
+      toast.error('Sync failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSyncing(false);
+      setSyncProgress('');
+    }
+  };
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['sales-orders'],
@@ -37,7 +75,14 @@ export default function Sales() {
       <div className="flex items-center gap-3">
         <ShoppingCart className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-bold">Sales Orders</h1>
-        <span className="text-sm text-muted-foreground ml-auto">{orders.length} orders synced</span>
+        <span className="text-sm text-muted-foreground ml-auto mr-3">{orders.length} orders</span>
+        {syncing && syncProgress && (
+          <span className="text-xs text-muted-foreground">{syncProgress}</span>
+        )}
+        <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
+          <RefreshCw className={`w-4 h-4 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? 'Syncing…' : 'Sync Shopify'}
+        </Button>
       </div>
 
       <SalesKPICards orders={orders} />
