@@ -1,14 +1,19 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
+/**
+ * Resumable bulk sync of Shopify customers.
+ * Saves last_cursor (next page URL) so if the function times out,
+ * re-running it picks up where it left off.
+ */
+
 const SYNC_KEY = 'shopify_customers';
 const PAGE_SIZE = 50;
-const THROTTLE_MS = 150; // delay between each record to avoid Base44 rate limits
+const THROTTLE_MS = 120;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function fetchShopifyPage(url, accessToken) {
-  const MAX_RETRIES = 3;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
     const res = await fetch(url, {
       headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
     });
@@ -33,15 +38,13 @@ function computeHash(c) {
   return `${c.first_name}|${c.last_name}|${c.email}|${c.phone}|${c.orders_count}|${c.updated_at}`;
 }
 
-// Retry wrapper for Base44 SDK calls that may hit rate limits
-async function withRetry(fn, maxRetries = 3) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+async function withRetry(fn, label = '') {
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       return await fn();
     } catch (err) {
-      const msg = (err.message || '').toLowerCase();
-      if (msg.includes('rate limit') && attempt < maxRetries) {
-        console.log(`[CustomerSync] Rate limited, retry ${attempt}/${maxRetries} after 2s`);
+      if ((err.message || '').toLowerCase().includes('rate limit') && attempt < 3) {
+        console.log(`[CustomerSync] ${label} rate limited, retry ${attempt}/3`);
         await sleep(2000 * attempt);
         continue;
       }
@@ -65,6 +68,9 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  const body = await req.json().catch(() => ({}));
+  const forceRestart = body.restart === true;
+
   const storeDomain = Deno.env.get('SHOPIFY_STORE_DOMAIN');
   const accessToken = Deno.env.get('SHOPIFY_ACCESS_TOKEN');
   if (!storeDomain || !accessToken) {
@@ -73,22 +79,40 @@ Deno.serve(async (req) => {
 
   const syncState = await getSyncState(base44);
 
-  // If stuck in running for > 10 minutes, force reset
+  // Stale detection: if running > 5 min, assume timed out
   if (syncState.sync_status === 'running') {
     const lastSync = syncState.last_sync_at ? new Date(syncState.last_sync_at) : new Date(0);
     const minutesStale = (Date.now() - lastSync.getTime()) / 60000;
-    if (minutesStale < 10) {
+    if (minutesStale < 5) {
       return Response.json({ ok: true, status: 'already_running' });
     }
-    console.log(`[CustomerSync] Stale running state (${Math.round(minutesStale)}m), resetting`);
+    console.log(`[CustomerSync] Stale running state (${Math.round(minutesStale)}m), resuming`);
   }
 
+  // Determine start URL: resume from cursor or start fresh
+  const baseUrl = `https://${storeDomain}/admin/api/2024-01/customers.json?limit=${PAGE_SIZE}`;
+  let currentUrl;
+  if (!forceRestart && syncState.last_cursor) {
+    currentUrl = syncState.last_cursor;
+    console.log(`[CustomerSync] Resuming from saved cursor`);
+  } else {
+    currentUrl = baseUrl;
+    console.log(`[CustomerSync] Starting fresh sync`);
+  }
+
+  const prevSynced = (!forceRestart && syncState.last_cursor) ? (syncState.records_synced || 0) : 0;
+  const prevFailed = (!forceRestart && syncState.last_cursor) ? (syncState.records_failed || 0) : 0;
+
   await base44.asServiceRole.entities.SyncState.update(syncState.id, {
-    sync_status: 'running', records_synced: 0, records_failed: 0, error_message: '',
+    sync_status: 'running',
+    records_synced: prevSynced,
+    records_failed: prevFailed,
+    error_message: syncState.last_cursor && !forceRestart ? 'Resuming...' : '',
   });
 
-  let currentUrl = `https://${storeDomain}/admin/api/2024-01/customers.json?limit=${PAGE_SIZE}`;
-  let created = 0, updated = 0, unchanged = 0, failed = 0, totalProcessed = 0, pageNum = 0;
+  let created = 0, updated = 0, unchanged = 0, failed = 0;
+  let totalProcessed = prevSynced;
+  let pageNum = 0;
 
   try {
     while (currentUrl) {
@@ -101,42 +125,53 @@ Deno.serve(async (req) => {
         const dataHash = computeHash(customer);
         const addr = customer.default_address || {};
 
-        const customerData = {
-          external_id: customerId,
-          first_name: customer.first_name || '',
-          last_name: customer.last_name || '',
-          email,
-          phone: customer.phone || '',
-          total_spent: parseFloat(customer.total_spent || 0),
-          orders_count: customer.orders_count || 0,
-          tags: customer.tags ? customer.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
-          default_address_city: addr.city || '',
-          default_address_province: addr.province || '',
-          data_hash: dataHash,
-          source_platform: 'shopify',
-          last_synced_at: new Date().toISOString(),
-          raw_payload: JSON.stringify(customer).slice(0, 15000),
-        };
-
         try {
           const existing = await withRetry(() =>
-            base44.asServiceRole.entities.Customer.filter({ external_id: customerId })
+            base44.asServiceRole.entities.Customer.filter({ external_id: customerId }),
+            `filter ${customerId}`
           );
 
           if (existing.length > 0) {
             if (existing[0].data_hash === dataHash) {
               unchanged++;
             } else {
-              const { external_id, ...updateData } = customerData;
               await withRetry(() =>
-                base44.asServiceRole.entities.Customer.update(existing[0].id, updateData)
+                base44.asServiceRole.entities.Customer.update(existing[0].id, {
+                  first_name: customer.first_name || '',
+                  last_name: customer.last_name || '',
+                  email,
+                  phone: customer.phone || '',
+                  total_spent: parseFloat(customer.total_spent || 0),
+                  orders_count: customer.orders_count || 0,
+                  tags: customer.tags ? customer.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+                  default_address_city: addr.city || '',
+                  default_address_province: addr.province || '',
+                  data_hash: dataHash,
+                  last_synced_at: new Date().toISOString(),
+                }),
+                `update ${customerId}`
               );
               updated++;
             }
           } else {
             if (!email) { totalProcessed++; continue; }
             await withRetry(() =>
-              base44.asServiceRole.entities.Customer.create(customerData)
+              base44.asServiceRole.entities.Customer.create({
+                external_id: customerId,
+                first_name: customer.first_name || '',
+                last_name: customer.last_name || '',
+                email,
+                phone: customer.phone || '',
+                total_spent: parseFloat(customer.total_spent || 0),
+                orders_count: customer.orders_count || 0,
+                tags: customer.tags ? customer.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+                default_address_city: addr.city || '',
+                default_address_province: addr.province || '',
+                data_hash: dataHash,
+                source_platform: 'shopify',
+                last_synced_at: new Date().toISOString(),
+              }),
+              `create ${customerId}`
             );
             created++;
           }
@@ -145,28 +180,38 @@ Deno.serve(async (req) => {
           failed++;
         }
         totalProcessed++;
-        // Throttle to avoid Base44 rate limits
         await sleep(THROTTLE_MS);
       }
 
+      // Save cursor so we can resume if timed out
+      const cursorToSave = nextUrl || '';
       await withRetry(() =>
         base44.asServiceRole.entities.SyncState.update(syncState.id, {
-          records_synced: totalProcessed, records_failed: failed,
-          error_message: `Page ${pageNum}: ${created}c ${updated}u ${unchanged}s ${failed}e`,
+          records_synced: totalProcessed,
+          records_failed: prevFailed + failed,
+          error_message: `Page ${pageNum}: +${created}c +${updated}u ${unchanged}s ${failed}e`,
           last_sync_at: new Date().toISOString(),
-        })
+          last_cursor: cursorToSave,
+        }),
+        'progress'
       );
 
       console.log(`[CustomerSync] Page ${pageNum}: ${customers.length} customers. Total: ${totalProcessed}`);
       currentUrl = nextUrl || '';
-      if (currentUrl) await sleep(500);
+      if (currentUrl) await sleep(400);
     }
 
+    // Done — clear cursor and mark idle
     await withRetry(() =>
       base44.asServiceRole.entities.SyncState.update(syncState.id, {
-        sync_status: 'idle', records_synced: totalProcessed, records_failed: failed,
-        error_message: '', last_sync_at: new Date().toISOString(),
-      })
+        sync_status: 'idle',
+        records_synced: totalProcessed,
+        records_failed: prevFailed + failed,
+        error_message: '',
+        last_sync_at: new Date().toISOString(),
+        last_cursor: '',
+      }),
+      'done'
     );
 
     console.log(`[CustomerSync] Complete: ${totalProcessed} (${created}c ${updated}u ${unchanged}s ${failed}e)`);
@@ -181,7 +226,9 @@ Deno.serve(async (req) => {
   } catch (err) {
     console.error(`[CustomerSync FATAL] ${err.message}`);
     await base44.asServiceRole.entities.SyncState.update(syncState.id, {
-      sync_status: 'error', error_message: err.message, last_sync_at: new Date().toISOString(),
+      sync_status: 'error',
+      error_message: err.message,
+      last_sync_at: new Date().toISOString(),
     }).catch(() => {});
     return Response.json({ ok: false, error: err.message }, { status: 500 });
   }
