@@ -1,16 +1,18 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 /**
- * Bulk sync: pulls paid/unfulfilled orders from Shopify REST API,
+ * Bulk sync: pulls orders from Shopify REST API in multi-page batches,
  * processes them through the same logic as shopifyWebhook.
  * 
- * Designed for chunked execution — processes up to ~15 orders per call.
+ * Fetches up to MAX_PAGES pages of PAGE_SIZE orders from Shopify per call
+ * (default: 10 pages × 25 = 250 orders per backend invocation).
  * Frontend calls repeatedly until has_more=false.
  *
  * Params:
- *   since_id: (string) last Shopify order ID processed — for pagination
  *   financial_status: default 'paid'
  *   fulfillment_status: default 'unfulfilled'
+ *   next_page_url: cursor URL for resuming pagination
+ *   max_pages: (optional) how many Shopify pages to fetch per call (default 10, max 10)
  */
 
 // ─── Lifecycle derivation (same as webhook §6) ───
@@ -151,14 +153,38 @@ function decomposeLines(order, packBomIndex) {
   return { parentLines, componentLines, hasUnresolved, decompositionStatus };
 }
 
+// Simple hash for change detection — covers all fields that matter
+function computeOrderHash(order) {
+  const key = [
+    order.id, order.financial_status, order.fulfillment_status,
+    order.cancelled_at || '', order.updated_at || '',
+    (order.line_items || []).map(li => `${li.id}:${li.quantity}:${li.sku}:${li.price}`).join('|'),
+  ].join('::');
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0;
+  }
+  return String(hash);
+}
+
 async function processOrder(base44, order, packBomIndex) {
   const orderId = String(order.id);
+  const dataHash = computeOrderHash(order);
+
+  // Check if order exists and is unchanged
+  const existingOrders = await base44.asServiceRole.entities.SalesOrder.filter({ external_id: orderId });
+  if (existingOrders.length > 0 && existingOrders[0].data_hash === dataHash) {
+    // Order unchanged — skip expensive line processing, just touch last_synced_at
+    await base44.asServiceRole.entities.SalesOrder.update(existingOrders[0].id, { last_synced_at: new Date().toISOString() });
+    return { action: 'unchanged', order_number: existingOrders[0].order_number, lines: 0 };
+  }
+
   const soData = buildSalesOrder(order);
+  soData.data_hash = dataHash;
   const { parentLines, componentLines, hasUnresolved, decompositionStatus } = decomposeLines(order, packBomIndex);
   soData.has_unresolved_skus = hasUnresolved;
   soData.decomposition_status = decompositionStatus;
 
-  const existingOrders = await base44.asServiceRole.entities.SalesOrder.filter({ external_id: orderId });
   let salesOrderId;
   let action;
 
@@ -173,7 +199,7 @@ async function processOrder(base44, order, packBomIndex) {
     action = 'created';
   }
 
-  // Delete + recreate lines
+  // Delete + recreate lines (only when order actually changed)
   const existingLines = await base44.asServiceRole.entities.SalesOrderLine.filter({ sales_order_id: salesOrderId });
   for (const el of existingLines) {
     await base44.asServiceRole.entities.SalesOrderLine.delete(el.id);
@@ -193,6 +219,39 @@ async function processOrder(base44, order, packBomIndex) {
   return { action, order_number: soData.order_number, lines: parentLines.length + componentLines.length };
 }
 
+// ─── Helper: fetch one page from Shopify with retry on 429 ───
+async function fetchShopifyPage(url, accessToken) {
+  const MAX_RETRIES = 3;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch(url, {
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+    });
+
+    if (res.status === 429) {
+      const retryAfter = parseFloat(res.headers.get('retry-after') || '2');
+      console.warn(`[BulkSync] Shopify rate-limited (429), waiting ${retryAfter}s (attempt ${attempt}/${MAX_RETRIES})`);
+      await new Promise(r => setTimeout(r, retryAfter * 1000));
+      continue;
+    }
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Shopify API ${res.status}: ${errText.slice(0, 500)}`);
+    }
+
+    const data = await res.json();
+    const orders = data.orders || [];
+
+    // Extract next page URL from Link header
+    const linkHeader = res.headers.get('link') || '';
+    const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+    const nextUrl = nextMatch ? nextMatch[1] : '';
+
+    return { orders, nextUrl };
+  }
+  throw new Error('Shopify rate limit exceeded after retries');
+}
+
 // ═════════════════════════════════════════
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
@@ -205,7 +264,11 @@ Deno.serve(async (req) => {
   const financialStatus = body.financial_status || 'paid';
   const fulfillmentStatus = body.fulfillment_status || 'unfulfilled';
   const nextPageUrl = body.next_page_url || '';
-  const CHUNK_SIZE = 8;
+  const PAGE_SIZE = 15;
+  // Default 1 page of 25 for initial/transition syncs (new orders or missing hash need full processing).
+  // Once all orders have data_hash, subsequent syncs skip unchanged orders and can handle more pages.
+  // Frontend can pass max_pages up to 5 to go faster once the initial sync is done.
+  const MAX_PAGES = Math.min(parseInt(body.max_pages) || 1, 5);
 
   const storeDomain = Deno.env.get('SHOPIFY_STORE_DOMAIN');
   const accessToken = Deno.env.get('SHOPIFY_ACCESS_TOKEN');
@@ -213,44 +276,41 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'Shopify credentials not set' }, { status: 500 });
   }
 
-  console.log(`[BulkSync] Chunk — financial=${financialStatus}, fulfillment=${fulfillmentStatus}, has_next_url=${!!nextPageUrl}`);
+  console.log(`[BulkSync] Starting — financial=${financialStatus}, fulfillment=${fulfillmentStatus}, max_pages=${MAX_PAGES}, has_next_url=${!!nextPageUrl}`);
 
-  // Load PackBom index
+  // Load PackBom index once for entire batch
   const packBoms = await base44.asServiceRole.entities.PackBom.filter({ active: true });
   const packBomIndex = {};
   for (const pb of packBoms) packBomIndex[pb.package_sku] = pb;
 
-  // Fetch one page of orders — use cursor-based pagination via link header
-  const url = nextPageUrl || `https://${storeDomain}/admin/api/2024-01/orders.json?status=any&financial_status=${financialStatus}&fulfillment_status=${fulfillmentStatus}&limit=${CHUNK_SIZE}`;
+  // ─── Fetch multiple pages from Shopify ───
+  const allOrders = [];
+  let currentUrl = nextPageUrl || `https://${storeDomain}/admin/api/2024-01/orders.json?status=any&financial_status=${financialStatus}&fulfillment_status=${fulfillmentStatus}&limit=${PAGE_SIZE}`;
+  let finalNextUrl = '';
+  let pagesFetched = 0;
 
-  const res = await fetch(url, {
-    headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-  });
+  for (let page = 0; page < MAX_PAGES; page++) {
+    if (!currentUrl) break;
 
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error(`[BulkSync] Shopify API error: ${res.status}`);
-    return Response.json({ error: `Shopify API ${res.status}`, details: errText }, { status: 502 });
+    const { orders, nextUrl } = await fetchShopifyPage(currentUrl, accessToken);
+    allOrders.push(...orders);
+    pagesFetched++;
+    finalNextUrl = nextUrl;
+    console.log(`[BulkSync] Page ${page + 1}: fetched ${orders.length} orders (running total: ${allOrders.length})`);
+
+    if (!nextUrl || orders.length === 0) break;
+    currentUrl = nextUrl;
   }
 
-  const data = await res.json();
-  const orders = data.orders || [];
+  console.log(`[BulkSync] Fetched ${allOrders.length} orders across ${pagesFetched} pages, more_pages=${!!finalNextUrl}`);
 
-  // Extract next page URL from Link header
-  const linkHeader = res.headers.get('link') || '';
-  const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-  const nextUrl = nextMatch ? nextMatch[1] : '';
-
-  console.log(`[BulkSync] Fetched ${orders.length} orders, has_next=${!!nextUrl}`);
-
-  // Process each order (catch per-order errors so one bad order doesn't kill the sync)
+  // ─── Process all fetched orders ───
   const results = [];
   const errors = [];
-  for (const order of orders) {
+  for (const order of allOrders) {
     try {
       const result = await processOrder(base44, order, packBomIndex);
       results.push(result);
-      console.log(`[BulkSync] ${result.action} ${result.order_number} (${result.lines} lines)`);
     } catch (err) {
       const orderName = order.name || `#${order.order_number}` || order.id;
       console.error(`[BulkSync] ERROR processing ${orderName}: ${err.message}`);
@@ -258,21 +318,23 @@ Deno.serve(async (req) => {
     }
   }
 
-  const hasMore = !!nextUrl;
+  const hasMore = !!finalNextUrl;
   const created = results.filter(r => r.action === 'created').length;
   const updated = results.filter(r => r.action === 'updated').length;
+  const unchanged = results.filter(r => r.action === 'unchanged').length;
 
-  console.log(`[BulkSync] Chunk done — ${created} created, ${updated} updated, has_more=${hasMore}`);
+  console.log(`[BulkSync] Batch done — ${created} created, ${updated} updated, ${unchanged} unchanged, ${errors.length} errors, has_more=${hasMore}`);
 
   return Response.json({
     ok: true,
     chunk_size: results.length + errors.length,
+    pages_fetched: pagesFetched,
     created,
     updated,
+    unchanged,
     skipped: errors.length,
-    next_page_url: nextUrl,
+    next_page_url: finalNextUrl,
     has_more: hasMore,
-    results,
-    errors,
+    errors: errors.length > 0 ? errors : undefined,
   });
 });

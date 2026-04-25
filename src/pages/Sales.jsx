@@ -22,23 +22,43 @@ export default function Sales() {
     let nextPageUrl = '';
     let totalCreated = 0;
     let totalUpdated = 0;
+    let totalUnchanged = 0;
+    let totalSkipped = 0;
     let totalProcessed = 0;
+    let batchNum = 0;
 
     try {
       let hasMore = true;
+      let maxPages = 1; // Start conservative, ramp up if orders are mostly unchanged
       while (hasMore) {
-        const params = { financial_status: 'paid', fulfillment_status: 'unfulfilled' };
+        batchNum++;
+        const params = { financial_status: 'paid', fulfillment_status: 'unfulfilled', max_pages: maxPages };
         if (nextPageUrl) params.next_page_url = nextPageUrl;
+        setSyncProgress(`Batch ${batchNum}: fetching orders…`);
         const res = await base44.functions.invoke('bulkSyncOrders', params);
         const d = res.data;
-        totalCreated += d.created;
-        totalUpdated += d.updated;
-        totalProcessed += d.chunk_size;
+        totalCreated += d.created || 0;
+        totalUpdated += d.updated || 0;
+        totalUnchanged += d.unchanged || 0;
+        totalSkipped += d.skipped || 0;
+        totalProcessed += d.chunk_size || 0;
         nextPageUrl = d.next_page_url || '';
         hasMore = d.has_more;
-        setSyncProgress(`${totalProcessed} orders processed…`);
+
+        // Adaptive: if most orders were unchanged (fast), ramp up pages for next batch
+        const changedCount = (d.created || 0) + (d.updated || 0) + (d.skipped || 0);
+        const unchangedCount = d.unchanged || 0;
+        if (unchangedCount > 0 && changedCount <= 5) {
+          maxPages = Math.min(maxPages + 1, 5); // ramp up
+        } else if (changedCount > 15) {
+          maxPages = 1; // slow down — lots of heavy processing
+        }
+
+        setSyncProgress(`${totalProcessed} orders processed (${totalCreated} new, ${totalUpdated} updated, ${totalUnchanged} unchanged)${hasMore ? ' — more…' : ''}`);
       }
-      toast.success(`Synced ${totalProcessed} orders (${totalCreated} new, ${totalUpdated} updated)`);
+      const parts = [`${totalCreated} new`, `${totalUpdated} updated`, `${totalUnchanged} unchanged`];
+      if (totalSkipped) parts.push(`${totalSkipped} skipped`);
+      toast.success(`Synced ${totalProcessed} orders (${parts.join(', ')})`);
       queryClient.invalidateQueries({ queryKey: ['sales-orders'] });
     } catch (err) {
       toast.error('Sync failed: ' + (err.message || 'Unknown error'));
