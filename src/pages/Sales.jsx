@@ -13,9 +13,12 @@ export default function Sales() {
   const [statusFilter, setStatusFilter] = useState('all');
   const queryClient = useQueryClient();
 
-  const { data: orders = [], isLoading } = useQuery({
+  const { data: orders = [], isLoading, error: queryError } = useQuery({
     queryKey: ['sales-orders'],
-    queryFn: () => base44.entities.SalesOrder.list('-order_date', 200),
+    queryFn: () => base44.entities.SalesOrder.list('-order_date', 100),
+    staleTime: 30000, // Don't refetch for 30s to avoid rate limits
+    retry: 2,
+    retryDelay: 3000,
   });
 
   const filtered = useMemo(() => {
@@ -66,7 +69,12 @@ export default function Sales() {
           <span className="hidden xl:block flex-1 ml-3">Items</span>
         </div>
 
-        {isLoading ? (
+        {queryError ? (
+          <div className="text-center py-12 text-destructive text-sm">
+            <p className="font-medium">Failed to load orders</p>
+            <p className="text-muted-foreground mt-1">{queryError.message || 'Rate limit — please wait a few seconds and refresh'}</p>
+          </div>
+        ) : isLoading ? (
           <div className="flex justify-center py-12">
             <div className="w-6 h-6 border-2 border-muted border-t-primary rounded-full animate-spin" />
           </div>

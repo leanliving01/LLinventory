@@ -30,39 +30,48 @@ export default function Dashboard() {
   };
 
   // ── Data fetching ──
+  const queryOpts = { staleTime: 60000, retry: 2, retryDelay: 3000 };
+
   const { data: salesOrders = [] } = useQuery({
     queryKey: ['dash-sales'],
-    queryFn: () => base44.entities.SalesOrder.list('-order_date', 1000),
+    queryFn: () => base44.entities.SalesOrder.list('-order_date', 200),
+    ...queryOpts,
   });
 
   const { data: shopifyOrders = [] } = useQuery({
     queryKey: ['dash-shopify-orders'],
-    queryFn: () => base44.entities.ShopifyOrder.list('-order_date', 1000),
+    queryFn: () => base44.entities.ShopifyOrder.list('-order_date', 200),
+    ...queryOpts,
   });
 
   const { data: purchaseOrders = [] } = useQuery({
     queryKey: ['dash-pos'],
-    queryFn: () => base44.entities.PurchaseOrder.list('-order_date', 500),
+    queryFn: () => base44.entities.PurchaseOrder.list('-order_date', 100),
+    ...queryOpts,
   });
 
   const { data: productionRuns = [] } = useQuery({
     queryKey: ['dash-runs'],
-    queryFn: () => base44.entities.ProductionRun.list('-run_date', 200),
+    queryFn: () => base44.entities.ProductionRun.list('-run_date', 50),
+    ...queryOpts,
   });
 
   const { data: wastageLogs = [] } = useQuery({
     queryKey: ['dash-wastage'],
-    queryFn: () => base44.entities.WastageLog.list('-wastage_date', 200),
+    queryFn: () => base44.entities.WastageLog.list('-wastage_date', 50),
+    ...queryOpts,
   });
 
   const { data: products = [] } = useQuery({
     queryKey: ['dash-products'],
-    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 200),
+    ...queryOpts,
   });
 
   const { data: stockRecords = [] } = useQuery({
     queryKey: ['dash-stock'],
-    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 2000),
+    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 500),
+    ...queryOpts,
   });
 
   // ── Filter to date range ──
