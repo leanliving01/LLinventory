@@ -66,7 +66,7 @@ function SyncRow({ syncKey, syncState, onTrigger, triggering }) {
   );
 }
 
-export default function SyncStatusBanner({ showAll = false }) {
+export default function SyncStatusBanner({ showAll = false, syncKeys: customKeys }) {
   const [triggering, setTriggering] = useState(null);
 
   // Poll SyncState every 3 seconds while any sync is running, otherwise every 15s
@@ -110,9 +110,11 @@ export default function SyncStatusBanner({ showAll = false }) {
     }
   };
 
-  const keys = showAll
-    ? Object.keys(SYNC_CONFIGS)
-    : ['shopify_orders']; // Sales page only shows orders
+  const keys = customKeys
+    ? customKeys
+    : showAll
+      ? Object.keys(SYNC_CONFIGS)
+      : ['shopify_orders'];
 
   const anyRunning = keys.some(k => stateMap[k]?.sync_status === 'running');
 

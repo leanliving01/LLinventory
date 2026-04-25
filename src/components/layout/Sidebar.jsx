@@ -34,7 +34,8 @@ import DarkModeToggle from './DarkModeToggle';
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard },
-  { label: 'Catalog', path: '/catalog', icon: Package },
+  { label: 'Products', path: '/catalog', icon: Package },
+  { label: 'Customers', path: '/customers', icon: Users },
   { label: 'Bill of Materials', path: '/recipes', icon: CookingPot },
   { 
     label: 'Purchasing', icon: Truck,

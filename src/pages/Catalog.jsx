@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Search, Package, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import CatalogDetailDrawer from '@/components/catalog/CatalogDetailDrawer';
+import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
 
 const TYPE_LABELS = {
   raw: 'Raw Material',
@@ -77,12 +78,14 @@ export default function Catalog() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Product Catalog</h1>
+          <h1 className="text-2xl font-bold text-foreground">Products</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {filtered.length} of {products.length} products
           </p>
         </div>
       </div>
+
+      <SyncStatusBanner syncKeys={['shopify_products']} />
 
       {/* Type summary chips */}
       <div className="flex flex-wrap gap-2">

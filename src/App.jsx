@@ -38,6 +38,7 @@ import PurchaseOrders from '@/pages/PurchaseOrders';
 import ReorderReport from '@/pages/ReorderReport';
 import XeroCallback from '@/pages/XeroCallback';
 import Sales from '@/pages/Sales';
+import Customers from '@/pages/Customers';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -79,6 +80,7 @@ const AuthenticatedApp = () => {
         <Route path="/purchasing/orders" element={<PurchaseOrders />} />
         <Route path="/purchasing/reorder" element={<ReorderReport />} />
         <Route path="/sales" element={<Sales />} />
+        <Route path="/customers" element={<Customers />} />
         <Route path="/production" element={<ProductionPlanning />} />
         <Route path="/production/runs" element={<ProductionRuns />} />
         <Route path="/production/run/:runId" element={<ProductionRunDetail />} />
