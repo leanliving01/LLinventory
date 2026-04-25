@@ -48,11 +48,15 @@
     },
     "ref_type": {
       "type": "string",
-      "description": "Reference entity type (e.g. production_run, purchase_order)"
+      "description": "Reference entity type (e.g. production_run, purchase_order, sales_order)"
     },
     "ref_id": {
       "type": "string",
       "description": "Reference entity ID"
+    },
+    "reference_key": {
+      "type": "string",
+      "description": "Idempotency key e.g. order:line:fulfillment \u2014 prevents duplicate movements on webhook replay"
     },
     "unit_cost_at_movement": {
       "type": "number",
