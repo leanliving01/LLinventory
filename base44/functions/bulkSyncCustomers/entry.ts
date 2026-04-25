@@ -1,12 +1,10 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
-/**
- * Bulk sync ALL customers from Shopify → Customer entity.
- * Runs continuously, updates SyncState with progress.
- */
-
 const SYNC_KEY = 'shopify_customers';
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 25;
+const THROTTLE_MS = 250; // delay between each record to avoid Base44 rate limits
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function fetchShopifyPage(url, accessToken) {
   const MAX_RETRIES = 3;
@@ -16,7 +14,7 @@ async function fetchShopifyPage(url, accessToken) {
     });
     if (res.status === 429) {
       const retryAfter = parseFloat(res.headers.get('retry-after') || '2');
-      await new Promise(r => setTimeout(r, retryAfter * 1000));
+      await sleep(retryAfter * 1000);
       continue;
     }
     if (!res.ok) {
@@ -33,6 +31,23 @@ async function fetchShopifyPage(url, accessToken) {
 
 function computeHash(c) {
   return `${c.first_name}|${c.last_name}|${c.email}|${c.phone}|${c.orders_count}|${c.updated_at}`;
+}
+
+// Retry wrapper for Base44 SDK calls that may hit rate limits
+async function withRetry(fn, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const msg = (err.message || '').toLowerCase();
+      if (msg.includes('rate limit') && attempt < maxRetries) {
+        console.log(`[CustomerSync] Rate limited, retry ${attempt}/${maxRetries} after 2s`);
+        await sleep(2000 * attempt);
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 async function getSyncState(base44) {
@@ -57,8 +72,15 @@ Deno.serve(async (req) => {
   }
 
   const syncState = await getSyncState(base44);
+
+  // If stuck in running for > 10 minutes, force reset
   if (syncState.sync_status === 'running') {
-    return Response.json({ ok: true, status: 'already_running' });
+    const lastSync = syncState.last_sync_at ? new Date(syncState.last_sync_at) : new Date(0);
+    const minutesStale = (Date.now() - lastSync.getTime()) / 60000;
+    if (minutesStale < 10) {
+      return Response.json({ ok: true, status: 'already_running' });
+    }
+    console.log(`[CustomerSync] Stale running state (${Math.round(minutesStale)}m), resetting`);
   }
 
   await base44.asServiceRole.entities.SyncState.update(syncState.id, {
@@ -93,22 +115,29 @@ Deno.serve(async (req) => {
           data_hash: dataHash,
           source_platform: 'shopify',
           last_synced_at: new Date().toISOString(),
-          raw_payload: JSON.stringify(customer).slice(0, 50000),
+          raw_payload: JSON.stringify(customer).slice(0, 15000),
         };
 
         try {
-          const existing = await base44.asServiceRole.entities.Customer.filter({ external_id: customerId });
+          const existing = await withRetry(() =>
+            base44.asServiceRole.entities.Customer.filter({ external_id: customerId })
+          );
 
           if (existing.length > 0) {
-            if (existing[0].data_hash === dataHash) { unchanged++; }
-            else {
+            if (existing[0].data_hash === dataHash) {
+              unchanged++;
+            } else {
               const { external_id, ...updateData } = customerData;
-              await base44.asServiceRole.entities.Customer.update(existing[0].id, updateData);
+              await withRetry(() =>
+                base44.asServiceRole.entities.Customer.update(existing[0].id, updateData)
+              );
               updated++;
             }
           } else {
-            if (!email) { totalProcessed++; continue; } // Skip customers without email
-            await base44.asServiceRole.entities.Customer.create(customerData);
+            if (!email) { totalProcessed++; continue; }
+            await withRetry(() =>
+              base44.asServiceRole.entities.Customer.create(customerData)
+            );
             created++;
           }
         } catch (err) {
@@ -116,23 +145,29 @@ Deno.serve(async (req) => {
           failed++;
         }
         totalProcessed++;
+        // Throttle to avoid Base44 rate limits
+        await sleep(THROTTLE_MS);
       }
 
-      await base44.asServiceRole.entities.SyncState.update(syncState.id, {
-        records_synced: totalProcessed, records_failed: failed,
-        error_message: `Page ${pageNum}: ${created}c ${updated}u ${unchanged}s ${failed}e`,
-        last_sync_at: new Date().toISOString(),
-      });
+      await withRetry(() =>
+        base44.asServiceRole.entities.SyncState.update(syncState.id, {
+          records_synced: totalProcessed, records_failed: failed,
+          error_message: `Page ${pageNum}: ${created}c ${updated}u ${unchanged}s ${failed}e`,
+          last_sync_at: new Date().toISOString(),
+        })
+      );
 
       console.log(`[CustomerSync] Page ${pageNum}: ${customers.length} customers. Total: ${totalProcessed}`);
       currentUrl = nextUrl || '';
-      if (currentUrl) await new Promise(r => setTimeout(r, 300));
+      if (currentUrl) await sleep(500);
     }
 
-    await base44.asServiceRole.entities.SyncState.update(syncState.id, {
-      sync_status: 'idle', records_synced: totalProcessed, records_failed: failed,
-      error_message: '', last_sync_at: new Date().toISOString(),
-    });
+    await withRetry(() =>
+      base44.asServiceRole.entities.SyncState.update(syncState.id, {
+        sync_status: 'idle', records_synced: totalProcessed, records_failed: failed,
+        error_message: '', last_sync_at: new Date().toISOString(),
+      })
+    );
 
     console.log(`[CustomerSync] Complete: ${totalProcessed} (${created}c ${updated}u ${unchanged}s ${failed}e)`);
 
@@ -147,7 +182,7 @@ Deno.serve(async (req) => {
     console.error(`[CustomerSync FATAL] ${err.message}`);
     await base44.asServiceRole.entities.SyncState.update(syncState.id, {
       sync_status: 'error', error_message: err.message, last_sync_at: new Date().toISOString(),
-    });
+    }).catch(() => {});
     return Response.json({ ok: false, error: err.message }, { status: 500 });
   }
 });
