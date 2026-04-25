@@ -6,17 +6,29 @@
       "type": "string",
       "description": "FK to SalesOrder"
     },
+    "external_id": {
+      "type": "string",
+      "description": "Shopify line_item ID (string)"
+    },
     "shopify_variant_id": {
       "type": "string"
     },
     "sku": {
-      "type": "string"
+      "type": "string",
+      "description": "SKU from Shopify line_item"
     },
     "name": {
-      "type": "string"
+      "type": "string",
+      "description": "Product name from Shopify"
     },
     "qty": {
-      "type": "number"
+      "type": "number",
+      "description": "Quantity ordered"
+    },
+    "fulfilled_qty": {
+      "type": "number",
+      "default": 0,
+      "description": "Quantity fulfilled so far (for partials)"
     },
     "unit_price": {
       "type": "number"
@@ -27,7 +39,62 @@
     },
     "our_product_id": {
       "type": "string",
-      "description": "FK to Product (matched)"
+      "description": "FK to Product (matched by SKU)"
+    },
+    "is_package_parent": {
+      "type": "boolean",
+      "default": false,
+      "description": "True if this line represents a package (e.g. MenLeaMus15) \u2014 display only, EXCLUDED from committed stock"
+    },
+    "is_package_component": {
+      "type": "boolean",
+      "default": false,
+      "description": "True if this is a decomposed component of a package"
+    },
+    "parent_line_id": {
+      "type": "string",
+      "description": "FK to SalesOrderLine if this is a component child"
+    },
+    "line_type": {
+      "type": "string",
+      "enum": [
+        "goal_package",
+        "low_carb_package",
+        "byo",
+        "standalone",
+        "bundle",
+        "bundle_child",
+        "unknown"
+      ],
+      "default": "unknown",
+      "description": "Classification per \u00a77A decision algorithm"
+    },
+    "portion_weight_g": {
+      "type": "number",
+      "description": "Portion weight from PackBom (330, 300, 260, 240)"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "unresolved_sku",
+        "invalid_byo_lc",
+        "fulfilled",
+        "cancelled"
+      ],
+      "default": "active"
+    },
+    "source_platform": {
+      "type": "string",
+      "default": "shopify"
+    },
+    "last_synced_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "raw_payload": {
+      "type": "string",
+      "description": "JSON dump of Shopify line_item payload (truncated)"
     }
   },
   "required": [

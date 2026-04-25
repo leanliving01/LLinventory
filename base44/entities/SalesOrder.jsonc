@@ -6,6 +6,14 @@
       "type": "string",
       "description": "Shopify order ID \u2014 this IS our order number"
     },
+    "external_id": {
+      "type": "string",
+      "description": "Shopify order ID (string) \u2014 canonical unique key for sync"
+    },
+    "order_number": {
+      "type": "string",
+      "description": "Shopify order name e.g. #28461"
+    },
     "customer_name": {
       "type": "string"
     },
@@ -15,8 +23,36 @@
     "customer_phone": {
       "type": "string"
     },
+    "customer_external_id": {
+      "type": "string",
+      "description": "FK to Customer.external_id"
+    },
     "customer_address": {
       "type": "string"
+    },
+    "shipping_city": {
+      "type": "string"
+    },
+    "shipping_province": {
+      "type": "string"
+    },
+    "shipping_zip": {
+      "type": "string"
+    },
+    "shipping_country": {
+      "type": "string"
+    },
+    "lifecycle_state": {
+      "type": "string",
+      "enum": [
+        "pending_payment",
+        "paid_unfulfilled",
+        "fulfilled",
+        "cancelled",
+        "refunded"
+      ],
+      "default": "pending_payment",
+      "description": "Derived from Shopify financial_status + fulfillment_status + cancelled_at on every webhook \u2014 NEVER cached"
     },
     "status": {
       "type": "string",
@@ -35,7 +71,11 @@
       "enum": [
         "paid",
         "pending",
-        "refunded"
+        "partially_paid",
+        "refunded",
+        "voided",
+        "authorized",
+        "partially_refunded"
       ],
       "default": "pending"
     },
@@ -55,6 +95,34 @@
     "total_amount": {
       "type": "number",
       "default": 0
+    },
+    "subtotal_price": {
+      "type": "number",
+      "default": 0
+    },
+    "total_tax": {
+      "type": "number",
+      "default": 0
+    },
+    "total_discounts": {
+      "type": "number",
+      "default": 0
+    },
+    "currency": {
+      "type": "string",
+      "default": "ZAR"
+    },
+    "cancelled_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "closed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "tags": {
+      "type": "string",
+      "description": "Pipe-delimited tags from Shopify"
     },
     "picking_started_at": {
       "type": "string",
@@ -84,9 +152,47 @@
     "synced_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "data_hash": {
+      "type": "string",
+      "description": "Hash of Shopify payload for change detection"
+    },
+    "source_platform": {
+      "type": "string",
+      "default": "shopify"
+    },
+    "last_synced_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "raw_payload": {
+      "type": "string",
+      "description": "JSON dump of last Shopify payload (truncated to 50KB)"
+    },
+    "has_unresolved_skus": {
+      "type": "boolean",
+      "default": false,
+      "description": "True if any line has an unknown SKU that needs manual classification"
+    },
+    "has_unresolved_fulfillment": {
+      "type": "boolean",
+      "default": false,
+      "description": "True if a fulfillment referenced an unknown SKU"
+    },
+    "decomposition_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "complete",
+        "partial",
+        "error"
+      ],
+      "default": "pending",
+      "description": "Whether PackBOM decomposition ran successfully"
     }
   },
   "required": [
-    "shopify_order_id"
+    "shopify_order_id",
+    "external_id"
   ]
 }

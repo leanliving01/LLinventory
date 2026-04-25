@@ -89,12 +89,12 @@
     "cost_avg": {
       "type": "number",
       "default": 0,
-      "description": "Weighted average cost (ZAR)"
+      "description": "Weighted average cost (ZAR) \u2014 Base44 authoritative"
     },
     "price": {
       "type": "number",
       "default": 0,
-      "description": "Selling price (ZAR)"
+      "description": "Selling price (ZAR) \u2014 Shopify authoritative"
     },
     "min_before_reorder": {
       "type": "number",
@@ -160,6 +160,26 @@
     "cin7_id": {
       "type": "string",
       "description": "Original Cin7 product ID for migration tracking"
+    },
+    "external_id": {
+      "type": "string",
+      "description": "Shopify ID (admin_graphql_api_id or numeric ID as string)"
+    },
+    "data_hash": {
+      "type": "string",
+      "description": "Hash of Shopify payload for change detection"
+    },
+    "source_platform": {
+      "type": "string",
+      "default": "shopify"
+    },
+    "last_synced_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "raw_payload": {
+      "type": "string",
+      "description": "JSON dump of last Shopify payload (truncated to 50KB)"
     }
   },
   "required": [
