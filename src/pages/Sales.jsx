@@ -1,0 +1,80 @@
+import React, { useState, useMemo } from 'react';
+import { base44 } from '@/api/base44Client';
+import { useQuery } from '@tanstack/react-query';
+import { ShoppingCart } from 'lucide-react';
+import SalesKPICards from '@/components/sales/SalesKPICards';
+import SalesFilters from '@/components/sales/SalesFilters';
+import SalesOrderRow from '@/components/sales/SalesOrderRow';
+
+export default function Sales() {
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  const { data: orders = [], isLoading } = useQuery({
+    queryKey: ['sales-orders'],
+    queryFn: () => base44.entities.SalesOrder.list('-order_date', 200),
+  });
+
+  const filtered = useMemo(() => {
+    let list = orders;
+    if (statusFilter !== 'all') {
+      list = list.filter(o => o.lifecycle_state === statusFilter);
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(o =>
+        (o.order_number || '').toLowerCase().includes(q) ||
+        (o.customer_name || '').toLowerCase().includes(q) ||
+        (o.customer_email || '').toLowerCase().includes(q) ||
+        (o.shopify_order_id || '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [orders, statusFilter, search]);
+
+  return (
+    <div className="p-4 md:p-6 space-y-5 max-w-[1400px] mx-auto">
+      <div className="flex items-center gap-3">
+        <ShoppingCart className="w-6 h-6 text-primary" />
+        <h1 className="text-2xl font-bold">Sales Orders</h1>
+        <span className="text-sm text-muted-foreground ml-auto">{orders.length} orders synced</span>
+      </div>
+
+      <SalesKPICards orders={orders} />
+
+      <SalesFilters
+        search={search}
+        onSearchChange={setSearch}
+        statusFilter={statusFilter}
+        onStatusChange={setStatusFilter}
+      />
+
+      <div className="bg-card rounded-xl border overflow-hidden">
+        {/* Table header */}
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b text-xs font-medium text-muted-foreground bg-muted/40">
+          <span className="w-4" />
+          <span className="w-28 shrink-0">Order #</span>
+          <span className="w-40 shrink-0">Customer</span>
+          <span className="w-36 shrink-0">Date & Time</span>
+          <span className="w-auto">Status</span>
+          <span className="w-24 text-right shrink-0 ml-auto">Amount</span>
+          <span className="hidden xl:block flex-1 ml-3">Items</span>
+        </div>
+
+        {isLoading ? (
+          <div className="flex justify-center py-12">
+            <div className="w-6 h-6 border-2 border-muted border-t-primary rounded-full animate-spin" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground text-sm">
+            No orders found
+          </div>
+        ) : (
+          filtered.map(order => (
+            <SalesOrderRow key={order.id} order={order} />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}

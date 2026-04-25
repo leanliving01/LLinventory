@@ -44,6 +44,7 @@ const navItems = [
       { label: 'Reorder Report', path: '/purchasing/reorder', icon: AlertTriangle },
     ]
   },
+  { label: 'Sales', path: '/sales', icon: ShoppingCart },
   { label: 'Production Plan', path: '/production', icon: Factory },
   { label: 'Production Runs', path: '/production/runs', icon: PlayCircle },
   { 
@@ -56,7 +57,7 @@ const navItems = [
       { label: 'Wastage', path: '/stock/wastage', icon: Trash2 },
     ]
   },
-  { label: 'Shopify Sync', path: '/shopify', icon: ShoppingCart },
+  { label: 'Shopify Sync', path: '/shopify', icon: ShoppingCart, settingsOnly: true },
   { label: 'Demand Audit', path: '/demand', icon: Calculator },
   { 
     label: 'Master Data', icon: List,
@@ -123,7 +124,7 @@ export default function Sidebar({ collapsed, onToggle }) {
 
       {/* Nav */}
       <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
+        {navItems.filter(item => !item.settingsOnly).map((item) => {
           if (item.children) {
             const isOpen = openSections[item.label];
             const isChildActive = item.children.some(c => location.pathname === c.path);
