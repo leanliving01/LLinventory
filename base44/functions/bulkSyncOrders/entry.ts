@@ -8,6 +8,26 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 const SYNC_KEY = 'shopify_orders';
 const PAGE_SIZE = 15;
+const THROTTLE_MS = 250;
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Retry wrapper for Base44 SDK calls that may hit rate limits
+async function withRetry(fn, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const msg = (err.message || '').toLowerCase();
+      if (msg.includes('rate limit') && attempt < maxRetries) {
+        console.log(`[BulkSync] Rate limited, retry ${attempt}/${maxRetries}`);
+        await sleep(2000 * attempt);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
 
 // ─── Lifecycle derivation (same as webhook §6) ───
 function deriveLifecycle(order) {
@@ -164,9 +184,13 @@ async function processOrder(base44, order, packBomIndex) {
   const orderId = String(order.id);
   const dataHash = computeOrderHash(order);
 
-  const existingOrders = await base44.asServiceRole.entities.SalesOrder.filter({ external_id: orderId });
+  const existingOrders = await withRetry(() =>
+    base44.asServiceRole.entities.SalesOrder.filter({ external_id: orderId })
+  );
   if (existingOrders.length > 0 && existingOrders[0].data_hash === dataHash) {
-    await base44.asServiceRole.entities.SalesOrder.update(existingOrders[0].id, { last_synced_at: new Date().toISOString() });
+    await withRetry(() =>
+      base44.asServiceRole.entities.SalesOrder.update(existingOrders[0].id, { last_synced_at: new Date().toISOString() })
+    );
     return 'unchanged';
   }
 
@@ -182,29 +206,42 @@ async function processOrder(base44, order, packBomIndex) {
   if (existingOrders.length > 0) {
     salesOrderId = existingOrders[0].id;
     const { shopify_order_id, external_id, ...updateData } = soData;
-    await base44.asServiceRole.entities.SalesOrder.update(salesOrderId, updateData);
+    await withRetry(() =>
+      base44.asServiceRole.entities.SalesOrder.update(salesOrderId, updateData)
+    );
     action = 'updated';
   } else {
-    const created = await base44.asServiceRole.entities.SalesOrder.create(soData);
+    const created = await withRetry(() =>
+      base44.asServiceRole.entities.SalesOrder.create(soData)
+    );
     salesOrderId = created.id;
     action = 'created';
   }
 
   // Delete + recreate lines
-  const existingLines = await base44.asServiceRole.entities.SalesOrderLine.filter({ sales_order_id: salesOrderId });
+  const existingLines = await withRetry(() =>
+    base44.asServiceRole.entities.SalesOrderLine.filter({ sales_order_id: salesOrderId })
+  );
   for (const el of existingLines) {
-    await base44.asServiceRole.entities.SalesOrderLine.delete(el.id);
+    await withRetry(() => base44.asServiceRole.entities.SalesOrderLine.delete(el.id));
+    await sleep(100);
   }
 
   const parentIdMap = {};
   for (const pl of parentLines) {
-    const created = await base44.asServiceRole.entities.SalesOrderLine.create({ ...pl, sales_order_id: salesOrderId });
+    const created = await withRetry(() =>
+      base44.asServiceRole.entities.SalesOrderLine.create({ ...pl, sales_order_id: salesOrderId })
+    );
     parentIdMap[pl.external_id] = created.id;
+    await sleep(100);
   }
   for (const cl of componentLines) {
     const parentB44Id = parentIdMap[cl.parent_line_external_id] || '';
     const { parent_line_external_id, ...lineData } = cl;
-    await base44.asServiceRole.entities.SalesOrderLine.create({ ...lineData, sales_order_id: salesOrderId, parent_line_id: parentB44Id });
+    await withRetry(() =>
+      base44.asServiceRole.entities.SalesOrderLine.create({ ...lineData, sales_order_id: salesOrderId, parent_line_id: parentB44Id })
+    );
+    await sleep(100);
   }
 
   return action;
@@ -257,9 +294,14 @@ Deno.serve(async (req) => {
 
   const syncState = await getSyncState(base44);
 
-  // Prevent double-run
+  // If stuck in running for > 10 minutes, force reset
   if (syncState.sync_status === 'running') {
-    return Response.json({ ok: true, status: 'already_running' });
+    const lastSync = syncState.last_sync_at ? new Date(syncState.last_sync_at) : new Date(0);
+    const minutesStale = (Date.now() - lastSync.getTime()) / 60000;
+    if (minutesStale < 10) {
+      return Response.json({ ok: true, status: 'already_running' });
+    }
+    console.log(`[BulkSync] Stale running state (${Math.round(minutesStale)}m), resetting`);
   }
 
   // Mark running
@@ -292,30 +334,31 @@ Deno.serve(async (req) => {
           failed++;
         }
         totalProcessed++;
+        await sleep(THROTTLE_MS);
       }
 
       // Update progress after each page
-      await base44.asServiceRole.entities.SyncState.update(syncState.id, {
+      await withRetry(() => base44.asServiceRole.entities.SyncState.update(syncState.id, {
         records_synced: totalProcessed,
         records_failed: failed,
         error_message: `Page ${pageNum}: ${created}c ${updated}u ${unchanged}s ${failed}e`,
         last_sync_at: new Date().toISOString(),
-      });
+      }));
 
       console.log(`[BulkSync] Page ${pageNum}: ${orders.length} orders. Total: ${totalProcessed} (${created}c ${updated}u ${unchanged}s ${failed}e)`);
 
       currentUrl = nextUrl || '';
-      if (currentUrl) await new Promise(r => setTimeout(r, 300));
+      if (currentUrl) await sleep(500);
     }
 
     // Done — mark idle
-    await base44.asServiceRole.entities.SyncState.update(syncState.id, {
+    await withRetry(() => base44.asServiceRole.entities.SyncState.update(syncState.id, {
       sync_status: 'idle',
       records_synced: totalProcessed,
       records_failed: failed,
       error_message: '',
       last_sync_at: new Date().toISOString(),
-    });
+    }));
 
     console.log(`[BulkSync] Complete: ${totalProcessed} processed (${created}c ${updated}u ${unchanged}s ${failed}e)`);
 
@@ -332,7 +375,7 @@ Deno.serve(async (req) => {
       sync_status: 'error',
       error_message: err.message,
       last_sync_at: new Date().toISOString(),
-    });
+    }).catch(() => {});
     return Response.json({ ok: false, status: 'error', error: err.message }, { status: 500 });
   }
 });
