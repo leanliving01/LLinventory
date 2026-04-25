@@ -1,84 +1,31 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ShoppingCart, RefreshCw, Search, Calendar } from 'lucide-react';
-import { format } from 'date-fns';
-import { toast } from 'sonner';
+import { Database, Search, Calendar } from 'lucide-react';
 import ShopifyOrdersTable from '@/components/shopify/ShopifyOrdersTable';
-import SyncProgressBar from '@/components/shopify/SyncProgressBar';
+import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
+import ReconPanel from '@/components/shopify/ReconPanel';
 
 export default function ShopifySync() {
-  const queryClient = useQueryClient();
-  const [syncing, setSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState(null); // null | 'fetching' | 'processing' | 'complete'
-  const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 });
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [sortOrder, setSortOrder] = useState('newest');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { data: orders = [], isLoading } = useQuery({
+  const { data: orders = [] } = useQuery({
     queryKey: ['shopifyOrders'],
     queryFn: () => base44.entities.ShopifyOrder.list('-created_date', 500),
   });
 
-  const BATCH_SIZE = 8;
-
-  const handleSync = async () => {
-    setSyncing(true);
-    setSyncStatus('fetching');
-    setSyncProgress({ current: 0, total: 0 });
-
-    // Step 1: Fetch all orders from Shopify
-    const fetchRes = await base44.functions.invoke('syncShopifyOrders', { action: 'fetch' });
-    const allOrders = fetchRes.data.orders || [];
-    const total = allOrders.length;
-
-    if (total === 0) {
-      toast.info('No orders to sync');
-      setSyncing(false);
-      setSyncStatus(null);
-      return;
-    }
-
-    setSyncStatus('processing');
-    setSyncProgress({ current: 0, total });
-
-    // Step 2: Process in small batches
-    let totalCreated = 0, totalUpdated = 0;
-    for (let i = 0; i < total; i += BATCH_SIZE) {
-      const batch = allOrders.slice(i, i + BATCH_SIZE);
-      const res = await base44.functions.invoke('syncShopifyOrders', { action: 'batch', orders: batch });
-      totalCreated += res.data.created || 0;
-      totalUpdated += res.data.updated || 0;
-      setSyncProgress({ current: Math.min(i + BATCH_SIZE, total), total });
-    }
-
-    setSyncStatus('complete');
-    queryClient.invalidateQueries({ queryKey: ['shopifyOrders'] });
-    toast.success(`Synced ${total} orders (${totalCreated} new, ${totalUpdated} updated)`);
-
-    // Hide progress after 3 seconds
-    setTimeout(() => {
-      setSyncing(false);
-      setSyncStatus(null);
-    }, 3000);
-  };
-
-  // Only show paid + unfulfilled orders
   const paidUnfulfilledOrders = useMemo(() => {
     return orders.filter(o => o.paid_status === 'paid' && o.fulfilment_status === 'unfulfilled');
   }, [orders]);
 
-  // Apply filters
   const filteredOrders = useMemo(() => {
     let result = [...paidUnfulfilledOrders];
-
-    // Search filter
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(o =>
@@ -86,147 +33,63 @@ export default function ShopifySync() {
         (o.customer_name || '').toLowerCase().includes(q)
       );
     }
-
-    // Date range filter
-    if (dateFrom) {
-      result = result.filter(o => {
-        if (!o.order_date) return false;
-        return o.order_date.split('T')[0] >= dateFrom;
-      });
-    }
-    if (dateTo) {
-      result = result.filter(o => {
-        if (!o.order_date) return false;
-        return o.order_date.split('T')[0] <= dateTo;
-      });
-    }
-
-    // Sort
+    if (dateFrom) result = result.filter(o => o.order_date && o.order_date.split('T')[0] >= dateFrom);
+    if (dateTo) result = result.filter(o => o.order_date && o.order_date.split('T')[0] <= dateTo);
     result.sort((a, b) => {
       const dateA = new Date(a.order_date || 0);
       const dateB = new Date(b.order_date || 0);
       return sortOrder === 'newest' ? dateB - dateA : dateA - dateB;
     });
-
     return result;
   }, [paidUnfulfilledOrders, searchQuery, dateFrom, dateTo, sortOrder]);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Shopify Orders</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Paid & unfulfilled orders — {filteredOrders.length} of {paidUnfulfilledOrders.length} shown
-          </p>
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <Database className="w-6 h-6 text-primary" />
+          <h1 className="text-2xl font-bold text-foreground">Shopify Sync Hub</h1>
         </div>
-        <Button variant="outline" className="gap-2" onClick={handleSync} disabled={syncing}>
-          <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'Syncing...' : 'Sync Orders'}
-        </Button>
+        <p className="text-sm text-muted-foreground">
+          Sync orders, products, and customers from Shopify. Run reconciliation to check data integrity.
+        </p>
       </div>
 
-      {/* Sync Progress */}
-      {syncStatus && (
-        <SyncProgressBar current={syncProgress.current} total={syncProgress.total} status={syncStatus} />
-      )}
+      {/* All sync types */}
+      <SyncStatusBanner showAll={true} />
 
-      {/* Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
-        <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Orders</p>
-          <p className="text-xl font-bold mt-1">{paidUnfulfilledOrders.length}</p>
+      {/* Reconciliation */}
+      <ReconPanel />
+
+      {/* Legacy ShopifyOrder table for meal-level breakdown */}
+      <div className="bg-card border rounded-xl p-4 space-y-4">
+        <h3 className="text-sm font-semibold">Paid & Unfulfilled Orders ({paidUnfulfilledOrders.length})</h3>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-9" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-muted-foreground" />
+            <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-36" />
+            <span className="text-muted-foreground text-sm">to</span>
+            <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-36" />
+          </div>
+          <Select value={sortOrder} onValueChange={setSortOrder}>
+            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Newest first</SelectItem>
+              <SelectItem value="oldest">Oldest first</SelectItem>
+            </SelectContent>
+          </Select>
+          {(dateFrom || dateTo || searchQuery) && (
+            <Button variant="ghost" size="sm" onClick={() => { setDateFrom(''); setDateTo(''); setSearchQuery(''); }}>Clear</Button>
+          )}
         </div>
-        <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Meals</p>
-          <p className="text-xl font-bold mt-1 text-emerald-600">
-            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.total_meals || 0), 0)}
-          </p>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider text-blue-700">MWL</p>
-          <p className="text-xl font-bold mt-1 text-blue-700">
-            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.mwl_meals || 0), 0)}
-          </p>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider text-pink-700">WWL</p>
-          <p className="text-xl font-bold mt-1 text-pink-700">
-            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.wwl_meals || 0), 0)}
-          </p>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider text-green-700">MLM</p>
-          <p className="text-xl font-bold mt-1 text-green-700">
-            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.mlm_meals || 0), 0)}
-          </p>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider text-orange-700">WLM</p>
-          <p className="text-xl font-bold mt-1 text-orange-700">
-            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.wlm_meals || 0), 0)}
-          </p>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider text-amber-700">LC</p>
-          <p className="text-xl font-bold mt-1 text-amber-700">
-            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.lc_meals || 0), 0)}
-          </p>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider text-purple-700">BYO</p>
-          <p className="text-xl font-bold mt-1 text-purple-700">
-            {paidUnfulfilledOrders.reduce((sum, o) => sum + (o.byo_meals || 0), 0)}
-          </p>
-        </div>
+
+        <ShopifyOrdersTable orders={filteredOrders} />
       </div>
-
-      {/* Filters */}
-      <div className="flex items-center gap-3 flex-wrap bg-card border border-border rounded-xl px-4 py-3">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search order # or customer..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-muted-foreground" />
-          <Input
-            type="date"
-            value={dateFrom}
-            onChange={e => setDateFrom(e.target.value)}
-            className="w-40"
-            placeholder="From"
-          />
-          <span className="text-muted-foreground text-sm">to</span>
-          <Input
-            type="date"
-            value={dateTo}
-            onChange={e => setDateTo(e.target.value)}
-            className="w-40"
-            placeholder="To"
-          />
-        </div>
-        <Select value={sortOrder} onValueChange={setSortOrder}>
-          <SelectTrigger className="w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="newest">Newest first</SelectItem>
-            <SelectItem value="oldest">Oldest first</SelectItem>
-          </SelectContent>
-        </Select>
-        {(dateFrom || dateTo || searchQuery) && (
-          <Button variant="ghost" size="sm" onClick={() => { setDateFrom(''); setDateTo(''); setSearchQuery(''); }}>
-            Clear
-          </Button>
-        )}
-      </div>
-
-      <ShopifyOrdersTable orders={filteredOrders} />
     </div>
   );
 }
