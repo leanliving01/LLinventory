@@ -92,7 +92,7 @@ function buildSalesOrder(order) {
     tags: (order.tags || '').replace(/,/g, '|'),
     source_platform: 'shopify',
     last_synced_at: new Date().toISOString(),
-    raw_payload: JSON.stringify(order).slice(0, 50000),
+    raw_payload: JSON.stringify(order).slice(0, 15000),
   };
 }
 
@@ -117,7 +117,7 @@ function decomposeLines(order, packBomIndex) {
       line_total: parseFloat(li.price || 0) * qty,
       line_type: lineType, source_platform: 'shopify',
       last_synced_at: new Date().toISOString(),
-      raw_payload: JSON.stringify(li).slice(0, 10000),
+      raw_payload: JSON.stringify(li).slice(0, 5000),
       status: 'active', is_package_parent: false, is_package_component: false,
     };
 
@@ -243,12 +243,19 @@ Deno.serve(async (req) => {
 
   console.log(`[BulkSync] Fetched ${orders.length} orders, has_next=${!!nextUrl}`);
 
-  // Process each order
+  // Process each order (catch per-order errors so one bad order doesn't kill the sync)
   const results = [];
+  const errors = [];
   for (const order of orders) {
-    const result = await processOrder(base44, order, packBomIndex);
-    results.push(result);
-    console.log(`[BulkSync] ${result.action} ${result.order_number} (${result.lines} lines)`);
+    try {
+      const result = await processOrder(base44, order, packBomIndex);
+      results.push(result);
+      console.log(`[BulkSync] ${result.action} ${result.order_number} (${result.lines} lines)`);
+    } catch (err) {
+      const orderName = order.name || `#${order.order_number}` || order.id;
+      console.error(`[BulkSync] ERROR processing ${orderName}: ${err.message}`);
+      errors.push({ order: orderName, error: err.message });
+    }
   }
 
   const hasMore = !!nextUrl;
@@ -259,11 +266,13 @@ Deno.serve(async (req) => {
 
   return Response.json({
     ok: true,
-    chunk_size: results.length,
+    chunk_size: results.length + errors.length,
     created,
     updated,
+    skipped: errors.length,
     next_page_url: nextUrl,
     has_more: hasMore,
     results,
+    errors,
   });
 });
