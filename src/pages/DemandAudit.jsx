@@ -16,16 +16,16 @@ export default function DemandAudit() {
   const handlePreview = async () => {
     setLoading(true);
     setPreviewData(null);
-    const res = await base44.functions.invoke('recalculateDemand', { action: 'preview' });
+    const res = await base44.functions.invoke('recalcCommittedDemand', { action: 'preview' });
     setPreviewData(res.data);
     setLoading(false);
   };
 
   const handleCommit = async () => {
-    if (!confirm('This will DELETE all existing demand and replace it with freshly calculated demand. Continue?')) return;
+    if (!confirm('This will recalculate committed stock from all paid & unfulfilled orders. Continue?')) return;
     setCommitting(true);
-    const res = await base44.functions.invoke('recalculateDemand', { action: 'commit' });
-    toast.success(`Demand recalculated: ${res.data.new_demand_created} records from ${res.data.orders_processed} orders`);
+    const res = await base44.functions.invoke('recalcCommittedDemand', { action: 'commit', refresh_audit: true });
+    toast.success(`Committed stock updated: ${res.data.skus_committed} SKUs from ${res.data.orders_with_demand} orders`);
     setCommitting(false);
     // Re-run preview to show committed state
     handlePreview();
@@ -51,16 +51,16 @@ export default function DemandAudit() {
             disabled={committing || !previewData}
           >
             {committing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {committing ? 'Recalculating...' : 'Recalculate & Save'}
+            {committing ? 'Updating stock...' : 'Recalculate & Save'}
           </Button>
         </div>
       </div>
 
       {/* How it works */}
       <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800">
-        <strong>How it works:</strong> For each paid & unfulfilled order, the system reads the meal counts
-        (MWL, MLM, WWL, WLM, LC), matches them to a package product, then explodes the BOM to get per-SKU demand.
-        Click <strong>Preview</strong> to see what would be calculated, then <strong>Recalculate & Save</strong> to commit.
+        <strong>How it works:</strong> Scans all paid & unfulfilled orders and their decomposed line items
+        (from Shopify sync). Aggregates component quantities by SKU to calculate committed stock.
+        Click <strong>Preview</strong> to see the calculation, then <strong>Recalculate & Save</strong> to update StockOnHand.
       </div>
 
       {previewData && (

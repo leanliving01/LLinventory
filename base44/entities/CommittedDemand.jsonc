@@ -9,23 +9,19 @@
     },
     "sku_id": {
       "type": "string",
-      "description": "Reference to SKU ID"
+      "description": "Product SKU code (e.g. BeeandBea-2, MLM3)"
     },
     "sku_display_name": {
       "type": "string",
-      "description": "Denormalized SKU display name"
+      "description": "Human-readable name for display"
     },
     "quantity": {
       "type": "number",
-      "description": "Number of units demanded"
+      "description": "Number of units committed (unfulfilled portion)"
     },
     "source_order_id": {
       "type": "string",
-      "description": "Reference to ShopifyOrder entity ID"
-    },
-    "source_line_id": {
-      "type": "string",
-      "description": "Reference to ShopifyOrderLine entity ID"
+      "description": "FK to SalesOrder entity ID"
     },
     "demand_type": {
       "type": "string",

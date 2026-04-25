@@ -9,7 +9,6 @@ import { toast } from 'sonner';
 import RecommendationTable from '@/components/production/RecommendationTable';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import { groupMealsForProduction, VARIANT_CODES } from '@/lib/productionGrouping';
-import { buildCommittedMap } from '@/lib/demandBridge';
 import { writeAuditLog } from '@/lib/auditLog';
 
 export default function ProductionPlanning() {
@@ -30,25 +29,7 @@ export default function ProductionPlanning() {
     queryFn: () => base44.entities.StockOnHand.list('-updated_date', 1000),
   });
 
-  // Fetch committed demand data
-  const { data: demandRecords = [] } = useQuery({
-    queryKey: ['committed-demand'],
-    queryFn: () => base44.entities.CommittedDemand.list('-created_date', 1000),
-  });
-
-  // Fetch SKU entities for bridging demand → products
-  const { data: skuRecords = [] } = useQuery({
-    queryKey: ['sku-records'],
-    queryFn: () => base44.entities.SKU.filter({ is_active: true }, '-created_date', 500),
-  });
-
-  // Build committed demand map: product_id → total committed qty
-  const committedMap = useMemo(() => {
-    if (!demandRecords.length || !skuRecords.length || !finishedMeals.length) return {};
-    return buildCommittedMap(demandRecords, skuRecords, finishedMeals);
-  }, [demandRecords, skuRecords, finishedMeals]);
-
-  // Build stock lookup: product_id → { qty_on_hand, qty_committed, qty_available }
+  // Build stock lookup directly from StockOnHand — qty_committed is authoritative (set by recalcCommittedDemand)
   const stockMap = useMemo(() => {
     const map = {};
     stockRecords.forEach(s => {
@@ -58,14 +39,8 @@ export default function ProductionPlanning() {
       map[pid].qty_committed += s.qty_committed || 0;
       map[pid].qty_available += s.qty_available || 0;
     });
-    // Overlay real committed demand from Shopify orders
-    for (const [pid, committed] of Object.entries(committedMap)) {
-      if (!map[pid]) map[pid] = { qty_on_hand: 0, qty_committed: 0, qty_available: 0 };
-      map[pid].qty_committed = committed;
-      map[pid].qty_available = map[pid].qty_on_hand - committed;
-    }
     return map;
-  }, [stockRecords, committedMap]);
+  }, [stockRecords]);
 
   // Group meals into rows
   const { goalRows, lowCarbRows } = useMemo(() => {
