@@ -69,8 +69,8 @@ export default function SettingsAlertsTab() {
           <h3 className="text-base font-bold">Email Alerts</h3>
         </div>
         <p className="text-sm text-muted-foreground">
-          The daily low-stock reorder alert is sent to these email addresses every weekday at 6:00 AM.
-          If no addresses are set, it will be sent to all admin users by default.
+          These emails receive the daily low-stock alert (weekdays 6:00 AM) and the nightly Shopify reconciliation summary (3:00 AM).
+          If no addresses are set, both are sent to all admin users by default.
         </p>
 
         {/* Email list */}

@@ -226,6 +226,53 @@ Deno.serve(async (req) => {
 
   console.log(`[Recon] Done: ${mismatches.length} mismatches, ${corrections.length} corrections`);
 
+  // ─── EMAIL SUMMARY ───
+  try {
+    const alertSettings = await base44.asServiceRole.entities.Setting.filter({ key: 'alert_emails' });
+    const emailStr = (alertSettings.length > 0 ? alertSettings[0].value : '') || '';
+    const recipients = emailStr.split(',').map(e => e.trim()).filter(e => e.includes('@'));
+
+    if (recipients.length === 0) {
+      // Fallback: send to all admin users
+      const users = await base44.asServiceRole.entities.User.filter({ role: 'admin' });
+      for (const u of users) {
+        if (u.email) recipients.push(u.email);
+      }
+    }
+
+    if (recipients.length > 0) {
+      const subject = mismatches.length === 0
+        ? `✅ Shopify Reconciliation — All Clear (${scope})`
+        : `⚠️ Shopify Reconciliation — ${mismatches.length} Mismatch${mismatches.length > 1 ? 'es' : ''} Found`;
+
+      const mismatchSummary = mismatches.slice(0, 20).map(m =>
+        `• ${m.entity_type} ${m.external_id}: ${m.field} — Shopify: ${m.shopify_value}, Base44: ${m.base44_value}${m.auto_corrected ? ' (auto-corrected)' : ''}`
+      ).join('\n');
+
+      const body = [
+        `<h2>Shopify Reconciliation Report</h2>`,
+        `<p><strong>Scope:</strong> ${scope}</p>`,
+        `<p><strong>Mismatches found:</strong> ${mismatches.length}</p>`,
+        `<p><strong>Auto-corrected:</strong> ${corrections.length}</p>`,
+        `<p><strong>Unresolved:</strong> ${mismatches.length - corrections.length}</p>`,
+        mismatches.length > 0 ? `<h3>Details (first 20):</h3><pre>${mismatchSummary}</pre>` : '<p>No issues detected. Shopify and Base44 data are in sync.</p>',
+        `<hr/><p style="color:#888;font-size:12px;">Lean Living — Automated Reconciliation · ${new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}</p>`,
+      ].join('\n');
+
+      for (const email of recipients) {
+        await base44.asServiceRole.integrations.Core.SendEmail({
+          to: email,
+          subject,
+          body,
+          from_name: 'Lean Living Sync',
+        });
+      }
+      console.log(`[Recon] Email sent to ${recipients.length} recipient(s)`);
+    }
+  } catch (emailErr) {
+    console.error(`[Recon] Email failed: ${emailErr.message}`);
+  }
+
   return Response.json({
     ok: true,
     scope,
