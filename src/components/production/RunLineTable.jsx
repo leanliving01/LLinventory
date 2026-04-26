@@ -16,10 +16,49 @@ const VARIANCE_REASONS = [
   { value: 'other', label: 'Other' },
 ];
 
+/**
+ * Group lines by base meal name so variants (MLM/MWL/WLM/WWL) appear together.
+ * Strips variant suffixes and sorts groups alphabetically, variants within each group by SKU.
+ */
+function groupLines(lines) {
+  const VARIANT_PREFIXES = ['MLM', 'MWL', 'WLM', 'WWL', 'LC'];
+  
+  const getGroupKey = (line) => {
+    // Strip variant prefix + number from SKU to get base name
+    const sku = line.product_sku || '';
+    for (const prefix of VARIANT_PREFIXES) {
+      if (sku.startsWith(prefix) && /^\d+$/.test(sku.slice(prefix.length))) {
+        return sku.slice(prefix.length); // just the meal number
+      }
+    }
+    // For descriptive MWL SKUs (BeeandBea-2, SweChiChi etc.), use the name cleaned
+    const name = (line.product_name || '').replace(/\s+(MLM|MWL|WLM|WWL)\d*\s*$/i, '').trim();
+    return name.toLowerCase();
+  };
+
+  const groups = {};
+  for (const line of lines) {
+    const key = getGroupKey(line);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(line);
+  }
+
+  // Sort each group by SKU, then flatten
+  const sorted = [];
+  const groupKeys = Object.keys(groups).sort();
+  for (const key of groupKeys) {
+    groups[key].sort((a, b) => (a.product_sku || '').localeCompare(b.product_sku || ''));
+    sorted.push(...groups[key]);
+  }
+  return { sorted, groups, groupKeys };
+}
+
 export default function RunLineTable({ lines, actuals, reasons, onActualChange, onReasonChange, isEditable }) {
   if (lines.length === 0) {
     return <div className="text-center py-8 text-sm text-muted-foreground">No lines in this run</div>;
   }
+
+  const { sorted, groups, groupKeys } = groupLines(lines);
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -39,16 +78,29 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
               {!isEditable && <th className="text-left px-3 py-3 text-xs font-semibold text-muted-foreground uppercase">Reason</th>}
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
-            {lines.map(line => {
+          <tbody>
+            {sorted.map((line, idx) => {
               const actual = actuals[line.id];
               const actualNum = actual !== undefined && actual !== '' ? Number(actual) : null;
               const variance = actualNum !== null ? actualNum - line.planned_qty : null;
               const hasVariance = variance !== null && variance !== 0;
               const reason = reasons?.[line.id] || line.variance_reason || '';
 
+              // Detect if this is the first line in a new meal group
+              const isFirstInGroup = idx === 0 || (() => {
+                const PREFIXES = ['MLM', 'MWL', 'WLM', 'WWL', 'LC'];
+                const getKey = (l) => {
+                  const s = l.product_sku || '';
+                  for (const p of PREFIXES) {
+                    if (s.startsWith(p) && /^\d+$/.test(s.slice(p.length))) return s.slice(p.length);
+                  }
+                  return (l.product_name || '').replace(/\s+(MLM|MWL|WLM|WWL)\d*\s*$/i, '').trim().toLowerCase();
+                };
+                return getKey(sorted[idx]) !== getKey(sorted[idx - 1]);
+              })();
+
               return (
-                <tr key={line.id} className={cn("hover:bg-muted/30 transition-colors", hasVariance && "bg-amber-50/40")}>
+                <tr key={line.id} className={cn("hover:bg-muted/30 transition-colors", hasVariance && "bg-amber-50/40", isFirstInGroup && idx > 0 && "border-t-2 border-primary/20")}>
                   <td className="px-4 py-2.5 text-sm font-medium">{line.product_name}</td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground font-mono">{line.product_sku}</td>
                   <td className="px-3 py-2.5 text-right text-xs tabular-nums">{line.soh_at_plan}</td>
