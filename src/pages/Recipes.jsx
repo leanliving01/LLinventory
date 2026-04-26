@@ -17,12 +17,28 @@ const LAYER_COLORS = {
 
 export default function Recipes() {
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState('');
-  const [layerFilter, setLayerFilter] = useState('all');
   const [selectedBom, setSelectedBom] = useState(null);
   const [page, setPage] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
+  const [createDefaults, setCreateDefaults] = useState(null);
   const PAGE_SIZE = 15;
+
+  // Support URL params: ?search=X&layer=cook or ?create=cook&productId=ID
+  const urlParams = new URLSearchParams(window.location.search);
+  const [search, setSearch] = useState(urlParams.get('search') || '');
+  const [layerFilter, setLayerFilter] = useState(urlParams.get('layer') || 'all');
+
+  // Auto-open Create BOM modal if deep-linked from Product page
+  React.useEffect(() => {
+    const createType = urlParams.get('create');
+    const productId = urlParams.get('productId');
+    if (createType && productId) {
+      setCreateDefaults({ bomType: createType, productId });
+      setShowCreate(true);
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   const { data: boms = [], isLoading } = useQuery({
     queryKey: ['recipes-boms'],
@@ -176,11 +192,13 @@ export default function Recipes() {
 
       {showCreate && (
         <CreateBomModal
+          defaults={createDefaults}
           onCreated={() => {
             setShowCreate(false);
+            setCreateDefaults(null);
             queryClient.invalidateQueries({ queryKey: ['recipes-boms'] });
           }}
-          onCancel={() => setShowCreate(false)}
+          onCancel={() => { setShowCreate(false); setCreateDefaults(null); }}
         />
       )}
     </div>

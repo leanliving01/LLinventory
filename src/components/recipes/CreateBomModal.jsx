@@ -13,8 +13,8 @@ const LAYER_OPTIONS = [
   { value: 'pack', label: 'Pack', desc: 'Meals → Package' },
 ];
 
-export default function CreateBomModal({ onCreated, onCancel }) {
-  const [bomType, setBomType] = useState('cook');
+export default function CreateBomModal({ onCreated, onCancel, defaults }) {
+  const [bomType, setBomType] = useState(defaults?.bomType || 'cook');
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [search, setSearch] = useState('');
   const [yieldQty, setYieldQty] = useState('1');
@@ -26,6 +26,17 @@ export default function CreateBomModal({ onCreated, onCancel }) {
     queryKey: ['products-for-bom-create'],
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
   });
+
+  // Auto-select product from defaults (deep-link from Product page)
+  React.useEffect(() => {
+    if (defaults?.productId && products.length > 0 && !selectedProduct) {
+      const match = products.find(p => p.id === defaults.productId);
+      if (match) {
+        setSelectedProduct(match);
+        setYieldUom(match.stock_uom || '');
+      }
+    }
+  }, [defaults, products]);
 
   const filtered = useMemo(() => {
     const available = products;

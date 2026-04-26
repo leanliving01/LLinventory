@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import ProductEditForm from '@/components/catalog/ProductEditForm';
 import ProductStockTab from '@/components/catalog/ProductStockTab';
 import ProductMovementsTab from '@/components/catalog/ProductMovementsTab';
+import ProductCookBomCard from '@/components/catalog/ProductCookBomCard';
 
 const TABS = [
   { key: 'details', label: 'Details', icon: Settings2 },
@@ -123,13 +124,22 @@ export default function ProductEdit() {
       </div>
 
       {activeTab === 'details' && formData && (
-        <ProductEditForm
-          formData={formData}
-          onChange={setFormData}
-          locations={locations}
-          suppliers={suppliers}
-          categories={categories}
-        />
+        <>
+          <ProductCookBomCard
+            product={formData}
+            onTypeChanged={(newType) => {
+              setFormData(prev => ({ ...prev, type: newType }));
+              queryClient.invalidateQueries({ queryKey: ['product', productId] });
+            }}
+          />
+          <ProductEditForm
+            formData={formData}
+            onChange={setFormData}
+            locations={locations}
+            suppliers={suppliers}
+            categories={categories}
+          />
+        </>
       )}
 
       {activeTab === 'stock' && (
