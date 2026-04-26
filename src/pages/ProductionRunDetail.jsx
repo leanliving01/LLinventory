@@ -103,8 +103,9 @@ export default function ProductionRunDetail() {
       compsByBom[c.bom_id].push(c);
     });
 
-    // Calculate total RAW ingredient needs — drill through Portion → WIP → Cook BOM
-    // WIP items are made during the run from raw ingredients, so check raw stock, not WIP stock.
+    // Calculate total RAW ingredient needs — drill through Portion → Cook BOM
+    // Any ingredient that has a Cook BOM is made during the run (WIP), so check its
+    // raw inputs instead. This works regardless of product type.
     const ingredientNeeds = {};
     for (const line of lines) {
       const portionBom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
@@ -113,27 +114,21 @@ export default function ProductionRunDetail() {
       for (const c of comps) {
         const perUnit = c.qty / (portionBom.yield_qty || 1);
         const total = perUnit * line.planned_qty;
-        const inputProduct = productMap[c.input_product_id];
 
-        if (inputProduct?.type === 'wip_bulk') {
-          // WIP = made during the run. Drill into its Cook BOM for raw ingredients.
-          const cookBom = boms.find(b => b.product_id === inputProduct.id && b.bom_type === 'cook');
-          if (cookBom) {
-            const cookComps = compsByBom[cookBom.id] || [];
-            const cookYield = cookBom.yield_qty || 1;
-            for (const cc of cookComps) {
-              if (cc.is_consumable) continue;
-              const rawTotal = (cc.qty / cookYield) * total;
-              if (!ingredientNeeds[cc.input_product_id]) ingredientNeeds[cc.input_product_id] = 0;
-              ingredientNeeds[cc.input_product_id] += rawTotal;
-            }
-          } else {
-            // No Cook BOM — treat WIP itself as needed
-            if (!ingredientNeeds[c.input_product_id]) ingredientNeeds[c.input_product_id] = 0;
-            ingredientNeeds[c.input_product_id] += total;
+        // Check if this ingredient has a Cook BOM — if so, it's made during the run
+        const cookBom = boms.find(b => b.product_id === c.input_product_id && b.bom_type === 'cook');
+        if (cookBom) {
+          // Drill into Cook BOM — check raw ingredients instead
+          const cookComps = compsByBom[cookBom.id] || [];
+          const cookYield = cookBom.yield_qty || 1;
+          for (const cc of cookComps) {
+            if (cc.is_consumable) continue;
+            const rawTotal = (cc.qty / cookYield) * total;
+            if (!ingredientNeeds[cc.input_product_id]) ingredientNeeds[cc.input_product_id] = 0;
+            ingredientNeeds[cc.input_product_id] += rawTotal;
           }
         } else {
-          // Raw/packaging/other — check directly
+          // No Cook BOM — check stock of this ingredient directly
           if (!ingredientNeeds[c.input_product_id]) ingredientNeeds[c.input_product_id] = 0;
           ingredientNeeds[c.input_product_id] += total;
         }
@@ -204,11 +199,11 @@ export default function ProductionRunDetail() {
       const portionBom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
       if (!portionBom) continue;
 
-      // Find WIP inputs in the Portion BOM → get their Cook BOM operations
+      // Find inputs with Cook BOMs → generate cooking tasks (regardless of product type)
       const portionComps = compsByBom[portionBom.id] || [];
       for (const comp of portionComps) {
         const inputProduct = productMap[comp.input_product_id];
-        if (!inputProduct || inputProduct.type !== 'wip_bulk') continue;
+        if (!inputProduct) continue;
 
         const cookBom = boms.find(b => b.product_id === inputProduct.id && b.bom_type === 'cook');
         if (!cookBom || wipTasksCreated.has(cookBom.id)) continue;
@@ -613,6 +608,7 @@ export default function ProductionRunDetail() {
         <StockGuardrailModal
           shortages={shortages}
           onCancel={() => { setShowGuardrail(false); setStarting(false); }}
+          onOverride={() => { setShowGuardrail(false); doStartRun(); }}
         />
       )}
 
