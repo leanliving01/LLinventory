@@ -1,7 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { X, Package, Tag, MapPin, DollarSign, Barcode, Weight, Info } from 'lucide-react';
+import { toast } from 'sonner';
 
 const TYPE_COLORS = {
   raw: 'bg-amber-100 text-amber-700',
@@ -29,6 +33,31 @@ function Field({ icon: Icon, label, value }) {
   );
 }
 
+function InventoryToggle({ product }) {
+  const queryClient = useQueryClient();
+  const [tracked, setTracked] = useState(product.inventory_tracked !== false);
+  const [saving, setSaving] = useState(false);
+
+  const handleToggle = async (checked) => {
+    setSaving(true);
+    setTracked(checked);
+    await base44.entities.Product.update(product.id, { inventory_tracked: checked });
+    queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
+    toast.success(checked ? 'Now tracking inventory' : 'Marked as non-inventory');
+    setSaving(false);
+  };
+
+  return (
+    <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
+      <div>
+        <p className="text-sm font-medium">Track Inventory</p>
+        <p className="text-xs text-muted-foreground">Commits and deducts stock from Shopify orders</p>
+      </div>
+      <Switch checked={tracked} onCheckedChange={handleToggle} disabled={saving} />
+    </div>
+  );
+}
+
 export default function CatalogDetailDrawer({ product, onClose }) {
   const p = product;
 
@@ -48,14 +77,20 @@ export default function CatalogDetailDrawer({ product, onClose }) {
 
         <div className="p-6 space-y-6">
           {/* Status + Type */}
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Badge className={TYPE_COLORS[p.type] || 'bg-gray-100 text-gray-700'}>
               {p.type?.replace(/_/g, ' ')}
             </Badge>
             <Badge className={p.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}>
               {p.status}
             </Badge>
+            <Badge className={p.inventory_tracked === false ? 'bg-gray-100 text-gray-500' : 'bg-emerald-100 text-emerald-700'}>
+              {p.inventory_tracked === false ? 'Non-inventory' : 'Inventory tracked'}
+            </Badge>
           </div>
+
+          {/* Inventory tracking toggle */}
+          <InventoryToggle product={p} />
 
           {/* Core info */}
           <div className="divide-y divide-border">

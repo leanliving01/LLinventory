@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
   ]);
 
   const productBySku = {};
-  for (const p of allProducts) { if (p.sku) productBySku[p.sku] = p; }
+  for (const p of allProducts) { if (p.sku && p.inventory_tracked !== false) productBySku[p.sku] = p; }
 
   const dispatchId = locations.length > 0 ? locations[0].id : '';
   const dispatchName = locations.length > 0 ? locations[0].name : 'Dispatch';

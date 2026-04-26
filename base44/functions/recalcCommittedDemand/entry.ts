@@ -181,7 +181,7 @@ Deno.serve(async (req) => {
   ]);
 
   const productBySku = {};
-  for (const p of allProducts) { if (p.sku) productBySku[p.sku] = p; }
+  for (const p of allProducts) { if (p.sku && p.inventory_tracked !== false) productBySku[p.sku] = p; }
   const unmatchedSkus = skuList.filter(s => !productBySku[s]);
   if (unmatchedSkus.length > 0) warnings.push(`Products not found for SKUs: ${unmatchedSkus.join(', ')}`);
 

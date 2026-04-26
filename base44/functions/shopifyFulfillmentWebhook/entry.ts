@@ -110,12 +110,12 @@ Deno.serve(async (req) => {
     // Only component lines and standalone lines deduct stock (not package parents)
     const deductibleLines = orderLines.filter(l => !l.is_package_parent && l.status === 'active');
 
-    // Build a SKU → Product lookup
+    // Build a SKU → Product lookup (only inventory-tracked products deduct stock)
     const skus = [...new Set(deductibleLines.map(l => l.sku).filter(Boolean))];
     const productIndex = {};
     for (const sku of skus) {
       const products = await base44.asServiceRole.entities.Product.filter({ sku });
-      if (products.length > 0) productIndex[sku] = products[0];
+      if (products.length > 0 && products[0].inventory_tracked !== false) productIndex[sku] = products[0];
     }
 
     // Get the dispatch location for fulfillment deductions

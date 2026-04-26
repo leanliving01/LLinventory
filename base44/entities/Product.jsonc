@@ -30,6 +30,11 @@
       ],
       "description": "Product type"
     },
+    "inventory_tracked": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether this product commits and deducts stock from Shopify orders. Set to false for non-inventory items like delivery fees, promo resets, etc."
+    },
     "category": {
       "type": "string",
       "description": "Free text category from Cin7"

@@ -168,13 +168,14 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Resolve product
+        // Resolve product (only inventory-tracked products create return movements)
         const products = await base44.asServiceRole.entities.Product.filter({ sku: lr.sku });
         if (products.length === 0) {
           unresolvedSkus.push(lr.sku);
           continue;
         }
         const product = products[0];
+        if (product.inventory_tracked === false) continue;
 
         await base44.asServiceRole.entities.StockMovement.create({
           product_id: product.id,

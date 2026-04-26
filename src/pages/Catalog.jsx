@@ -143,6 +143,7 @@ export default function Catalog() {
                 <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Cost (ZAR)</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Price (ZAR)</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">UoM</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Inventory</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -167,11 +168,16 @@ export default function Catalog() {
                     {p.price ? `R ${p.price.toFixed(2)}` : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-sm text-center">{p.stock_uom}</td>
+                  <td className="px-4 py-2.5 text-center">
+                    <Badge className={p.inventory_tracked === false ? 'bg-gray-100 text-gray-500 text-[10px]' : 'bg-emerald-100 text-emerald-700 text-[10px]'}>
+                      {p.inventory_tracked === false ? 'No' : 'Yes'}
+                    </Badge>
+                  </td>
                 </tr>
               ))}
               {pageProducts.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     {products.length === 0 ? 'No products imported yet. Go to Settings → Cin7 Import to get started.' : 'No products match your filters.'}
                   </td>
                 </tr>
