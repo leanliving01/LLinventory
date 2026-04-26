@@ -1,0 +1,35 @@
+{
+  "name": "UnitOfMeasure",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "description": "Short code displayed in dropdowns and stock records (e.g. m, kg, pcs)"
+    },
+    "name": {
+      "type": "string",
+      "description": "Full name (e.g. Metres, Kilograms, Pieces)"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "weight",
+        "volume",
+        "length",
+        "count",
+        "other"
+      ],
+      "description": "Measurement category for grouping"
+    },
+    "is_default": {
+      "type": "boolean",
+      "default": false,
+      "description": "System default units that cannot be deleted"
+    }
+  },
+  "required": [
+    "code",
+    "name",
+    "category"
+  ]
+}

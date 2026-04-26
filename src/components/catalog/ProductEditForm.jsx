@@ -4,6 +4,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import UomSelect from '@/components/shared/UomSelect';
 
 const PRODUCT_TYPES = [
   { value: 'raw', label: 'Raw Material' },
@@ -17,8 +18,6 @@ const PRODUCT_TYPES = [
   { value: 'bundle', label: 'Bundle' },
   { value: 'service', label: 'Service' },
 ];
-
-const UOM_OPTIONS = ['g', 'kg', 'ml', 'L', 'pcs', 'box'];
 
 const PICK_CATEGORIES = [
   'Meats', 'Vegetables', 'Starches', 'Spices & Seasoning',
@@ -113,12 +112,7 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
       <Section title="Units of Measure">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <FormField label="Stock UoM" hint="Unit used in inventory">
-            <Select value={formData.stock_uom || ''} onValueChange={v => set('stock_uom', v)}>
-              <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-              <SelectContent>
-                {UOM_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <UomSelect value={formData.stock_uom || ''} onValueChange={v => set('stock_uom', v)} placeholder="Select unit" />
           </FormField>
           <FormField label="Purchase UoM" hint="e.g. Box of 10kg">
             <Input value={formData.purchase_uom || ''} onChange={e => set('purchase_uom', e.target.value)} />
