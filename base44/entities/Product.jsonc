@@ -190,6 +190,28 @@
     "raw_payload": {
       "type": "string",
       "description": "JSON dump of last Shopify payload (truncated to 50KB)"
+    },
+    "cogs_account": {
+      "type": "string",
+      "default": "403",
+      "description": "Xero COGS account code (default 403 \u2014 Cost of Goods Sold)"
+    },
+    "inventory_account": {
+      "type": "string",
+      "default": "715",
+      "description": "Xero Inventory Asset account code (default 715)"
+    },
+    "revenue_account": {
+      "type": "string",
+      "description": "Xero Revenue account code (e.g. 200 \u2014 for sellable products)"
+    },
+    "purchase_tax_rule": {
+      "type": "string",
+      "description": "Tax rule for purchases (e.g. Standard Rate Purchases)"
+    },
+    "sale_tax_rule": {
+      "type": "string",
+      "description": "Tax rule for sales (for sellable items)"
     }
   },
   "required": [

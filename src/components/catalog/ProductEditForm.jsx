@@ -208,6 +208,29 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
         </div>
       </Section>
 
+      {/* ── Accounting / Xero ── */}
+      <Section title="Accounting (Xero)">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <FormField label="COGS Account" hint="Xero account code for Cost of Goods Sold (default 403)">
+            <Input value={formData.cogs_account || ''} onChange={e => set('cogs_account', e.target.value)} placeholder="403" className="font-mono" />
+          </FormField>
+          <FormField label="Inventory Account" hint="Xero Inventory Asset account code (default 715)">
+            <Input value={formData.inventory_account || ''} onChange={e => set('inventory_account', e.target.value)} placeholder="715" className="font-mono" />
+          </FormField>
+          <FormField label="Revenue Account" hint="Xero Revenue account (e.g. 200) — for sellable products">
+            <Input value={formData.revenue_account || ''} onChange={e => set('revenue_account', e.target.value)} placeholder="200" className="font-mono" />
+          </FormField>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <FormField label="Purchase Tax Rule" hint="e.g. Standard Rate Purchases">
+            <Input value={formData.purchase_tax_rule || ''} onChange={e => set('purchase_tax_rule', e.target.value)} placeholder="Standard Rate Purchases" />
+          </FormField>
+          <FormField label="Sale Tax Rule" hint="For sellable items (meals, supplements)">
+            <Input value={formData.sale_tax_rule || ''} onChange={e => set('sale_tax_rule', e.target.value)} placeholder="" />
+          </FormField>
+        </div>
+      </Section>
+
       {/* ── Notes ── */}
       <Section title="Notes">
         <FormField label="Description">
