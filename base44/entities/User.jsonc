@@ -6,9 +6,11 @@
       "type": "string",
       "enum": [
         "admin",
+        "ops_manager",
         "kitchen_manager",
         "kitchen",
         "stock_controller",
+        "picker_packer",
         "viewer"
       ],
       "default": "viewer",

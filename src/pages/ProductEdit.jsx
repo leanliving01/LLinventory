@@ -33,6 +33,13 @@ export default function ProductEdit() {
     queryFn: () => base44.entities.Supplier.list(),
   });
 
+  const { data: allProducts = [] } = useQuery({
+    queryKey: ['catalog-products'],
+    queryFn: () => base44.entities.Product.list('-created_date', 500),
+  });
+
+  const categories = [...new Set(allProducts.map(p => p.category).filter(Boolean))].sort();
+
   useEffect(() => {
     if (product && !formData) {
       setFormData({ ...product });
@@ -91,6 +98,7 @@ export default function ProductEdit() {
           onChange={setFormData}
           locations={locations}
           suppliers={suppliers}
+          categories={categories}
         />
       )}
     </div>

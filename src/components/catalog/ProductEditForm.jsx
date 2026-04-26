@@ -45,7 +45,7 @@ function FormField({ label, children, hint }) {
   );
 }
 
-export default function ProductEditForm({ formData, onChange, locations, suppliers }) {
+export default function ProductEditForm({ formData, onChange, locations, suppliers, categories = [] }) {
   const set = (field, value) => onChange({ ...formData, [field]: value });
 
   return (
@@ -71,7 +71,13 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
             </Select>
           </FormField>
           <FormField label="Category">
-            <Input value={formData.category || ''} onChange={e => set('category', e.target.value)} placeholder="Free text category" />
+            <Select value={formData.category || 'none'} onValueChange={v => set('category', v === 'none' ? '' : v)}>
+              <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— None —</SelectItem>
+                {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </FormField>
           <FormField label="Pick Category">
             <Select value={formData.pick_category || ''} onValueChange={v => set('pick_category', v)}>
