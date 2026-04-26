@@ -24,6 +24,7 @@ import Wastage from '@/pages/Wastage';
 import Settings from '@/pages/Settings';
 import SettingsPage from '@/pages/SettingsPage';
 import Catalog from '@/pages/Catalog';
+import ProductEdit from '@/pages/ProductEdit';
 import Recipes from '@/pages/Recipes';
 import Suppliers from '@/pages/Suppliers';
 import StockTransfer from '@/pages/StockTransfer';
@@ -75,6 +76,7 @@ const AuthenticatedApp = () => {
       <Route element={<AppLayout />}>
         <Route path="/" element={isKitchenUser ? <Navigate to="/kitchen" replace /> : <Dashboard />} />
         <Route path="/catalog" element={<Catalog />} />
+        <Route path="/catalog/:productId" element={<ProductEdit />} />
         <Route path="/recipes" element={<Recipes />} />
         <Route path="/suppliers" element={<Suppliers />} />
         <Route path="/purchasing/orders" element={<PurchaseOrders />} />

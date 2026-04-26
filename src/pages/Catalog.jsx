@@ -1,12 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Search, Package, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import CatalogDetailDrawer from '@/components/catalog/CatalogDetailDrawer';
 import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
 
 const TYPE_LABELS = {
@@ -39,7 +39,7 @@ export default function Catalog() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('active');
-  const [selectedProduct, setSelectedProduct] = useState(null);
+  const navigate = useNavigate();
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 15;
 
@@ -151,7 +151,7 @@ export default function Catalog() {
                 <tr
                   key={p.id}
                   className="hover:bg-muted/30 transition-colors cursor-pointer"
-                  onClick={() => setSelectedProduct(p)}
+                  onClick={() => navigate(`/catalog/${p.id}`)}
                 >
                   <td className="px-4 py-2.5 text-sm font-mono font-medium">{p.sku}</td>
                   <td className="px-4 py-2.5 text-sm">{p.name}</td>
@@ -200,10 +200,7 @@ export default function Catalog() {
         </div>
       )}
 
-      {/* Detail drawer */}
-      {selectedProduct && (
-        <CatalogDetailDrawer product={selectedProduct} onClose={() => setSelectedProduct(null)} />
-      )}
+
     </div>
   );
 }
