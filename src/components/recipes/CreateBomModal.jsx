@@ -11,6 +11,7 @@ const LAYER_OPTIONS = [
   { value: 'cook', label: 'Cook', desc: 'Raw materials → Bulk cooked (WIP)' },
   { value: 'portion', label: 'Portion', desc: 'Bulk cooked → Portioned meal' },
   { value: 'pack', label: 'Pack', desc: 'Meals → Package' },
+  { value: 'prep', label: 'Prep', desc: 'Pre-processing step (e.g. prep work)' },
 ];
 
 export default function CreateBomModal({ onCreated, onCancel, defaults }) {

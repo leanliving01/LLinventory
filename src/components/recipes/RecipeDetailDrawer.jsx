@@ -11,16 +11,18 @@ import { cn } from '@/lib/utils';
 import AddComponentModal from '@/components/recipes/AddComponentModal';
 import OperationsEditor from '@/components/recipes/OperationsEditor';
 
-const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack' };
+const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack', prep: 'Prep' };
 const LAYER_COLORS = {
   cook: 'bg-orange-100 text-orange-700',
   portion: 'bg-green-100 text-green-700',
   pack: 'bg-blue-100 text-blue-700',
+  prep: 'bg-purple-100 text-purple-700',
 };
 const LAYER_DESC = {
   cook: 'Raw materials → Bulk cooked (WIP)',
   portion: 'Bulk cooked → Portioned meal',
   pack: 'Meals → Package',
+  prep: 'Pre-processing step (e.g. prep work)',
 };
 
 export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
@@ -200,6 +202,7 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
                 <SelectItem value="cook">Cook</SelectItem>
                 <SelectItem value="portion">Portion</SelectItem>
                 <SelectItem value="pack">Pack</SelectItem>
+                <SelectItem value="prep">Prep</SelectItem>
               </SelectContent>
             </Select>
             {bomType !== bom.bom_type && (

@@ -19,9 +19,10 @@
       "enum": [
         "cook",
         "portion",
-        "pack"
+        "pack",
+        "prep"
       ],
-      "description": "Cook (raw\u2192WIP), Portion (WIP\u2192meal), Pack (meals\u2192package)"
+      "description": "Cook (raw\u2192WIP), Portion (WIP\u2192meal), Pack (meals\u2192package), Prep (pre-processing step)"
     },
     "yield_qty": {
       "type": "number",

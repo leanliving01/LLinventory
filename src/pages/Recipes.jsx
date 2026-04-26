@@ -8,11 +8,12 @@ import { Search, X, ChevronRight, Plus } from 'lucide-react';
 import RecipeDetailDrawer from '@/components/recipes/RecipeDetailDrawer';
 import CreateBomModal from '@/components/recipes/CreateBomModal';
 
-const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack' };
+const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack', prep: 'Prep' };
 const LAYER_COLORS = {
   cook: 'bg-orange-100 text-orange-700',
   portion: 'bg-green-100 text-green-700',
   pack: 'bg-blue-100 text-blue-700',
+  prep: 'bg-purple-100 text-purple-700',
 };
 
 export default function Recipes() {
@@ -82,7 +83,7 @@ export default function Recipes() {
 
       {/* Layer chips */}
       <div className="flex flex-wrap gap-2">
-        {['cook', 'portion', 'pack'].map(layer => (
+        {['cook', 'portion', 'pack', 'prep'].map(layer => (
           <button
             key={layer}
             onClick={() => { setLayerFilter(layerFilter === layer ? 'all' : layer); setPage(0); }}
