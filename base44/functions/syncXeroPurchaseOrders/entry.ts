@@ -372,7 +372,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Bulk-create new bills (batches of 25)
+    // Bulk-create new bills (batches of 25) then fetch line items individually
     for (let i = 0; i < newBills.length; i += 25) {
       const chunk = newBills.slice(i, i + 25);
       const poRecords = chunk.map(({ bill, supplier }) => ({
@@ -395,11 +395,37 @@ Deno.serve(async (req) => {
       const created = await base44.asServiceRole.entities.PurchaseOrder.bulkCreate(poRecords);
       billsCreated += created.length;
 
-      // Create lines for each new PO — bills from the list endpoint don't include
-      // full line items, so we store a placeholder. Detailed lines can be fetched
-      // per-bill if needed later.
       for (const newPO of created) {
         existingByXeroId[newPO.xero_po_id] = newPO;
+      }
+
+      // Fetch line items for each new bill (individual endpoint includes LineItems)
+      for (const newPO of created) {
+        try {
+          const invRes = await xeroGet(
+            `https://api.xero.com/api.xro/2.0/Invoices/${newPO.xero_po_id}`,
+            accessToken, tenantId
+          );
+          const inv = invRes.Invoices?.[0];
+          if (inv?.LineItems?.length > 0) {
+            const lineRecords = inv.LineItems.map(xl => ({
+              purchase_order_id: newPO.id,
+              product_id: 'unmatched',
+              product_name: xl.Description || xl.ItemCode || 'Unknown',
+              product_sku: xl.ItemCode || '',
+              ordered_qty: xl.Quantity || 1,
+              received_qty: 0,
+              unit_cost: xl.UnitAmount || 0,
+              uom: xl.UnitOfMeasure || 'pcs',
+              line_total: xl.LineAmount || 0,
+              tax_rule: xl.TaxType || '',
+            }));
+            await base44.asServiceRole.entities.PurchaseOrderLine.bulkCreate(lineRecords);
+            billLinesCreated += lineRecords.length;
+          }
+        } catch (e) {
+          console.warn(`Failed to fetch lines for ${newPO.po_number}: ${e.message}`);
+        }
       }
     }
 
