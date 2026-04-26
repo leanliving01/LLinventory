@@ -42,13 +42,26 @@ async function getXeroTokens(base44) {
 
 function parseUomFromDescription(description) {
   if (!description) return null;
-  const d = description.toUpperCase();
-  if (/P\/KG|\/KG|PER\s*KG|PER\s*KILO/i.test(d)) return 'kg';
-  if (/P\/G\b|\/G\b|PER\s*GRAM/i.test(d)) return 'g';
-  if (/P\/L\b|\/L\b|PER\s*LIT/i.test(d)) return 'L';
-  if (/P\/ML|\/ML|PER\s*ML/i.test(d)) return 'ml';
-  if (/\bEACH\b/i.test(d)) return 'pcs';
-  if (/\d+\s*[xX]\s*\d+\s*(kg|g|l|ml)\b/i.test(d)) return 'box';
+  const D = description.toUpperCase();
+  if (/TAPE|LABEL|STICKER|CARTON|OUTER|PRINTED|LIDS|SIDES|TOPS|BOTTOMS/i.test(D)) return null;
+  if (/\bEACH\b/i.test(D)) return 'pcs';
+  if (/P['\u2019\/]KG|P\/KG|\/KG\b|PER\s*KG|PER\s*KILO/i.test(D)) return 'kg';
+  if (/P\/G\b|\/G\b|PER\s*GRAM/i.test(D)) return 'g';
+  if (/P\/L\b|\/L\b|PER\s*LIT/i.test(D)) return 'L';
+  if (/P\/ML|\/ML|PER\s*ML/i.test(D)) return 'ml';
+  if (/\d+\s*[xX]\s*\d+\s*(KG|G|L|ML)\b/i.test(D)) return 'box';
+  if (/\d+\s*LT\b|\d+\s*LITRE/i.test(D)) return 'L';
+  if (/\b\d+(\.\d+)?\s*KG\b/i.test(D)) return 'kg';
+  if (/\b\d+\s*GR\b/i.test(D)) return 'kg';
+  const MEAT = ['MINCE','RUMP','FILLET','STEAK','BEEF','CHICKEN BREAST','CHICKEN THIGH','HAKE','SALMON','FISH','LAMB','PORK','BACON'];
+  for (const kw of MEAT) { if (D.includes(kw)) return 'kg'; }
+  const PRODUCE = ['MUSHROOM','BABY MARROW','SWEET POTATO','BUTTERNUT','CABBAGE','SPINACH','BROCCOLI','CAULIFLOWER','TOMATO','GREEN BEANS','CORN'];
+  for (const kw of PRODUCE) { if (D.includes(kw)) return 'kg'; }
+  if (/\bLOOSE\b/i.test(D)) return 'kg';
+  const BULK = ['SPICE','SEASONING','CHEESE','YOGHURT','YOGURT','FLOUR','RICE','PASTA','OATS','HONEY','STOCK'];
+  for (const kw of BULK) { if (D.includes(kw)) return 'kg'; }
+  if (/\bOIL\b/i.test(D)) return 'L';
+  if (/\bBOX\b/i.test(D)) return 'box';
   return null;
 }
 

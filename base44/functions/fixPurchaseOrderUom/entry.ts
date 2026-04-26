@@ -193,7 +193,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const maxUpdates = body.max_updates || 150; // Cap per run to avoid timeouts
+    const maxUpdates = body.max_updates || 80; // Cap per run to avoid timeouts
     let updated = 0;
     const changes = [];
     let hitCap = false;
@@ -205,9 +205,9 @@ Deno.serve(async (req) => {
         await base44.asServiceRole.entities.PurchaseOrderLine.update(line.id, { uom: newUom });
         changes.push({ product_name: line.product_name, new_uom: newUom });
         updated++;
-        // Throttle: pause every 8 updates
-        if (updated > 0 && updated % 8 === 0) {
-          await new Promise(r => setTimeout(r, 2500));
+        // Throttle: pause every 5 updates
+        if (updated > 0 && updated % 5 === 0) {
+          await new Promise(r => setTimeout(r, 5000));
         }
       }
       if (hitCap) break;
