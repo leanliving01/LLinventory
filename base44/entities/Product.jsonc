@@ -35,6 +35,16 @@
       "default": true,
       "description": "Whether this product commits and deducts stock from Shopify orders."
     },
+    "sellable": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this product is sold to customers (finished meals, supplements, packages). Raw materials are typically not sellable."
+    },
+    "purchasable": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether this product is bought from suppliers. Made-in-house items (WIP, finished meals) are typically not purchasable."
+    },
     "category": {
       "type": "string",
       "description": "Free text category from Cin7"

@@ -106,6 +106,22 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
           </div>
           <Switch checked={formData.inventory_tracked !== false} onCheckedChange={v => set('inventory_tracked', v)} />
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Sellable</p>
+              <p className="text-xs text-muted-foreground">Sold to customers (meals, supplements, packages)</p>
+            </div>
+            <Switch checked={formData.sellable === true} onCheckedChange={v => set('sellable', v)} />
+          </div>
+          <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Purchasable</p>
+              <p className="text-xs text-muted-foreground">Bought from suppliers (raw materials, packaging)</p>
+            </div>
+            <Switch checked={formData.purchasable !== false} onCheckedChange={v => set('purchasable', v)} />
+          </div>
+        </div>
       </Section>
 
       {/* ── Units of Measure ── */}
