@@ -24,31 +24,19 @@ const PACKAGE_COLORS = {
 
 const DEFAULT_PKG = { bg: 'bg-muted/30', border: 'border-border', badge: 'bg-muted text-muted-foreground', label: '', text: '' };
 
-/* ── Detect package type from SKU prefix ── */
-function detectPackage(sku) {
-  if (!sku) return 'unknown';
+/* ── Detect package type from SKU + product category ── */
+function detectPackage(sku, productId, categoryMap) {
+  if (!sku) return 'mwl'; // Default to MWL/BYO (blue)
   const s = sku.toUpperCase();
-  // Portion SKUs: MLM3, MWL5, WWL2, WLM4, LC-XXX, SCP (Low Carb)
+  // Prefixed SKUs: MLM3, WWL2, WLM4 etc.
   if (s.startsWith('MLM'))  return 'mlm';
-  if (s.startsWith('MWL'))  return 'mwl';
   if (s.startsWith('WWL'))  return 'wwl';
   if (s.startsWith('WLM'))  return 'wlm';
-  if (s.startsWith('LC') || s.startsWith('SCP')) return 'lc';
-  if (s.startsWith('BYO'))  return 'byo';
-  // Fallback: check if name has clues
-  return 'unknown';
-}
-
-function detectPackageFromName(name) {
-  if (!name) return 'unknown';
-  const n = name.toLowerCase();
-  if (n.includes("men's lean muscle") || n.includes('mlm'))  return 'mlm';
-  if (n.includes("men's weight loss") || n.includes('mwl'))  return 'mwl';
-  if (n.includes("women's weight loss") || n.includes('wwl')) return 'wwl';
-  if (n.includes("women's lean muscle") || n.includes('wlm')) return 'wlm';
-  if (n.includes('low carb') || n.includes('lc'))             return 'lc';
-  if (n.includes('build your own') || n.includes('byo'))      return 'byo';
-  return 'unknown';
+  // Check product category for Smart Carb / Low Carb meals
+  const cat = categoryMap?.[productId];
+  if (cat && (cat.toLowerCase().includes('smart carb') || cat.toLowerCase().includes('low carb'))) return 'lc';
+  // Everything else is MWL/BYO (primary meal SKUs like BeeandBea-2, CotPie, ChiCur etc.)
+  return 'mwl';
 }
 
 /* ── Extract base meal name for grouping (strip prefix like MLM3, MWL5 etc.) ── */
@@ -59,7 +47,7 @@ function baseMealName(task) {
 }
 
 /* ── Group tasks by base meal, then sort so same-meal tasks are adjacent ── */
-function groupAndSortTasks(tasks) {
+function groupAndSortTasks(tasks, categoryMap) {
   // Group by meal_name to cluster same-meal-different-packages together
   const groups = {};
   tasks.forEach(task => {
@@ -69,15 +57,15 @@ function groupAndSortTasks(tasks) {
   });
 
   // Sort groups alphabetically by meal name, then within each group sort by package type
-  const PKG_ORDER = { mlm: 0, mwl: 1, byo: 2, wwl: 3, wlm: 4, lc: 5, unknown: 6 };
+  const PKG_ORDER = { mlm: 0, mwl: 1, byo: 2, wwl: 3, wlm: 4, lc: 5 };
   const sortedGroupKeys = Object.keys(groups).sort();
 
   const result = [];
   let groupIndex = 0;
   for (const key of sortedGroupKeys) {
     const groupTasks = groups[key].sort((a, b) => {
-      const pa = PKG_ORDER[detectPackage(a.product_sku)] ?? 6;
-      const pb = PKG_ORDER[detectPackage(b.product_sku)] ?? 6;
+      const pa = PKG_ORDER[detectPackage(a.product_sku, a.product_id, categoryMap)] ?? 6;
+      const pb = PKG_ORDER[detectPackage(b.product_sku, b.product_id, categoryMap)] ?? 6;
       return pa - pb;
     });
     groupTasks.forEach(t => result.push({ task: t, groupIndex, groupKey: key }));
@@ -103,11 +91,11 @@ function TaskTimer({ task, logs = [] }) {
   return null;
 }
 
-export default function KanbanPortionColumn({ station, tasks, onStatusChange, taskLogs = [] }) {
+export default function KanbanPortionColumn({ station, tasks, onStatusChange, taskLogs = [], productCategoryMap = {} }) {
   const doneCount = tasks.filter(t => t.status === 'done').length;
   const activeCount = tasks.filter(t => t.status === 'in_progress').length;
 
-  const grouped = useMemo(() => groupAndSortTasks(tasks), [tasks]);
+  const grouped = useMemo(() => groupAndSortTasks(tasks, productCategoryMap), [tasks, productCategoryMap]);
 
   return (
     <div className="bg-card border border-border rounded-xl flex flex-col">
@@ -126,8 +114,8 @@ export default function KanbanPortionColumn({ station, tasks, onStatusChange, ta
           grouped.map(({ task, groupIndex, groupKey }, idx) => {
             const config = STATUS_CONFIG[task.status] || STATUS_CONFIG.pending;
             const Icon = config.icon;
-            const pkg = detectPackage(task.product_sku);
-            const pkgColor = PACKAGE_COLORS[pkg] || (pkg === 'unknown' ? PACKAGE_COLORS[detectPackageFromName(task.meal_name)] || DEFAULT_PKG : DEFAULT_PKG);
+            const pkg = detectPackage(task.product_sku, task.product_id, productCategoryMap);
+            const pkgColor = PACKAGE_COLORS[pkg] || DEFAULT_PKG;
             const zebraClass = ZEBRA[groupIndex % 2];
 
             // Show group header when first task in a new group

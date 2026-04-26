@@ -56,6 +56,21 @@ export default function Kanban() {
     queryFn: () => base44.entities.TeamMember.filter({ is_active: true }, 'name', 100),
   });
 
+  // Fetch products to build category lookup (needed for Low Carb detection)
+  const productIds = useMemo(() => [...new Set(tasks.map(t => t.product_id).filter(Boolean))], [tasks]);
+  const { data: products = [] } = useQuery({
+    queryKey: ['kanban-products', runId],
+    queryFn: () => base44.entities.Product.filter({}, 'sku', 500),
+    enabled: productIds.length > 0,
+  });
+
+  // Build product_id → category map for package detection
+  const productCategoryMap = useMemo(() => {
+    const map = {};
+    products.forEach(p => { if (p.category) map[p.id] = p.category; });
+    return map;
+  }, [products]);
+
   const columns = useMemo(() => {
     const cols = { prep: [], cook: [], portion: [] };
     tasks.filter(t => !t.archived).forEach(t => {
@@ -335,6 +350,7 @@ export default function Kanban() {
                 onStatusChange={handleStatusChange}
                 runId={runId}
                 taskLogs={taskLogs}
+                productCategoryMap={productCategoryMap}
               />
             );
           })}
