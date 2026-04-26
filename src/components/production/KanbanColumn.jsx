@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Play, Pause, CheckCircle2, Clock, Undo2 } from 'lucide-react';
@@ -43,9 +43,30 @@ const STATION_BTN_COLORS = {
   portion: 'bg-green-500 hover:bg-green-600',
 };
 
+/* Group tasks by meal_name and assign alternating group indices */
+function groupTasks(tasks) {
+  const groups = {};
+  tasks.forEach(task => {
+    const key = (task.meal_name || task.name || '').trim();
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(task);
+  });
+  const sortedKeys = Object.keys(groups).sort();
+  const result = [];
+  let groupIndex = 0;
+  for (const key of sortedKeys) {
+    groups[key].forEach(t => result.push({ task: t, groupIndex, groupKey: key }));
+    groupIndex++;
+  }
+  return result;
+}
+
+const ZEBRA = ['bg-background', 'bg-muted/30'];
+
 export default function KanbanColumn({ station, tasks, onStatusChange, taskLogs = [] }) {
   const doneCount = tasks.filter(t => t.status === 'done').length;
   const activeCount = tasks.filter(t => t.status === 'in_progress').length;
+  const grouped = useMemo(() => groupTasks(tasks), [tasks]);
 
   return (
     <div className="bg-card border border-border rounded-xl flex flex-col">
@@ -57,16 +78,25 @@ export default function KanbanColumn({ station, tasks, onStatusChange, taskLogs 
           <Badge className="bg-white/20 text-white text-[10px]">{doneCount}/{tasks.length}</Badge>
         </div>
       </div>
-      <div className="p-3 space-y-2 flex-1 min-h-[200px]">
-        {tasks.length === 0 ? (
+      <div className="p-3 space-y-1.5 flex-1 min-h-[200px]">
+        {grouped.length === 0 ? (
           <p className="text-xs text-muted-foreground text-center py-8">No tasks</p>
         ) : (
-          tasks.map(task => {
+          grouped.map(({ task, groupIndex, groupKey }, idx) => {
             const config = STATUS_CONFIG[task.status] || STATUS_CONFIG.pending;
             const Icon = config.icon;
+            const zebraClass = ZEBRA[groupIndex % 2];
+            const isFirstInGroup = idx === 0 || grouped[idx - 1].groupKey !== groupKey;
             return (
-              <div key={task.id} className={cn(
-                "bg-background border border-border rounded-lg p-3 space-y-2",
+              <React.Fragment key={task.id}>
+                {isFirstInGroup && (
+                  <div className={cn("px-3 py-1.5 rounded-t-lg text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2", zebraClass)}>
+                    {groupKey}
+                  </div>
+                )}
+              <div className={cn(
+                "border border-border rounded-lg p-3 space-y-2",
+                zebraClass,
                 task.status === 'in_progress' && "ring-2 ring-amber-300",
                 task.status === 'done' && "opacity-60"
               )}>
@@ -126,6 +156,7 @@ export default function KanbanColumn({ station, tasks, onStatusChange, taskLogs 
                   );
                 })()}
               </div>
+              </React.Fragment>
             );
           })
         )}

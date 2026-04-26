@@ -9,6 +9,7 @@ import { ArrowLeft, ChefHat, Flame, Utensils, Tablet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import KanbanColumn from '@/components/production/KanbanColumn';
+import KanbanPortionColumn from '@/components/production/KanbanPortionColumn';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
 import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
@@ -324,16 +325,19 @@ export default function Kanban() {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {STATIONS.map(station => (
-            <KanbanColumn
-              key={station.id}
-              station={station}
-              tasks={columns[station.id] || []}
-              onStatusChange={handleStatusChange}
-              runId={runId}
-              taskLogs={taskLogs}
-            />
-          ))}
+          {STATIONS.map(station => {
+            const Column = station.id === 'portion' ? KanbanPortionColumn : KanbanColumn;
+            return (
+              <Column
+                key={station.id}
+                station={station}
+                tasks={columns[station.id] || []}
+                onStatusChange={handleStatusChange}
+                runId={runId}
+                taskLogs={taskLogs}
+              />
+            );
+          })}
         </div>
       )}
 
