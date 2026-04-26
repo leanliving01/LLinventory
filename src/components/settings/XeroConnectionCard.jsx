@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
-import { CheckCircle, XCircle, Loader2, RefreshCw, Link2 } from 'lucide-react';
+import { CheckCircle, XCircle, Loader2, RefreshCw, Link2, Unplug } from 'lucide-react';
 
 export default function XeroConnectionCard() {
   const [status, setStatus] = useState('checking'); // checking, connected, disconnected, connecting, error
@@ -48,6 +48,13 @@ export default function XeroConnectionCard() {
 
   useEffect(() => { checkConnection(); }, []);
 
+  const handleDisconnect = async () => {
+    setStatus('checking');
+    await base44.functions.invoke('xeroAuth', { action: 'disconnect' });
+    setStatus('disconnected');
+    setOrgName('');
+  };
+
   const handleConnect = async () => {
     setStatus('connecting');
     const res = await base44.functions.invoke('xeroAuth', { action: 'getAuthUrl' });
@@ -80,9 +87,14 @@ export default function XeroConnectionCard() {
         {status === 'connected' && (
           <>
             <p className="text-sm">Organisation: <span className="font-medium">{orgName}</span></p>
-            <Button variant="outline" size="sm" onClick={checkConnection} className="gap-1.5">
-              <RefreshCw className="w-3.5 h-3.5" /> Re-test Connection
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={checkConnection} className="gap-1.5">
+                <RefreshCw className="w-3.5 h-3.5" /> Re-test Connection
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleDisconnect} className="gap-1.5 text-destructive hover:text-destructive">
+                <Unplug className="w-3.5 h-3.5" /> Disconnect
+              </Button>
+            </div>
           </>
         )}
 

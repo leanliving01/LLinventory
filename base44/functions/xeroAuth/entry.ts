@@ -182,6 +182,19 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Step 4: Disconnect — delete stored tokens so user can re-authorize with new scopes
+    if (action === 'disconnect') {
+      const tokenSettings = await base44.asServiceRole.entities.Setting.filter({ key: 'xero_tokens' });
+      for (const s of tokenSettings) {
+        await base44.asServiceRole.entities.Setting.delete(s.id);
+      }
+      const tenantSettings = await base44.asServiceRole.entities.Setting.filter({ key: 'xero_tenant_id' });
+      for (const s of tenantSettings) {
+        await base44.asServiceRole.entities.Setting.delete(s.id);
+      }
+      return Response.json({ success: true, message: 'Xero disconnected. You can now reconnect with updated scopes.' });
+    }
+
     return Response.json({ error: 'Invalid action' }, { status: 400 });
   } catch (error) {
     console.error('xeroAuth error:', error.message);
