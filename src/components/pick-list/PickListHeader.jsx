@@ -1,13 +1,12 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Printer, Sparkles, FileDown, ScanBarcode } from 'lucide-react';
+import { ArrowLeft, Printer, FileDown } from 'lucide-react';
 import HelpDrawer from '@/components/help/HelpDrawer';
 
 export default function PickListHeader({
-  runId, runNumber, lineCount, itemCount, categoryCount,
-  pickedCount, hasUncategorized, categorizing,
-  onCategorize, onPrint, onExportPdf, onToggleScanner, showScanner,
+  runId, runNumber, lineCount, itemCount,
+  pickedCount, onPrint, onExportPdf,
 }) {
   return (
     <div className="flex items-center justify-between flex-wrap gap-3 print:hidden">
@@ -24,20 +23,6 @@ export default function PickListHeader({
       </div>
       <div className="flex items-center gap-2">
         <HelpDrawer pageKey="pick-list" />
-        <Button
-          variant={showScanner ? 'default' : 'outline'}
-          onClick={onToggleScanner}
-          className="gap-1.5"
-        >
-          <ScanBarcode className="w-4 h-4" />
-          {showScanner ? 'Close Scanner' : 'Scan'}
-        </Button>
-        {hasUncategorized && (
-          <Button variant="outline" onClick={onCategorize} disabled={categorizing} className="gap-1.5">
-            <Sparkles className="w-4 h-4" />
-            {categorizing ? 'Categorizing...' : 'Auto-Categorize'}
-          </Button>
-        )}
         <Button variant="outline" onClick={onExportPdf} className="gap-1.5">
           <FileDown className="w-4 h-4" /> PDF
         </Button>

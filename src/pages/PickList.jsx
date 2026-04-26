@@ -1,11 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ScanBarcode, Check } from 'lucide-react';
 import PickListHeader from '@/components/pick-list/PickListHeader';
 import PickListCategory from '@/components/pick-list/PickListCategory';
-import BarcodeScanner from '@/components/pick-list/BarcodeScanner';
 import { generatePickListPdf } from '@/components/pick-list/PickListPdfExport';
 import LiveTimer from '@/components/kitchen/LiveTimer';
 
@@ -44,17 +45,32 @@ export default function PickList() {
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
   });
 
-  const { data: locations = [] } = useQuery({
-    queryKey: ['locations'],
-    queryFn: () => base44.entities.Location.list('name', 50),
+  const { data: stockRecords = [] } = useQuery({
+    queryKey: ['stock-on-hand'],
+    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 1000),
   });
+
+  // Build stock map for display
+  const stockMap = useMemo(() => {
+    const map = {};
+    stockRecords.forEach(s => {
+      if (!map[s.product_id]) map[s.product_id] = 0;
+      map[s.product_id] += s.qty_on_hand || 0;
+    });
+    return map;
+  }, [stockRecords]);
 
   // Picked state: { [productId]: { picked: bool, qty: string } }
   const [pickedState, setPickedState] = useState({});
-  const [showScanner, setShowScanner] = useState(false);
-  const [categorizing, setCategorizing] = useState(false);
   const [confirmingPick, setConfirmingPick] = useState(false);
   const queryClient = useQueryClient();
+
+  // Inline barcode scanner state
+  const [scanInput, setScanInput] = useState('');
+  const [lastScanned, setLastScanned] = useState(null);
+  const scanInputRef = useRef(null);
+  const bufferRef = useRef('');
+  const timerRef = useRef(null);
 
   // Build ingredient pick list
   const { pickItems, categories } = useMemo(() => {
@@ -151,13 +167,70 @@ export default function PickList() {
     cats.sort((a, b) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b));
 
     return { pickItems: items, categories: cats };
-  }, [lines, boms, bomComponents, products, locations]);
+  }, [lines, boms, bomComponents, products]);
 
-  const hasUncategorized = pickItems.some(i => i.pickCategory === 'Uncategorized');
   const pickedCount = pickItems.filter(i => {
     const s = pickedState[i.product.id];
     return s?.picked && s?.qty && Number(s.qty) > 0;
   }).length;
+
+  // Barcode scanner lookup map
+  const lookupMap = useMemo(() => {
+    const map = {};
+    pickItems.forEach(item => {
+      if (item.product.barcode) map[item.product.barcode.toLowerCase()] = item;
+      if (item.product.sku) map[item.product.sku.toLowerCase()] = item;
+    });
+    return map;
+  }, [pickItems]);
+
+  const processCode = (code) => {
+    const trimmed = code.trim().toLowerCase();
+    if (!trimmed) return;
+    const found = lookupMap[trimmed];
+    if (found) {
+      setLastScanned(found);
+      setPickedState(prev => ({
+        ...prev,
+        [found.product.id]: { picked: true, qty: prev[found.product.id]?.qty || '' },
+      }));
+      toast.success(`Checked: ${found.product.name} — enter qty picked`);
+    } else {
+      setLastScanned(null);
+      toast.error(`No match for "${code.trim()}" on this pick list`);
+    }
+  };
+
+  // Hardware barcode scanner listener (always active when picking)
+  useEffect(() => {
+    if (!run?.picking_started_at || run?.pick_list_confirmed) return;
+    const handleKeyDown = (e) => {
+      if (document.activeElement && document.activeElement !== scanInputRef.current &&
+          (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+        return;
+      }
+      if (e.key === 'Enter') {
+        if (bufferRef.current.length > 3) {
+          processCode(bufferRef.current);
+        }
+        bufferRef.current = '';
+        return;
+      }
+      if (e.key.length === 1) {
+        bufferRef.current += e.key;
+        clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => { bufferRef.current = ''; }, 100);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lookupMap, run?.picking_started_at, run?.pick_list_confirmed]);
+
+  const handleScanSubmit = (e) => {
+    e.preventDefault();
+    processCode(scanInput);
+    setScanInput('');
+  };
 
   // Toggle checkbox only — never auto-fill qty
   const handleTogglePicked = (productId) => {
@@ -177,24 +250,17 @@ export default function PickList() {
     }));
   };
 
-  // Barcode scan — only checks the box, does NOT fill qty
-  const handleItemScanned = (productId) => {
-    setPickedState(prev => ({
-      ...prev,
-      [productId]: { picked: true, qty: prev[productId]?.qty || '' },
-    }));
-  };
-
-  const handleCategorize = async () => {
-    setCategorizing(true);
-    try {
-      const res = await base44.functions.invoke('categorizeProducts', {});
-      toast.success(`${res.data.updated} products categorized`);
-      queryClient.invalidateQueries({ queryKey: ['all-products'] });
-    } catch (e) {
-      toast.error('Failed to categorize: ' + (e.message || 'Unknown error'));
-    }
-    setCategorizing(false);
+  // Mark All for a category
+  const handleMarkAll = (categoryItems) => {
+    setPickedState(prev => {
+      const next = { ...prev };
+      categoryItems.forEach(item => {
+        if (!next[item.product.id]?.picked) {
+          next[item.product.id] = { picked: true, qty: next[item.product.id]?.qty || '' };
+        }
+      });
+      return next;
+    });
   };
 
   const handleStartPicking = async () => {
@@ -210,6 +276,19 @@ export default function PickList() {
   };
 
   const handleConfirmPickList = async () => {
+    // Check for items picked below needed
+    const belowNeeded = pickItems.filter(i => {
+      const s = pickedState[i.product.id];
+      if (!s?.picked || !s?.qty) return false;
+      return Number(s.qty) < i.totalQty;
+    });
+
+    if (belowNeeded.length > 0) {
+      const names = belowNeeded.map(i => i.product.name).join(', ');
+      toast.error(`Cannot confirm: ${belowNeeded.length} item(s) picked below needed quantity (${names}). You need to pick at least what's required or go buy more.`, { duration: 8000 });
+      return;
+    }
+
     if (pickedCount < pickItems.length) {
       toast.error(`Only ${pickedCount} of ${pickItems.length} items picked. Pick all items before confirming.`);
       return;
@@ -248,6 +327,8 @@ export default function PickList() {
     return <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>;
   }
 
+  const isPicking = !!run.picking_started_at && !run.pick_list_confirmed;
+
   return (
     <div className="space-y-4 print:space-y-2">
       <PickListHeader
@@ -255,15 +336,9 @@ export default function PickList() {
         runNumber={run.run_number}
         lineCount={lines.length}
         itemCount={pickItems.length}
-        categoryCount={categories.length}
         pickedCount={pickedCount}
-        hasUncategorized={hasUncategorized}
-        categorizing={categorizing}
-        onCategorize={handleCategorize}
         onPrint={() => window.print()}
         onExportPdf={handleExportPdf}
-        onToggleScanner={() => setShowScanner(v => !v)}
-        showScanner={showScanner}
       />
 
       {/* Print header */}
@@ -272,10 +347,28 @@ export default function PickList() {
         <p className="text-sm">{lines.length} meals · {pickItems.length} ingredients</p>
       </div>
 
-      {/* Scanner */}
-      {showScanner && (
-        <div className="print:hidden">
-          <BarcodeScanner pickItems={pickItems} onItemScanned={handleItemScanned} />
+      {/* Inline scanner — visible only while picking is active */}
+      {isPicking && (
+        <div className="bg-card border-2 border-primary/30 rounded-xl px-4 py-3 print:hidden">
+          <form onSubmit={handleScanSubmit} className="flex items-center gap-3">
+            <ScanBarcode className="w-5 h-5 text-primary shrink-0" />
+            <Input
+              ref={scanInputRef}
+              value={scanInput}
+              onChange={e => setScanInput(e.target.value)}
+              placeholder="Scan barcode or type SKU..."
+              className="h-11 text-base font-mono flex-1"
+            />
+            <Button type="submit" size="default" className="h-11 px-5 gap-1.5">
+              <Check className="w-4 h-4" /> Find
+            </Button>
+          </form>
+          {lastScanned && (
+            <div className="flex items-center gap-2 mt-2 text-sm text-amber-700 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">
+              <Check className="w-4 h-4 shrink-0" />
+              <span><strong>{lastScanned.product.name}</strong> — checked ✓ enter the qty you picked</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -297,7 +390,7 @@ export default function PickList() {
         <div className="bg-blue-50 border border-blue-200 rounded-lg px-5 py-4 text-sm text-blue-800 print:hidden flex items-center justify-between gap-4">
           <div>
             <p className="font-semibold">Ready to pick?</p>
-            <p className="text-xs text-blue-600 mt-0.5">Items are locked until you start. Timer begins when you press the button.</p>
+            <p className="text-xs text-blue-600 mt-0.5">Items are locked until you start. Timer and scanner begin when you press the button.</p>
           </div>
           <Button
             onClick={handleStartPicking}
@@ -352,8 +445,10 @@ export default function PickList() {
           category={cat}
           items={pickItems.filter(i => i.pickCategory === cat)}
           pickedState={pickedState}
+          stockMap={stockMap}
           onTogglePicked={handleTogglePicked}
           onQtyChange={handleQtyChange}
+          onMarkAll={handleMarkAll}
           disabled={!run.picking_started_at || run.pick_list_confirmed}
         />
       ))}

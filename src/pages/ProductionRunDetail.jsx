@@ -103,7 +103,8 @@ export default function ProductionRunDetail() {
       compsByBom[c.bom_id].push(c);
     });
 
-    // Calculate total ingredient needs
+    // Calculate total RAW ingredient needs — drill through Portion → WIP → Cook BOM
+    // WIP items are made during the run from raw ingredients, so check raw stock, not WIP stock.
     const ingredientNeeds = {};
     for (const line of lines) {
       const portionBom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
@@ -112,8 +113,30 @@ export default function ProductionRunDetail() {
       for (const c of comps) {
         const perUnit = c.qty / (portionBom.yield_qty || 1);
         const total = perUnit * line.planned_qty;
-        if (!ingredientNeeds[c.input_product_id]) ingredientNeeds[c.input_product_id] = 0;
-        ingredientNeeds[c.input_product_id] += total;
+        const inputProduct = productMap[c.input_product_id];
+
+        if (inputProduct?.type === 'wip_bulk') {
+          // WIP = made during the run. Drill into its Cook BOM for raw ingredients.
+          const cookBom = boms.find(b => b.product_id === inputProduct.id && b.bom_type === 'cook');
+          if (cookBom) {
+            const cookComps = compsByBom[cookBom.id] || [];
+            const cookYield = cookBom.yield_qty || 1;
+            for (const cc of cookComps) {
+              if (cc.is_consumable) continue;
+              const rawTotal = (cc.qty / cookYield) * total;
+              if (!ingredientNeeds[cc.input_product_id]) ingredientNeeds[cc.input_product_id] = 0;
+              ingredientNeeds[cc.input_product_id] += rawTotal;
+            }
+          } else {
+            // No Cook BOM — treat WIP itself as needed
+            if (!ingredientNeeds[c.input_product_id]) ingredientNeeds[c.input_product_id] = 0;
+            ingredientNeeds[c.input_product_id] += total;
+          }
+        } else {
+          // Raw/packaging/other — check directly
+          if (!ingredientNeeds[c.input_product_id]) ingredientNeeds[c.input_product_id] = 0;
+          ingredientNeeds[c.input_product_id] += total;
+        }
       }
     }
 

@@ -1,14 +1,19 @@
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { CheckCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
-export default function PickListCategory({ category, items, pickedState, onTogglePicked, onQtyChange, disabled = false }) {
+export default function PickListCategory({ category, items, pickedState, stockMap, onTogglePicked, onQtyChange, onMarkAll, disabled = false }) {
   const allPicked = items.every(i => {
     const s = pickedState[i.product.id];
     return s?.picked && s?.qty && Number(s.qty) > 0;
   });
+
+  const checkedCount = items.filter(i => pickedState[i.product.id]?.picked).length;
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden print:break-inside-avoid print:rounded-none print:border-black">
@@ -18,7 +23,18 @@ export default function PickListCategory({ category, items, pickedState, onToggl
       )}>
         <h3 className="text-sm font-bold">{category}</h3>
         <Badge variant="secondary" className="text-[10px]">{items.length} items</Badge>
-        {allPicked && <Badge className="bg-green-100 text-green-700 text-[10px] ml-auto">✓ All picked</Badge>}
+        {allPicked && <Badge className="bg-green-100 text-green-700 text-[10px]">✓ All picked</Badge>}
+        {!allPicked && !disabled && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onMarkAll(items)}
+            className="ml-auto gap-1.5 h-7 text-xs print:hidden"
+          >
+            <CheckCheck className="w-3.5 h-3.5" />
+            Mark All ({checkedCount}/{items.length})
+          </Button>
+        )}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm table-fixed">
@@ -27,6 +43,7 @@ export default function PickListCategory({ category, items, pickedState, onToggl
             <col className="w-24" />
             <col />
             <col className="w-28" />
+            <col className="w-24" />
             <col className="w-28 print:hidden" />
             <col className="w-16" />
           </colgroup>
@@ -36,6 +53,7 @@ export default function PickListCategory({ category, items, pickedState, onToggl
               <th className="text-left px-4 py-2 font-medium text-muted-foreground">SKU</th>
               <th className="text-left px-4 py-2 font-medium text-muted-foreground">Ingredient</th>
               <th className="text-right px-4 py-2 font-medium text-muted-foreground">Needed</th>
+              <th className="text-right px-4 py-2 font-medium text-muted-foreground print:hidden">In Stock</th>
               <th className="text-center px-4 py-2 font-medium text-muted-foreground print:hidden">Picked Qty</th>
               <th className="text-left px-4 py-2 font-medium text-muted-foreground">UoM</th>
             </tr>
@@ -45,12 +63,17 @@ export default function PickListCategory({ category, items, pickedState, onToggl
               const pid = item.product.id;
               const state = pickedState[pid] || { picked: false, qty: '' };
               const isComplete = state.picked && state.qty && Number(state.qty) > 0;
+              const pickedQty = state.qty ? Number(state.qty) : null;
+              const inStock = stockMap?.[pid] ?? null;
+              const isBelowNeeded = pickedQty !== null && pickedQty < item.totalQty;
+
               return (
                 <tr
                   key={pid}
                   className={cn(
                     "transition-colors print:leading-8",
-                    isComplete && "bg-green-50/60 dark:bg-green-900/10",
+                    isComplete && !isBelowNeeded && "bg-green-50/60 dark:bg-green-900/10",
+                    isBelowNeeded && "bg-red-50/60 dark:bg-red-900/10",
                     state.picked && !state.qty && "bg-amber-50/60 dark:bg-amber-900/10"
                   )}
                 >
@@ -64,25 +87,45 @@ export default function PickListCategory({ category, items, pickedState, onToggl
                     <div className="hidden print:block w-5 h-5 border-2 border-black rounded" />
                   </td>
                   <td className="px-4 py-2 font-mono text-xs text-muted-foreground truncate">{item.product.sku}</td>
-                  <td className={cn("px-4 py-2 font-medium truncate", isComplete && "line-through text-muted-foreground")}>
+                  <td className={cn("px-4 py-2 font-medium truncate", isComplete && !isBelowNeeded && "line-through text-muted-foreground")}>
                     {item.product.name}
                   </td>
                   <td className="px-4 py-2 text-right font-bold tabular-nums">{item.totalQty.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-muted-foreground print:hidden">
+                    {inStock !== null ? inStock.toLocaleString() : '—'}
+                  </td>
                   <td className="px-4 py-2 text-center print:hidden">
                     {state.picked && !disabled ? (
-                      <Input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={state.qty}
-                        placeholder="Enter qty..."
-                        onChange={e => onQtyChange(pid, e.target.value)}
-                        className={cn(
-                          "w-24 h-9 text-right text-sm mx-auto",
-                          state.picked && !state.qty && "border-amber-400 ring-1 ring-amber-300"
+                      <div className="space-y-1">
+                        <Input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={state.qty}
+                          placeholder="Enter qty..."
+                          onChange={e => {
+                            const val = e.target.value;
+                            onQtyChange(pid, val);
+                          }}
+                          onBlur={() => {
+                            if (pickedQty !== null && pickedQty < item.totalQty) {
+                              toast.warning(
+                                `Warning: You picked ${pickedQty} ${item.uom} but need ${item.totalQty} ${item.uom} of ${item.product.name}. If you don't have enough, you need to go buy more.`,
+                                { duration: 6000 }
+                              );
+                            }
+                          }}
+                          className={cn(
+                            "w-24 h-9 text-right text-sm mx-auto",
+                            state.picked && !state.qty && "border-amber-400 ring-1 ring-amber-300",
+                            isBelowNeeded && "border-red-400 ring-1 ring-red-300"
+                          )}
+                          autoFocus={state.picked && !state.qty}
+                        />
+                        {isBelowNeeded && (
+                          <p className="text-[10px] text-red-600 font-medium">Below needed!</p>
                         )}
-                        autoFocus={state.picked && !state.qty}
-                      />
+                      </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">—</span>
                     )}
