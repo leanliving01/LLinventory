@@ -111,8 +111,8 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
               const isEvenGroup = groupIdx % 2 === 0;
               const isFirstInGroup = idx === 0 || lineGroupIndex[idx] !== lineGroupIndex[idx - 1];
 
-              // Zebra: even groups get a tinted background, odd groups stay white
-              const zebraBg = isEvenGroup ? 'bg-muted/40' : 'bg-card';
+              // Zebra: even groups get a darker tinted background, odd groups stay light
+              const zebraBg = isEvenGroup ? 'bg-slate-100 dark:bg-slate-800/60' : 'bg-white dark:bg-slate-900/40';
 
               return (
                 <tr key={line.id} className={cn(zebraBg, "hover:bg-muted/60 transition-colors", hasVariance && "!bg-amber-50/60", isFirstInGroup && idx > 0 && "border-t-2 border-primary/20")}>
