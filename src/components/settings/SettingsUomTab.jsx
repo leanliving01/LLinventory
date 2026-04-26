@@ -34,7 +34,7 @@ export default function SettingsUomTab() {
 
   const { data: uoms = [], isLoading } = useQuery({
     queryKey: ['uom-list'],
-    queryFn: () => base44.entities.UnitOfMeasure.list('category,code', 200),
+    queryFn: () => base44.entities.UnitOfMeasure.list('code', 200),
   });
 
   const handleAdd = async () => {
