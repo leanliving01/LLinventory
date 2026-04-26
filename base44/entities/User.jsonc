@@ -24,6 +24,10 @@
         "portion"
       ],
       "description": "Default kitchen station for tablet view"
+    },
+    "permissions": {
+      "type": "string",
+      "description": "JSON-encoded individual permission overrides (e.g. {\"dashboard\":true,\"catalog_view\":false})"
     }
   },
   "required": []

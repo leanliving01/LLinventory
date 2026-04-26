@@ -134,9 +134,12 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
 
       {/* ── Pricing ── */}
       <Section title="Pricing (ZAR)">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField label="Average Cost" hint="Weighted average cost">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <FormField label="Weighted Avg Cost" hint="Updated on each PO receipt">
             <Input type="number" step="0.01" value={formData.cost_avg ?? ''} onChange={e => set('cost_avg', e.target.value ? Number(e.target.value) : 0)} />
+          </FormField>
+          <FormField label="Current Cost" hint="Latest supplier price for new stock">
+            <Input type="number" step="0.01" value={formData.cost_current ?? ''} onChange={e => set('cost_current', e.target.value ? Number(e.target.value) : 0)} />
           </FormField>
           <FormField label="Selling Price" hint="Shopify authoritative — local override">
             <Input type="number" step="0.01" value={formData.price ?? ''} onChange={e => set('price', e.target.value ? Number(e.target.value) : 0)} />

@@ -33,7 +33,7 @@
     "inventory_tracked": {
       "type": "boolean",
       "default": true,
-      "description": "Whether this product commits and deducts stock from Shopify orders. Set to false for non-inventory items like delivery fees, promo resets, etc."
+      "description": "Whether this product commits and deducts stock from Shopify orders."
     },
     "category": {
       "type": "string",
@@ -53,7 +53,7 @@
         "Packaging",
         "Other"
       ],
-      "description": "Pick list grouping category (AI-assigned or manual)"
+      "description": "Pick list grouping category"
     },
     "tags": {
       "type": "array",
@@ -94,7 +94,12 @@
     "cost_avg": {
       "type": "number",
       "default": 0,
-      "description": "Weighted average cost (ZAR) \u2014 Base44 authoritative"
+      "description": "Weighted average cost (ZAR) \u2014 updated on each PO receipt"
+    },
+    "cost_current": {
+      "type": "number",
+      "default": 0,
+      "description": "Current replacement cost (ZAR) \u2014 latest supplier price for new stock"
     },
     "price": {
       "type": "number",
@@ -168,7 +173,7 @@
     },
     "external_id": {
       "type": "string",
-      "description": "Shopify ID (admin_graphql_api_id or numeric ID as string)"
+      "description": "Shopify ID"
     },
     "data_hash": {
       "type": "string",
