@@ -13,16 +13,19 @@ async function verifyHmac(rawBody, hmacHeader) {
   return computed === hmacHeader;
 }
 
-// ─── Non-meal exclusion (same as order webhook) ───
+// ─── Non-inventory exclusion ───
+// Only exclude items that are NOT physical inventory (shipping supplies, delivery fees, promos).
+// Supplements, sauces, snacks, solo serves ARE real inventory and MUST deduct stock.
 function isExcluded(li) {
   const t = (li.title || '').toLowerCase();
   const s = (li.sku || '').toLowerCase();
-  if (t.includes('supplement')) return true;
-  if (t.includes('low calorie sauce') || (t.includes('sauce') && !t.includes('meal'))) return true;
+  // Promotional / reset items with no inventory
   if (t.includes('90-day reset') || t.includes('90 day reset')) return true;
   if (s === 'l90c2') return true;
+  // Shipping supplies and delivery fees — not inventory
   if (t.includes('dry ice') || t.includes('cooler box') || t.includes('delivery')) return true;
-  if (t.includes('snack') && !t.includes('meal')) return true;
+  // No SKU = not a real product (e.g. tips, fees)
+  if (!s) return true;
   return false;
 }
 
