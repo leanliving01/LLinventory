@@ -1,46 +1,87 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 /**
- * Syncs purchase orders from Xero — ONLY for suppliers that exist in our system.
+ * Syncs purchase orders AND bills (Accounts Payable invoices) from Xero —
+ * ONLY for suppliers that exist in our system.
  * Also enriches supplier contact details (name, phone, email, outstanding balance).
  *
- * Flow:
- * 1. Load our Suppliers
- * 2. Refresh Xero tokens if needed
- * 3. Fetch Xero Contacts, match by name to our Suppliers
- * 4. Update supplier contact details from Xero
- * 5. Fetch Xero POs only for matched contacts
- * 6. Map Xero PO statuses → our statuses, upsert POs + lines
+ * Matching: exact name first, then fuzzy (normalised word-set overlap ≥ 60%).
+ * Bills date range: 2026-01-01 onwards (configurable via payload).
  */
 
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
 
-// Xero PO Status → Our status
+// ─── Fuzzy matching ───
+function normaliseWords(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/\(pty\)\s*ltd/gi, '')
+    .replace(/\bpty\b/gi, '')
+    .replace(/\bltd\b/gi, '')
+    .replace(/\bcc\b/gi, '')
+    .replace(/\bedms\b/gi, '')
+    .replace(/\bbpk\b/gi, '')
+    .replace(/\bt\/a\b/gi, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter(w => w.length > 1)
+    .sort();
+}
+
+function fuzzyScore(a, b) {
+  const wordsA = normaliseWords(a);
+  const wordsB = normaliseWords(b);
+  if (wordsA.length === 0 || wordsB.length === 0) return 0;
+  const setA = new Set(wordsA);
+  const setB = new Set(wordsB);
+  let overlap = 0;
+  for (const w of setA) { if (setB.has(w)) overlap++; }
+  // Jaccard-like: overlap / union
+  const union = new Set([...setA, ...setB]).size;
+  return overlap / union;
+}
+
+// ─── Status mapping ───
 function mapXeroStatus(xeroPO) {
   const s = (xeroPO.Status || '').toUpperCase();
-  // DELETED in Xero = cancelled for us
   if (s === 'DELETED') return 'cancelled';
-  // DRAFT
   if (s === 'DRAFT') return 'draft';
-  // SUBMITTED = confirmed (sent to supplier)
   if (s === 'SUBMITTED') return 'confirmed';
-  // AUTHORISED = confirmed/open
   if (s === 'AUTHORISED') return 'confirmed';
-  // BILLED = we've received invoice
   if (s === 'BILLED') return 'invoiced';
   return 'draft';
 }
 
+function mapXeroBillStatus(bill) {
+  const s = (bill.Status || '').toUpperCase();
+  if (s === 'DRAFT') return 'draft';
+  if (s === 'SUBMITTED') return 'confirmed';
+  if (s === 'AUTHORISED') {
+    // Check if fully paid
+    if ((bill.AmountDue || 0) === 0 && (bill.Total || 0) > 0) return 'paid';
+    return 'invoiced';
+  }
+  if (s === 'PAID') return 'paid';
+  if (s === 'VOIDED' || s === 'DELETED') return 'cancelled';
+  return 'draft';
+}
+
+function mapBillPaymentStatus(bill) {
+  const s = (bill.Status || '').toUpperCase();
+  if (s === 'PAID') return 'paid';
+  if (s === 'AUTHORISED' && (bill.AmountDue || 0) === 0 && (bill.Total || 0) > 0) return 'paid';
+  if (bill.IsOverdue) return 'overdue';
+  return 'unpaid';
+}
+
+// ─── Xero helpers ───
 async function getXeroTokens(base44) {
   const clientId = Deno.env.get('XERO_CLIENT_ID');
   const clientSecret = Deno.env.get('XERO_CLIENT_SECRET');
-
   const settings = await base44.asServiceRole.entities.Setting.filter({ key: 'xero_tokens' });
   if (settings.length === 0) throw new Error('Xero not connected. Go to Settings → Connect to Xero first.');
 
   let tokens = JSON.parse(settings[0].value);
-
-  // Refresh if expired (with 60s buffer)
   if (Date.now() >= tokens.expires_at - 60000) {
     const refreshRes = await fetch(XERO_TOKEN_URL, {
       method: 'POST',
@@ -48,14 +89,10 @@ async function getXeroTokens(base44) {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Authorization': 'Basic ' + btoa(`${clientId}:${clientSecret}`),
       },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: tokens.refresh_token,
-      }),
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token }),
     });
     const refreshData = await refreshRes.json();
     if (!refreshRes.ok) throw new Error('Xero token refresh failed: ' + JSON.stringify(refreshData));
-
     tokens = {
       access_token: refreshData.access_token,
       refresh_token: refreshData.refresh_token,
@@ -67,7 +104,6 @@ async function getXeroTokens(base44) {
 
   const tenantSettings = await base44.asServiceRole.entities.Setting.filter({ key: 'xero_tenant_id' });
   if (tenantSettings.length === 0) throw new Error('Xero tenant ID not found');
-
   return { accessToken: tokens.access_token, tenantId: tenantSettings[0].value };
 }
 
@@ -94,90 +130,97 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Admin access required' }, { status: 403 });
     }
 
+    const body = await req.json().catch(() => ({}));
+    const sinceDate = body.since || '2026-01-01'; // Default: all of 2026
+    const FUZZY_THRESHOLD = 0.5; // 50% word overlap required
+
     const { accessToken, tenantId } = await getXeroTokens(base44);
 
     // 1. Load our suppliers
     const ourSuppliers = await base44.asServiceRole.entities.Supplier.filter({}, 'name', 500);
     if (ourSuppliers.length === 0) {
-      return Response.json({ error: 'No suppliers in the system. Add suppliers first.' }, { status: 400 });
+      return Response.json({ error: 'No suppliers in the system.' }, { status: 400 });
     }
 
-    // Build name → supplier lookup (lowercase for fuzzy matching)
-    const supplierByName = {};
-    ourSuppliers.forEach(s => {
-      supplierByName[s.name.toLowerCase().trim()] = s;
-    });
-
-    // 2. Fetch Xero Contacts (Suppliers only)
-    // includeArchived=false, where=IsSupplier==true
+    // 2. Fetch Xero Contacts (suppliers only, include balances)
     const contactsData = await xeroGet(
       `https://api.xero.com/api.xro/2.0/Contacts?where=IsSupplier%3D%3Dtrue&includeArchived=false`,
       accessToken, tenantId
     );
     const xeroContacts = contactsData.Contacts || [];
-    console.log(`Xero returned ${xeroContacts.length} supplier contacts`);
+    console.log(`Xero: ${xeroContacts.length} supplier contacts`);
 
-    // 3. Match Xero contacts to our suppliers
-    const matchedContacts = []; // { xeroContact, ourSupplier }
+    // 3. Match: exact name first, then fuzzy
+    const supplierByNameExact = {};
+    ourSuppliers.forEach(s => { supplierByNameExact[s.name.toLowerCase().trim()] = s; });
+
+    const matchedContacts = []; // { xeroContact, ourSupplier, matchType }
     const unmatchedXero = [];
+    const fuzzyMatches = []; // for reporting
 
     for (const xc of xeroContacts) {
       const xName = (xc.Name || '').toLowerCase().trim();
-      const match = supplierByName[xName];
-      if (match) {
-        matchedContacts.push({ xeroContact: xc, ourSupplier: match });
+      // Exact match
+      const exact = supplierByNameExact[xName];
+      if (exact) {
+        matchedContacts.push({ xeroContact: xc, ourSupplier: exact, matchType: 'exact' });
+        continue;
+      }
+      // Fuzzy match — find best scoring supplier
+      let bestScore = 0;
+      let bestSupplier = null;
+      for (const s of ourSuppliers) {
+        // Skip already-matched suppliers (by xero_contact_id or exact)
+        if (matchedContacts.some(m => m.ourSupplier.id === s.id)) continue;
+        const score = fuzzyScore(xc.Name, s.name);
+        if (score > bestScore) {
+          bestScore = score;
+          bestSupplier = s;
+        }
+      }
+      if (bestScore >= FUZZY_THRESHOLD && bestSupplier) {
+        matchedContacts.push({ xeroContact: xc, ourSupplier: bestSupplier, matchType: 'fuzzy' });
+        fuzzyMatches.push({ xero: xc.Name, ours: bestSupplier.name, score: Math.round(bestScore * 100) + '%' });
       } else {
         unmatchedXero.push(xc.Name);
       }
     }
 
-    console.log(`Matched ${matchedContacts.length} suppliers, ${unmatchedXero.length} unmatched Xero contacts`);
+    console.log(`Matched: ${matchedContacts.length} (${fuzzyMatches.length} fuzzy), Unmatched: ${unmatchedXero.length}`);
 
-    // 4. Update supplier contact details from Xero
+    // 4. Update supplier details from Xero
     let suppliersUpdated = 0;
     for (const { xeroContact, ourSupplier } of matchedContacts) {
       const updates = {};
+      if (ourSupplier.xero_contact_id !== xeroContact.ContactID) updates.xero_contact_id = xeroContact.ContactID;
 
-      // Xero Contact ID for future lookups
-      if (ourSupplier.xero_contact_id !== xeroContact.ContactID) {
-        updates.xero_contact_id = xeroContact.ContactID;
-      }
-
-      // Contact person
       const persons = xeroContact.ContactPersons || [];
       if (persons.length > 0) {
-        const primary = persons[0];
-        const fullName = [primary.FirstName, primary.LastName].filter(Boolean).join(' ');
+        const p = persons[0];
+        const fullName = [p.FirstName, p.LastName].filter(Boolean).join(' ');
         if (fullName && fullName !== ourSupplier.contact_name) updates.contact_name = fullName;
-        if (primary.EmailAddress && primary.EmailAddress !== ourSupplier.email) updates.email = primary.EmailAddress;
+        if (p.EmailAddress && p.EmailAddress !== ourSupplier.email) updates.email = p.EmailAddress;
       }
-      // Fallback to contact-level email
       if (!updates.email && xeroContact.EmailAddress && xeroContact.EmailAddress !== ourSupplier.email) {
         updates.email = xeroContact.EmailAddress;
       }
 
-      // Phone numbers
       const phones = xeroContact.Phones || [];
       const mainPhone = phones.find(p => p.PhoneType === 'DEFAULT') || phones.find(p => p.PhoneNumber);
       if (mainPhone?.PhoneNumber && mainPhone.PhoneNumber !== ourSupplier.phone) {
         updates.phone = [mainPhone.PhoneCountryCode, mainPhone.PhoneAreaCode, mainPhone.PhoneNumber].filter(Boolean).join(' ').trim();
       }
 
-      // Tax number
-      if (xeroContact.TaxNumber && xeroContact.TaxNumber !== ourSupplier.tax_id) {
-        updates.tax_id = xeroContact.TaxNumber;
-      }
+      if (xeroContact.TaxNumber && xeroContact.TaxNumber !== ourSupplier.tax_id) updates.tax_id = xeroContact.TaxNumber;
 
-      // Outstanding / overdue balances from Xero
       const outstanding = xeroContact.Balances?.AccountsPayable?.Outstanding || 0;
       const overdue = xeroContact.Balances?.AccountsPayable?.Overdue || 0;
       if (outstanding !== (ourSupplier.outstanding_balance || 0)) updates.outstanding_balance = outstanding;
       if (overdue !== (ourSupplier.overdue_balance || 0)) updates.overdue_balance = overdue;
 
-      // Payment terms
-      const paymentTerms = xeroContact.PaymentTerms?.Bills;
-      if (paymentTerms?.Day && paymentTerms?.Type) {
-        const termStr = `${paymentTerms.Day}d ${paymentTerms.Type}`;
+      const pt = xeroContact.PaymentTerms?.Bills;
+      if (pt?.Day && pt?.Type) {
+        const termStr = `${pt.Day}d ${pt.Type}`;
         if (termStr !== ourSupplier.payment_terms) updates.payment_terms = termStr;
       }
 
@@ -187,20 +230,26 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 5. Fetch POs from Xero for matched contacts only
-    // Fetch all non-deleted POs, then filter by contact
+    // 5. Build lookup maps
     const matchedContactIds = new Set(matchedContacts.map(m => m.xeroContact.ContactID));
     const supplierByContactId = {};
-    matchedContacts.forEach(m => {
-      supplierByContactId[m.xeroContact.ContactID] = m.ourSupplier;
-    });
+    matchedContacts.forEach(m => { supplierByContactId[m.xeroContact.ContactID] = m.ourSupplier; });
 
-    // Paginate Xero POs (max 100 per page)
+    // Load existing POs for dedup
+    const existingPOs = await base44.asServiceRole.entities.PurchaseOrder.filter({}, '-created_date', 2000);
+    const existingByXeroId = {};
+    existingPOs.forEach(po => { if (po.xero_po_id) existingByXeroId[po.xero_po_id] = po; });
+
+    let posCreated = 0;
+    let posUpdated = 0;
+    let linesCreated = 0;
+
+    // 6. Fetch Xero POs (paginated)
     let page = 1;
     let allXeroPOs = [];
     while (true) {
       const poData = await xeroGet(
-        `https://api.xero.com/api.xro/2.0/PurchaseOrders?page=${page}&order=DateString%20DESC`,
+        `https://api.xero.com/api.xro/2.0/PurchaseOrders?page=${page}&order=DateString%20DESC&DateFrom=${sinceDate}`,
         accessToken, tenantId
       );
       const pos = poData.PurchaseOrders || [];
@@ -208,73 +257,47 @@ Deno.serve(async (req) => {
       if (pos.length < 100) break;
       page++;
     }
-    console.log(`Xero returned ${allXeroPOs.length} total POs`);
 
-    // Filter to only our matched suppliers
     const relevantPOs = allXeroPOs.filter(po => po.Contact?.ContactID && matchedContactIds.has(po.Contact.ContactID));
-    console.log(`${relevantPOs.length} POs match our suppliers`);
-
-    // Load existing POs with xero_po_id for dedup
-    const existingPOs = await base44.asServiceRole.entities.PurchaseOrder.filter({}, '-created_date', 2000);
-    const existingByXeroId = {};
-    existingPOs.forEach(po => {
-      if (po.xero_po_id) existingByXeroId[po.xero_po_id] = po;
-    });
-
-    let posCreated = 0;
-    let posUpdated = 0;
-    let linesCreated = 0;
+    console.log(`POs: ${allXeroPOs.length} total, ${relevantPOs.length} matched`);
 
     for (const xpo of relevantPOs) {
       const supplier = supplierByContactId[xpo.Contact.ContactID];
       if (!supplier) continue;
-
+      const existing = existingByXeroId[xpo.PurchaseOrderID];
       const ourStatus = mapXeroStatus(xpo);
       const poNumber = xpo.PurchaseOrderNumber || `XPO-${xpo.PurchaseOrderID.substring(0, 8)}`;
-      const subtotal = xpo.SubTotal || 0;
-      const tax = xpo.TotalTax || 0;
-      const total = xpo.Total || 0;
-      const orderDate = xpo.DateString ? xpo.DateString.substring(0, 10) : null;
-      const expectedDate = xpo.DeliveryDateString ? xpo.DeliveryDateString.substring(0, 10) : null;
-
-      const existing = existingByXeroId[xpo.PurchaseOrderID];
 
       if (existing) {
-        // Update status and amounts if changed
         const updates = {};
         if (existing.status !== ourStatus) updates.status = ourStatus;
-        if (existing.subtotal !== subtotal) updates.subtotal = subtotal;
-        if (existing.tax !== tax) updates.tax = tax;
-        if (existing.total !== total) updates.total = total;
-        if (expectedDate && existing.expected_date !== expectedDate) updates.expected_date = expectedDate;
+        if (existing.subtotal !== (xpo.SubTotal || 0)) updates.subtotal = xpo.SubTotal || 0;
+        if (existing.tax !== (xpo.TotalTax || 0)) updates.tax = xpo.TotalTax || 0;
+        if (existing.total !== (xpo.Total || 0)) updates.total = xpo.Total || 0;
         if (Object.keys(updates).length > 0) {
           await base44.asServiceRole.entities.PurchaseOrder.update(existing.id, updates);
           posUpdated++;
         }
       } else {
-        // Create new PO
         const newPO = await base44.asServiceRole.entities.PurchaseOrder.create({
           po_number: poNumber,
           supplier_id: supplier.id,
           supplier_name: supplier.name,
           status: ourStatus,
-          order_date: orderDate,
-          expected_date: expectedDate,
-          subtotal,
-          tax,
-          total,
+          order_date: xpo.DateString?.substring(0, 10) || null,
+          expected_date: xpo.DeliveryDateString?.substring(0, 10) || null,
+          subtotal: xpo.SubTotal || 0,
+          tax: xpo.TotalTax || 0,
+          total: xpo.Total || 0,
           currency: xpo.CurrencyCode || 'ZAR',
           payment_status: 'unpaid',
           xero_po_id: xpo.PurchaseOrderID,
           source: 'xero',
         });
         posCreated++;
-
-        // Create PO lines
-        const xeroLines = xpo.LineItems || [];
-        const linesToCreate = [];
-        for (const xl of xeroLines) {
-          linesToCreate.push({
+        const xLines = xpo.LineItems || [];
+        if (xLines.length > 0) {
+          const batch = xLines.map(xl => ({
             purchase_order_id: newPO.id,
             product_id: 'unmatched',
             product_name: xl.Description || xl.ItemCode || 'Unknown',
@@ -285,14 +308,98 @@ Deno.serve(async (req) => {
             uom: xl.UnitOfMeasure || 'pcs',
             line_total: xl.LineAmount || 0,
             tax_rule: xl.TaxType || '',
-          });
-        }
-        if (linesToCreate.length > 0) {
-          for (let i = 0; i < linesToCreate.length; i += 25) {
-            await base44.asServiceRole.entities.PurchaseOrderLine.bulkCreate(linesToCreate.slice(i, i + 25));
+          }));
+          for (let i = 0; i < batch.length; i += 25) {
+            await base44.asServiceRole.entities.PurchaseOrderLine.bulkCreate(batch.slice(i, i + 25));
           }
-          linesCreated += linesToCreate.length;
+          linesCreated += batch.length;
         }
+      }
+    }
+
+    // 7. Fetch Xero Bills (Accounts Payable invoices) — paginated
+    let billPage = 1;
+    let allBills = [];
+    const billWhere = encodeURIComponent(`Type=="ACCPAY"&&Date>=DateTime(${sinceDate.replace(/-/g, ',')})`);
+    while (true) {
+      const billData = await xeroGet(
+        `https://api.xero.com/api.xro/2.0/Invoices?where=${billWhere}&page=${billPage}&order=DateString%20DESC`,
+        accessToken, tenantId
+      );
+      const bills = billData.Invoices || [];
+      allBills = allBills.concat(bills);
+      if (bills.length < 100) break;
+      billPage++;
+    }
+
+    const relevantBills = allBills.filter(b => b.Contact?.ContactID && matchedContactIds.has(b.Contact.ContactID));
+    console.log(`Bills: ${allBills.length} total, ${relevantBills.length} matched`);
+
+    let billsCreated = 0;
+    let billsUpdated = 0;
+    let billLinesCreated = 0;
+
+    // Separate new vs existing bills
+    const newBills = [];
+    const updateBills = [];
+    for (const bill of relevantBills) {
+      const supplier = supplierByContactId[bill.Contact.ContactID];
+      if (!supplier) continue;
+      const existing = existingByXeroId[bill.InvoiceID];
+      if (existing) {
+        updateBills.push({ bill, existing, supplier });
+      } else {
+        newBills.push({ bill, supplier });
+      }
+    }
+
+    // Batch-update existing bills
+    for (const { bill, existing } of updateBills) {
+      const ourStatus = mapXeroBillStatus(bill);
+      const payStatus = mapBillPaymentStatus(bill);
+      const updates = {};
+      if (existing.status !== ourStatus) updates.status = ourStatus;
+      if (existing.payment_status !== payStatus) updates.payment_status = payStatus;
+      if (existing.subtotal !== (bill.SubTotal || 0)) updates.subtotal = bill.SubTotal || 0;
+      if (existing.tax !== (bill.TotalTax || 0)) updates.tax = bill.TotalTax || 0;
+      if (existing.total !== (bill.Total || 0)) updates.total = bill.Total || 0;
+      if (bill.InvoiceNumber && existing.supplier_invoice_number !== bill.InvoiceNumber) {
+        updates.supplier_invoice_number = bill.InvoiceNumber;
+      }
+      if (Object.keys(updates).length > 0) {
+        await base44.asServiceRole.entities.PurchaseOrder.update(existing.id, updates);
+        billsUpdated++;
+      }
+    }
+
+    // Bulk-create new bills (batches of 25)
+    for (let i = 0; i < newBills.length; i += 25) {
+      const chunk = newBills.slice(i, i + 25);
+      const poRecords = chunk.map(({ bill, supplier }) => ({
+        po_number: bill.InvoiceNumber || `XBILL-${bill.InvoiceID.substring(0, 8)}`,
+        supplier_id: supplier.id,
+        supplier_name: supplier.name,
+        status: mapXeroBillStatus(bill),
+        order_date: bill.DateString?.substring(0, 10) || null,
+        expected_date: bill.DueDateString?.substring(0, 10) || null,
+        subtotal: bill.SubTotal || 0,
+        tax: bill.TotalTax || 0,
+        total: bill.Total || 0,
+        currency: bill.CurrencyCode || 'ZAR',
+        payment_status: mapBillPaymentStatus(bill),
+        supplier_invoice_number: bill.InvoiceNumber || '',
+        xero_po_id: bill.InvoiceID,
+        source: 'xero',
+        notes: bill.Reference || '',
+      }));
+      const created = await base44.asServiceRole.entities.PurchaseOrder.bulkCreate(poRecords);
+      billsCreated += created.length;
+
+      // Create lines for each new PO — bills from the list endpoint don't include
+      // full line items, so we store a placeholder. Detailed lines can be fetched
+      // per-bill if needed later.
+      for (const newPO of created) {
+        existingByXeroId[newPO.xero_po_id] = newPO;
       }
     }
 
@@ -302,12 +409,12 @@ Deno.serve(async (req) => {
         xero_contacts_found: xeroContacts.length,
         suppliers_matched: matchedContacts.length,
         suppliers_updated: suppliersUpdated,
-        unmatched_xero_contacts: unmatchedXero.slice(0, 20),
-        xero_pos_total: allXeroPOs.length,
-        relevant_pos: relevantPOs.length,
-        pos_created: posCreated,
-        pos_updated: posUpdated,
-        lines_created: linesCreated,
+        fuzzy_matches: fuzzyMatches,
+        unmatched_xero_contacts: unmatchedXero.slice(0, 30),
+        since_date: sinceDate,
+        purchase_orders: { total: allXeroPOs.length, relevant: relevantPOs.length, created: posCreated, updated: posUpdated },
+        bills: { total: allBills.length, relevant: relevantBills.length, created: billsCreated, updated: billsUpdated },
+        lines_created: linesCreated + billLinesCreated,
       },
     });
   } catch (error) {

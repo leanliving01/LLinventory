@@ -48,7 +48,9 @@ export default function PurchaseOrders() {
       toast.error(res.data.error);
       return;
     }
-    toast.success(`Xero sync done — ${s.pos_created} new POs, ${s.pos_updated} updated, ${s.suppliers_updated} suppliers enriched`);
+    const poCount = (s.purchase_orders?.created || 0) + (s.bills?.created || 0);
+    const updCount = (s.purchase_orders?.updated || 0) + (s.bills?.updated || 0);
+    toast.success(`Xero sync done — ${poCount} new, ${updCount} updated, ${s.suppliers_matched} suppliers matched`);
     queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
   };
 
