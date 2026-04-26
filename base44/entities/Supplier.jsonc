@@ -50,6 +50,20 @@
     "cin7_id": {
       "type": "string",
       "description": "Original Cin7 supplier ID"
+    },
+    "xero_contact_id": {
+      "type": "string",
+      "description": "Xero Contact ID for syncing POs and supplier details"
+    },
+    "outstanding_balance": {
+      "type": "number",
+      "default": 0,
+      "description": "Outstanding balance from Xero (ZAR)"
+    },
+    "overdue_balance": {
+      "type": "number",
+      "default": 0,
+      "description": "Overdue balance from Xero (ZAR)"
     }
   },
   "required": [

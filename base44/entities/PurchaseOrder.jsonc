@@ -4,7 +4,7 @@
   "properties": {
     "po_number": {
       "type": "string",
-      "description": "Auto: PO-YYYY-NNNN"
+      "description": "Auto: PO-YYYY-NNNN or Xero PO number"
     },
     "supplier_id": {
       "type": "string",
@@ -70,6 +70,19 @@
     },
     "notes": {
       "type": "string"
+    },
+    "xero_po_id": {
+      "type": "string",
+      "description": "Xero PurchaseOrder ID \u2014 prevents duplicates on re-sync"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "xero"
+      ],
+      "default": "manual",
+      "description": "Whether this PO was created locally or synced from Xero"
     }
   },
   "required": [

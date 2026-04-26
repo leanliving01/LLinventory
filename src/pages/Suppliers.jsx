@@ -4,7 +4,8 @@ import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Search, X, ChevronRight, Truck, Plus } from 'lucide-react';
+import { Search, X, ChevronRight, Truck, Plus, RefreshCw, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import SupplierDetailDrawer from '@/components/suppliers/SupplierDetailDrawer';
 import CreateSupplierModal from '@/components/suppliers/CreateSupplierModal';
 
@@ -14,6 +15,21 @@ export default function Suppliers() {
   const [statusFilter, setStatusFilter] = useState('active');
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleXeroSync = async () => {
+    setSyncing(true);
+    const res = await base44.functions.invoke('syncXeroPurchaseOrders', {});
+    setSyncing(false);
+    const s = res.data?.summary;
+    if (res.data?.error) {
+      toast.error(res.data.error);
+      return;
+    }
+    toast.success(`Xero sync done — ${s.suppliers_matched} matched, ${s.suppliers_updated} updated with contact details`);
+    queryClient.invalidateQueries({ queryKey: ['suppliers-list'] });
+    queryClient.invalidateQueries({ queryKey: ['open-pos'] });
+  };
 
   const { data: suppliers = [], isLoading } = useQuery({
     queryKey: ['suppliers-list'],
@@ -65,9 +81,15 @@ export default function Suppliers() {
             {filtered.length} of {suppliers.length} suppliers
           </p>
         </div>
-        <Button onClick={() => setShowCreate(true)} className="gap-2">
-          <Plus className="w-4 h-4" /> Add Supplier
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleXeroSync} disabled={syncing} className="gap-2">
+            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {syncing ? 'Syncing Xero...' : 'Sync from Xero'}
+          </Button>
+          <Button onClick={() => setShowCreate(true)} className="gap-2">
+            <Plus className="w-4 h-4" /> Add Supplier
+          </Button>
+        </div>
       </div>
 
       {/* Status chips */}
@@ -128,7 +150,8 @@ export default function Suppliers() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Email</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Payment Terms</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Open POs</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Outstanding</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Outstanding (Xero)</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Overdue</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
                 <th className="w-10"></th>
               </tr>
@@ -160,8 +183,17 @@ export default function Suppliers() {
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-right text-sm font-medium">
-                    {supplierPOStats[s.id]?.outstanding ? (
-                      <span className="text-amber-600">R {supplierPOStats[s.id].outstanding.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                    {s.outstanding_balance ? (
+                      <span className="text-amber-600">R {s.outstanding_balance.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                    ) : supplierPOStats[s.id]?.outstanding ? (
+                      <span className="text-muted-foreground">R {supplierPOStats[s.id].outstanding.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-sm font-medium">
+                    {s.overdue_balance ? (
+                      <span className="text-red-600">R {s.overdue_balance.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}

@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Search, X, Receipt, ChevronRight } from 'lucide-react';
+import { Plus, Search, X, Receipt, ChevronRight, RefreshCw, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
 import PODetailDrawer from '@/components/purchasing/PODetailDrawer';
 
@@ -36,6 +37,20 @@ export default function PurchaseOrders() {
   const [statusFilter, setStatusFilter] = useState('open');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleXeroSync = async () => {
+    setSyncing(true);
+    const res = await base44.functions.invoke('syncXeroPurchaseOrders', {});
+    setSyncing(false);
+    const s = res.data?.summary;
+    if (res.data?.error) {
+      toast.error(res.data.error);
+      return;
+    }
+    toast.success(`Xero sync done — ${s.pos_created} new POs, ${s.pos_updated} updated, ${s.suppliers_updated} suppliers enriched`);
+    queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+  };
 
   const { data: pos = [], isLoading } = useQuery({
     queryKey: ['purchase-orders'],
@@ -74,9 +89,15 @@ export default function PurchaseOrders() {
           <h1 className="text-2xl font-bold text-foreground">Purchase Orders</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{filtered.length} orders</p>
         </div>
-        <Button onClick={() => setShowCreate(true)} className="gap-2">
-          <Plus className="w-4 h-4" /> New PO
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleXeroSync} disabled={syncing} className="gap-2">
+            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {syncing ? 'Syncing Xero...' : 'Sync from Xero'}
+          </Button>
+          <Button onClick={() => setShowCreate(true)} className="gap-2">
+            <Plus className="w-4 h-4" /> New PO
+          </Button>
+        </div>
       </div>
 
       {/* Status chips */}
@@ -132,6 +153,7 @@ export default function PurchaseOrders() {
                 <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Total</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Payment</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Source</th>
                 <th className="w-10"></th>
               </tr>
             </thead>
@@ -158,6 +180,13 @@ export default function PurchaseOrders() {
                       {po.payment_status || 'unpaid'}
                     </Badge>
                   </td>
+                  <td className="px-4 py-2.5 text-center">
+                    {po.source === 'xero' ? (
+                      <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-600">Xero</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px]">Manual</Badge>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5">
                     <ChevronRight className="w-4 h-4 text-muted-foreground" />
                   </td>
@@ -165,7 +194,7 @@ export default function PurchaseOrders() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                  <td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
                     {pos.length === 0 ? 'No purchase orders yet. Click "New PO" to create one.' : 'No orders match your filter.'}
                   </td>
                 </tr>
