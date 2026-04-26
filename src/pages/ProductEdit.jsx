@@ -3,9 +3,17 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Save, Loader2 } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Package, ArrowRightLeft, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import ProductEditForm from '@/components/catalog/ProductEditForm';
+import ProductStockTab from '@/components/catalog/ProductStockTab';
+import ProductMovementsTab from '@/components/catalog/ProductMovementsTab';
+
+const TABS = [
+  { key: 'details', label: 'Details', icon: Settings2 },
+  { key: 'stock', label: 'Stock', icon: Package },
+  { key: 'movements', label: 'Movements', icon: ArrowRightLeft },
+];
 
 export default function ProductEdit() {
   const { productId } = useParams();
@@ -13,6 +21,7 @@ export default function ProductEdit() {
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState(null);
+  const [activeTab, setActiveTab] = useState('details');
 
   const { data: product, isLoading } = useQuery({
     queryKey: ['product', productId],
@@ -92,7 +101,28 @@ export default function ProductEdit() {
         </Button>
       </div>
 
-      {formData && (
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-border">
+        {TABS.map(tab => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab.key
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeTab === 'details' && formData && (
         <ProductEditForm
           formData={formData}
           onChange={setFormData}
@@ -100,6 +130,14 @@ export default function ProductEdit() {
           suppliers={suppliers}
           categories={categories}
         />
+      )}
+
+      {activeTab === 'stock' && (
+        <ProductStockTab productId={productId} />
+      )}
+
+      {activeTab === 'movements' && (
+        <ProductMovementsTab productId={productId} />
       )}
     </div>
   );
