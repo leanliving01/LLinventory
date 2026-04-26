@@ -1,15 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Search, X, Receipt, ChevronRight, RefreshCw, Loader2 } from 'lucide-react';
+import { Plus, Receipt, ChevronRight, RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { format } from 'date-fns';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
 import PODetailDrawer from '@/components/purchasing/PODetailDrawer';
+import POFilters from '@/components/purchasing/POFilters';
+import POPagination from '@/components/purchasing/POPagination';
 
 const STATUS_COLORS = {
   draft: 'bg-gray-100 text-gray-600',
@@ -33,11 +33,19 @@ const STATUS_LABELS = {
 
 export default function PurchaseOrders() {
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('open');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
   const [syncing, setSyncing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [filters, setFilters] = useState({
+    search: '',
+    supplierId: 'all',
+    dateFrom: null,
+    dateTo: null,
+    sortBy: 'date_desc',
+  });
 
   const handleXeroSync = async () => {
     setSyncing(true);
@@ -56,24 +64,79 @@ export default function PurchaseOrders() {
 
   const { data: pos = [], isLoading } = useQuery({
     queryKey: ['purchase-orders'],
-    queryFn: () => base44.entities.PurchaseOrder.list('-created_date', 200),
+    queryFn: () => base44.entities.PurchaseOrder.list('-created_date', 2000),
   });
 
+  // Unique suppliers for the filter dropdown
+  const supplierOptions = useMemo(() => {
+    const map = {};
+    pos.forEach(po => {
+      if (po.supplier_id && po.supplier_name) map[po.supplier_id] = po.supplier_name;
+    });
+    return Object.entries(map)
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [pos]);
+
   const filtered = useMemo(() => {
-    return pos.filter(po => {
+    let result = pos.filter(po => {
       // Status filter
       if (statusFilter === 'open' && ['received', 'paid', 'cancelled'].includes(po.status)) return false;
       if (statusFilter !== 'open' && statusFilter !== 'all' && po.status !== statusFilter) return false;
 
-      // Search
-      if (search) {
-        const q = search.toLowerCase();
-        return (po.po_number || '').toLowerCase().includes(q) ||
-               (po.supplier_name || '').toLowerCase().includes(q);
+      // Text search
+      if (filters.search) {
+        const q = filters.search.toLowerCase();
+        if (!(po.po_number || '').toLowerCase().includes(q) &&
+            !(po.supplier_name || '').toLowerCase().includes(q) &&
+            !(po.supplier_invoice_number || '').toLowerCase().includes(q)) return false;
       }
+
+      // Supplier filter
+      if (filters.supplierId !== 'all' && po.supplier_id !== filters.supplierId) return false;
+
+      // Date range filter (on order_date)
+      if (filters.dateFrom && po.order_date) {
+        if (new Date(po.order_date) < filters.dateFrom) return false;
+      }
+      if (filters.dateTo && po.order_date) {
+        const toEnd = new Date(filters.dateTo);
+        toEnd.setHours(23, 59, 59, 999);
+        if (new Date(po.order_date) > toEnd) return false;
+      }
+
       return true;
     });
-  }, [pos, search, statusFilter]);
+
+    // Sort
+    const [field, dir] = filters.sortBy.split('_');
+    const mult = dir === 'asc' ? 1 : -1;
+    result.sort((a, b) => {
+      if (field === 'date') {
+        return mult * ((a.order_date || '').localeCompare(b.order_date || ''));
+      }
+      if (field === 'total') {
+        return mult * ((a.total || 0) - (b.total || 0));
+      }
+      if (field === 'supplier') {
+        return mult * ((a.supplier_name || '').localeCompare(b.supplier_name || ''));
+      }
+      return 0;
+    });
+
+    return result;
+  }, [pos, filters, statusFilter]);
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const paginatedPOs = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  // Reset to page 1 when filters change
+  const handleFiltersChange = (newFilters) => {
+    setFilters(newFilters);
+    setPage(1);
+  };
 
   const statusCounts = useMemo(() => {
     const c = { open: 0 };
@@ -89,7 +152,7 @@ export default function PurchaseOrders() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Purchase Orders</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{filtered.length} orders</p>
+          <p className="text-sm text-muted-foreground mt-0.5">{filtered.length} of {pos.length} orders</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleXeroSync} disabled={syncing} className="gap-2">
@@ -117,7 +180,7 @@ export default function PurchaseOrders() {
         ].map(chip => (
           <button
             key={chip.key}
-            onClick={() => setStatusFilter(statusFilter === chip.key ? 'all' : chip.key)}
+            onClick={() => { setStatusFilter(statusFilter === chip.key ? 'all' : chip.key); setPage(1); }}
             className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
               statusFilter === chip.key
                 ? 'bg-primary/10 text-primary ring-2 ring-primary/30'
@@ -129,18 +192,8 @@ export default function PurchaseOrders() {
         ))}
       </div>
 
-      {/* Search */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search by PO number or supplier..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
-        </div>
-        {search && (
-          <Button variant="ghost" size="sm" onClick={() => setSearch('')} className="gap-1">
-            <X className="w-3.5 h-3.5" /> Clear
-          </Button>
-        )}
-      </div>
+      {/* Filters */}
+      <POFilters filters={filters} onChange={handleFiltersChange} suppliers={supplierOptions} />
 
       {/* Table */}
       {isLoading ? (
@@ -162,7 +215,7 @@ export default function PurchaseOrders() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.map(po => (
+              {paginatedPOs.map(po => (
                 <tr key={po.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => setSelectedPO(po)}>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
@@ -205,6 +258,16 @@ export default function PurchaseOrders() {
               )}
             </tbody>
           </table>
+          {filtered.length > 0 && (
+            <POPagination
+              page={safePage}
+              totalPages={totalPages}
+              totalItems={filtered.length}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={v => { setPageSize(v); setPage(1); }}
+            />
+          )}
         </div>
       )}
 
