@@ -60,6 +60,27 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
 
   const { sorted, groups, groupKeys } = groupLines(lines);
 
+  // Build a map from line index → group index for zebra striping
+  const lineGroupIndex = {};
+  let currentGroupIdx = -1;
+  let lastGroupKey = null;
+  const PREFIXES_Z = ['MLM', 'MWL', 'WLM', 'WWL', 'LC'];
+  const getGroupKeyForLine = (l) => {
+    const s = l.product_sku || '';
+    for (const p of PREFIXES_Z) {
+      if (s.startsWith(p) && /^\d+$/.test(s.slice(p.length))) return s.slice(p.length);
+    }
+    return (l.product_name || '').replace(/\s+(MLM|MWL|WLM|WWL)\d*\s*$/i, '').trim().toLowerCase();
+  };
+  sorted.forEach((line, idx) => {
+    const key = getGroupKeyForLine(line);
+    if (key !== lastGroupKey) {
+      currentGroupIdx++;
+      lastGroupKey = key;
+    }
+    lineGroupIndex[idx] = currentGroupIdx;
+  });
+
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
       <div className="overflow-x-auto">
@@ -86,21 +107,15 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
               const hasVariance = variance !== null && variance !== 0;
               const reason = reasons?.[line.id] || line.variance_reason || '';
 
-              // Detect if this is the first line in a new meal group
-              const isFirstInGroup = idx === 0 || (() => {
-                const PREFIXES = ['MLM', 'MWL', 'WLM', 'WWL', 'LC'];
-                const getKey = (l) => {
-                  const s = l.product_sku || '';
-                  for (const p of PREFIXES) {
-                    if (s.startsWith(p) && /^\d+$/.test(s.slice(p.length))) return s.slice(p.length);
-                  }
-                  return (l.product_name || '').replace(/\s+(MLM|MWL|WLM|WWL)\d*\s*$/i, '').trim().toLowerCase();
-                };
-                return getKey(sorted[idx]) !== getKey(sorted[idx - 1]);
-              })();
+              const groupIdx = lineGroupIndex[idx];
+              const isEvenGroup = groupIdx % 2 === 0;
+              const isFirstInGroup = idx === 0 || lineGroupIndex[idx] !== lineGroupIndex[idx - 1];
+
+              // Zebra: even groups get a tinted background, odd groups stay white
+              const zebraBg = isEvenGroup ? 'bg-muted/40' : 'bg-card';
 
               return (
-                <tr key={line.id} className={cn("hover:bg-muted/30 transition-colors", hasVariance && "bg-amber-50/40", isFirstInGroup && idx > 0 && "border-t-2 border-primary/20")}>
+                <tr key={line.id} className={cn(zebraBg, "hover:bg-muted/60 transition-colors", hasVariance && "!bg-amber-50/60", isFirstInGroup && idx > 0 && "border-t-2 border-primary/20")}>
                   <td className="px-4 py-2.5 text-sm font-medium">{line.product_name}</td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground font-mono">{line.product_sku}</td>
                   <td className="px-3 py-2.5 text-right text-xs tabular-nums">{line.soh_at_plan}</td>
