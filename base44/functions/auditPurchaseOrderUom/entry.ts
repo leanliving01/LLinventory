@@ -62,7 +62,8 @@ Deno.serve(async (req) => {
       genuine_pcs_count: genuinePcs.length,
       uom_distribution: uomCounts,
       fixable_sample: fixable.slice(0, 30),
-      genuine_pcs_sample: genuinePcs.slice(0, 30),
+      genuine_pcs_unique_count: [...new Set(genuinePcs)].length,
+      genuine_pcs_unique_n_z: [...new Set(genuinePcs)].sort().filter(n => n.toUpperCase() >= 'N'),
     });
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
