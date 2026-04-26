@@ -1,9 +1,22 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { Warehouse, Package } from 'lucide-react';
+import { Warehouse, PenLine } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import StockAdjustmentModal from './StockAdjustmentModal';
 
 export default function ProductStockTab({ productId }) {
+  const [showAdjust, setShowAdjust] = useState(false);
+
+  const { data: product } = useQuery({
+    queryKey: ['product', productId],
+    queryFn: async () => {
+      const products = await base44.entities.Product.filter({ id: productId });
+      return products[0] || null;
+    },
+    enabled: !!productId,
+  });
+
   const { data: stockRecords = [], isLoading } = useQuery({
     queryKey: ['product-stock', productId],
     queryFn: () => base44.entities.StockOnHand.filter({ product_id: productId }),
@@ -28,10 +41,13 @@ export default function ProductStockTab({ productId }) {
       </div>
 
       <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-5 py-3 border-b border-border bg-muted/30">
+        <div className="px-5 py-3 border-b border-border bg-muted/30 flex items-center justify-between">
           <h3 className="text-sm font-semibold flex items-center gap-2">
             <Warehouse className="w-4 h-4 text-muted-foreground" /> Stock by Location
           </h3>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAdjust(true)}>
+            <PenLine className="w-3.5 h-3.5" /> Adjust Stock
+          </Button>
         </div>
         {stockRecords.length === 0 ? (
           <div className="px-5 py-8 text-center text-sm text-muted-foreground">
@@ -62,6 +78,12 @@ export default function ProductStockTab({ productId }) {
           </table>
         )}
       </div>
+      {showAdjust && product && (
+        <StockAdjustmentModal
+          product={product}
+          onClose={() => setShowAdjust(false)}
+        />
+      )}
     </div>
   );
 }
