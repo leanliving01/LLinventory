@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, Receipt, Truck, MapPin, Calendar, FileText, CheckCircle2, Loader2, Ban, Package, Pencil, Save, Plus, Trash2 } from 'lucide-react';
+import { X, Receipt, Truck, MapPin, Calendar, FileText, CheckCircle2, Loader2, Ban, Package, Pencil, Save, Plus, Trash2, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
 
@@ -54,6 +54,17 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
   }, [products, search]);
 
   const location = useMemo(() => locations.find(l => l.id === po.location_id), [locations, po.location_id]);
+
+  const [editingUom, setEditingUom] = useState(null); // { lineId, value }
+
+  const UOM_OPTIONS = ['kg', 'g', 'L', 'ml', 'pcs', 'box', 'case', 'each'];
+
+  const handleUomChange = async (lineId, newUom) => {
+    await base44.entities.PurchaseOrderLine.update(lineId, { uom: newUom });
+    queryClient.invalidateQueries({ queryKey: ['po-lines', po.id] });
+    setEditingUom(null);
+    toast.success('Unit updated');
+  };
 
   const allReceived = lines.length > 0 && lines.every(l => (l.received_qty || 0) >= l.ordered_qty);
   const canEdit = ['draft', 'confirmed'].includes(po.status);
@@ -119,7 +130,7 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
           product_sku: product?.sku || el.product_sku,
           ordered_qty: qty,
           unit_cost: unitCost,
-          uom: product?.purchase_uom || product?.stock_uom || el.uom || 'pcs',
+          uom: el.uom || product?.purchase_uom || product?.stock_uom || 'pcs',
           line_total: lineTotal,
         });
       } else {
@@ -131,7 +142,7 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
           ordered_qty: qty,
           received_qty: 0,
           unit_cost: unitCost,
-          uom: product?.purchase_uom || product?.stock_uom || 'pcs',
+          uom: el.uom || product?.purchase_uom || product?.stock_uom || 'pcs',
           line_total: lineTotal,
         });
       }
@@ -295,9 +306,10 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                   <thead>
                     <tr className="bg-muted/50 border-b border-border">
                       <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Qty</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-32">Unit Cost</th>
-                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Total</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-20">UoM</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Qty</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Unit Cost</th>
+                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Total</th>
                       <th className="w-10"></th>
                     </tr>
                   </thead>
@@ -333,6 +345,14 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                                 <p className="text-[10px] font-mono text-muted-foreground">{el.product_sku}</p>
                               </div>
                             )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <Select value={el.uom || 'pcs'} onValueChange={v => updateEditLine(idx, 'uom', v)}>
+                              <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {UOM_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
                           </td>
                           <td className="px-3 py-2">
                             <Input type="number" value={el.ordered_qty} onChange={e => updateEditLine(idx, 'ordered_qty', e.target.value)} className="h-9 text-sm bg-background" min="0" />
@@ -372,11 +392,33 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                   <tbody className="divide-y divide-border">
                     {lines.map(l => {
                       const pct = l.ordered_qty > 0 ? Math.round((l.received_qty || 0) / l.ordered_qty * 100) : 0;
+                      const isEditingThisUom = editingUom?.lineId === l.id;
                       return (
                         <tr key={l.id}>
                           <td className="px-3 py-2">
                             <p className="text-xs font-medium">{l.product_name}</p>
-                            <p className="text-[10px] font-mono text-muted-foreground">{l.product_sku} · {l.uom}</p>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              {l.product_sku && <span className="text-[10px] font-mono text-muted-foreground">{l.product_sku}</span>}
+                              {l.product_sku && <span className="text-[10px] text-muted-foreground">·</span>}
+                              {isEditingThisUom ? (
+                                <Select value={editingUom.value} onValueChange={v => handleUomChange(l.id, v)}>
+                                  <SelectTrigger className="h-5 w-16 text-[10px] px-1.5 py-0">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {UOM_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <button
+                                  onClick={() => setEditingUom({ lineId: l.id, value: l.uom || 'pcs' })}
+                                  className="text-[10px] font-mono text-primary/70 hover:text-primary underline decoration-dotted cursor-pointer"
+                                  title="Click to change unit"
+                                >
+                                  {l.uom || 'pcs'}
+                                </button>
+                              )}
+                            </div>
                           </td>
                           <td className="px-3 py-2 text-right text-xs">{l.ordered_qty}</td>
                           <td className="px-3 py-2 text-right">

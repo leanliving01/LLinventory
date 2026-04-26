@@ -40,6 +40,18 @@ async function getXeroTokens(base44) {
   return { accessToken: tokens.access_token, tenantId: tenantSettings[0].value };
 }
 
+function parseUomFromDescription(description) {
+  if (!description) return null;
+  const d = description.toUpperCase();
+  if (/P\/KG|\/KG|PER\s*KG|PER\s*KILO/i.test(d)) return 'kg';
+  if (/P\/G\b|\/G\b|PER\s*GRAM/i.test(d)) return 'g';
+  if (/P\/L\b|\/L\b|PER\s*LIT/i.test(d)) return 'L';
+  if (/P\/ML|\/ML|PER\s*ML/i.test(d)) return 'ml';
+  if (/\bEACH\b/i.test(d)) return 'pcs';
+  if (/\d+\s*[xX]\s*\d+\s*(kg|g|l|ml)\b/i.test(d)) return 'box';
+  return null;
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -119,7 +131,7 @@ Deno.serve(async (req) => {
                 ordered_qty: xl.Quantity || 0,
                 received_qty: 0,
                 unit_cost: xl.UnitAmount || 0,
-                uom: xl.UnitOfMeasure || 'pcs',
+                uom: xl.UnitOfMeasure || parseUomFromDescription(xl.Description) || 'pcs',
                 line_total: xl.LineAmount || 0,
                 tax_rule: xl.TaxType || '',
               }));
@@ -150,7 +162,7 @@ Deno.serve(async (req) => {
           ordered_qty: xl.Quantity || 1,
           received_qty: 0,
           unit_cost: xl.UnitAmount || 0,
-          uom: xl.UnitOfMeasure || 'pcs',
+          uom: xl.UnitOfMeasure || parseUomFromDescription(xl.Description) || 'pcs',
           line_total: xl.LineAmount || 0,
           tax_rule: xl.TaxType || '',
         }));
