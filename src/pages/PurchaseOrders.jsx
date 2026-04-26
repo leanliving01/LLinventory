@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Receipt, ChevronRight, RefreshCw, Loader2 } from 'lucide-react';
+import { Plus, Receipt, ChevronRight, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
@@ -62,10 +62,28 @@ export default function PurchaseOrders() {
     queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
   };
 
+  const [needsAttentionOnly, setNeedsAttentionOnly] = useState(false);
+
   const { data: pos = [], isLoading } = useQuery({
     queryKey: ['purchase-orders'],
     queryFn: () => base44.entities.PurchaseOrder.list('-created_date', 2000),
   });
+
+  // Load lines to identify POs needing manual qty adjustment (qty≤1, total>50)
+  const { data: allLines = [] } = useQuery({
+    queryKey: ['po-lines-all'],
+    queryFn: () => base44.entities.PurchaseOrderLine.list('created_date', 5000),
+  });
+
+  const posNeedingAttention = useMemo(() => {
+    const poIds = new Set();
+    allLines.forEach(l => {
+      if (l.ordered_qty <= 1 && (l.line_total || 0) > 50) {
+        poIds.add(l.purchase_order_id);
+      }
+    });
+    return poIds;
+  }, [allLines]);
 
   // Unique suppliers for the filter dropdown
   const supplierOptions = useMemo(() => {
@@ -91,6 +109,9 @@ export default function PurchaseOrders() {
             !(po.supplier_name || '').toLowerCase().includes(q) &&
             !(po.supplier_invoice_number || '').toLowerCase().includes(q)) return false;
       }
+
+      // Needs attention filter
+      if (needsAttentionOnly && !posNeedingAttention.has(po.id)) return false;
 
       // Supplier filter
       if (filters.supplierId !== 'all' && po.supplier_id !== filters.supplierId) return false;
@@ -125,7 +146,7 @@ export default function PurchaseOrders() {
     });
 
     return result;
-  }, [pos, filters, statusFilter]);
+  }, [pos, filters, statusFilter, needsAttentionOnly, posNeedingAttention]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -164,6 +185,22 @@ export default function PurchaseOrders() {
           </Button>
         </div>
       </div>
+
+      {/* Needs Attention banner */}
+      {posNeedingAttention.size > 0 && (
+        <button
+          onClick={() => { setNeedsAttentionOnly(!needsAttentionOnly); setPage(1); }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all w-full ${
+            needsAttentionOnly
+              ? 'bg-amber-100 text-amber-800 ring-2 ring-amber-300'
+              : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+          }`}
+        >
+          <AlertTriangle className="w-4 h-4" />
+          <span>{posNeedingAttention.size} order{posNeedingAttention.size !== 1 ? 's' : ''} need manual quantity adjustment</span>
+          <span className="ml-auto text-xs underline">{needsAttentionOnly ? 'Show all' : 'Show only these'}</span>
+        </button>
+      )}
 
       {/* Status chips */}
       <div className="flex gap-2 flex-wrap">
@@ -219,7 +256,11 @@ export default function PurchaseOrders() {
                 <tr key={po.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => setSelectedPO(po)}>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
-                      <Receipt className="w-4 h-4 text-primary shrink-0" />
+                      {posNeedingAttention.has(po.id) ? (
+                        <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" title="Needs qty adjustment" />
+                      ) : (
+                        <Receipt className="w-4 h-4 text-primary shrink-0" />
+                      )}
                       <span className="text-sm font-mono font-medium">{po.po_number}</span>
                     </div>
                   </td>

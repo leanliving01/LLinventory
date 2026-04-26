@@ -299,12 +299,26 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Apply updates
+    // Apply updates with aggressive throttling to avoid rate limits
     let applied = 0;
-    for (const u of updates.slice(0, batchSize)) {
-      await base44.asServiceRole.entities.Product.update(u.id, u.changes);
-      applied++;
-      if (applied % 5 === 0) await delay(1000);
+    const toApply = updates.slice(0, batchSize);
+    for (const u of toApply) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await base44.asServiceRole.entities.Product.update(u.id, u.changes);
+          applied++;
+          break;
+        } catch (err) {
+          if (err.message?.includes('429') || err.message?.includes('Rate limit')) {
+            console.log(`Rate limited on ${u.sku}, waiting ${(attempt + 1) * 5}s...`);
+            await delay((attempt + 1) * 5000);
+            continue;
+          }
+          throw err;
+        }
+      }
+      // Wait 2s between every update
+      await delay(2000);
     }
 
     return Response.json({

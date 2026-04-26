@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { X, Receipt, Truck, MapPin, Calendar, FileText, CheckCircle2, Loader2, Ban, Package, Pencil, Save, Plus, Trash2, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
+import POLineQtyEditor from './POLineQtyEditor';
 
 const STATUS_COLORS = {
   draft: 'bg-gray-100 text-gray-600',
@@ -387,6 +388,7 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                       <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Received</th>
                       <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Cost</th>
                       <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Total</th>
+                      <th className="w-10"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -428,6 +430,9 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                           </td>
                           <td className="px-3 py-2 text-right text-xs text-muted-foreground whitespace-nowrap">R {(l.unit_cost || 0).toFixed(2)}</td>
                           <td className="px-3 py-2 text-right text-xs font-medium whitespace-nowrap">R {(l.line_total || 0).toFixed(2)}</td>
+                          <td className="px-3 py-1">
+                            <POLineQtyEditor line={l} onUpdated={onUpdated} />
+                          </td>
                         </tr>
                       );
                     })}
