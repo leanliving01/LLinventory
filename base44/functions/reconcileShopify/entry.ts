@@ -9,6 +9,20 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 const PAGE_SIZE = 50;
 
+/** Paginated fetch for Base44 entities — avoids rate limits by loading in pages */
+async function paginatedFetch(entityRef, filter = {}, pageSize = 100) {
+  const all = [];
+  let offset = 0;
+  while (true) {
+    const page = await entityRef.filter(filter, '-created_date', pageSize, offset);
+    all.push(...page);
+    if (page.length < pageSize) break;
+    offset += pageSize;
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return all;
+}
+
 async function fetchShopifyPage(url, accessToken, dataKey) {
   const MAX_RETRIES = 3;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -66,12 +80,20 @@ Deno.serve(async (req) => {
   if (scope === 'orders' || scope === 'all') {
     console.log('[Recon] Starting order reconciliation...');
 
-    // Load all Base44 sales orders into a map
-    const b44Orders = await base44.asServiceRole.entities.SalesOrder.filter({});
+    // Pre-load all Base44 sales orders + lines in bulk (avoids per-order API calls)
+    const b44Orders = await paginatedFetch(base44.asServiceRole.entities.SalesOrder);
     const b44Map = {};
     for (const o of b44Orders) {
       if (o.external_id) b44Map[o.external_id] = o;
     }
+
+    const allSalesOrderLines = await paginatedFetch(base44.asServiceRole.entities.SalesOrderLine);
+    const allLinesByOrderId = {};
+    for (const l of allSalesOrderLines) {
+      if (!allLinesByOrderId[l.sales_order_id]) allLinesByOrderId[l.sales_order_id] = [];
+      allLinesByOrderId[l.sales_order_id].push(l);
+    }
+    console.log(`[Recon] Pre-loaded ${b44Orders.length} orders, ${allSalesOrderLines.length} lines`);
 
     // Walk Shopify paid+unfulfilled orders
     let url = `https://${storeDomain}/admin/api/2024-01/orders.json?status=any&financial_status=paid&fulfillment_status=unfulfilled&limit=${PAGE_SIZE}`;
@@ -127,11 +149,10 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Check line item count
+        // Check line item count (using pre-loaded lines)
         const shopifyLineCount = (order.line_items || []).length;
-        const b44Lines = await base44.asServiceRole.entities.SalesOrderLine.filter({ sales_order_id: b44.id });
-        const b44ParentLines = b44Lines.filter(l => !l.is_package_component).length;
-        // Only flag if difference is significant (excludes/decomposition may cause small diffs)
+        const b44LinesForOrder = allLinesByOrderId[b44.id] || [];
+        const b44ParentLines = b44LinesForOrder.filter(l => !l.is_package_component).length;
         if (Math.abs(b44ParentLines - shopifyLineCount) > 2) {
           mismatches.push({
             entity_type: 'SalesOrder', external_id: eid,
@@ -165,6 +186,16 @@ Deno.serve(async (req) => {
     console.log('[Recon] Starting product reconciliation...');
     const startMismatchCount = mismatches.length;
 
+    // Pre-load ALL Base44 products in bulk
+    const allB44Products = await paginatedFetch(base44.asServiceRole.entities.Product);
+    const b44ProductByExtId = {};
+    const b44ProductBySku = {};
+    for (const p of allB44Products) {
+      if (p.external_id) b44ProductByExtId[p.external_id] = p;
+      if (p.sku) b44ProductBySku[p.sku] = p;
+    }
+    console.log(`[Recon] Pre-loaded ${allB44Products.length} products`);
+
     let url = `https://${storeDomain}/admin/api/2024-01/products.json?limit=${PAGE_SIZE}&status=active`;
     let productCount = 0;
 
@@ -176,10 +207,9 @@ Deno.serve(async (req) => {
           productCount++;
           const variantId = String(variant.id);
 
-          let existing = await base44.asServiceRole.entities.Product.filter({ external_id: variantId });
-          if (existing.length === 0) existing = await base44.asServiceRole.entities.Product.filter({ sku: variant.sku });
+          const b44 = b44ProductByExtId[variantId] || b44ProductBySku[variant.sku];
 
-          if (existing.length === 0) {
+          if (!b44) {
             mismatches.push({
               entity_type: 'Product', external_id: variantId,
               field: 'existence', shopify_value: `${variant.sku} exists`, base44_value: 'missing',
@@ -188,7 +218,6 @@ Deno.serve(async (req) => {
             continue;
           }
 
-          const b44 = existing[0];
           const shopifyPrice = parseFloat(variant.price || 0);
           if (Math.abs((b44.price || 0) - shopifyPrice) > 0.01) {
             mismatches.push({
@@ -201,6 +230,7 @@ Deno.serve(async (req) => {
             if (autoCorrect) {
               await base44.asServiceRole.entities.Product.update(b44.id, { price: shopifyPrice });
               corrections.push({ entity: 'Product', id: variantId, field: 'price' });
+              await new Promise(r => setTimeout(r, 200));
             }
           }
         }
@@ -212,11 +242,15 @@ Deno.serve(async (req) => {
     console.log(`[Recon] Products: checked ${productCount} variants, found ${mismatches.length - startMismatchCount} mismatches`);
   }
 
-  // ─── Save mismatches to entity ───
-  for (const m of mismatches) {
-    await base44.asServiceRole.entities.ReconciliationMismatch.create(m).catch(err => {
-      console.error(`[Recon] Failed to save mismatch: ${err.message}`);
-    });
+  // ─── Save mismatches to entity (batched) ───
+  for (let i = 0; i < mismatches.length; i += 5) {
+    const batch = mismatches.slice(i, i + 5);
+    await Promise.all(batch.map(m =>
+      base44.asServiceRole.entities.ReconciliationMismatch.create(m).catch(err => {
+        console.error(`[Recon] Failed to save mismatch: ${err.message}`);
+      })
+    ));
+    if (i + 5 < mismatches.length) await new Promise(r => setTimeout(r, 500));
   }
 
   await base44.asServiceRole.entities.AuditLog.create({
