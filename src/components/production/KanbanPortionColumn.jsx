@@ -14,15 +14,15 @@ const STATUS_CONFIG = {
 
 /* ── Package → colour mapping (from Lean Living branding) ── */
 const PACKAGE_COLORS = {
-  mwl:  { bg: 'bg-blue-50',   border: 'border-blue-200',   badge: 'bg-blue-100 text-blue-700',   label: 'MWL / BYO' },
-  byo:  { bg: 'bg-blue-50',   border: 'border-blue-200',   badge: 'bg-blue-100 text-blue-700',   label: 'BYO' },
-  wwl:  { bg: 'bg-pink-50',   border: 'border-pink-200',   badge: 'bg-pink-100 text-pink-700',   label: 'WWL' },
-  mlm:  { bg: 'bg-green-50',  border: 'border-green-200',  badge: 'bg-green-100 text-green-700', label: 'MLM' },
-  wlm:  { bg: 'bg-orange-50', border: 'border-orange-200', badge: 'bg-orange-100 text-orange-700', label: 'WLM' },
-  lc:   { bg: 'bg-yellow-50', border: 'border-yellow-200', badge: 'bg-yellow-100 text-yellow-700', label: 'Low Carb' },
+  mwl:  { bg: 'bg-blue-100',   border: 'border-blue-300',   badge: 'bg-blue-200 text-blue-800',   label: 'MWL / BYO', text: 'text-blue-900' },
+  byo:  { bg: 'bg-blue-100',   border: 'border-blue-300',   badge: 'bg-blue-200 text-blue-800',   label: 'BYO',       text: 'text-blue-900' },
+  wwl:  { bg: 'bg-pink-100',   border: 'border-pink-300',   badge: 'bg-pink-200 text-pink-800',   label: 'WWL',       text: 'text-pink-900' },
+  mlm:  { bg: 'bg-green-100',  border: 'border-green-300',  badge: 'bg-green-200 text-green-800', label: 'MLM',       text: 'text-green-900' },
+  wlm:  { bg: 'bg-orange-100', border: 'border-orange-300', badge: 'bg-orange-200 text-orange-800', label: 'WLM',     text: 'text-orange-900' },
+  lc:   { bg: 'bg-yellow-100', border: 'border-yellow-300', badge: 'bg-yellow-200 text-yellow-800', label: 'Low Carb', text: 'text-yellow-900' },
 };
 
-const DEFAULT_PKG = { bg: 'bg-muted/30', border: 'border-border', badge: 'bg-muted text-muted-foreground', label: '' };
+const DEFAULT_PKG = { bg: 'bg-muted/30', border: 'border-border', badge: 'bg-muted text-muted-foreground', label: '', text: '' };
 
 /* ── Detect package type from SKU prefix ── */
 function detectPackage(sku) {
@@ -144,14 +144,13 @@ export default function KanbanPortionColumn({ station, tasks, onStatusChange, ta
                   "border rounded-lg p-3 space-y-2 transition-all",
                   pkgColor.bg, pkgColor.border,
                   task.status === 'in_progress' && "ring-2 ring-amber-300",
-                  task.status === 'done' && "opacity-60",
-                  zebraClass
+                  task.status === 'done' && "opacity-50"
                 )}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{task.meal_name || task.name}</p>
+                      <p className={cn("text-sm font-semibold truncate", pkgColor.text)}>{task.meal_name || task.name}</p>
                       {task.product_sku && (
-                        <p className="text-[10px] font-mono text-muted-foreground">{task.product_sku}</p>
+                        <p className={cn("text-[10px] font-mono opacity-70", pkgColor.text || 'text-muted-foreground')}>{task.product_sku}</p>
                       )}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -167,7 +166,7 @@ export default function KanbanPortionColumn({ station, tasks, onStatusChange, ta
                   </div>
                   <div className="flex items-center gap-2">
                     {task.qty && (
-                      <p className="text-xs text-muted-foreground">Qty: <strong>{task.qty}</strong></p>
+                      <p className={cn("text-xs opacity-80", pkgColor.text || 'text-muted-foreground')}>Qty: <strong>{task.qty}</strong></p>
                     )}
                     {task.assigned_name && (
                       <Badge variant="outline" className="text-[10px]">{task.assigned_name}</Badge>
