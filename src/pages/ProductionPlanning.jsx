@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Factory, Search, X } from 'lucide-react';
+import { Factory, Search, X, Settings2, Save, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import RecommendationTable from '@/components/production/RecommendationTable';
+import SplitRunConfirmModal from '@/components/production/SplitRunConfirmModal';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import { groupMealsForProduction, VARIANT_CODES } from '@/lib/productionGrouping';
 import { writeAuditLog } from '@/lib/auditLog';
@@ -16,6 +17,35 @@ export default function ProductionPlanning() {
   const [search, setSearch] = useState('');
   const [overrides, setOverrides] = useState({});
   const [generating, setGenerating] = useState(false);
+  const [showSplitModal, setShowSplitModal] = useState(false);
+  const [maxInput, setMaxInput] = useState('');
+  const [savingMax, setSavingMax] = useState(false);
+
+  // Fetch max meals per run setting
+  const { data: maxSetting } = useQuery({
+    queryKey: ['setting-max-meals-per-run'],
+    queryFn: async () => {
+      const settings = await base44.entities.Setting.filter({ key: 'max_meals_per_run' });
+      return settings[0] || null;
+    },
+  });
+  const maxPerRun = maxSetting ? Number(maxSetting.value) || 2500 : 2500;
+
+  // Save max per run
+  const handleSaveMax = async () => {
+    const val = Number(maxInput);
+    if (!val || val < 1) return;
+    setSavingMax(true);
+    if (maxSetting) {
+      await base44.entities.Setting.update(maxSetting.id, { value: String(val) });
+    } else {
+      await base44.entities.Setting.create({ key: 'max_meals_per_run', value: String(val), group: 'production', label: 'Max meals per production run' });
+    }
+    queryClient.invalidateQueries({ queryKey: ['setting-max-meals-per-run'] });
+    setSavingMax(false);
+    setMaxInput('');
+    toast.success(`Max meals per run updated to ${val.toLocaleString()}`);
+  };
 
   // Fetch all finished meals
   const { data: finishedMeals = [], isLoading: loadingMeals } = useQuery({
@@ -92,13 +122,8 @@ export default function ProductionPlanning() {
     setOverrides(prev => ({ ...prev, [productId]: value }));
   };
 
-  // Generate a production run (§5.1.2)
-  const handleConfirmRun = async () => {
-    setGenerating(true);
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const runNumber = `RUN-${format(new Date(), 'yyyy')}-${String(Date.now()).slice(-4)}`;
-
-    // Collect all lines with qty > 0
+  // Collect all production lines with qty > 0
+  const collectAllLines = () => {
     const lines = [];
     const collectLines = (rows, codes) => {
       rows.forEach(row => {
@@ -126,38 +151,59 @@ export default function ProductionPlanning() {
         });
       });
     };
-
     collectLines(goalRows, VARIANT_CODES);
     collectLines(lowCarbRows, ['LC']);
+    return lines;
+  };
 
+  // Open the split confirmation modal
+  const handleOpenConfirm = () => {
+    const lines = collectAllLines();
     if (lines.length === 0) {
       toast.error('No meals to produce — all quantities are zero');
-      setGenerating(false);
       return;
     }
+    setShowSplitModal(true);
+  };
 
-    // Create the run
-    const run = await base44.entities.ProductionRun.create({
-      run_number: runNumber,
-      run_date: today,
-      status: 'scheduled',
-      total_lines: lines.length,
-      total_units: lines.reduce((s, l) => s + l.planned_qty, 0),
-    });
+  // Create one or more production runs from the split plan (§5.1.2)
+  const handleCreateRuns = async (splitPlan) => {
+    setGenerating(true);
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const baseTs = Date.now();
+    let totalCreated = 0;
 
-    // Attach run_id and bulk create lines
-    const linesWithRun = lines.map(l => ({ ...l, run_id: run.id }));
-    await base44.entities.ProductionRunLine.bulkCreate(linesWithRun);
+    for (let i = 0; i < splitPlan.length; i++) {
+      const run = splitPlan[i];
+      const suffix = splitPlan.length > 1 ? String.fromCharCode(65 + i) : ''; // A, B, C...
+      const runNumber = `RUN-${format(new Date(), 'yyyy')}-${String(baseTs + i).slice(-4)}${suffix}`;
+
+      const created = await base44.entities.ProductionRun.create({
+        run_number: runNumber,
+        run_date: today,
+        status: 'scheduled',
+        total_lines: run.lines.length,
+        total_units: run.totalUnits,
+        notes: splitPlan.length > 1 ? `Split ${i + 1} of ${splitPlan.length}${i === 0 ? ' (priority run)' : ''}` : '',
+      });
+
+      const linesWithRun = run.lines.map(l => ({ ...l, run_id: created.id, status: 'pending' }));
+      await base44.entities.ProductionRunLine.bulkCreate(linesWithRun);
+
+      writeAuditLog({
+        action: 'create',
+        entity_type: 'ProductionRun',
+        entity_id: created.id,
+        description: `Created production run ${runNumber} — ${run.lines.length} meals, ${run.totalUnits} units${splitPlan.length > 1 ? ` (split ${i + 1}/${splitPlan.length})` : ''}`,
+      });
+      totalCreated++;
+    }
 
     queryClient.invalidateQueries({ queryKey: ['production-runs'] });
-    writeAuditLog({
-      action: 'create',
-      entity_type: 'ProductionRun',
-      entity_id: run.id,
-      description: `Created production run ${runNumber} — ${lines.length} meals, ${lines.reduce((s, l) => s + l.planned_qty, 0)} units`,
-    });
-    toast.success(`Production run ${runNumber} created — ${lines.length} meals, ${lines.reduce((s, l) => s + l.planned_qty, 0)} units`);
+    const totalUnits = splitPlan.reduce((s, r) => s + r.totalUnits, 0);
+    toast.success(`Created ${totalCreated} production run${totalCreated > 1 ? 's' : ''} — ${totalUnits.toLocaleString()} total meals`);
     setOverrides({});
+    setShowSplitModal(false);
     setGenerating(false);
   };
 
@@ -174,19 +220,22 @@ export default function ProductionPlanning() {
         <div className="flex items-center gap-2">
         <HelpDrawer pageKey="production-plan" />
         <Button
-          onClick={handleConfirmRun}
+          onClick={handleOpenConfirm}
           disabled={generating || totalToProduce === 0}
           size="lg"
           className="gap-2 h-12 px-6 text-base"
         >
           <Factory className="w-5 h-5" />
-          {generating ? 'Creating...' : `Confirm Run (${totalToProduce} units)`}
+          {totalToProduce > maxPerRun
+            ? `Plan ${Math.ceil(totalToProduce / maxPerRun)} Runs (${totalToProduce.toLocaleString()})`
+            : `Confirm Run (${totalToProduce.toLocaleString()})`
+          }
         </Button>
         </div>
       </div>
 
       {/* Summary strip */}
-      <div className="flex items-center gap-6 bg-card border border-border rounded-xl px-6 py-4">
+      <div className="flex items-center gap-6 bg-card border border-border rounded-xl px-6 py-4 flex-wrap">
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Below Par</p>
           <p className="text-lg font-bold text-red-600">{belowParCount}</p>
@@ -203,6 +252,11 @@ export default function ProductionPlanning() {
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Runs Needed</p>
+          <p className="text-lg font-bold text-foreground">{Math.max(1, Math.ceil(totalToProduce / maxPerRun))}</p>
+        </div>
+        <div className="w-px h-8 bg-border" />
+        <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Goal Meals</p>
           <p className="text-lg font-bold text-foreground">{goalRows.length}</p>
         </div>
@@ -210,6 +264,31 @@ export default function ProductionPlanning() {
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Low Carb</p>
           <p className="text-lg font-bold text-foreground">{lowCarbRows.length}</p>
+        </div>
+
+        {/* Max meals per run - inline editable */}
+        <div className="ml-auto flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-2 border border-border">
+          <Settings2 className="w-4 h-4 text-muted-foreground shrink-0" />
+          <div className="text-[10px] text-muted-foreground uppercase font-semibold whitespace-nowrap">Max / Run</div>
+          <Input
+            type="number"
+            min="1"
+            value={maxInput || maxPerRun}
+            onChange={e => setMaxInput(e.target.value)}
+            className="w-24 h-8 text-sm text-right"
+            onFocus={() => { if (!maxInput) setMaxInput(String(maxPerRun)); }}
+          />
+          {maxInput && Number(maxInput) !== maxPerRun && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleSaveMax}
+              disabled={savingMax}
+              className="h-7 px-2"
+            >
+              {savingMax ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -253,6 +332,17 @@ export default function ProductionPlanning() {
             onOverride={handleOverride}
           />
         </>
+      )}
+
+      {showSplitModal && (
+        <SplitRunConfirmModal
+          lines={collectAllLines()}
+          maxPerRun={maxPerRun}
+          totalUnits={totalToProduce}
+          onConfirm={handleCreateRuns}
+          onCancel={() => setShowSplitModal(false)}
+          generating={generating}
+        />
       )}
     </div>
   );
