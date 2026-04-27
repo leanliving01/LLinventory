@@ -3,13 +3,13 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, X, ArrowUp, ArrowDown, Minus, Loader2, Plus } from 'lucide-react';
+import { RefreshCw, X, ArrowUp, ArrowDown, Minus, Loader2, Plus, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
  * Recalculate modal — compares existing run lines against ALL finished meals
- * using latest stock/committed/par. Shows diff including NEW meals that should
- * be added. User confirms to apply changes.
+ * using latest stock/committed/par. Caps at max-per-run setting, prioritising
+ * lines with committed demand. Shows diff including NEW meals.
  */
 export default function RecalculateRunModal({ runId, existingLines, onConfirm, onCancel }) {
   const [applying, setApplying] = useState(false);
@@ -23,6 +23,16 @@ export default function RecalculateRunModal({ runId, existingLines, onConfirm, o
     queryKey: ['recalc-stock'],
     queryFn: () => base44.entities.StockOnHand.list('-updated_date', 1000),
   });
+
+  // Fetch max meals per run setting
+  const { data: maxSetting } = useQuery({
+    queryKey: ['setting-max-meals-per-run'],
+    queryFn: async () => {
+      const settings = await base44.entities.Setting.filter({ key: 'max_meals_per_run' });
+      return settings[0] || null;
+    },
+  });
+  const maxPerRun = maxSetting ? Number(maxSetting.value) || 2500 : 2500;
 
   const stockMap = useMemo(() => {
     const map = {};
@@ -40,9 +50,9 @@ export default function RecalculateRunModal({ runId, existingLines, onConfirm, o
     return new Set(existingLines.map(l => l.product_id));
   }, [existingLines]);
 
-  // Recalculate ALL finished meals — existing lines get updated, new ones get added
+  // Recalculate ALL finished meals, then cap to maxPerRun prioritising committed demand
   const diff = useMemo(() => {
-    const results = [];
+    const uncapped = [];
 
     // 1. Update existing lines
     for (const line of existingLines) {
@@ -51,17 +61,17 @@ export default function RecalculateRunModal({ runId, existingLines, onConfirm, o
       const committed = stockMap[line.product_id]?.qty_committed || 0;
       const available = soh - committed;
       const par = product?.par_level || 0;
-      const newRecommended = Math.max(0, par - available);
-      const change = newRecommended - line.planned_qty;
+      const fullRecommended = Math.max(0, par - available);
 
-      results.push({
+      uncapped.push({
         ...line,
         soh,
         committed,
         available,
         par,
-        newRecommended,
-        change,
+        fullRecommended,
+        newRecommended: fullRecommended,
+        change: fullRecommended - line.planned_qty,
         isNew: false,
         product_name: line.product_name || product?.name || '',
         product_sku: line.product_sku || product?.sku || '',
@@ -75,11 +85,11 @@ export default function RecalculateRunModal({ runId, existingLines, onConfirm, o
       const committed = stockMap[product.id]?.qty_committed || 0;
       const available = soh - committed;
       const par = product.par_level || 0;
-      const newRecommended = Math.max(0, par - available);
+      const fullRecommended = Math.max(0, par - available);
 
-      if (newRecommended > 0) {
-        results.push({
-          id: null, // new line — no existing ID
+      if (fullRecommended > 0) {
+        uncapped.push({
+          id: null,
           product_id: product.id,
           product_name: product.name,
           product_sku: product.sku,
@@ -88,8 +98,9 @@ export default function RecalculateRunModal({ runId, existingLines, onConfirm, o
           committed,
           available,
           par,
-          newRecommended,
-          change: newRecommended,
+          fullRecommended,
+          newRecommended: fullRecommended,
+          change: fullRecommended,
           isNew: true,
           soh_at_plan: soh,
           committed_at_plan: committed,
@@ -98,19 +109,46 @@ export default function RecalculateRunModal({ runId, existingLines, onConfirm, o
       }
     }
 
-    // Sort: new lines first, then by SKU
-    results.sort((a, b) => {
+    // 3. Cap to maxPerRun — prioritise lines with highest committed demand
+    const uncappedTotal = uncapped.reduce((s, l) => s + l.fullRecommended, 0);
+    if (uncappedTotal > maxPerRun) {
+      // Sort by committed DESC so priority items fill first
+      const sorted = [...uncapped].filter(l => l.fullRecommended > 0).sort((a, b) => (b.committed || 0) - (a.committed || 0));
+      let budget = maxPerRun;
+      const allocations = {};
+
+      for (const item of sorted) {
+        const alloc = Math.min(item.fullRecommended, budget);
+        allocations[item.product_id] = alloc;
+        budget -= alloc;
+        if (budget <= 0) break;
+      }
+
+      // Apply allocations back
+      for (const item of uncapped) {
+        const alloc = allocations[item.product_id] ?? 0;
+        item.newRecommended = alloc;
+        item.change = alloc - item.planned_qty;
+      }
+    }
+
+    // Sort: new lines first, then by committed DESC, then SKU
+    uncapped.sort((a, b) => {
       if (a.isNew !== b.isNew) return a.isNew ? -1 : 1;
+      if ((b.committed || 0) !== (a.committed || 0)) return (b.committed || 0) - (a.committed || 0);
       return (a.product_sku || '').localeCompare(b.product_sku || '');
     });
 
-    return results;
-  }, [existingLines, finishedMeals, stockMap, existingProductIds]);
+    return uncapped;
+  }, [existingLines, finishedMeals, stockMap, existingProductIds, maxPerRun]);
 
   const totalOld = existingLines.reduce((s, l) => s + l.planned_qty, 0);
   const totalNew = diff.reduce((s, l) => s + l.newRecommended, 0);
+  const totalUncapped = diff.reduce((s, l) => s + l.fullRecommended, 0);
+  const wasCapped = totalUncapped > maxPerRun;
   const changedCount = diff.filter(d => d.change !== 0).length;
-  const newCount = diff.filter(d => d.isNew).length;
+  const newCount = diff.filter(d => d.isNew && d.newRecommended > 0).length;
+  const droppedCount = diff.filter(d => d.fullRecommended > 0 && d.newRecommended === 0).length;
 
   const isLoading = loadingMeals || loadingStock;
 
@@ -147,6 +185,21 @@ export default function RecalculateRunModal({ runId, existingLines, onConfirm, o
             </div>
           ) : (
             <>
+              {/* Cap warning */}
+              {wasCapped && (
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <span className="font-semibold text-amber-800">Capped to {maxPerRun.toLocaleString()} max per run</span>
+                    <p className="text-amber-700 mt-0.5">
+                      Full demand is {totalUncapped.toLocaleString()} meals but this run is capped at {maxPerRun.toLocaleString()}.
+                      {droppedCount > 0 && ` ${droppedCount} meal${droppedCount > 1 ? 's' : ''} excluded.`}
+                      {' '}Lines with the highest committed orders are prioritised.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Summary */}
               <div className="flex items-center gap-6 mb-4 pb-4 border-b border-border flex-wrap">
                 <div>
@@ -167,15 +220,19 @@ export default function RecalculateRunModal({ runId, existingLines, onConfirm, o
                   <p className="text-[10px] text-muted-foreground uppercase font-semibold">New Total</p>
                   <p className="text-lg font-bold">{totalNew.toLocaleString()}</p>
                 </div>
+                {wasCapped && (
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase font-semibold">Full Demand</p>
+                    <p className="text-lg font-bold text-amber-600">{totalUncapped.toLocaleString()}</p>
+                  </div>
+                )}
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-semibold">Difference</p>
-                  <p className={cn("text-lg font-bold", totalNew > totalOld && "text-amber-600", totalNew < totalOld && "text-green-600")}>
-                    {totalNew > totalOld ? '+' : ''}{(totalNew - totalOld).toLocaleString()}
-                  </p>
+                  <p className="text-[10px] text-muted-foreground uppercase font-semibold">Max / Run</p>
+                  <p className="text-lg font-bold">{maxPerRun.toLocaleString()}</p>
                 </div>
               </div>
 
-              {/* Diff table */}
+              {/* Diff table — hide new lines that were fully excluded by cap */}
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-[10px] text-muted-foreground uppercase">
@@ -190,10 +247,10 @@ export default function RecalculateRunModal({ runId, existingLines, onConfirm, o
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {diff.map((d, i) => (
+                  {diff.filter(d => !(d.isNew && d.newRecommended === 0)).map((d, i) => (
                     <tr key={d.id || `new-${d.product_id}`} className={cn(
                       "hover:bg-muted/30",
-                      d.isNew && "bg-primary/5",
+                      d.isNew && d.newRecommended > 0 && "bg-primary/5",
                       !d.isNew && d.change !== 0 && "bg-amber-50/40"
                     )}>
                       <td className="px-3 py-2 text-xs">
