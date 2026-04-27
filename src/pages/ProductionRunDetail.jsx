@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3, RefreshCw, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3, RefreshCw, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -15,7 +15,6 @@ import ProductionSummaryModal from '@/components/production/ProductionSummaryMod
 import HelpDrawer from '@/components/help/HelpDrawer';
 import VarianceReport from '@/components/production/VarianceReport';
 import RecalculateRunModal from '@/components/production/RecalculateRunModal';
-import EditRunLineModal from '@/components/production/EditRunLineModal';
 import { writeAuditLog } from '@/lib/auditLog';
 
 const STATUS_STYLES = {
@@ -41,7 +40,8 @@ export default function ProductionRunDetail() {
   const [showSummary, setShowSummary] = useState(false);
   const [showVariance, setShowVariance] = useState(false);
   const [showRecalculate, setShowRecalculate] = useState(false);
-  const [editingLine, setEditingLine] = useState(null);
+  const [plannedEdits, setPlannedEdits] = useState({});
+  const [savingPlanned, setSavingPlanned] = useState(false);
 
   const { data: run, isLoading: loadingRun } = useQuery({
     queryKey: ['production-run', runId],
@@ -473,25 +473,41 @@ export default function ProductionRunDetail() {
   const isScheduled = run.status === 'scheduled';
   const filledCount = lines.filter(l => actuals[l.id] !== undefined && actuals[l.id] !== '').length;
 
-  // Recalculate handler — updates existing lines with new recommendations
+  // Recalculate handler — updates existing lines AND creates new ones
   const handleRecalcConfirm = async (diff) => {
     let updated = 0;
+    let added = 0;
+
     for (const d of diff) {
-      if (d.change !== 0) {
-        await base44.entities.ProductionRunLine.update(d.id, {
+      if (d.isNew && d.newRecommended > 0) {
+        // Create new line
+        await base44.entities.ProductionRunLine.create({
+          run_id: runId,
+          product_id: d.product_id,
+          product_name: d.product_name,
+          product_sku: d.product_sku,
           planned_qty: d.newRecommended,
           soh_at_plan: d.soh,
           committed_at_plan: d.committed,
           par_at_plan: d.par,
+          status: 'pending',
         });
+        added++;
+      } else if (!d.isNew && d.change !== 0) {
+        if (d.newRecommended === 0) {
+          await base44.entities.ProductionRunLine.delete(d.id);
+        } else {
+          await base44.entities.ProductionRunLine.update(d.id, {
+            planned_qty: d.newRecommended,
+            soh_at_plan: d.soh,
+            committed_at_plan: d.committed,
+            par_at_plan: d.par,
+          });
+        }
         updated++;
       }
     }
-    // Remove lines with 0 recommended
-    const zeroLines = diff.filter(d => d.newRecommended === 0);
-    for (const z of zeroLines) {
-      await base44.entities.ProductionRunLine.delete(z.id);
-    }
+
     // Update run totals
     const remaining = diff.filter(d => d.newRecommended > 0);
     const newTotal = remaining.reduce((s, d) => s + d.newRecommended, 0);
@@ -501,29 +517,50 @@ export default function ProductionRunDetail() {
     });
     writeAuditLog({
       action: 'update', entity_type: 'ProductionRun', entity_id: runId,
-      description: `Recalculated run ${run?.run_number} — ${updated} lines updated, new total ${newTotal} units`,
+      description: `Recalculated run ${run?.run_number} — ${updated} updated, ${added} added, new total ${newTotal} units`,
     });
     queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
     queryClient.invalidateQueries({ queryKey: ['production-run-lines', runId] });
     queryClient.invalidateQueries({ queryKey: ['production-runs'] });
     setShowRecalculate(false);
-    toast.success(`Run recalculated — ${updated} lines updated, ${newTotal.toLocaleString()} total meals`);
+    toast.success(`Run recalculated — ${updated} updated, ${added} new, ${newTotal.toLocaleString()} total meals`);
   };
 
-  // Edit single line planned qty
-  const handleEditLineSave = async (lineId, newQty) => {
-    await base44.entities.ProductionRunLine.update(lineId, { planned_qty: newQty });
+  // Handle inline planned qty editing
+  const handlePlannedQtyChange = (lineId, value) => {
+    setPlannedEdits(prev => ({ ...prev, [lineId]: value }));
+  };
+
+  // Save all planned qty changes at once
+  const handleSavePlannedChanges = async () => {
+    const edits = Object.entries(plannedEdits);
+    if (edits.length === 0) {
+      toast.info('No changes to save');
+      return;
+    }
+    setSavingPlanned(true);
+    for (const [lineId, value] of edits) {
+      const qty = Number(value);
+      if (qty >= 0) {
+        await base44.entities.ProductionRunLine.update(lineId, { planned_qty: qty });
+      }
+    }
     // Recalculate run totals
-    const updatedLines = lines.map(l => l.id === lineId ? { ...l, planned_qty: newQty } : l);
+    const updatedLines = lines.map(l => {
+      const editedQty = plannedEdits[l.id];
+      return editedQty !== undefined ? { ...l, planned_qty: Number(editedQty) } : l;
+    });
     const newTotal = updatedLines.reduce((s, l) => s + l.planned_qty, 0);
     await base44.entities.ProductionRun.update(runId, {
       total_units: newTotal,
+      total_lines: updatedLines.filter(l => l.planned_qty > 0).length,
     });
     queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
     queryClient.invalidateQueries({ queryKey: ['production-run-lines', runId] });
     queryClient.invalidateQueries({ queryKey: ['production-runs'] });
-    setEditingLine(null);
-    toast.success('Line quantity updated');
+    setPlannedEdits({});
+    setSavingPlanned(false);
+    toast.success(`Saved changes — ${edits.length} line${edits.length > 1 ? 's' : ''} updated`);
   };
 
   // Delete a line from the run
@@ -673,15 +710,17 @@ export default function ProductionRunDetail() {
 
       {/* Lines table */}
       <RunLineTable
-        lines={lines}
+        lines={lines.map(l => ({ ...l, _editedQty: plannedEdits[l.id] }))}
         actuals={actuals}
         reasons={reasons}
         onActualChange={handleActualChange}
         onReasonChange={handleReasonChange}
         isEditable={isEditable}
         isScheduled={isScheduled}
-        onEditLine={setEditingLine}
+        onPlannedQtyChange={isScheduled ? handlePlannedQtyChange : undefined}
+        onSavePlannedChanges={isScheduled && Object.keys(plannedEdits).length > 0 ? handleSavePlannedChanges : undefined}
         onDeleteLine={handleDeleteLine}
+        savingPlanned={savingPlanned}
       />
 
       {/* §5.1.8 Stock Guardrail Modal — hard block, no override */}
@@ -720,15 +759,6 @@ export default function ProductionRunDetail() {
           existingLines={lines}
           onConfirm={handleRecalcConfirm}
           onCancel={() => setShowRecalculate(false)}
-        />
-      )}
-
-      {/* Edit Line Modal */}
-      {editingLine && (
-        <EditRunLineModal
-          line={editingLine}
-          onSave={handleEditLineSave}
-          onCancel={() => setEditingLine(null)}
         />
       )}
 

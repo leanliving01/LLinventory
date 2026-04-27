@@ -19,6 +19,7 @@ import MasterDataBOM from '@/pages/MasterDataBOM';
 import Reports from '@/pages/Reports';
 import DemandAudit from '@/pages/DemandAudit';
 import ProductionRuns from '@/pages/ProductionRuns';
+import PlanRunReview from '@/pages/PlanRunReview';
 import ProductionRunDetail from '@/pages/ProductionRunDetail';
 import Wastage from '@/pages/Wastage';
 import Settings from '@/pages/Settings';
@@ -87,6 +88,7 @@ const AuthenticatedApp = () => {
         <Route path="/customers" element={<Customers />} />
         <Route path="/production" element={<ProductionPlanning />} />
         <Route path="/production/runs" element={<ProductionRuns />} />
+        <Route path="/production/plan-review" element={<PlanRunReview />} />
         <Route path="/production/run/:runId" element={<ProductionRunDetail />} />
         <Route path="/production/run/:runId/pick-list" element={<PickList />} />
         <Route path="/production/run/:runId/kanban" element={<Kanban />} />

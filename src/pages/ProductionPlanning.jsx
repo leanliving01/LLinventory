@@ -7,17 +7,17 @@ import { Factory, Search, X, Settings2, Save, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import RecommendationTable from '@/components/production/RecommendationTable';
-import SplitRunConfirmModal from '@/components/production/SplitRunConfirmModal';
+import { useNavigate } from 'react-router-dom';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import { groupMealsForProduction, VARIANT_CODES } from '@/lib/productionGrouping';
 import { writeAuditLog } from '@/lib/auditLog';
 
 export default function ProductionPlanning() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [overrides, setOverrides] = useState({});
   const [generating, setGenerating] = useState(false);
-  const [showSplitModal, setShowSplitModal] = useState(false);
   const [maxInput, setMaxInput] = useState('');
   const [savingMax, setSavingMax] = useState(false);
 
@@ -156,55 +156,77 @@ export default function ProductionPlanning() {
     return lines;
   };
 
-  // Open the split confirmation modal
+  // Build the split plan and navigate to full-page review
   const handleOpenConfirm = () => {
     const lines = collectAllLines();
     if (lines.length === 0) {
       toast.error('No meals to produce — all quantities are zero');
       return;
     }
-    setShowSplitModal(true);
+
+    const numRuns = Math.max(1, Math.ceil(totalToProduce / maxPerRun));
+    const splitPlan = buildSplitPlan(lines, numRuns, maxPerRun, totalToProduce);
+
+    // Store in sessionStorage and navigate to the review page
+    sessionStorage.setItem('planRunReview', JSON.stringify({
+      splitPlan,
+      maxPerRun,
+      totalUnits: totalToProduce,
+    }));
+    navigate('/production/plan-review');
   };
 
-  // Create one or more production runs from the split plan (§5.1.2)
-  const handleCreateRuns = async (splitPlan) => {
-    setGenerating(true);
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const baseTs = Date.now();
-    let totalCreated = 0;
-
-    for (let i = 0; i < splitPlan.length; i++) {
-      const run = splitPlan[i];
-      const suffix = splitPlan.length > 1 ? String.fromCharCode(65 + i) : ''; // A, B, C...
-      const runNumber = `RUN-${format(new Date(), 'yyyy')}-${String(baseTs + i).slice(-4)}${suffix}`;
-
-      const created = await base44.entities.ProductionRun.create({
-        run_number: runNumber,
-        run_date: today,
-        status: 'scheduled',
-        total_lines: run.lines.length,
-        total_units: run.totalUnits,
-        notes: splitPlan.length > 1 ? `Split ${i + 1} of ${splitPlan.length}${i === 0 ? ' (priority run)' : ''}` : '',
-      });
-
-      const linesWithRun = run.lines.map(l => ({ ...l, run_id: created.id, status: 'pending' }));
-      await base44.entities.ProductionRunLine.bulkCreate(linesWithRun);
-
-      writeAuditLog({
-        action: 'create',
-        entity_type: 'ProductionRun',
-        entity_id: created.id,
-        description: `Created production run ${runNumber} — ${run.lines.length} meals, ${run.totalUnits} units${splitPlan.length > 1 ? ` (split ${i + 1}/${splitPlan.length})` : ''}`,
-      });
-      totalCreated++;
+  // Build the split plan (same algorithm as before, now a pure function)
+  const buildSplitPlan = (lines, numRuns, max, total) => {
+    if (numRuns === 1) {
+      return [{ runIndex: 0, label: 'Run 1', lines: lines.map(l => ({ ...l })), totalUnits: total }];
     }
 
-    queryClient.invalidateQueries({ queryKey: ['production-runs'] });
-    const totalUnits = splitPlan.reduce((s, r) => s + r.totalUnits, 0);
-    toast.success(`Created ${totalCreated} production run${totalCreated > 1 ? 's' : ''} — ${totalUnits.toLocaleString()} total meals`);
-    setOverrides({});
-    setShowSplitModal(false);
-    setGenerating(false);
+    const sorted = [...lines].sort((a, b) => (b.committed_at_plan || 0) - (a.committed_at_plan || 0));
+    const remaining = {};
+    sorted.forEach(l => { remaining[l.product_id] = l.planned_qty; });
+    const runs = [];
+
+    // Run 1 — priority: fill up to max, preferring committed demand
+    let run1Lines = [];
+    let run1Total = 0;
+    for (const line of sorted) {
+      if (run1Total >= max) break;
+      const canTake = Math.min(remaining[line.product_id], max - run1Total);
+      if (canTake > 0) {
+        run1Lines.push({ ...line, planned_qty: canTake });
+        run1Total += canTake;
+        remaining[line.product_id] -= canTake;
+      }
+    }
+    runs.push({ runIndex: 0, label: 'Run 1 (Priority)', lines: run1Lines, totalUnits: run1Total });
+
+    // Remaining runs — split evenly
+    const leftoverTotal = Object.values(remaining).reduce((s, v) => s + v, 0);
+    const remainingRuns = numRuns - 1;
+
+    if (remainingRuns > 0 && leftoverTotal > 0) {
+      const perRun = Math.ceil(leftoverTotal / remainingRuns);
+      for (let r = 0; r < remainingRuns; r++) {
+        let runLines = [];
+        let runTotal = 0;
+        const runCap = Math.min(perRun, max);
+        for (const line of sorted) {
+          if (runTotal >= runCap) break;
+          if (remaining[line.product_id] <= 0) continue;
+          const canTake = Math.min(remaining[line.product_id], runCap - runTotal);
+          if (canTake > 0) {
+            runLines.push({ ...line, planned_qty: canTake });
+            runTotal += canTake;
+            remaining[line.product_id] -= canTake;
+          }
+        }
+        if (runLines.length > 0) {
+          runs.push({ runIndex: r + 1, label: `Run ${r + 2}`, lines: runLines, totalUnits: runTotal });
+        }
+      }
+    }
+    return runs;
   };
 
   return (
@@ -334,16 +356,7 @@ export default function ProductionPlanning() {
         </>
       )}
 
-      {showSplitModal && (
-        <SplitRunConfirmModal
-          lines={collectAllLines()}
-          maxPerRun={maxPerRun}
-          totalUnits={totalToProduce}
-          onConfirm={handleCreateRuns}
-          onCancel={() => setShowSplitModal(false)}
-          generating={generating}
-        />
-      )}
+
     </div>
   );
 }
