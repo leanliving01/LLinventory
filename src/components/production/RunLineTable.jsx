@@ -1,6 +1,8 @@
 import React from 'react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const VARIANCE_REASONS = [
@@ -53,7 +55,7 @@ function groupLines(lines) {
   return { sorted, groups, groupKeys };
 }
 
-export default function RunLineTable({ lines, actuals, reasons, onActualChange, onReasonChange, isEditable }) {
+export default function RunLineTable({ lines, actuals, reasons, onActualChange, onReasonChange, isEditable, isScheduled, onEditLine, onDeleteLine }) {
   if (lines.length === 0) {
     return <div className="text-center py-8 text-sm text-muted-foreground">No lines in this run</div>;
   }
@@ -97,6 +99,7 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
               <th className="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase w-16">+/-</th>
               {isEditable && <th className="text-left px-3 py-3 text-xs font-semibold text-muted-foreground uppercase min-w-[180px]">Reason</th>}
               {!isEditable && <th className="text-left px-3 py-3 text-xs font-semibold text-muted-foreground uppercase">Reason</th>}
+              {isScheduled && <th className="text-center px-2 py-3 text-xs font-semibold text-muted-foreground uppercase w-20">Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -168,6 +171,28 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
                       <span className="text-xs">{reason ? VARIANCE_REASONS.find(r => r.value === reason)?.label || reason : '—'}</span>
                     )}
                   </td>
+                  {isScheduled && (
+                    <td className="px-2 py-2.5 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                          onClick={(e) => { e.stopPropagation(); onEditLine?.(line); }}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-red-600"
+                          onClick={(e) => { e.stopPropagation(); onDeleteLine?.(line.id); }}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -199,6 +224,7 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
                 })()}
               </td>
               <td />
+              {isScheduled && <td />}
             </tr>
           </tfoot>
         </table>

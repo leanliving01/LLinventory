@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3, RefreshCw, Pencil, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -14,6 +14,8 @@ import SurplusModal from '@/components/production/SurplusModal';
 import ProductionSummaryModal from '@/components/production/ProductionSummaryModal';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import VarianceReport from '@/components/production/VarianceReport';
+import RecalculateRunModal from '@/components/production/RecalculateRunModal';
+import EditRunLineModal from '@/components/production/EditRunLineModal';
 import { writeAuditLog } from '@/lib/auditLog';
 
 const STATUS_STYLES = {
@@ -38,6 +40,8 @@ export default function ProductionRunDetail() {
   const [surplusLines, setSurplusLines] = useState([]);
   const [showSummary, setShowSummary] = useState(false);
   const [showVariance, setShowVariance] = useState(false);
+  const [showRecalculate, setShowRecalculate] = useState(false);
+  const [editingLine, setEditingLine] = useState(null);
 
   const { data: run, isLoading: loadingRun } = useQuery({
     queryKey: ['production-run', runId],
@@ -466,7 +470,76 @@ export default function ProductionRunDetail() {
   const isEditable = run.status === 'scheduled' || run.status === 'in_progress';
   const canComplete = run.status === 'in_progress';
   const canStart = run.status === 'scheduled';
+  const isScheduled = run.status === 'scheduled';
   const filledCount = lines.filter(l => actuals[l.id] !== undefined && actuals[l.id] !== '').length;
+
+  // Recalculate handler — updates existing lines with new recommendations
+  const handleRecalcConfirm = async (diff) => {
+    let updated = 0;
+    for (const d of diff) {
+      if (d.change !== 0) {
+        await base44.entities.ProductionRunLine.update(d.id, {
+          planned_qty: d.newRecommended,
+          soh_at_plan: d.soh,
+          committed_at_plan: d.committed,
+          par_at_plan: d.par,
+        });
+        updated++;
+      }
+    }
+    // Remove lines with 0 recommended
+    const zeroLines = diff.filter(d => d.newRecommended === 0);
+    for (const z of zeroLines) {
+      await base44.entities.ProductionRunLine.delete(z.id);
+    }
+    // Update run totals
+    const remaining = diff.filter(d => d.newRecommended > 0);
+    const newTotal = remaining.reduce((s, d) => s + d.newRecommended, 0);
+    await base44.entities.ProductionRun.update(runId, {
+      total_lines: remaining.length,
+      total_units: newTotal,
+    });
+    writeAuditLog({
+      action: 'update', entity_type: 'ProductionRun', entity_id: runId,
+      description: `Recalculated run ${run?.run_number} — ${updated} lines updated, new total ${newTotal} units`,
+    });
+    queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
+    queryClient.invalidateQueries({ queryKey: ['production-run-lines', runId] });
+    queryClient.invalidateQueries({ queryKey: ['production-runs'] });
+    setShowRecalculate(false);
+    toast.success(`Run recalculated — ${updated} lines updated, ${newTotal.toLocaleString()} total meals`);
+  };
+
+  // Edit single line planned qty
+  const handleEditLineSave = async (lineId, newQty) => {
+    await base44.entities.ProductionRunLine.update(lineId, { planned_qty: newQty });
+    // Recalculate run totals
+    const updatedLines = lines.map(l => l.id === lineId ? { ...l, planned_qty: newQty } : l);
+    const newTotal = updatedLines.reduce((s, l) => s + l.planned_qty, 0);
+    await base44.entities.ProductionRun.update(runId, {
+      total_units: newTotal,
+    });
+    queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
+    queryClient.invalidateQueries({ queryKey: ['production-run-lines', runId] });
+    queryClient.invalidateQueries({ queryKey: ['production-runs'] });
+    setEditingLine(null);
+    toast.success('Line quantity updated');
+  };
+
+  // Delete a line from the run
+  const handleDeleteLine = async (lineId) => {
+    await base44.entities.ProductionRunLine.delete(lineId);
+    const remaining = lines.filter(l => l.id !== lineId);
+    const newTotal = remaining.reduce((s, l) => s + l.planned_qty, 0);
+    await base44.entities.ProductionRun.update(runId, {
+      total_lines: remaining.length,
+      total_units: newTotal,
+    });
+    queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
+    queryClient.invalidateQueries({ queryKey: ['production-run-lines', runId] });
+    queryClient.invalidateQueries({ queryKey: ['production-runs'] });
+    toast.success('Line removed from run');
+  };
 
   return (
     <div className="space-y-4">
@@ -524,6 +597,11 @@ export default function ProductionRunDetail() {
                 <LayoutGrid className="w-4 h-4" /> Kitchen Board
               </Button>
             </Link>
+          )}
+          {isScheduled && (
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowRecalculate(true)}>
+              <RefreshCw className="w-4 h-4" /> Recalculate
+            </Button>
           )}
           {canStart && (
             <Button onClick={handleStartRun} disabled={starting} className="gap-2 bg-amber-600 hover:bg-amber-700">
@@ -601,6 +679,9 @@ export default function ProductionRunDetail() {
         onActualChange={handleActualChange}
         onReasonChange={handleReasonChange}
         isEditable={isEditable}
+        isScheduled={isScheduled}
+        onEditLine={setEditingLine}
+        onDeleteLine={handleDeleteLine}
       />
 
       {/* §5.1.8 Stock Guardrail Modal — hard block, no override */}
@@ -629,6 +710,25 @@ export default function ProductionRunDetail() {
           runNumber={run?.run_number}
           lines={lines}
           onClose={() => setShowSummary(false)}
+        />
+      )}
+
+      {/* Recalculate Modal */}
+      {showRecalculate && (
+        <RecalculateRunModal
+          runId={runId}
+          existingLines={lines}
+          onConfirm={handleRecalcConfirm}
+          onCancel={() => setShowRecalculate(false)}
+        />
+      )}
+
+      {/* Edit Line Modal */}
+      {editingLine && (
+        <EditRunLineModal
+          line={editingLine}
+          onSave={handleEditLineSave}
+          onCancel={() => setEditingLine(null)}
         />
       )}
 
