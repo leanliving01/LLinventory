@@ -178,9 +178,14 @@ Deno.serve(async (req) => {
           );
 
           if (xeroMatch && xeroMatch.Quantity != null && xeroMatch.Quantity !== ourLine.ordered_qty) {
+            const newQty = xeroMatch.Quantity;
+            const newUnitCost = xeroMatch.UnitAmount || ourLine.unit_cost;
+            const newLineTotal = Math.round(newQty * newUnitCost * 100) / 100;
             const updates = {
-              ordered_qty: xeroMatch.Quantity,
-              unit_cost: xeroMatch.UnitAmount || ourLine.unit_cost,
+              ordered_qty: newQty,
+              received_qty: newQty,  // Bills are already received — set received = ordered
+              unit_cost: newUnitCost,
+              line_total: newLineTotal,
             };
 
             await base44.asServiceRole.entities.PurchaseOrderLine.update(ourLine.id, updates);
