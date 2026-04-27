@@ -7,9 +7,9 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
  */
 
 const SYNC_KEY = 'shopify_orders';
-const PAGE_SIZE = 50;
-const THROTTLE_MS = 150;
-const MAX_RUNTIME_MS = 25000; // 25s safety — leave headroom for cleanup
+const PAGE_SIZE = 250;
+const THROTTLE_MS = 100;
+const MAX_RUNTIME_MS = 55000; // 55s — Deno timeout is 60s, leave 5s for cleanup
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -189,9 +189,7 @@ async function processOrder(base44, order, packBomIndex) {
     base44.asServiceRole.entities.SalesOrder.filter({ external_id: orderId })
   );
   if (existingOrders.length > 0 && existingOrders[0].data_hash === dataHash) {
-    await withRetry(() =>
-      base44.asServiceRole.entities.SalesOrder.update(existingOrders[0].id, { last_synced_at: new Date().toISOString() })
-    );
+    // Skip entirely — no write needed for unchanged orders
     return 'unchanged';
   }
 
@@ -316,9 +314,11 @@ Deno.serve(async (req) => {
   for (const pb of packBoms) packBomIndex[pb.package_sku] = pb;
 
   // Resume from cursor if previous run was paused, otherwise start fresh
+  // Only sync paid+unfulfilled orders (the ones that matter for committed stock)
+  // Plus recently updated orders to catch status changes
   const startUrl = syncState.last_cursor
     ? syncState.last_cursor
-    : `https://${storeDomain}/admin/api/2024-01/orders.json?status=any&limit=${PAGE_SIZE}`;
+    : `https://${storeDomain}/admin/api/2024-01/orders.json?status=open&limit=${PAGE_SIZE}`;
   let currentUrl = startUrl;
   let created = 0, updated = 0, unchanged = 0, failed = 0, totalProcessed = 0, pageNum = 0;
   const runStart = Date.now();
