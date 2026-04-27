@@ -7,8 +7,9 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
  */
 
 const SYNC_KEY = 'shopify_orders';
-const PAGE_SIZE = 15;
-const THROTTLE_MS = 250;
+const PAGE_SIZE = 50;
+const THROTTLE_MS = 150;
+const MAX_RUNTIME_MS = 25000; // 25s safety — leave headroom for cleanup
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -294,11 +295,11 @@ Deno.serve(async (req) => {
 
   const syncState = await getSyncState(base44);
 
-  // If stuck in running for > 10 minutes, force reset
+  // If stuck in running for > 3 minutes, force reset
   if (syncState.sync_status === 'running') {
     const lastSync = syncState.last_sync_at ? new Date(syncState.last_sync_at) : new Date(0);
     const minutesStale = (Date.now() - lastSync.getTime()) / 60000;
-    if (minutesStale < 10) {
+    if (minutesStale < 3) {
       return Response.json({ ok: true, status: 'already_running' });
     }
     console.log(`[BulkSync] Stale running state (${Math.round(minutesStale)}m), resetting`);
@@ -314,12 +315,30 @@ Deno.serve(async (req) => {
   const packBomIndex = {};
   for (const pb of packBoms) packBomIndex[pb.package_sku] = pb;
 
-  const startUrl = `https://${storeDomain}/admin/api/2024-01/orders.json?status=any&financial_status=paid&fulfillment_status=unfulfilled&limit=${PAGE_SIZE}`;
+  // Resume from cursor if previous run was paused, otherwise start fresh
+  const startUrl = syncState.last_cursor
+    ? syncState.last_cursor
+    : `https://${storeDomain}/admin/api/2024-01/orders.json?status=any&limit=${PAGE_SIZE}`;
   let currentUrl = startUrl;
   let created = 0, updated = 0, unchanged = 0, failed = 0, totalProcessed = 0, pageNum = 0;
+  const runStart = Date.now();
 
   try {
     while (currentUrl) {
+      // ── Time guard: if we're running out of time, save cursor and stop gracefully ──
+      if (Date.now() - runStart > MAX_RUNTIME_MS) {
+        console.log(`[BulkSync] Time limit reached at ${totalProcessed} records, saving cursor for next run`);
+        await withRetry(() => base44.asServiceRole.entities.SyncState.update(syncState.id, {
+          sync_status: 'idle',
+          records_synced: totalProcessed,
+          records_failed: failed,
+          last_cursor: currentUrl,
+          error_message: `Paused at ${totalProcessed} records — will resume next run`,
+          last_sync_at: new Date().toISOString(),
+        }));
+        return Response.json({ ok: true, status: 'paused', created, updated, unchanged, failed, total: totalProcessed });
+      }
+
       pageNum++;
       const { items: orders, nextUrl } = await fetchShopifyPage(currentUrl, accessToken);
 
@@ -335,6 +354,9 @@ Deno.serve(async (req) => {
         }
         totalProcessed++;
         await sleep(THROTTLE_MS);
+
+        // Inner time guard
+        if (Date.now() - runStart > MAX_RUNTIME_MS) break;
       }
 
       // Update progress after each page
@@ -348,15 +370,16 @@ Deno.serve(async (req) => {
       console.log(`[BulkSync] Page ${pageNum}: ${orders.length} orders. Total: ${totalProcessed} (${created}c ${updated}u ${unchanged}s ${failed}e)`);
 
       currentUrl = nextUrl || '';
-      if (currentUrl) await sleep(500);
+      if (currentUrl) await sleep(300);
     }
 
-    // Done — mark idle
+    // Done — mark idle, clear cursor
     await withRetry(() => base44.asServiceRole.entities.SyncState.update(syncState.id, {
       sync_status: 'idle',
       records_synced: totalProcessed,
       records_failed: failed,
       error_message: '',
+      last_cursor: null,
       last_sync_at: new Date().toISOString(),
     }));
 
@@ -371,9 +394,10 @@ Deno.serve(async (req) => {
 
   } catch (err) {
     console.error(`[BulkSync FATAL] ${err.message}`);
+    // ALWAYS reset to idle on error so next scheduled run can proceed
     await base44.asServiceRole.entities.SyncState.update(syncState.id, {
-      sync_status: 'error',
-      error_message: err.message,
+      sync_status: 'idle',
+      error_message: `Error: ${err.message}`,
       last_sync_at: new Date().toISOString(),
     }).catch(() => {});
     return Response.json({ ok: false, status: 'error', error: err.message }, { status: 500 });
