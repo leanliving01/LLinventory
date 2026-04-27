@@ -129,7 +129,7 @@ function decomposeLines(order, packBomIndex) {
     const parentLine = {
       external_id: lineExternalId,
       shopify_variant_id: li.variant_id ? String(li.variant_id) : '',
-      sku, name: li.title || '', qty,
+      sku, name: li.title || '', variant_title: li.variant_title || '', qty,
       unit_price: parseFloat(li.price || 0),
       line_total: parseFloat(li.price || 0) * qty,
       line_type: lineType, source_platform: 'shopify',
