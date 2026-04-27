@@ -66,6 +66,22 @@ function isServiceLine(name) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+async function withRetry(fn, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const msg = (err.message || '').toLowerCase();
+      if ((msg.includes('rate limit') || msg.includes('429')) && attempt < maxRetries) {
+        console.log(`Rate limited, waiting ${attempt * 3}s...`);
+        await sleep(attempt * 3000);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
@@ -82,9 +98,9 @@ Deno.serve(async (req) => {
   let allProducts = [];
   let offset = 0;
   while (true) {
-    const batch = await base44.asServiceRole.entities.Product.filter(
+    const batch = await withRetry(() => base44.asServiceRole.entities.Product.filter(
       { status: 'active', purchasable: true }, 'name', 500, offset
-    );
+    ));
     allProducts = allProducts.concat(batch);
     if (batch.length < 500) break;
     offset += 500;
@@ -94,9 +110,9 @@ Deno.serve(async (req) => {
   let unmatchedLines = [];
   offset = 0;
   while (true) {
-    const batch = await base44.asServiceRole.entities.PurchaseOrderLine.filter(
+    const batch = await withRetry(() => base44.asServiceRole.entities.PurchaseOrderLine.filter(
       { product_id: 'unmatched' }, '-created_date', 500, offset
-    );
+    ));
     unmatchedLines = unmatchedLines.concat(batch);
     if (batch.length < 500) break;
     offset += 500;
@@ -147,11 +163,11 @@ Deno.serve(async (req) => {
 
     if (match.status === 'auto' && match.product) {
       if (!dryRun && linked < batchSize) {
-        await base44.asServiceRole.entities.PurchaseOrderLine.update(line.id, {
+        await withRetry(() => base44.asServiceRole.entities.PurchaseOrderLine.update(line.id, {
           product_id: match.product.id,
           product_sku: match.product.sku,
-        });
-        await sleep(50);
+        }));
+        await sleep(200);
       }
       linked++;
       if (linkedDetails.length < 50) {
