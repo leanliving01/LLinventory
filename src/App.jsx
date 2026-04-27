@@ -36,6 +36,7 @@ import Kitchen from '@/pages/Kitchen';
 import KitchenSettings from '@/pages/KitchenSettings';
 import TeamPerformance from '@/pages/TeamPerformance';
 import PurchaseOrders from '@/pages/PurchaseOrders';
+import POSettings from '@/pages/POSettings';
 import ReorderReport from '@/pages/ReorderReport';
 import XeroCallback from '@/pages/XeroCallback';
 import Sales from '@/pages/Sales';
@@ -80,6 +81,7 @@ const AuthenticatedApp = () => {
         <Route path="/recipes" element={<Recipes />} />
         <Route path="/suppliers" element={<Suppliers />} />
         <Route path="/purchasing/orders" element={<PurchaseOrders />} />
+        <Route path="/purchasing/settings" element={<POSettings />} />
         <Route path="/purchasing/reorder" element={<ReorderReport />} />
         <Route path="/sales" element={<Sales />} />
         <Route path="/customers" element={<Customers />} />

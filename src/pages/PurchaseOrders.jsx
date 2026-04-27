@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Receipt, ChevronRight, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
+import { Plus, Receipt, ChevronRight, RefreshCw, Loader2, AlertTriangle, Settings } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
@@ -180,6 +181,11 @@ export default function PurchaseOrders() {
             {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             {syncing ? 'Syncing Xero...' : 'Sync from Xero'}
           </Button>
+          <Link to="/purchasing/settings">
+            <Button variant="outline" className="gap-2">
+              <Settings className="w-4 h-4" /> Settings
+            </Button>
+          </Link>
           <Button onClick={() => setShowCreate(true)} className="gap-2">
             <Plus className="w-4 h-4" /> New PO
           </Button>
