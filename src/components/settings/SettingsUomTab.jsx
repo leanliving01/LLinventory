@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Trash2, Loader2, Ruler } from 'lucide-react';
+import { Plus, Trash2, Loader2, Ruler, ArrowRightLeft } from 'lucide-react';
 import { toast } from 'sonner';
+import BulkPurchaseUomEditor from './BulkPurchaseUomEditor';
 
 const CATEGORY_LABELS = {
   weight: 'Weight',
@@ -31,6 +32,7 @@ export default function SettingsUomTab() {
   const [newCategory, setNewCategory] = useState('other');
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState(null);
+  const [showBulkEditor, setShowBulkEditor] = useState(false);
 
   const { data: uoms = [], isLoading } = useQuery({
     queryKey: ['uom-list'],
@@ -77,8 +79,27 @@ export default function SettingsUomTab() {
     grouped[u.category].push(u);
   });
 
+  if (showBulkEditor) {
+    return <BulkPurchaseUomEditor onBack={() => setShowBulkEditor(false)} />;
+  }
+
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-3xl">
+      {/* Bulk Purchase UoM Editor */}
+      <div className="bg-card border border-border rounded-xl p-5 flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <ArrowRightLeft className="w-4 h-4 text-primary" /> Purchase UoM Conversions
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Bulk-edit the buying unit and stock conversion factor for all products
+          </p>
+        </div>
+        <Button variant="outline" onClick={() => setShowBulkEditor(true)} className="gap-2">
+          <ArrowRightLeft className="w-4 h-4" /> Edit Conversions
+        </Button>
+      </div>
+
       {/* Add new */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold flex items-center gap-2">
