@@ -78,12 +78,10 @@ export default function POProductMatching() {
     const product = products.find(p => p.id === productId);
     if (!product) return;
     const linesToUpdate = unmatchedLines.filter(l => (l.product_name || '').trim() === groupName);
-    for (const line of linesToUpdate) {
-      await base44.entities.PurchaseOrderLine.update(line.id, {
-        product_id: product.id,
-        product_sku: product.sku,
-      });
-    }
+    const updateData = { product_id: product.id, product_sku: product.sku };
+    await Promise.all(linesToUpdate.map(line =>
+      base44.entities.PurchaseOrderLine.update(line.id, updateData)
+    ));
     toast.success(`Linked ${linesToUpdate.length} "${groupName}" lines to ${product.name}`);
     queryClient.invalidateQueries({ queryKey: ['po-lines-unmatched'] });
     queryClient.invalidateQueries({ queryKey: ['po-lines-all'] });
