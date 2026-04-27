@@ -172,7 +172,7 @@ function computeOrderHash(order) {
   const key = [
     order.id, order.financial_status, order.fulfillment_status,
     order.cancelled_at || '', order.updated_at || '',
-    (order.line_items || []).map(li => `${li.id}:${li.quantity}:${li.sku}:${li.price}`).join('|'),
+    (order.line_items || []).map(li => `${li.id}:${li.quantity}:${li.sku}:${li.price}:${li.variant_title || ''}`).join('|'),
   ].join('::');
   let hash = 0;
   for (let i = 0; i < key.length; i++) {
