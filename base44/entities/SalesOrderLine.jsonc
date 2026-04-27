@@ -21,6 +21,10 @@
       "type": "string",
       "description": "Product name from Shopify"
     },
+    "variant_title": {
+      "type": "string",
+      "description": "Variant name from Shopify (e.g. 15 Pack, 30 Pack)"
+    },
     "qty": {
       "type": "number",
       "description": "Quantity ordered"

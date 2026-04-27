@@ -133,6 +133,7 @@ function decomposeLines(order, packBomIndex) {
       shopify_variant_id: li.variant_id ? String(li.variant_id) : '',
       sku,
       name: li.title || '',
+      variant_title: li.variant_title || '',
       qty,
       unit_price: parseFloat(li.price || 0),
       line_total: parseFloat(li.price || 0) * qty,

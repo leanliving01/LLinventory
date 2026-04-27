@@ -101,6 +101,7 @@ export default function SalesOrderRow({ order }) {
                       <td className="px-3 py-2">
                         <span className="flex items-center gap-2">
                           {line.name}
+                          {line.variant_title && <span className="text-xs text-muted-foreground">— {line.variant_title}</span>}
                           <Badge variant="outline" className="text-[10px] py-0 gap-1 cursor-pointer hover:bg-primary/10">
                             <Package className="w-3 h-3" /> {compCount} meals
                           </Badge>
@@ -125,7 +126,10 @@ export default function SalesOrderRow({ order }) {
                 {standaloneLines.map(line => (
                   <tr key={line.id} className="border-b last:border-b-0 hover:bg-muted/30">
                     <td className="px-3 py-2 font-mono text-xs">{line.sku}</td>
-                    <td className="px-3 py-2">{line.name}</td>
+                    <td className="px-3 py-2">
+                      {line.name}
+                      {line.variant_title && <span className="text-xs text-muted-foreground ml-1">— {line.variant_title}</span>}
+                    </td>
                     <td className="px-3 py-2 text-right">{line.qty}</td>
                     <td className="px-3 py-2 text-right">
                       {line.unit_price ? `R${line.unit_price.toFixed(2)}` : '—'}
