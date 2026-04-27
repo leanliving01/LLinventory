@@ -8,7 +8,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { X, Receipt, Truck, MapPin, Calendar, FileText, CheckCircle2, Loader2, Ban, Package, Pencil, Save, Plus, Trash2, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
-import POLineQtyEditor from './POLineQtyEditor';
 
 const STATUS_COLORS = {
   draft: 'bg-gray-100 text-gray-600',
@@ -56,15 +55,44 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
 
   const location = useMemo(() => locations.find(l => l.id === po.location_id), [locations, po.location_id]);
 
-  const [editingUom, setEditingUom] = useState(null); // { lineId, value }
-
   const UOM_OPTIONS = ['kg', 'g', 'L', 'ml', 'pcs', 'box', 'case', 'each'];
+  const [inlineEdits, setInlineEdits] = useState({}); // { [lineId]: { ordered_qty, unit_cost, uom } }
+  const [savingInline, setSavingInline] = useState(false);
+  const hasInlineEdits = Object.keys(inlineEdits).length > 0;
 
-  const handleUomChange = async (lineId, newUom) => {
-    await base44.entities.PurchaseOrderLine.update(lineId, { uom: newUom });
+  const getLineValue = (line, field) => {
+    if (inlineEdits[line.id]?.[field] !== undefined) return inlineEdits[line.id][field];
+    return line[field];
+  };
+
+  const setLineValue = (lineId, field, value) => {
+    setInlineEdits(prev => ({
+      ...prev,
+      [lineId]: { ...prev[lineId], [field]: value },
+    }));
+  };
+
+  const handleSaveInlineEdits = async () => {
+    setSavingInline(true);
+    const updates = Object.entries(inlineEdits);
+    await Promise.all(updates.map(([lineId, changes]) => {
+      const data = {};
+      if (changes.ordered_qty !== undefined) data.ordered_qty = Number(changes.ordered_qty);
+      if (changes.unit_cost !== undefined) data.unit_cost = Number(changes.unit_cost);
+      if (changes.uom !== undefined) data.uom = changes.uom;
+      if (data.ordered_qty !== undefined || data.unit_cost !== undefined) {
+        const line = lines.find(l => l.id === lineId);
+        const qty = data.ordered_qty ?? line?.ordered_qty ?? 0;
+        const cost = data.unit_cost ?? line?.unit_cost ?? 0;
+        data.line_total = Math.round(qty * cost * 100) / 100;
+      }
+      return base44.entities.PurchaseOrderLine.update(lineId, data);
+    }));
+    setInlineEdits({});
+    setSavingInline(false);
+    toast.success(`Updated ${updates.length} line${updates.length > 1 ? 's' : ''}`);
     queryClient.invalidateQueries({ queryKey: ['po-lines', po.id] });
-    setEditingUom(null);
-    toast.success('Unit updated');
+    onUpdated();
   };
 
   const allReceived = lines.length > 0 && lines.every(l => (l.received_qty || 0) >= l.ordered_qty);
@@ -378,66 +406,83 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                 </table>
               </div>
             ) : (
-              /* ===== READ MODE ===== */
+              /* ===== READ MODE — inline editable ===== */
               <div className="border border-border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-muted/50 border-b border-border">
                       <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
-                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Ordered</th>
-                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Received</th>
-                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Cost</th>
-                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Total</th>
-                      <th className="w-10"></th>
+                      <th className="text-center px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-16">UoM</th>
+                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-20">Ordered</th>
+                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-14">Recv</th>
+                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Cost</th>
+                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {lines.map(l => {
+                      const qty = Number(getLineValue(l, 'ordered_qty'));
+                      const cost = Number(getLineValue(l, 'unit_cost'));
+                      const lineTotal = qty * cost;
                       const pct = l.ordered_qty > 0 ? Math.round((l.received_qty || 0) / l.ordered_qty * 100) : 0;
-                      const isEditingThisUom = editingUom?.lineId === l.id;
                       return (
                         <tr key={l.id}>
                           <td className="px-3 py-2">
                             <p className="text-xs font-medium">{l.product_name}</p>
-                            <div className="flex items-center gap-1 mt-0.5">
-                              {l.product_sku && <span className="text-[10px] font-mono text-muted-foreground">{l.product_sku}</span>}
-                              {l.product_sku && <span className="text-[10px] text-muted-foreground">·</span>}
-                              {isEditingThisUom ? (
-                                <Select value={editingUom.value} onValueChange={v => handleUomChange(l.id, v)}>
-                                  <SelectTrigger className="h-5 w-16 text-[10px] px-1.5 py-0">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {UOM_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                                  </SelectContent>
-                                </Select>
-                              ) : (
-                                <button
-                                  onClick={() => setEditingUom({ lineId: l.id, value: l.uom || 'pcs' })}
-                                  className="text-[10px] font-mono text-primary/70 hover:text-primary underline decoration-dotted cursor-pointer"
-                                  title="Click to change unit"
-                                >
-                                  {l.uom || 'pcs'}
-                                </button>
-                              )}
-                            </div>
+                            {l.product_sku && <p className="text-[10px] font-mono text-muted-foreground">{l.product_sku}</p>}
                           </td>
-                          <td className="px-3 py-2 text-right text-xs">{l.ordered_qty}</td>
+                          <td className="px-1 py-1">
+                            <Select value={getLineValue(l, 'uom') || 'pcs'} onValueChange={v => setLineValue(l.id, 'uom', v)}>
+                              <SelectTrigger className="h-8 text-xs px-2"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {UOM_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="px-1 py-1">
+                            <Input
+                              type="number"
+                              value={getLineValue(l, 'ordered_qty')}
+                              onChange={e => setLineValue(l.id, 'ordered_qty', e.target.value)}
+                              className="h-8 text-xs text-right w-full"
+                              min="0"
+                            />
+                          </td>
                           <td className="px-3 py-2 text-right">
                             <span className={`text-xs font-medium ${pct >= 100 ? 'text-green-600' : pct > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
                               {l.received_qty || 0}
                             </span>
                           </td>
-                          <td className="px-3 py-2 text-right text-xs text-muted-foreground whitespace-nowrap">R {(l.unit_cost || 0).toFixed(2)}</td>
-                          <td className="px-3 py-2 text-right text-xs font-medium whitespace-nowrap">R {(l.line_total || 0).toFixed(2)}</td>
-                          <td className="px-3 py-1">
-                            <POLineQtyEditor line={l} onUpdated={onUpdated} />
+                          <td className="px-1 py-1">
+                            <Input
+                              type="number"
+                              value={getLineValue(l, 'unit_cost')}
+                              onChange={e => setLineValue(l.id, 'unit_cost', e.target.value)}
+                              className="h-8 text-xs text-right w-full"
+                              min="0"
+                              step="0.01"
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-right text-xs font-medium whitespace-nowrap">
+                            R {lineTotal.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
                           </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
+                {hasInlineEdits && (
+                  <div className="px-3 py-2 border-t bg-amber-50 flex items-center justify-between">
+                    <span className="text-xs text-amber-700 font-medium">You have unsaved changes</span>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setInlineEdits({})} className="h-7 text-xs">Discard</Button>
+                      <Button size="sm" onClick={handleSaveInlineEdits} disabled={savingInline} className="h-7 text-xs gap-1">
+                        {savingInline ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
