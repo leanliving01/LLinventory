@@ -15,8 +15,8 @@ export default function Sales() {
 
   const { data: orders = [], isLoading, error: queryError } = useQuery({
     queryKey: ['sales-orders'],
-    queryFn: () => base44.entities.SalesOrder.list('-order_date', 100),
-    staleTime: 30000, // Don't refetch for 30s to avoid rate limits
+    queryFn: () => base44.entities.SalesOrder.list('-order_date', 2000),
+    staleTime: 30000,
     retry: 2,
     retryDelay: 3000,
   });
