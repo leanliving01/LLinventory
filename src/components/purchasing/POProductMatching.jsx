@@ -25,7 +25,11 @@ export default function POProductMatching() {
   // Load products for manual linking
   const { data: products = [] } = useQuery({
     queryKey: ['products-active-purchasable'],
-    queryFn: () => base44.entities.Product.filter({ status: 'active', purchasable: true }, 'name', 1000),
+    queryFn: async () => {
+      const all = await base44.entities.Product.filter({ status: 'active', purchasable: true }, 'name', 1000);
+      const buyableTypes = ['raw', 'packaging', 'supplement', 'sauce', 'service'];
+      return all.filter(p => buyableTypes.includes(p.type));
+    },
   });
 
   // Deduplicate by product_name for display
