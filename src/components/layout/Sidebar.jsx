@@ -85,6 +85,9 @@ const navItems = [
       { label: 'Production Pick', path: '/floor/pick', icon: PackageCheck },
       { label: 'Order Packing', path: '/floor/pack', icon: Box },
       { label: 'Production Tasks', path: '/floor/tasks', icon: UtensilsCrossed },
+      { label: 'Stock Count', path: '/floor/stock-take', icon: ClipboardCheck },
+      { label: 'Transfer', path: '/floor/transfer', icon: ArrowLeftRight },
+      { label: 'Receive', path: '/floor/receive', icon: Truck },
       { label: 'Quick Scan', path: '/floor/scan', icon: Barcode },
     ]
   },
