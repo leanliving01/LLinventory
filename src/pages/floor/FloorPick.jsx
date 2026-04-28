@@ -200,8 +200,10 @@ export default function FloorPick() {
     );
   }
 
-  const isPicking = !!run?.picking_started_at && !run?.pick_list_confirmed;
-  const isConfirmed = !!run?.pick_list_confirmed;
+  const runLoaded = !!run;
+  const isPicking = runLoaded && !!run.picking_started_at && !run.pick_list_confirmed;
+  const isConfirmed = runLoaded && !!run.pick_list_confirmed;
+  const needsStart = runLoaded && !run.picking_started_at && !run.pick_list_confirmed;
 
   return (
     <div className="space-y-4">
@@ -216,6 +218,11 @@ export default function FloorPick() {
         </div>
       </div>
 
+      {/* Loading state */}
+      {!runLoaded && (
+        <div className="text-center py-8 text-sm text-muted-foreground">Loading run details...</div>
+      )}
+
       {/* Status banners */}
       {isConfirmed && (
         <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-2xl px-4 py-3 text-sm text-green-700 dark:text-green-300 flex items-center gap-2">
@@ -224,19 +231,15 @@ export default function FloorPick() {
         </div>
       )}
 
-      {!isConfirmed && !run?.picking_started_at && (
+      {/* Start Picking — only after run has loaded and picking hasn't started */}
+      {needsStart && (
         <Button
           onClick={handleStartPicking}
-          disabled={pickItems.length === 0 || !run}
+          disabled={pickItems.length === 0}
           className="w-full h-14 text-base gap-2 bg-blue-600 hover:bg-blue-700 text-white"
         >
           <Play className="w-5 h-5" /> Start Picking
         </Button>
-      )}
-
-      {/* Show a loading state while run data is loading */}
-      {!run && selectedRunId && (
-        <div className="text-center py-4 text-sm text-muted-foreground">Loading run details...</div>
       )}
 
       {isPicking && (
