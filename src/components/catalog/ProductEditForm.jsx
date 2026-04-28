@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import UomSelect from '@/components/shared/UomSelect';
+import useXeroChartData from '@/lib/useXeroChartData';
 
 const PRODUCT_TYPES = [
   { value: 'raw', label: 'Raw Material' },
@@ -46,6 +47,12 @@ function FormField({ label, children, hint }) {
 
 export default function ProductEditForm({ formData, onChange, locations, suppliers, categories = [] }) {
   const set = (field, value) => onChange({ ...formData, [field]: value });
+  const { accounts: xeroAccounts, taxRates: xeroTaxRates, isLoading: xeroLoading } = useXeroChartData();
+
+  // Filter accounts by class for each dropdown
+  const cogsAccounts = xeroAccounts.filter(a => a.class === 'EXPENSE' || a.type === 'DIRECTCOSTS');
+  const inventoryAccounts = xeroAccounts.filter(a => a.type === 'INVENTORY' || a.type === 'CURRLIAB' || a.type === 'CURRENT' || a.class === 'ASSET');
+  const revenueAccounts = xeroAccounts.filter(a => a.class === 'REVENUE');
 
   return (
     <div className="space-y-5">
@@ -226,23 +233,64 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
 
       {/* ── Accounting / Xero ── */}
       <Section title="Accounting (Xero)">
+        {xeroLoading && <p className="text-xs text-muted-foreground">Loading Xero accounts…</p>}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <FormField label="COGS Account" hint="Xero account code for Cost of Goods Sold (default 403)">
-            <Input value={formData.cogs_account || ''} onChange={e => set('cogs_account', e.target.value)} placeholder="403" className="font-mono" />
+          <FormField label="COGS Account" hint="Cost of Goods Sold account">
+            <Select value={formData.cogs_account || 'none'} onValueChange={v => set('cogs_account', v === 'none' ? '' : v)}>
+              <SelectTrigger className="font-mono"><SelectValue placeholder="Select account" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— None —</SelectItem>
+                {cogsAccounts.map(a => (
+                  <SelectItem key={a.code} value={a.code}>{a.code} — {a.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </FormField>
-          <FormField label="Inventory Account" hint="Xero Inventory Asset account code (default 715)">
-            <Input value={formData.inventory_account || ''} onChange={e => set('inventory_account', e.target.value)} placeholder="715" className="font-mono" />
+          <FormField label="Inventory Account" hint="Inventory Asset account">
+            <Select value={formData.inventory_account || 'none'} onValueChange={v => set('inventory_account', v === 'none' ? '' : v)}>
+              <SelectTrigger className="font-mono"><SelectValue placeholder="Select account" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— None —</SelectItem>
+                {inventoryAccounts.map(a => (
+                  <SelectItem key={a.code} value={a.code}>{a.code} — {a.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </FormField>
-          <FormField label="Revenue Account" hint="Xero Revenue account (e.g. 200) — for sellable products">
-            <Input value={formData.revenue_account || ''} onChange={e => set('revenue_account', e.target.value)} placeholder="200" className="font-mono" />
+          <FormField label="Revenue Account" hint="For sellable products">
+            <Select value={formData.revenue_account || 'none'} onValueChange={v => set('revenue_account', v === 'none' ? '' : v)}>
+              <SelectTrigger className="font-mono"><SelectValue placeholder="Select account" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— None —</SelectItem>
+                {revenueAccounts.map(a => (
+                  <SelectItem key={a.code} value={a.code}>{a.code} — {a.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </FormField>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField label="Purchase Tax Rule" hint="e.g. Standard Rate Purchases">
-            <Input value={formData.purchase_tax_rule || ''} onChange={e => set('purchase_tax_rule', e.target.value)} placeholder="Standard Rate Purchases" />
+          <FormField label="Purchase Tax Rule" hint="Tax rule for purchases">
+            <Select value={formData.purchase_tax_rule || 'none'} onValueChange={v => set('purchase_tax_rule', v === 'none' ? '' : v)}>
+              <SelectTrigger><SelectValue placeholder="Select tax rule" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— None —</SelectItem>
+                {xeroTaxRates.map(t => (
+                  <SelectItem key={t.taxType} value={t.name}>{t.name}{t.rate != null ? ` (${t.rate}%)` : ''}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </FormField>
-          <FormField label="Sale Tax Rule" hint="For sellable items (meals, supplements)">
-            <Input value={formData.sale_tax_rule || ''} onChange={e => set('sale_tax_rule', e.target.value)} placeholder="" />
+          <FormField label="Sale Tax Rule" hint="Tax rule for sales (sellable items)">
+            <Select value={formData.sale_tax_rule || 'none'} onValueChange={v => set('sale_tax_rule', v === 'none' ? '' : v)}>
+              <SelectTrigger><SelectValue placeholder="Select tax rule" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— None —</SelectItem>
+                {xeroTaxRates.map(t => (
+                  <SelectItem key={t.taxType + '-sale'} value={t.name}>{t.name}{t.rate != null ? ` (${t.rate}%)` : ''}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </FormField>
         </div>
       </Section>
