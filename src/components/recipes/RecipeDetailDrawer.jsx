@@ -5,11 +5,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, Package, Utensils, Plus, Trash2, Save, Loader2, ArrowRightLeft } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { X, Package, Utensils, Plus, Trash2, Save, Loader2, ArrowRightLeft, BookOpen, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import AddComponentModal from '@/components/recipes/AddComponentModal';
 import OperationsEditor from '@/components/recipes/OperationsEditor';
+import RecipeFilesEditor from '@/components/recipes/RecipeFilesEditor';
 
 const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack', prep: 'Prep' };
 const LAYER_COLORS = {
@@ -33,6 +35,9 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
   const [yieldQty, setYieldQty] = useState(String(bom.yield_qty || 1));
   const [yieldUom, setYieldUom] = useState(bom.yield_uom || '');
   const [bomType, setBomType] = useState(bom.bom_type);
+  const [chefNotes, setChefNotes] = useState(bom.chef_notes || '');
+  const [notes, setNotes] = useState(bom.notes || '');
+  const [files, setFiles] = useState(bom.files || []);
 
   const { data: components = [], isLoading: loadingComps } = useQuery({
     queryKey: ['bom-components', bom.id],
@@ -50,7 +55,10 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
     const qtyChanged = Object.keys(editedQtys).length > 0;
     const yieldChanged = String(bom.yield_qty || 1) !== yieldQty || (bom.yield_uom || '') !== yieldUom;
     const typeChanged = bomType !== bom.bom_type;
-    return qtyChanged || yieldChanged || typeChanged;
+    const chefChanged = chefNotes !== (bom.chef_notes || '');
+    const notesChanged = notes !== (bom.notes || '');
+    const filesChanged = JSON.stringify(files) !== JSON.stringify(bom.files || []);
+    return qtyChanged || yieldChanged || typeChanged || chefChanged || notesChanged || filesChanged;
   };
 
   const handleSave = async () => {
@@ -62,6 +70,9 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
     if (newYield !== (bom.yield_qty || 1)) bomUpdate.yield_qty = newYield || 1;
     if (yieldUom !== (bom.yield_uom || '')) bomUpdate.yield_uom = yieldUom;
     if (bomType !== bom.bom_type) bomUpdate.bom_type = bomType;
+    if (chefNotes !== (bom.chef_notes || '')) bomUpdate.chef_notes = chefNotes;
+    if (notes !== (bom.notes || '')) bomUpdate.notes = notes;
+    if (JSON.stringify(files) !== JSON.stringify(bom.files || [])) bomUpdate.files = files;
     if (Object.keys(bomUpdate).length > 0) {
       await base44.entities.Bom.update(bom.id, bomUpdate);
     }
@@ -244,12 +255,37 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
           {/* Operations — full editor */}
           <OperationsEditor bomId={bom.id} />
 
-          {bom.notes && (
-            <div>
-              <h3 className="text-sm font-semibold mb-2">Notes</h3>
-              <p className="text-sm text-muted-foreground">{bom.notes}</p>
-            </div>
-          )}
+          {/* Chef Notes — editable */}
+          <div>
+            <h3 className="text-sm font-semibold flex items-center gap-2 mb-2">
+              <BookOpen className="w-4 h-4 text-primary" />
+              Chef Notes
+            </h3>
+            <p className="text-[10px] text-muted-foreground mb-1.5">Instructions shown to kitchen staff on the floor (cook times, seasoning tips, critical temps).</p>
+            <Textarea
+              value={chefNotes}
+              onChange={e => setChefNotes(e.target.value)}
+              placeholder="e.g. Sear chicken at 180°C until internal temp hits 74°C. Rest 5 min before slicing..."
+              className="min-h-[80px] text-sm"
+            />
+          </div>
+
+          {/* Recipe Notes — editable */}
+          <div>
+            <h3 className="text-sm font-semibold flex items-center gap-2 mb-2">
+              <FileText className="w-4 h-4 text-muted-foreground" />
+              General Notes
+            </h3>
+            <Textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Internal notes about this recipe (not shown on floor)..."
+              className="min-h-[60px] text-sm"
+            />
+          </div>
+
+          {/* Files — upload + manage */}
+          <RecipeFilesEditor files={files} onChange={setFiles} />
         </div>
 
         {/* Footer — save button */}
