@@ -89,7 +89,7 @@ export default function FloorPackList({ groups, scannedMap }) {
                       {item.variantTitle ? stripVariantFromName(item.name, item.variantTitle) : item.name}
                     </p>
                     {item.variantTitle && (
-                      <p className="text-sm text-muted-foreground truncate">{item.variantTitle}</p>
+                      <p className="text-base font-medium text-muted-foreground truncate">{item.variantTitle}</p>
                     )}
                     <p className="text-[11px] font-mono text-muted-foreground">{item.sku}</p>
                   </div>
