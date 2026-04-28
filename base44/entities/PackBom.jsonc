@@ -1,0 +1,61 @@
+{
+  "name": "PackBom",
+  "type": "object",
+  "properties": {
+    "package_sku": {
+      "type": "string",
+      "description": "e.g. MenLeaMus15, SCP30, BYO15"
+    },
+    "package_type": {
+      "type": "string",
+      "enum": [
+        "goal_based",
+        "low_carb",
+        "byo",
+        "bundle"
+      ],
+      "description": "Type of package"
+    },
+    "portion_weight_g": {
+      "type": "number",
+      "description": "Portion size in grams (330, 300, 260, 240)"
+    },
+    "multiplier": {
+      "type": "number",
+      "description": "How many of each component SKU per pack (1, 2, 3, 4, 6, 12)"
+    },
+    "component_skus": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of meal/product SKUs in this pack"
+    },
+    "pack_color_theme": {
+      "type": "string",
+      "enum": [
+        "green",
+        "blue",
+        "pink",
+        "orange",
+        "purple",
+        "teal"
+      ],
+      "description": "Color theme used in the packing UI to visually distinguish this package type"
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "package_sku",
+    "package_type",
+    "portion_weight_g",
+    "multiplier",
+    "component_skus"
+  ]
+}
