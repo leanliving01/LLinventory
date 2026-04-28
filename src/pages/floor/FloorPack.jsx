@@ -121,13 +121,34 @@ export default function FloorPack() {
       });
     }
 
-    // Standalone items
-    if (standaloneLines.length > 0) {
+    // Standalone items — split BYO meals vs true standalone (supplements, shakes)
+    const byoLines = standaloneLines.filter(ol => ol.line_type === 'byo' || (ol.portion_weight_g && !ol.variant_title));
+    const trueStandalone = standaloneLines.filter(ol => !byoLines.includes(ol));
+
+    if (byoLines.length > 0) {
+      const totalMeals = byoLines.reduce((s, ol) => s + (ol.qty || 0), 0);
+      result.push({
+        groupKey: 'byo',
+        label: 'Build Your Own',
+        subtitle: `${totalMeals} meals · 300g portions`,
+        items: byoLines.map(ol => ({
+          key: `sol-${ol.id}`,
+          sku: ol.sku || '',
+          skuLower: (ol.sku || '').toLowerCase(),
+          name: ol.name || ol.sku || '',
+          qty: ol.qty || 0,
+          source: 'order_line',
+          sourceId: ol.id,
+        })),
+      });
+    }
+
+    if (trueStandalone.length > 0) {
       result.push({
         groupKey: 'standalone',
         label: 'Standalone Items',
         subtitle: null,
-        items: standaloneLines.map(ol => ({
+        items: trueStandalone.map(ol => ({
           key: `sol-${ol.id}`,
           sku: ol.sku || '',
           skuLower: (ol.sku || '').toLowerCase(),
