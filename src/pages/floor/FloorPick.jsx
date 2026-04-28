@@ -133,8 +133,12 @@ export default function FloorPick() {
   };
 
   const handleStartPicking = async () => {
-    await base44.entities.ProductionRun.update(selectedRunId, { picking_started_at: new Date().toISOString() });
+    const updates = { picking_started_at: new Date().toISOString() };
+    // Also move run to in_progress if it's still scheduled
+    if (run?.status === 'scheduled') updates.status = 'in_progress';
+    await base44.entities.ProductionRun.update(selectedRunId, updates);
     queryClient.invalidateQueries({ queryKey: ['production-run', selectedRunId] });
+    queryClient.invalidateQueries({ queryKey: ['floor-pick-runs'] });
     toast.success('Picking started');
   };
 
@@ -221,9 +225,18 @@ export default function FloorPick() {
       )}
 
       {!isConfirmed && !run?.picking_started_at && (
-        <Button onClick={handleStartPicking} disabled={pickItems.length === 0} className="w-full h-14 text-base gap-2">
+        <Button
+          onClick={handleStartPicking}
+          disabled={pickItems.length === 0 || !run}
+          className="w-full h-14 text-base gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+        >
           <Play className="w-5 h-5" /> Start Picking
         </Button>
+      )}
+
+      {/* Show a loading state while run data is loading */}
+      {!run && selectedRunId && (
+        <div className="text-center py-4 text-sm text-muted-foreground">Loading run details...</div>
       )}
 
       {isPicking && (
