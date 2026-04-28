@@ -69,6 +69,9 @@ export default function FloorPackList({ groups, scannedMap }) {
                     <p className={cn("font-semibold text-sm truncate", isDone && "line-through text-muted-foreground")}>
                       {item.name}
                     </p>
+                    {item.variantTitle && (
+                      <p className="text-[11px] text-muted-foreground truncate">{item.variantTitle}</p>
+                    )}
                     <p className="text-[11px] font-mono text-muted-foreground">{item.sku}</p>
                   </div>
                   <div className="text-right shrink-0">

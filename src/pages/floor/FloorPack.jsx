@@ -171,7 +171,7 @@ export default function FloorPack() {
         colorTheme: resolvePackColor(parent.sku, packBoms),
         items: children.map(c => ({
           key: `sol-${c.id}`, sku: c.sku || '', skuLower: (c.sku || '').toLowerCase(),
-          name: resolvedName(c.sku, c.name), qty: c.qty || 0,
+          name: resolvedName(c.sku, c.name), qty: c.qty || 0, variantTitle: c.variant_title || '',
         })),
       });
     });
@@ -183,7 +183,7 @@ export default function FloorPack() {
         groupKey: 'orphan', label: 'Package Items', subtitle: null,
         items: orphans.map(c => ({
           key: `sol-${c.id}`, sku: c.sku || '', skuLower: (c.sku || '').toLowerCase(),
-          name: resolvedName(c.sku, c.name), qty: c.qty || 0,
+          name: resolvedName(c.sku, c.name), qty: c.qty || 0, variantTitle: c.variant_title || '',
         })),
       });
     }
@@ -201,7 +201,7 @@ export default function FloorPack() {
         colorTheme: byoPackBom?.pack_color_theme || 'blue',
         items: byoLines.map(ol => ({
           key: `sol-${ol.id}`, sku: ol.sku || '', skuLower: (ol.sku || '').toLowerCase(),
-          name: resolvedName(ol.sku, ol.name), qty: ol.qty || 0,
+          name: resolvedName(ol.sku, ol.name), qty: ol.qty || 0, variantTitle: ol.variant_title || '',
         })),
       });
     }
