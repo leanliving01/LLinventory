@@ -120,12 +120,15 @@ export default function FloorPick() {
     }));
   };
 
-  const handleMarkAll = (categoryItems) => {
+  const handleMarkAll = (categoryItems, unmark) => {
     setPickedState(prev => {
       const next = { ...prev };
       categoryItems.forEach(item => {
-        if (!next[item.product.id]?.picked) {
-          next[item.product.id] = { picked: true, qty: next[item.product.id]?.qty || '' };
+        const pid = item.product.id;
+        if (unmark) {
+          next[pid] = { picked: false, qty: next[pid]?.qty || '' };
+        } else if (!next[pid]?.picked) {
+          next[pid] = { picked: true, qty: next[pid]?.qty || '' };
         }
       });
       return next;

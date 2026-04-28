@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ChevronDown, ChevronUp, CheckCheck } from 'lucide-react';
+import { ChevronDown, ChevronUp, CheckCheck, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -15,6 +15,7 @@ export default function FloorPickCategory({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const checkedCount = confirmed ? items.length : items.filter(i => pickedState[i.product.id]?.picked).length;
+  const allChecked = !confirmed && items.length > 0 && items.every(i => pickedState[i.product.id]?.picked);
   const allDone = confirmed || items.every(i => {
     const s = pickedState[i.product.id];
     return s?.picked && s?.qty && Number(s.qty) > 0;
@@ -38,14 +39,17 @@ export default function FloorPickCategory({
 
       {!collapsed && (
         <div className="divide-y divide-border">
-          {/* Mark all button */}
-          {!allDone && !disabled && (
+          {/* Mark / Unmark all button */}
+          {!disabled && !confirmed && (
             <button
-              onClick={() => onMarkAll(items)}
-              className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-primary hover:bg-muted/30"
+              onClick={() => onMarkAll(items, allChecked)}
+              className={cn(
+                "w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted/30",
+                allChecked ? "text-orange-600" : "text-primary",
+              )}
             >
-              <CheckCheck className="w-4 h-4" />
-              <span>Mark All Checked</span>
+              {allChecked ? <XCircle className="w-4 h-4" /> : <CheckCheck className="w-4 h-4" />}
+              <span>{allChecked ? 'Unmark All' : 'Mark All Checked'}</span>
             </button>
           )}
 
