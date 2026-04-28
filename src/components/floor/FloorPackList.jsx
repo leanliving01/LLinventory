@@ -11,7 +11,7 @@ export default function FloorPackList({ items, scannedMap }) {
   return (
     <div className="space-y-2">
       {items.map(item => {
-        const scannedQty = scannedMap[item.meal_sku] || 0;
+        const scannedQty = scannedMap[item.meal_sku?.toLowerCase()] || scannedMap[item.meal_sku] || 0;
         const neededQty = item.qty;
         const isDone = scannedQty >= neededQty;
 

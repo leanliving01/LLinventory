@@ -40,7 +40,7 @@ export default function FloorReceive() {
   const { data: poLines = [] } = useQuery({
     queryKey: ['po-lines', selectedPO?.id],
     queryFn: () => base44.entities.PurchaseOrderLine.filter({ purchase_order_id: selectedPO.id }, 'product_name', 100),
-    enabled: !!selectedPO,
+    enabled: !!selectedPO && selectedPO.id !== '_adhoc',
   });
 
   const { data: products = [] } = useQuery({
@@ -176,7 +176,7 @@ export default function FloorReceive() {
     }
 
     // 4. Update PO line received_qty and PO status
-    if (selectedPO) {
+    if (selectedPO && selectedPO.id !== '_adhoc') {
       for (const line of validLines) {
         if (line.po_line_id) {
           const poLine = poLines.find(pl => pl.id === line.po_line_id);

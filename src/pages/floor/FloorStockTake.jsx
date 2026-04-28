@@ -74,10 +74,16 @@ export default function FloorStockTake() {
 
   const countedCount = Object.entries(counts).filter(([_, v]) => v !== '' && v !== undefined).length;
 
+  // HID barcode scanner
+  const bufferRef = useRef('');
+  const timerRef = useRef(null);
+  const productsRef = useRef(products);
+  productsRef.current = products;
+
   // Barcode scan → scroll to product + highlight
   const handleBarcodeScan = (code) => {
     const trimmed = code.trim().toLowerCase();
-    const found = products.find(p =>
+    const found = productsRef.current.find(p =>
       (p.barcode && p.barcode.toLowerCase() === trimmed) ||
       (p.sku && p.sku.toLowerCase() === trimmed)
     );
@@ -92,9 +98,6 @@ export default function FloorStockTake() {
     setShowCamera(false);
   };
 
-  // HID barcode scanner
-  const bufferRef = useRef('');
-  const timerRef = useRef(null);
   useEffect(() => {
     if (!zone) return;
     const handleKeyDown = (e) => {
@@ -112,7 +115,7 @@ export default function FloorStockTake() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [zone, products]);
+  }, [zone]);
 
   const handleSave = async () => {
     const entries = Object.entries(counts).filter(([_, v]) => v !== '' && v !== undefined);
