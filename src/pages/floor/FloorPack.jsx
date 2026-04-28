@@ -116,7 +116,7 @@ export default function FloorPack() {
     },
   });
 
-  const { data: orderLines = [] } = useQuery({
+  const { data: orderLines = [], isLoading: loadingLines } = useQuery({
     queryKey: ['floor-pack-order-lines', selectedOrder?.id],
     queryFn: () => base44.entities.SalesOrderLine.filter(
       { sales_order_id: selectedOrder.id }, 'sku', 200,
@@ -139,6 +139,13 @@ export default function FloorPack() {
   const skuNameMap = useMemo(() => {
     const map = {};
     products.forEach(p => { if (p.sku) map[p.sku.toLowerCase()] = p.name || p.sku; });
+    return map;
+  }, [products]);
+
+  // Product type lookup: sku → type (supplement, sauce, finished_meal, etc.)
+  const skuTypeMap = useMemo(() => {
+    const map = {};
+    products.forEach(p => { if (p.sku) map[p.sku.toLowerCase()] = { type: p.type, sellable: !!p.sellable }; });
     return map;
   }, [products]);
 
@@ -191,7 +198,7 @@ export default function FloorPack() {
       result.push({
         groupKey: 'byo', label: 'Build Your Own',
         subtitle: `${byoLines.reduce((s, ol) => s + (ol.qty || 0), 0)} meals · 300g portions`,
-        colorTheme: byoPackBom?.pack_color_theme || 'teal',
+        colorTheme: byoPackBom?.pack_color_theme || 'blue',
         items: byoLines.map(ol => ({
           key: `sol-${ol.id}`, sku: ol.sku || '', skuLower: (ol.sku || '').toLowerCase(),
           name: resolvedName(ol.sku, ol.name), qty: ol.qty || 0,
@@ -199,8 +206,22 @@ export default function FloorPack() {
       });
     }
     if (trueStandalone.length > 0) {
+      // Determine what's in the standalone group using product type
+      let hasMeals = false;
+      let hasSupplements = false;
+      trueStandalone.forEach(ol => {
+        const info = skuTypeMap[(ol.sku || '').toLowerCase()];
+        if (info?.type === 'supplement') hasSupplements = true;
+        else if (info?.type === 'sauce' && info?.sellable) hasSupplements = true;
+        else if (info?.type === 'finished_meal') hasMeals = true;
+        else hasMeals = true; // default unknown to meals
+      });
+      const standaloneLabel = hasMeals && hasSupplements ? 'Meals & Supplements'
+        : hasSupplements ? 'Supplements'
+        : 'Meals';
+
       result.push({
-        groupKey: 'standalone', label: 'Standalone Items', subtitle: null,
+        groupKey: 'standalone', label: standaloneLabel, subtitle: null,
         items: trueStandalone.map(ol => ({
           key: `sol-${ol.id}`, sku: ol.sku || '', skuLower: (ol.sku || '').toLowerCase(),
           name: resolvedName(ol.sku, ol.name), qty: ol.qty || 0, variantTitle: ol.variant_title,
@@ -208,7 +229,7 @@ export default function FloorPack() {
       });
     }
     return result;
-  }, [orderLines, skuNameMap, packBoms]);
+  }, [orderLines, skuNameMap, skuTypeMap, packBoms]);
 
   const allPackItems = useMemo(() => groups.flatMap(g => g.items), [groups]);
 
@@ -528,12 +549,20 @@ export default function FloorPack() {
         )}
 
         {/* Grouped pack items */}
-        <FloorPackList groups={groups} scannedMap={scannedMap} />
-
-        {allPackItems.length === 0 && (
-          <div className="text-center py-12 text-sm text-muted-foreground">
-            No items found for this order.
+        {loadingLines ? (
+          <div className="flex items-center justify-center py-16 gap-3">
+            <div className="w-5 h-5 border-2 border-border border-t-primary rounded-full animate-spin" />
+            <span className="text-sm text-muted-foreground">Loading order items…</span>
           </div>
+        ) : (
+          <>
+            <FloorPackList groups={groups} scannedMap={scannedMap} />
+            {allPackItems.length === 0 && (
+              <div className="text-center py-12 text-sm text-muted-foreground">
+                No items found for this order.
+              </div>
+            )}
+          </>
         )}
 
         {/* Finish bar */}
