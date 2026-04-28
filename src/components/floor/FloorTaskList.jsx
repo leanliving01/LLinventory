@@ -6,7 +6,7 @@ import FloorTaskCard from './FloorTaskCard';
  * Max 15 visible by default per non-negotiable rule.
  * allTasks = all tasks in the run (across stations) — used for dependency checking.
  */
-export default function FloorTaskList({ tasks, allTasks, taskLogs, onStatusChange, loading, pickListConfirmed }) {
+export default function FloorTaskList({ tasks, allTasks, taskLogs, onStatusChange, onOpenDetail, loading, pickListConfirmed, horizontal }) {
   // Build a set of blocked task IDs (pending tasks whose prerequisite stage isn't done)
   const blockedIds = useMemo(() => {
     const blocked = new Set();
@@ -46,76 +46,104 @@ export default function FloorTaskList({ tasks, allTasks, taskLogs, onStatusChang
     );
   }
 
+  const cardProps = (task, blocked) => ({
+    key: task.id,
+    task,
+    taskLogs: taskLogs.filter(l => l.task_id === task.id),
+    onStatusChange,
+    onOpenDetail,
+    loading,
+    horizontal,
+    ...(blocked !== undefined ? { isBlocked: blocked } : {}),
+  });
+
+  if (horizontal) {
+    return (
+      <div className="space-y-4">
+        {/* Active tasks row */}
+        {active.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider mb-2">Active ({active.length})</p>
+            <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+              {active.map(task => <FloorTaskCard {...cardProps(task)} />)}
+            </div>
+          </div>
+        )}
+
+        {/* Ready pending tasks row */}
+        {pendingReady.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-primary uppercase tracking-wider mb-2">Ready ({pendingReady.length})</p>
+            <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+              {pendingReady.slice(0, 15).map(task => <FloorTaskCard {...cardProps(task, false)} />)}
+              {pendingReady.length > 15 && (
+                <div className="w-32 flex-shrink-0 flex items-center justify-center text-xs text-muted-foreground">
+                  +{pendingReady.length - 15} more
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Blocked tasks row */}
+        {pendingBlocked.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Waiting for prior stage ({pendingBlocked.length})</p>
+            <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+              {pendingBlocked.slice(0, 10).map(task => <FloorTaskCard {...cardProps(task, true)} />)}
+              {pendingBlocked.length > 10 && (
+                <div className="w-32 flex-shrink-0 flex items-center justify-center text-xs text-muted-foreground">
+                  +{pendingBlocked.length - 10} more
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Done row — collapsed */}
+        {done.length > 0 && (
+          <div>
+            <button
+              onClick={() => setShowDone(!showDone)}
+              className="w-full py-3 text-sm font-medium text-muted-foreground bg-muted/50 rounded-xl active:bg-muted transition-colors"
+            >
+              {showDone ? 'Hide' : 'Show'} {done.length} completed task{done.length > 1 ? 's' : ''}
+            </button>
+            {showDone && (
+              <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 mt-2">
+                {done.map(task => <FloorTaskCard {...cardProps(task)} />)}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Vertical layout (default)
   return (
     <div className="space-y-3">
-      {/* Active tasks — always on top */}
-      {active.map(task => (
-        <FloorTaskCard
-          key={task.id}
-          task={task}
-          taskLogs={taskLogs.filter(l => l.task_id === task.id)}
-          onStatusChange={onStatusChange}
-          loading={loading}
-        />
-      ))}
-
-      {/* Ready pending tasks — show up to 15 */}
-      {pendingReady.slice(0, 15).map(task => (
-        <FloorTaskCard
-          key={task.id}
-          task={task}
-          taskLogs={taskLogs.filter(l => l.task_id === task.id)}
-          onStatusChange={onStatusChange}
-          loading={loading}
-          isBlocked={false}
-        />
-      ))}
+      {active.map(task => <FloorTaskCard {...cardProps(task)} />)}
+      {pendingReady.slice(0, 15).map(task => <FloorTaskCard {...cardProps(task, false)} />)}
       {pendingReady.length > 15 && (
-        <p className="text-xs text-muted-foreground text-center py-2">
-          +{pendingReady.length - 15} more ready tasks
-        </p>
+        <p className="text-xs text-muted-foreground text-center py-2">+{pendingReady.length - 15} more ready tasks</p>
       )}
-
-      {/* Blocked pending tasks */}
       {pendingBlocked.length > 0 && (
         <p className="text-xs text-muted-foreground text-center py-2 font-medium uppercase tracking-wider">
           Waiting for prior stage ({pendingBlocked.length})
         </p>
       )}
-      {pendingBlocked.slice(0, 10).map(task => (
-        <FloorTaskCard
-          key={task.id}
-          task={task}
-          taskLogs={taskLogs.filter(l => l.task_id === task.id)}
-          onStatusChange={onStatusChange}
-          loading={loading}
-          isBlocked={true}
-        />
-      ))}
+      {pendingBlocked.slice(0, 10).map(task => <FloorTaskCard {...cardProps(task, true)} />)}
       {pendingBlocked.length > 10 && (
-        <p className="text-xs text-muted-foreground text-center py-2">
-          +{pendingBlocked.length - 10} more blocked tasks
-        </p>
+        <p className="text-xs text-muted-foreground text-center py-2">+{pendingBlocked.length - 10} more blocked tasks</p>
       )}
-
-      {/* Done tasks — collapsed by default */}
       {done.length > 0 && (
-        <button
-          onClick={() => setShowDone(!showDone)}
-          className="w-full py-3 text-sm font-medium text-muted-foreground bg-muted/50 rounded-xl active:bg-muted transition-colors"
-        >
+        <button onClick={() => setShowDone(!showDone)}
+          className="w-full py-3 text-sm font-medium text-muted-foreground bg-muted/50 rounded-xl active:bg-muted transition-colors">
           {showDone ? 'Hide' : 'Show'} {done.length} completed task{done.length > 1 ? 's' : ''}
         </button>
       )}
-      {showDone && done.map(task => (
-        <FloorTaskCard
-          key={task.id}
-          task={task}
-          taskLogs={taskLogs.filter(l => l.task_id === task.id)}
-          onStatusChange={onStatusChange}
-          loading={loading}
-        />
-      ))}
+      {showDone && done.map(task => <FloorTaskCard {...cardProps(task)} />)}
     </div>
   );
 }

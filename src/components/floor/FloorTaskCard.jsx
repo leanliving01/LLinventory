@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, Pause, CheckCircle2, Clock, Undo2, Wrench, ChevronDown, ChevronUp, Lock, Zap } from 'lucide-react';
+import { Play, Pause, CheckCircle2, Clock, Undo2, Wrench, ChevronDown, ChevronUp, Lock, Zap, BookOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import LiveTimer, { formatDuration } from '@/components/kitchen/LiveTimer';
 
@@ -11,7 +11,7 @@ const BTN_COLORS = {
   portion: 'bg-green-500 hover:bg-green-600',
 };
 
-export default function FloorTaskCard({ task, taskLogs, onStatusChange, loading, isBlocked }) {
+export default function FloorTaskCard({ task, taskLogs, onStatusChange, onOpenDetail, loading, isBlocked, horizontal }) {
   const [showNotes, setShowNotes] = useState(false);
   const isDone = task.status === 'done';
   const isActive = task.status === 'in_progress';
@@ -24,15 +24,25 @@ export default function FloorTaskCard({ task, taskLogs, onStatusChange, loading,
     ? new Date(task.finished_at).getTime() - new Date(task.started_at).getTime()
     : null;
 
+  const handleCardTap = () => {
+    if ((isActive || isPaused) && onOpenDetail) {
+      onOpenDetail(task.id);
+    }
+  };
+
   return (
-    <div className={cn(
-      "bg-card border-2 rounded-2xl p-4 transition-all",
-      isActive && "border-amber-400 ring-2 ring-amber-200 dark:ring-amber-800",
-      isDone && "border-green-300 opacity-60",
-      isPaused && "border-blue-300",
-      isPending && isBlocked && "border-border opacity-50",
-      isPending && !isBlocked && "border-primary/30",
-    )}>
+    <div
+      onClick={handleCardTap}
+      className={cn(
+        "bg-card border-2 rounded-2xl p-4 transition-all",
+        horizontal && "w-80 flex-shrink-0",
+        (isActive || isPaused) && onOpenDetail && "cursor-pointer",
+        isActive && "border-amber-400 ring-2 ring-amber-200 dark:ring-amber-800",
+        isDone && "border-green-300 opacity-60",
+        isPaused && "border-blue-300",
+        isPending && isBlocked && "border-border opacity-50",
+        isPending && !isBlocked && "border-primary/30",
+      )}>
       {/* Top row: name + qty */}
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="flex-1 min-w-0">
@@ -116,27 +126,21 @@ export default function FloorTaskCard({ task, taskLogs, onStatusChange, loading,
       )}
 
       {/* Action buttons — big tap targets */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
         {isPending && (
-          <Button disabled={loading} onClick={() => onStatusChange(task.id, 'in_progress')}
+          <Button disabled={loading || isBlocked} onClick={() => onStatusChange(task.id, 'in_progress')}
             className={`h-16 flex-1 gap-2 text-lg font-bold rounded-xl text-white ${btnColor}`}>
             <Play className="w-6 h-6" /> Start
           </Button>
         )}
         {isActive && (
-          <>
-            <Button disabled={loading} variant="outline" onClick={() => onStatusChange(task.id, 'paused')}
-              className="h-16 flex-1 gap-2 text-lg font-bold rounded-xl">
-              <Pause className="w-6 h-6" /> Pause
-            </Button>
-            <Button disabled={loading} onClick={() => onStatusChange(task.id, 'done')}
-              className="h-16 flex-1 gap-2 text-lg font-bold bg-green-600 hover:bg-green-700 rounded-xl text-white">
-              <CheckCircle2 className="w-6 h-6" /> Done
-            </Button>
-          </>
+          <Button disabled={loading} variant="outline" onClick={() => onOpenDetail ? onOpenDetail(task.id) : null}
+            className={`h-16 flex-1 gap-2 text-lg font-bold rounded-xl text-white ${btnColor}`}>
+            <BookOpen className="w-6 h-6" /> View Task
+          </Button>
         )}
         {isPaused && (
-          <Button disabled={loading} onClick={() => onStatusChange(task.id, 'in_progress')}
+          <Button disabled={loading} onClick={() => onOpenDetail ? onOpenDetail(task.id) : onStatusChange(task.id, 'in_progress')}
             className={`h-16 flex-1 gap-2 text-lg font-bold rounded-xl text-white ${btnColor}`}>
             <Play className="w-6 h-6" /> Resume
           </Button>

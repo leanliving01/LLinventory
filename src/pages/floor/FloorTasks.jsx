@@ -9,8 +9,9 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { logTaskEvent } from '@/lib/taskEventLog';
 import FloorRunPicker from '@/components/floor/FloorRunPicker';
-import FloorStationPicker from '@/components/floor/FloorStationPicker';
+import FloorStationPills from '@/components/floor/FloorStationPills';
 import FloorTaskList from '@/components/floor/FloorTaskList';
+import FloorTaskDetail from '@/pages/floor/FloorTaskDetail';
 import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
 import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
 import DependencyBlockModal from '@/components/kitchen/DependencyBlockModal';
@@ -25,7 +26,8 @@ export default function FloorTasks() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [selectedRunId, setSelectedRunId] = useState(null);
-  const [selectedStation, setSelectedStation] = useState(user?.station || null);
+  const [selectedStation, setSelectedStation] = useState(user?.station || 'prep');
+  const [activeDetailTaskId, setActiveDetailTaskId] = useState(null);
   const [pendingStart, setPendingStart] = useState(null);
   const [pendingDone, setPendingDone] = useState(null);
   const [blockMessage, setBlockMessage] = useState(null);
@@ -64,16 +66,14 @@ export default function FloorTasks() {
     queryFn: () => base44.entities.TeamMember.filter({ is_active: true }, 'name', 100),
   });
 
-  // Selected run object
   const selectedRun = runs.find(r => r.id === selectedRunId);
 
-  // Filter tasks by station
+  // Filter tasks by selected station
   const stationTasks = useMemo(() => {
-    if (!selectedStation) return tasks;
     return tasks.filter(t => t.station === selectedStation);
   }, [tasks, selectedStation]);
 
-  // Progress stats
+  // Progress stats for selected station
   const progress = useMemo(() => {
     const total = stationTasks.length;
     const done = stationTasks.filter(t => t.status === 'done').length;
@@ -81,7 +81,7 @@ export default function FloorTasks() {
     return { total, done, active, pending: total - done - active - stationTasks.filter(t => t.status === 'paused').length };
   }, [stationTasks]);
 
-  // Dependency check (same logic as admin Kanban)
+  // Dependency check
   const checkDependencies = (task) => {
     if (!selectedRun?.pick_list_confirmed) {
       return 'Pick list has not been confirmed yet. Stock must be picked first.';
@@ -116,6 +116,11 @@ export default function FloorTasks() {
     if (newStatus === 'done') { setPendingDone(task); return; }
 
     await doStatusChange(taskId, newStatus);
+
+    // If starting a task, drill into detail view
+    if (newStatus === 'in_progress') {
+      setActiveDetailTaskId(taskId);
+    }
   };
 
   const handleTeamMemberSelected = async (member) => {
@@ -124,9 +129,10 @@ export default function FloorTasks() {
     setPendingStart(null);
     await base44.entities.ProductionTask.update(taskId, { assigned_to: member.id, assigned_name: member.name });
     await doStatusChange(taskId, newStatus);
+    // Drill into task detail after starting
+    setActiveDetailTaskId(taskId);
   };
 
-  // Task completion — identical logic to admin Kanban
   const handleTaskCompleted = async (taskId, consumption, meta = {}) => {
     setLoading(true);
     const task = tasks.find(t => t.id === taskId);
@@ -186,6 +192,7 @@ export default function FloorTasks() {
     }
 
     setPendingDone(null);
+    setActiveDetailTaskId(null);
     setLoading(false);
     queryClient.invalidateQueries({ queryKey: ['floor-tasks', selectedRunId] });
     queryClient.invalidateQueries({ queryKey: ['floor-task-logs', selectedRunId] });
@@ -231,15 +238,17 @@ export default function FloorTasks() {
     return <FloorRunPicker runs={runs} loading={loadingRuns} onSelect={setSelectedRunId} />;
   }
 
-  // Step 2: Pick a station
-  if (!selectedStation) {
+  // If a task detail is open, show full-page drill-down
+  const detailTask = activeDetailTaskId ? tasks.find(t => t.id === activeDetailTaskId) : null;
+  if (detailTask && (detailTask.status === 'in_progress' || detailTask.status === 'paused')) {
     return (
-      <FloorStationPicker
-        stations={STATIONS}
-        tasks={tasks}
-        run={selectedRun}
-        onSelect={setSelectedStation}
-        onBack={() => setSelectedRunId(null)}
+      <FloorTaskDetail
+        task={detailTask}
+        taskLogs={taskLogs.filter(l => l.task_id === detailTask.id)}
+        onStatusChange={handleStatusChange}
+        onBack={() => setActiveDetailTaskId(null)}
+        onDone={(task) => setPendingDone(task)}
+        loading={loading}
       />
     );
   }
@@ -248,22 +257,21 @@ export default function FloorTasks() {
 
   return (
     <div className="space-y-3">
-      {/* Station header */}
+      {/* Run header + back */}
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => setSelectedStation(null)} className="shrink-0 -ml-2">
-          ← Stations
+        <Button variant="ghost" size="sm" onClick={() => setSelectedRunId(null)} className="shrink-0 -ml-2">
+          ← Runs
         </Button>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            {currentStation && <currentStation.icon className="w-5 h-5" />}
-            <h1 className="text-xl font-bold">{currentStation?.label} Station</h1>
-          </div>
-          <p className="text-xs text-muted-foreground">{selectedRun?.run_number}</p>
+          <h1 className="text-lg font-bold">{selectedRun?.run_number || 'Production'}</h1>
         </div>
         <Badge variant="outline" className="text-xs tabular-nums shrink-0">
           {progress.done}/{progress.total} done
         </Badge>
       </div>
+
+      {/* Station filter pills */}
+      <FloorStationPills selected={selectedStation} onSelect={setSelectedStation} tasks={tasks} />
 
       {/* Progress bar */}
       <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -273,7 +281,7 @@ export default function FloorTasks() {
         />
       </div>
 
-      {/* Task list */}
+      {/* Task list — horizontal scroll */}
       {loadingTasks ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
           <Loader2 className="w-5 h-5 animate-spin" /> Loading tasks...
@@ -284,14 +292,16 @@ export default function FloorTasks() {
           allTasks={tasks}
           taskLogs={taskLogs}
           onStatusChange={handleStatusChange}
+          onOpenDetail={setActiveDetailTaskId}
           loading={loading}
           pickListConfirmed={selectedRun?.pick_list_confirmed}
+          horizontal
         />
       )}
 
-      {/* Modals — reuse existing admin modals */}
+      {/* Modals */}
       {blockMessage && <DependencyBlockModal message={blockMessage} onClose={() => setBlockMessage(null)} />}
-      {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} />}
+      {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => { setPendingDone(null); }} />}
       {pendingStart && (
         <TeamMemberSelect
           members={allTeamMembers.filter(m => {
