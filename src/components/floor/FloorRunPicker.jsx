@@ -1,9 +1,31 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Factory, AlertCircle } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, isToday, startOfWeek, endOfWeek, isWithinInterval, parseISO } from 'date-fns';
+import { cn } from '@/lib/utils';
+
+const FILTERS = [
+  { key: 'today', label: 'Today' },
+  { key: 'week', label: 'This Week' },
+  { key: 'all', label: 'All' },
+];
 
 export default function FloorRunPicker({ runs, loading, onSelect }) {
+  const [filter, setFilter] = useState('today');
+
+  const filteredRuns = useMemo(() => {
+    if (!runs || runs.length === 0) return [];
+    if (filter === 'all') return runs;
+    const now = new Date();
+    return runs.filter(run => {
+      if (!run.run_date) return false;
+      const d = typeof run.run_date === 'string' ? parseISO(run.run_date) : new Date(run.run_date);
+      if (filter === 'today') return isToday(d);
+      if (filter === 'week') return isWithinInterval(d, { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) });
+      return true;
+    });
+  }, [runs, filter]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
@@ -12,7 +34,7 @@ export default function FloorRunPicker({ runs, loading, onSelect }) {
     );
   }
 
-  if (runs.length === 0) {
+  if (!runs || runs.length === 0) {
     return (
       <div className="text-center py-16 space-y-3">
         <AlertCircle className="w-10 h-10 text-muted-foreground mx-auto" />
@@ -28,8 +50,33 @@ export default function FloorRunPicker({ runs, loading, onSelect }) {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-bold">Select Production Run</h1>
+
+      {/* Date filter pills */}
+      <div className="flex gap-2">
+        {FILTERS.map(f => (
+          <button
+            key={f.key}
+            onClick={() => setFilter(f.key)}
+            className={cn(
+              "px-4 py-2 rounded-xl text-sm font-semibold transition-colors",
+              filter === f.key
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80"
+            )}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       <div className="space-y-3">
-        {runs.map(run => (
+        {filteredRuns.length === 0 && (
+          <div className="text-center py-10 space-y-2">
+            <p className="text-sm text-muted-foreground">No runs found for this filter.</p>
+            <button onClick={() => setFilter('all')} className="text-sm text-primary font-semibold">Show all runs</button>
+          </div>
+        )}
+        {filteredRuns.map(run => (
           <button
             key={run.id}
             onClick={() => onSelect(run.id)}
