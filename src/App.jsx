@@ -113,7 +113,7 @@ const AuthenticatedApp = () => {
         <Route path="/production/run/:runId" element={<ProductionRunDetail />} />
         <Route path="/production/run/:runId/pick-list" element={<PickList />} />
         <Route path="/production/run/:runId/kanban" element={<Kanban />} />
-        <Route path="/stock/new-production" element={<NewProduction />} />
+        <Route path="/stock/new-production" element={<Navigate to="/production/runs" replace />} />
         <Route path="/stock/wastage" element={<Wastage />} />
         <Route path="/stock/stock-take" element={<StockTakeNew />} />
         <Route path="/stock/stock-take-legacy" element={<StockTake />} />
@@ -126,7 +126,7 @@ const AuthenticatedApp = () => {
         <Route path="/reports/forecasting" element={<TrendForecasting />} />
         <Route path="/settings" element={<SettingsPage />} />
         {/* Redirects for old routes */}
-        <Route path="/stock" element={<Navigate to="/stock/new-production" replace />} />
+        <Route path="/stock" element={<Navigate to="/stock/receive" replace />} />
         <Route path="/master-data" element={<Navigate to="/catalog" replace />} />
         <Route path="/master-data/par-levels" element={<Navigate to="/stock/par-levels" replace />} />
         <Route path="/demand" element={<Navigate to="/" replace />} />

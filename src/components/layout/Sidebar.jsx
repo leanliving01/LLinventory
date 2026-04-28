@@ -51,7 +51,6 @@ const navItems = [
   { 
     label: 'Inventory', icon: Warehouse,
     children: [
-      { label: 'New Production', path: '/stock/new-production', icon: Plus },
       { label: 'Receive Stock', path: '/stock/receive', icon: PackageCheck },
       { label: 'Transfer Stock', path: '/stock/transfer', icon: ArrowLeftRight },
       { label: 'Stock Take', path: '/stock/stock-take', icon: ClipboardCheck },
