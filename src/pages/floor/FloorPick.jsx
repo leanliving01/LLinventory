@@ -316,6 +316,7 @@ export default function FloorPick() {
             onQtyChange={handleQtyChange}
             onMarkAll={handleMarkAll}
             disabled={!isPicking}
+            confirmed={isConfirmed}
           />
         ))
       )}

@@ -11,11 +11,11 @@ import { toast } from 'sonner';
  */
 export default function FloorPickCategory({
   category, items, pickedState, stockMap,
-  onTogglePicked, onQtyChange, onMarkAll, disabled,
+  onTogglePicked, onQtyChange, onMarkAll, disabled, confirmed,
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const checkedCount = items.filter(i => pickedState[i.product.id]?.picked).length;
-  const allDone = items.every(i => {
+  const checkedCount = confirmed ? items.length : items.filter(i => pickedState[i.product.id]?.picked).length;
+  const allDone = confirmed || items.every(i => {
     const s = pickedState[i.product.id];
     return s?.picked && s?.qty && Number(s.qty) > 0;
   });
@@ -51,8 +51,10 @@ export default function FloorPickCategory({
 
           {items.map(item => {
             const pid = item.product.id;
-            const state = pickedState[pid] || { picked: false, qty: '' };
-            const isComplete = state.picked && state.qty && Number(state.qty) > 0;
+            const state = confirmed
+              ? { picked: true, qty: String(item.totalQty) }
+              : (pickedState[pid] || { picked: false, qty: '' });
+            const isComplete = confirmed || (state.picked && state.qty && Number(state.qty) > 0);
             const pickedQty = state.qty ? Number(state.qty) : null;
             const isBelowNeeded = pickedQty !== null && pickedQty < item.totalQty;
             const inStock = stockMap?.[pid] ?? null;
