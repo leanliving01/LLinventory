@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, Pause, CheckCircle2, Clock, Undo2 } from 'lucide-react';
+import { Play, Pause, CheckCircle2, Clock, Undo2, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import LiveTimer, { formatDuration } from '@/components/kitchen/LiveTimer';
 
@@ -111,9 +111,19 @@ export default function KanbanColumn({ station, tasks, onStatusChange, taskLogs 
                     <Icon className="w-3 h-3 mr-1" />{config.label}
                   </Badge>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {task.qty && (
-                    <p className="text-xs text-muted-foreground">Qty: <strong>{task.qty}</strong></p>
+                    <p className="text-xs text-muted-foreground">Qty: <strong>{task.qty}{task.qty_uom ? ` ${task.qty_uom}` : ''}</strong></p>
+                  )}
+                  {task.total_batches > 1 && (
+                    <Badge className="bg-purple-100 text-purple-700 text-[9px] gap-0.5">
+                      Batch {task.batch_number}/{task.total_batches}
+                    </Badge>
+                  )}
+                  {task.equipment_name && (
+                    <Badge variant="outline" className="text-[9px] gap-0.5">
+                      <Wrench className="w-2.5 h-2.5" /> {task.equipment_name}
+                    </Badge>
                   )}
                   {task.assigned_name && (
                     <Badge variant="outline" className="text-[10px]">{task.assigned_name}</Badge>

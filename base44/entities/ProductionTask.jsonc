@@ -44,6 +44,28 @@
       "type": "number",
       "description": "Quantity to process"
     },
+    "qty_uom": {
+      "type": "string",
+      "description": "Unit of measure for qty (e.g. kg, g, pcs)"
+    },
+    "batch_number": {
+      "type": "number",
+      "default": 1,
+      "description": "Which batch this is (1, 2, 3...) when split by equipment capacity"
+    },
+    "total_batches": {
+      "type": "number",
+      "default": 1,
+      "description": "Total number of batches for this operation"
+    },
+    "equipment_id": {
+      "type": "string",
+      "description": "FK to Equipment used for this task"
+    },
+    "equipment_name": {
+      "type": "string",
+      "description": "Denormalized equipment name"
+    },
     "status": {
       "type": "string",
       "enum": [

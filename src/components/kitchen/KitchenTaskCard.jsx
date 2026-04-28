@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, Pause, CheckCircle2, Clock, Undo2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, Pause, CheckCircle2, Clock, Undo2, ChevronDown, ChevronUp, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import LiveTimer, { formatDuration } from '@/components/kitchen/LiveTimer';
 
@@ -53,17 +53,29 @@ export default function KitchenTaskCard({ task, onStatusChange, onTap, loading, 
           {task.qty && (
             <div className="text-3xl font-bold tabular-nums">{task.qty}</div>
           )}
-          <span className="text-xs text-muted-foreground">units</span>
+          <span className="text-xs text-muted-foreground">{task.qty_uom || 'units'}</span>
         </div>
       </div>
 
-      {/* Assigned to */}
-      {task.assigned_name && (
-        <div className="flex items-center gap-1.5 mb-2">
-          <span className="text-xs text-muted-foreground">Assigned to:</span>
-          <Badge variant="outline" className="text-xs font-medium">{task.assigned_name}</Badge>
-        </div>
-      )}
+      {/* Batch & Equipment info */}
+      <div className="flex items-center gap-2 flex-wrap mb-2">
+        {task.total_batches > 1 && (
+          <Badge className="bg-purple-100 text-purple-700 text-xs gap-1">
+            Batch {task.batch_number} of {task.total_batches}
+          </Badge>
+        )}
+        {task.equipment_name && (
+          <Badge variant="outline" className="text-xs gap-1">
+            <Wrench className="w-3 h-3" /> {task.equipment_name}
+          </Badge>
+        )}
+        {task.assigned_name && (
+          <>
+            <span className="text-xs text-muted-foreground">Assigned to:</span>
+            <Badge variant="outline" className="text-xs font-medium">{task.assigned_name}</Badge>
+          </>
+        )}
+      </div>
 
       {/* Timer */}
       <div className="flex items-center justify-center py-3 mb-3 rounded-xl bg-muted/50">

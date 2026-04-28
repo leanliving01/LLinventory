@@ -16,6 +16,7 @@ import HelpDrawer from '@/components/help/HelpDrawer';
 import VarianceReport from '@/components/production/VarianceReport';
 import RecalculateRunModal from '@/components/production/RecalculateRunModal';
 import { writeAuditLog } from '@/lib/auditLog';
+import { splitTasksByEquipment } from '@/lib/equipmentSplitter';
 
 const STATUS_STYLES = {
   draft: 'bg-muted text-muted-foreground',
@@ -171,13 +172,14 @@ export default function ProductionRunDetail() {
       started_at: new Date().toISOString(),
     });
 
-    // §5.1.4/5 Generate tasks from BOM operations
-    // Look at Cook BOM operations (bulk cooking tasks) + Portion BOM operations
-    const [boms, bomOps, bomComponents, products] = await Promise.all([
+    // §5.1.4/5 Generate tasks from BOM operations + equipment capacity splitting
+    const [boms, bomOps, bomComponents, products, equipmentList, capacityRules] = await Promise.all([
       base44.entities.Bom.filter({ is_active: true }, '-created_date', 500),
       base44.entities.BomOperation.list('-created_date', 2000),
       base44.entities.BomComponent.list('-created_date', 2000),
       base44.entities.Product.filter({ status: 'active' }, 'name', 500),
+      base44.entities.Equipment.filter({ status: 'active' }, 'name', 200),
+      base44.entities.EquipmentCapacity.list('-created_date', 2000),
     ]);
 
     const opsByBom = {};
@@ -195,15 +197,33 @@ export default function ProductionRunDetail() {
     const productMap = {};
     products.forEach(p => { productMap[p.id] = p; });
 
+    // Aggregate total qty needed per WIP product across all lines
+    const wipQtyNeeded = {}; // { productId: totalQty }
+    for (const line of lines) {
+      const portionBom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
+      if (!portionBom) continue;
+      const portionComps = compsByBom[portionBom.id] || [];
+      for (const comp of portionComps) {
+        const cookBom = boms.find(b => b.product_id === comp.input_product_id && b.bom_type === 'cook');
+        if (!cookBom) continue;
+        // Calculate total raw qty needed for this WIP from its Cook BOM
+        const cookComps = compsByBom[cookBom.id] || [];
+        const perUnit = comp.qty / (portionBom.yield_qty || 1);
+        const totalForLine = perUnit * line.planned_qty;
+        // Sum Cook BOM total yield needed (in yield_uom) — qty is the WIP amount
+        if (!wipQtyNeeded[comp.input_product_id]) wipQtyNeeded[comp.input_product_id] = 0;
+        wipQtyNeeded[comp.input_product_id] += totalForLine;
+      }
+    }
+
     // Collect unique WIP products from all lines' Portion BOMs to generate Cook tasks
-    const wipTasksCreated = new Set(); // track by cook BOM id to avoid duplicates
-    const tasksToCreate = [];
+    const wipTasksCreated = new Set();
+    const baseTasks = [];
 
     for (const line of lines) {
       const portionBom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
       if (!portionBom) continue;
 
-      // Find inputs with Cook BOMs → generate cooking tasks (regardless of product type)
       const portionComps = compsByBom[portionBom.id] || [];
       for (const comp of portionComps) {
         const inputProduct = productMap[comp.input_product_id];
@@ -213,10 +233,13 @@ export default function ProductionRunDetail() {
         if (!cookBom || wipTasksCreated.has(cookBom.id)) continue;
         wipTasksCreated.add(cookBom.id);
 
+        // Total qty for this WIP across all lines (in the WIP's stock_uom)
+        const totalWipQty = wipQtyNeeded[inputProduct.id] || line.planned_qty;
+
         const cookOps = opsByBom[cookBom.id] || [];
         if (cookOps.length > 0) {
           for (const op of cookOps) {
-            tasksToCreate.push({
+            baseTasks.push({
               run_id: runId,
               line_id: line.id,
               product_id: inputProduct.id,
@@ -225,14 +248,15 @@ export default function ProductionRunDetail() {
               name: op.name,
               station: op.station,
               step_no: op.step_no,
-              qty: line.planned_qty,
+              qty: totalWipQty,
+              qty_uom: inputProduct.stock_uom || 'kg',
               status: 'pending',
               notes: op.notes || '',
+              _equipment_id: op.equipment_id || null,
             });
           }
         } else {
-          // Default cook task for this WIP
-          tasksToCreate.push({
+          baseTasks.push({
             run_id: runId,
             line_id: line.id,
             product_id: inputProduct.id,
@@ -241,17 +265,19 @@ export default function ProductionRunDetail() {
             name: `Cook ${inputProduct.name}`,
             station: 'cook',
             step_no: 1,
-            qty: line.planned_qty,
+            qty: totalWipQty,
+            qty_uom: inputProduct.stock_uom || 'kg',
             status: 'pending',
+            _equipment_id: null,
           });
         }
       }
 
-      // Also add Portion BOM operations (portioning step)
+      // Portion BOM operations
       const portionOps = opsByBom[portionBom.id] || [];
       if (portionOps.length > 0) {
         for (const op of portionOps) {
-          tasksToCreate.push({
+          baseTasks.push({
             run_id: runId,
             line_id: line.id,
             product_id: line.product_id,
@@ -261,13 +287,14 @@ export default function ProductionRunDetail() {
             station: op.station,
             step_no: op.step_no,
             qty: line.planned_qty,
+            qty_uom: 'pcs',
             status: 'pending',
             notes: op.notes || '',
+            _equipment_id: op.equipment_id || null,
           });
         }
       } else {
-        // Default portion task
-        tasksToCreate.push({
+        baseTasks.push({
           run_id: runId,
           line_id: line.id,
           product_id: line.product_id,
@@ -277,21 +304,26 @@ export default function ProductionRunDetail() {
           station: 'portion',
           step_no: 1,
           qty: line.planned_qty,
+          qty_uom: 'pcs',
           status: 'pending',
+          _equipment_id: null,
         });
       }
     }
 
-    if (tasksToCreate.length > 0) {
-      // Bulk create in batches of 25
-      for (let i = 0; i < tasksToCreate.length; i += 25) {
-        await base44.entities.ProductionTask.bulkCreate(tasksToCreate.slice(i, i + 25));
+    // Split tasks by equipment capacity
+    const finalTasks = splitTasksByEquipment(baseTasks, equipmentList, capacityRules);
+
+    if (finalTasks.length > 0) {
+      for (let i = 0; i < finalTasks.length; i += 25) {
+        await base44.entities.ProductionTask.bulkCreate(finalTasks.slice(i, i + 25));
       }
     }
 
+    const splitCount = finalTasks.length - baseTasks.length;
     queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
-    writeAuditLog({ action: 'update', entity_type: 'ProductionRun', entity_id: runId, description: `Started production run ${run?.run_number} — ${tasksToCreate.length} tasks created` });
-    toast.success(`Run started — ${tasksToCreate.length} kitchen tasks created`);
+    writeAuditLog({ action: 'update', entity_type: 'ProductionRun', entity_id: runId, description: `Started production run ${run?.run_number} — ${finalTasks.length} tasks created${splitCount > 0 ? ` (${splitCount} extra from equipment splits)` : ''}` });
+    toast.success(`Run started — ${finalTasks.length} kitchen tasks created${splitCount > 0 ? ` (${splitCount} split by equipment capacity)` : ''}`);
     setStarting(false);
     setShowGuardrail(false);
   };
