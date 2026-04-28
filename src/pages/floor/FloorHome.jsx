@@ -23,11 +23,19 @@ const MODULES = [
   },
   {
     path: '/floor/pick',
-    label: 'Pick & Pack',
-    description: 'Pick orders, scan & pack',
+    label: 'Production Pick',
+    description: 'Pull ingredients for a run',
     icon: PackageCheck,
     permission: 'pick_lists',
     color: 'bg-blue-500',
+  },
+  {
+    path: '/floor/pack',
+    label: 'Order Packing',
+    description: 'Scan & pack customer orders',
+    icon: PackageCheck,
+    permission: 'pick_lists',
+    color: 'bg-indigo-500',
   },
   {
     path: '/floor/stock-take',

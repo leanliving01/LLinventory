@@ -51,6 +51,7 @@ import FloorPick from '@/pages/floor/FloorPick';
 import FloorStockTake from '@/pages/floor/FloorStockTake';
 import FloorTransfer from '@/pages/floor/FloorTransfer';
 import FloorReceive from '@/pages/floor/FloorReceive';
+import FloorPack from '@/pages/floor/FloorPack';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -93,6 +94,7 @@ const AuthenticatedApp = () => {
         <Route path="/floor/stock-take" element={<FloorStockTake />} />
         <Route path="/floor/transfer" element={<FloorTransfer />} />
         <Route path="/floor/receive" element={<FloorReceive />} />
+        <Route path="/floor/pack" element={<FloorPack />} />
         <Route path="/floor/scan" element={<FloorScan />} />
       </Route>
 

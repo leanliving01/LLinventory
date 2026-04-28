@@ -98,7 +98,7 @@ module.exports = {
     'text-amber-700',
     'bg-purple-100', 'text-purple-700', 'border-purple-200',
     'bg-purple-50', 'text-purple-600', 'bg-purple-500',
-    'bg-slate-600', 'bg-orange-500',
+    'bg-slate-600', 'bg-orange-500', 'bg-indigo-500',
     'bg-blue-50', 'bg-blue-100', 'bg-blue-200', 'text-blue-700', 'text-blue-800', 'text-blue-900', 'border-blue-200', 'border-blue-300',
     'bg-pink-50', 'bg-pink-100', 'bg-pink-200', 'text-pink-700', 'text-pink-800', 'text-pink-900', 'border-pink-200', 'border-pink-300',
     'bg-green-50', 'bg-green-100', 'bg-green-200', 'text-green-700', 'text-green-800', 'text-green-900', 'border-green-200', 'border-green-300',
