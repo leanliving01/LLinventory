@@ -35,6 +35,21 @@ function friendlyPackageName(sku, name) {
   return name || sku;
 }
 
+/** Find the matching PackBom color for a parent SKU */
+function resolvePackColor(parentSku, packBoms) {
+  if (!parentSku || !packBoms?.length) return null;
+  const skuLower = parentSku.toLowerCase();
+  // Exact match first
+  const exact = packBoms.find(pb => (pb.package_sku || '').toLowerCase() === skuLower);
+  if (exact?.pack_color_theme) return exact.pack_color_theme;
+  // Prefix match (e.g. MenLeaMus15 matches MenLeaMus prefix)
+  const prefix = packBoms.find(pb => {
+    const pbSku = (pb.package_sku || '').toLowerCase();
+    return skuLower.startsWith(pbSku) || pbSku.startsWith(skuLower);
+  });
+  return prefix?.pack_color_theme || null;
+}
+
 export default function FloorPack() {
   const queryClient = useQueryClient();
   const { triggerFeedback, FeedbackWrapper } = useScanFeedback();
@@ -115,6 +130,12 @@ export default function FloorPack() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const { data: packBoms = [] } = useQuery({
+    queryKey: ['floor-pack-boms'],
+    queryFn: () => base44.entities.PackBom.filter({ active: true }, 'package_sku', 200),
+    staleTime: 5 * 60 * 1000,
+  });
+
   const skuNameMap = useMemo(() => {
     const map = {};
     products.forEach(p => { if (p.sku) map[p.sku.toLowerCase()] = p.name || p.sku; });
@@ -140,6 +161,7 @@ export default function FloorPack() {
         groupKey: `pkg-${parent.id}`,
         label: friendlyPackageName(parent.sku, parent.name),
         subtitle: `${parent.sku} · ${children.reduce((s, c) => s + (c.qty || 0), 0)} meals`,
+        colorTheme: resolvePackColor(parent.sku, packBoms),
         items: children.map(c => ({
           key: `sol-${c.id}`, sku: c.sku || '', skuLower: (c.sku || '').toLowerCase(),
           name: resolvedName(c.sku, c.name), qty: c.qty || 0,
@@ -162,9 +184,14 @@ export default function FloorPack() {
     const byoLines = standaloneLines.filter(ol => ol.line_type === 'byo' || (ol.portion_weight_g && !ol.variant_title));
     const trueStandalone = standaloneLines.filter(ol => !byoLines.includes(ol));
 
+    // Find BYO color from PackBoms
+    const byoPackBom = packBoms.find(pb => pb.package_type === 'byo');
+
     if (byoLines.length > 0) {
       result.push({
-        groupKey: 'byo', label: 'Build Your Own', subtitle: `${byoLines.reduce((s, ol) => s + (ol.qty || 0), 0)} meals · 300g portions`,
+        groupKey: 'byo', label: 'Build Your Own',
+        subtitle: `${byoLines.reduce((s, ol) => s + (ol.qty || 0), 0)} meals · 300g portions`,
+        colorTheme: byoPackBom?.pack_color_theme || 'teal',
         items: byoLines.map(ol => ({
           key: `sol-${ol.id}`, sku: ol.sku || '', skuLower: (ol.sku || '').toLowerCase(),
           name: resolvedName(ol.sku, ol.name), qty: ol.qty || 0,
@@ -181,7 +208,7 @@ export default function FloorPack() {
       });
     }
     return result;
-  }, [orderLines, skuNameMap]);
+  }, [orderLines, skuNameMap, packBoms]);
 
   const allPackItems = useMemo(() => groups.flatMap(g => g.items), [groups]);
 

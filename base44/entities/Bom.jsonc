@@ -33,6 +33,18 @@
       "type": "string",
       "description": "Unit of measure for yield"
     },
+    "pack_color_theme": {
+      "type": "string",
+      "enum": [
+        "green",
+        "blue",
+        "pink",
+        "orange",
+        "purple",
+        "teal"
+      ],
+      "description": "Color theme for packing UI \u2014 only relevant for pack BOMs"
+    },
     "version": {
       "type": "number",
       "default": 1,

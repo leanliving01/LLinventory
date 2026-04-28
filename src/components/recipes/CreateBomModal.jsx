@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, Plus, Loader2, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import PackColorPicker from '@/components/recipes/PackColorPicker';
 
 const LAYER_OPTIONS = [
   { value: 'cook', label: 'Cook', desc: 'Raw materials → Bulk cooked (WIP)' },
@@ -21,6 +22,7 @@ export default function CreateBomModal({ onCreated, onCancel, defaults }) {
   const [yieldQty, setYieldQty] = useState('1');
   const [yieldUom, setYieldUom] = useState('');
   const [notes, setNotes] = useState('');
+  const [packColor, setPackColor] = useState('');
   const [creating, setCreating] = useState(false);
 
   const { data: products = [] } = useQuery({
@@ -52,7 +54,7 @@ export default function CreateBomModal({ onCreated, onCancel, defaults }) {
   const handleCreate = async () => {
     if (!selectedProduct) return;
     setCreating(true);
-    await base44.entities.Bom.create({
+    const bomData = {
       product_id: selectedProduct.id,
       product_name: selectedProduct.name,
       product_sku: selectedProduct.sku,
@@ -62,7 +64,11 @@ export default function CreateBomModal({ onCreated, onCancel, defaults }) {
       version: 1,
       is_active: true,
       notes: notes || undefined,
-    });
+    };
+    if (bomType === 'pack' && packColor) {
+      bomData.pack_color_theme = packColor;
+    }
+    await base44.entities.Bom.create(bomData);
     setCreating(false);
     onCreated();
   };
@@ -162,6 +168,11 @@ export default function CreateBomModal({ onCreated, onCancel, defaults }) {
               />
             </div>
           </div>
+
+          {/* Pack color theme — only for pack BOMs */}
+          {bomType === 'pack' && (
+            <PackColorPicker value={packColor} onChange={setPackColor} />
+          )}
 
           {/* Notes */}
           <div>

@@ -2,11 +2,12 @@ import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, Circle, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getPackThemeOrDone, getPackTheme, DEFAULT_THEME } from '@/lib/packColorThemes';
 
 /**
  * Grouped pack list — items grouped by parent package with heading.
  * Props:
- *  - groups: [{ groupKey, label, subtitle, items: [{key, sku, skuLower, name, qty, ...}] }]
+ *  - groups: [{ groupKey, label, subtitle, colorTheme?, items: [{key, sku, skuLower, name, qty, ...}] }]
  *  - scannedMap: { skuLower: count }
  */
 export default function FloorPackList({ groups, scannedMap }) {
@@ -17,25 +18,26 @@ export default function FloorPackList({ groups, scannedMap }) {
         const groupTotal = group.items.reduce((s, i) => s + (i.qty || 0), 0);
         const groupDone = groupScanned >= groupTotal && groupTotal > 0;
 
+        const theme = getPackThemeOrDone(group.colorTheme, groupDone);
+        const activeTheme = getPackTheme(group.colorTheme);
+
         return (
           <div key={group.groupKey} className="space-y-2">
             {/* Group heading */}
             <div className={cn(
               "flex items-center gap-3 px-3 py-2.5 rounded-xl border-2",
-              groupDone
-                ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
-                : "bg-muted/50 border-border"
+              theme.headerBg, theme.headerBorder
             )}>
-              <Package className={cn("w-5 h-5 shrink-0", groupDone ? "text-green-600" : "text-primary")} />
+              <Package className={cn("w-5 h-5 shrink-0", theme.icon)} strokeWidth={1.5} />
               <div className="flex-1 min-w-0">
-                <p className="font-bold text-sm truncate">{group.label}</p>
+                <p className={cn("font-bold text-sm truncate", theme.headerText)}>{group.label}</p>
                 {group.subtitle && (
                   <p className="text-[11px] text-muted-foreground">{group.subtitle}</p>
                 )}
               </div>
               <Badge className={cn(
                 "tabular-nums text-xs shrink-0",
-                groupDone ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"
+                groupDone ? "bg-green-100 text-green-700" : cn(activeTheme.badgeBg, activeTheme.badgeText)
               )}>
                 {groupScanned}/{groupTotal}
               </Badge>
@@ -45,20 +47,23 @@ export default function FloorPackList({ groups, scannedMap }) {
             {group.items.map(item => {
               const scannedQty = scannedMap[item.skuLower] || 0;
               const isDone = scannedQty >= item.qty;
+
+              const itemTheme = isDone
+                ? { border: 'border-green-200 dark:border-green-800', bg: 'bg-green-50 dark:bg-green-900/20' }
+                : { border: activeTheme.itemBorder, bg: activeTheme.itemBg };
+
               return (
                 <div
                   key={item.key}
                   className={cn(
                     "flex items-center gap-3 px-4 py-3 rounded-2xl border-2 ml-3 transition-colors",
-                    isDone
-                      ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
-                      : "bg-card border-border",
+                    itemTheme.bg, itemTheme.border,
                   )}
                 >
                   {isDone ? (
-                    <CheckCircle2 className="w-6 h-6 text-green-600 shrink-0" />
+                    <CheckCircle2 className="w-6 h-6 text-green-600 shrink-0" strokeWidth={1.5} />
                   ) : (
-                    <Circle className="w-6 h-6 text-muted-foreground shrink-0" />
+                    <Circle className={cn("w-6 h-6 shrink-0", activeTheme.icon)} strokeWidth={1.5} />
                   )}
                   <div className="flex-1 min-w-0">
                     <p className={cn("font-semibold text-sm truncate", isDone && "line-through text-muted-foreground")}>
