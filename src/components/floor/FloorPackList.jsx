@@ -86,11 +86,10 @@ export default function FloorPackList({ groups, scannedMap }) {
                   )}
                   <div className="flex-1 min-w-0">
                     <p className={cn("font-semibold text-base truncate", isDone && "line-through text-muted-foreground")}>
-                      {item.variantTitle ? stripVariantFromName(item.name, item.variantTitle) : item.name}
+                      {item.variantTitle
+                        ? <>{stripVariantFromName(item.name, item.variantTitle)} – <span className="font-bold">{item.variantTitle}</span></>
+                        : item.name}
                     </p>
-                    {item.variantTitle && (
-                      <p className="text-base font-medium text-muted-foreground truncate">{item.variantTitle}</p>
-                    )}
                     <p className="text-[11px] font-mono text-muted-foreground">{item.sku}</p>
                   </div>
                   <div className="text-right shrink-0">
