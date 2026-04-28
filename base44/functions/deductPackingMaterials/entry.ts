@@ -4,21 +4,15 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
  * Deducts packing materials from inventory when an order is packed.
  * Triggered by entity automation on SalesOrder update (status → packed).
  *
- * Logic:
- * 1. Load all active PackingMaterialRule records.
- * 2. Load SalesOrderLines for this order.
- * 3. Count meals (type=finished_meal via component lines) and supplements.
- * 4. For each rule, calculate deduction qty and create StockMovement + update SOH.
+ * Each PackingMaterialRule can have multiple materials (stored as JSON in `materials` field).
+ * Falls back to legacy single-material fields if `materials` is empty.
  */
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-
-    // Parse automation payload
     const body = await req.json();
     const { event, data, old_data } = body;
 
-    // Only proceed if status just changed to 'packed'
     if (!data || data.status !== 'packed') {
       return Response.json({ skipped: true, reason: 'status is not packed' });
     }
@@ -33,7 +27,6 @@ Deno.serve(async (req) => {
 
     console.log(`[deductPackingMaterials] Order ${orderId} packed — processing rules`);
 
-    // Load rules and order lines in parallel
     const [rules, orderLines, products] = await Promise.all([
       base44.asServiceRole.entities.PackingMaterialRule.filter({ is_active: true }),
       base44.asServiceRole.entities.SalesOrderLine.filter({ sales_order_id: orderId }),
@@ -47,23 +40,16 @@ Deno.serve(async (req) => {
 
     // Build product type lookup
     const productTypeBySku = {};
-    products.forEach(p => {
-      if (p.sku) productTypeBySku[p.sku.toLowerCase()] = p.type;
-    });
+    products.forEach(p => { if (p.sku) productTypeBySku[p.sku.toLowerCase()] = p.type; });
 
-    // Count meals and supplements in this order
-    // Meals: component lines (is_package_component=true) or standalone finished_meal lines
-    // Supplements: lines whose product type = 'supplement'
+    // Count meals and supplements
     let mealCount = 0;
     let supplementCount = 0;
 
     for (const line of orderLines) {
-      if (line.status === 'cancelled') continue;
-      if (line.is_package_parent) continue; // parent display lines, not actual items
-
+      if (line.status === 'cancelled' || line.is_package_parent) continue;
       const sku = (line.sku || '').toLowerCase();
       const productType = productTypeBySku[sku];
-
       if (productType === 'supplement') {
         supplementCount += line.qty || 0;
       } else if (productType === 'finished_meal' || line.is_package_component) {
@@ -73,7 +59,6 @@ Deno.serve(async (req) => {
 
     console.log(`[deductPackingMaterials] Meals: ${mealCount}, Supplements: ${supplementCount}`);
 
-    // Process each rule
     const deductions = [];
 
     for (const rule of rules) {
@@ -83,64 +68,80 @@ Deno.serve(async (req) => {
         (rule.trigger === 'has_meals' && mealCount > 0) ||
         (rule.trigger === 'always');
 
-      if (!triggerMatch) {
-        console.log(`[deductPackingMaterials] Rule "${rule.name}" — trigger not met, skipping`);
-        continue;
+      if (!triggerMatch) continue;
+
+      // Parse materials list (new format), fallback to legacy single material
+      let materialsList = [];
+      if (rule.materials) {
+        try {
+          const parsed = JSON.parse(rule.materials);
+          if (Array.isArray(parsed)) materialsList = parsed;
+        } catch { /* ignore parse errors */ }
+      }
+      // Legacy fallback
+      if (materialsList.length === 0 && rule.material_product_id) {
+        materialsList = [{
+          product_id: rule.material_product_id,
+          sku: rule.material_sku || '',
+          name: rule.material_name || '',
+          deduction_mode: rule.deduction_mode || 'fixed_per_order',
+          qty_per_deduction: rule.qty_per_deduction ?? 1,
+          per_x_items: rule.per_x_items ?? 1,
+        }];
       }
 
-      // Calculate deduction qty
-      let deductQty = 0;
-      if (rule.deduction_mode === 'fixed_per_order') {
-        deductQty = rule.qty_per_deduction || 1;
-      } else if (rule.deduction_mode === 'per_x_items') {
-        // Determine the relevant item count
-        const itemCount = rule.trigger === 'has_supplements' ? supplementCount :
-                          rule.trigger === 'has_meals' ? mealCount :
-                          (mealCount + supplementCount);
-        const perX = rule.per_x_items || 1;
-        const buckets = Math.ceil(itemCount / perX);
-        deductQty = buckets * (rule.qty_per_deduction || 1);
-      }
+      for (const mat of materialsList) {
+        if (!mat.product_id) continue;
 
-      if (deductQty <= 0) continue;
+        // Calculate deduction qty
+        let deductQty = 0;
+        if (mat.deduction_mode === 'fixed_per_order') {
+          deductQty = mat.qty_per_deduction || 1;
+        } else if (mat.deduction_mode === 'per_x_items') {
+          const itemCount = rule.trigger === 'has_supplements' ? supplementCount :
+                            rule.trigger === 'has_meals' ? mealCount :
+                            (mealCount + supplementCount);
+          const perX = mat.per_x_items || 1;
+          const buckets = Math.ceil(itemCount / perX);
+          deductQty = buckets * (mat.qty_per_deduction || 1);
+        }
 
-      console.log(`[deductPackingMaterials] Rule "${rule.name}" — deducting ${deductQty} of ${rule.material_sku}`);
+        if (deductQty <= 0) continue;
 
-      // Create stock movement (consumption from packing)
-      await base44.asServiceRole.entities.StockMovement.create({
-        product_id: rule.material_product_id,
-        product_sku: rule.material_sku || '',
-        product_name: rule.material_name || '',
-        qty: deductQty,
-        uom: 'pcs',
-        reason: 'sale_fulfillment',
-        ref_type: 'sales_order',
-        ref_id: orderId,
-        reference_key: `packing_material:${orderId}:${rule.id}`,
-        notes: `Auto-deduct packing material: ${rule.name} (${deductQty} units)`,
-      });
+        console.log(`[deductPackingMaterials] Rule "${rule.name}" — deducting ${deductQty} of ${mat.sku}`);
 
-      // Update StockOnHand if exists
-      const sohRecords = await base44.asServiceRole.entities.StockOnHand.filter({
-        product_id: rule.material_product_id,
-      });
-
-      if (sohRecords.length > 0) {
-        const soh = sohRecords[0];
-        const newOnHand = Math.max(0, (soh.qty_on_hand || 0) - deductQty);
-        const newAvailable = Math.max(0, newOnHand - (soh.qty_committed || 0));
-        await base44.asServiceRole.entities.StockOnHand.update(soh.id, {
-          qty_on_hand: newOnHand,
-          qty_available: newAvailable,
-          last_updated_at: new Date().toISOString(),
+        // Create stock movement
+        await base44.asServiceRole.entities.StockMovement.create({
+          product_id: mat.product_id,
+          product_sku: mat.sku || '',
+          product_name: mat.name || '',
+          qty: deductQty,
+          uom: 'pcs',
+          reason: 'sale_fulfillment',
+          ref_type: 'sales_order',
+          ref_id: orderId,
+          reference_key: `packing_material:${orderId}:${rule.id}:${mat.product_id}`,
+          notes: `Auto-deduct: ${rule.name} — ${mat.name} (${deductQty} units)`,
         });
-      }
 
-      deductions.push({
-        rule: rule.name,
-        material: rule.material_sku,
-        qty: deductQty,
-      });
+        // Update StockOnHand
+        const sohRecords = await base44.asServiceRole.entities.StockOnHand.filter({
+          product_id: mat.product_id,
+        });
+
+        if (sohRecords.length > 0) {
+          const soh = sohRecords[0];
+          const newOnHand = Math.max(0, (soh.qty_on_hand || 0) - deductQty);
+          const newAvailable = Math.max(0, newOnHand - (soh.qty_committed || 0));
+          await base44.asServiceRole.entities.StockOnHand.update(soh.id, {
+            qty_on_hand: newOnHand,
+            qty_available: newAvailable,
+            last_updated_at: new Date().toISOString(),
+          });
+        }
+
+        deductions.push({ rule: rule.name, material: mat.sku, qty: deductQty });
+      }
     }
 
     console.log(`[deductPackingMaterials] Done — ${deductions.length} deductions applied`);

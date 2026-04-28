@@ -4,7 +4,7 @@
   "properties": {
     "name": {
       "type": "string",
-      "description": "Human-readable rule name e.g. 'Supplement Box' or 'Ice Packs'"
+      "description": "Human-readable rule name e.g. 'Meal Order Packing' or 'Supplement Order Packing'"
     },
     "trigger": {
       "type": "string",
@@ -13,19 +13,23 @@
         "has_meals",
         "always"
       ],
-      "description": "When this rule fires: has_supplements = any supplement in order, has_meals = any meal in order, always = every order"
+      "description": "When this rule fires"
+    },
+    "materials": {
+      "type": "string",
+      "description": "JSON array of material deductions: [{product_id, sku, name, deduction_mode, qty_per_deduction, per_x_items}]"
     },
     "material_product_id": {
       "type": "string",
-      "description": "FK to Product \u2014 the packaging material to deduct"
+      "description": "LEGACY \u2014 single material product ID (migrated to materials array)"
     },
     "material_sku": {
       "type": "string",
-      "description": "Denormalized SKU of the packaging material"
+      "description": "LEGACY \u2014 single material SKU"
     },
     "material_name": {
       "type": "string",
-      "description": "Denormalized name of the packaging material"
+      "description": "LEGACY \u2014 single material name"
     },
     "deduction_mode": {
       "type": "string",
@@ -33,17 +37,17 @@
         "fixed_per_order",
         "per_x_items"
       ],
-      "description": "fixed_per_order = flat qty once, per_x_items = qty per every X items of trigger type"
+      "description": "LEGACY \u2014 deduction mode"
     },
     "qty_per_deduction": {
       "type": "number",
       "default": 1,
-      "description": "How many units to deduct each time the rule fires (e.g. 4 ice packs)"
+      "description": "LEGACY \u2014 qty per deduction"
     },
     "per_x_items": {
       "type": "number",
       "default": 1,
-      "description": "Only used when deduction_mode=per_x_items. Deduct qty_per_deduction for every X items (e.g. every 30 meals)"
+      "description": "LEGACY \u2014 per X items"
     },
     "is_active": {
       "type": "boolean",
@@ -55,9 +59,6 @@
   },
   "required": [
     "name",
-    "trigger",
-    "material_product_id",
-    "deduction_mode",
-    "qty_per_deduction"
+    "trigger"
   ]
 }
