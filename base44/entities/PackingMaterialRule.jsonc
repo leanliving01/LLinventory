@@ -1,0 +1,63 @@
+{
+  "name": "PackingMaterialRule",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Human-readable rule name e.g. 'Supplement Box' or 'Ice Packs'"
+    },
+    "trigger": {
+      "type": "string",
+      "enum": [
+        "has_supplements",
+        "has_meals",
+        "always"
+      ],
+      "description": "When this rule fires: has_supplements = any supplement in order, has_meals = any meal in order, always = every order"
+    },
+    "material_product_id": {
+      "type": "string",
+      "description": "FK to Product \u2014 the packaging material to deduct"
+    },
+    "material_sku": {
+      "type": "string",
+      "description": "Denormalized SKU of the packaging material"
+    },
+    "material_name": {
+      "type": "string",
+      "description": "Denormalized name of the packaging material"
+    },
+    "deduction_mode": {
+      "type": "string",
+      "enum": [
+        "fixed_per_order",
+        "per_x_items"
+      ],
+      "description": "fixed_per_order = flat qty once, per_x_items = qty per every X items of trigger type"
+    },
+    "qty_per_deduction": {
+      "type": "number",
+      "default": 1,
+      "description": "How many units to deduct each time the rule fires (e.g. 4 ice packs)"
+    },
+    "per_x_items": {
+      "type": "number",
+      "default": 1,
+      "description": "Only used when deduction_mode=per_x_items. Deduct qty_per_deduction for every X items (e.g. every 30 meals)"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "trigger",
+    "material_product_id",
+    "deduction_mode",
+    "qty_per_deduction"
+  ]
+}
