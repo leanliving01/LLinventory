@@ -11,13 +11,9 @@ import ProductionPlanning from '@/pages/ProductionPlanning';
 import NewProduction from '@/pages/NewProduction';
 import StockTake from '@/pages/StockTake';
 import ShopifySync from '@/pages/ShopifySync';
-import MasterDataMeals from '@/pages/MasterDataMeals';
-import MasterDataSKUs from '@/pages/MasterDataSKUs';
 import MasterDataParLevels from '@/pages/MasterDataParLevels';
-import MasterDataPackages from '@/pages/MasterDataPackages';
-import MasterDataBOM from '@/pages/MasterDataBOM';
 import Reports from '@/pages/Reports';
-import DemandAudit from '@/pages/DemandAudit';
+
 import ProductionRuns from '@/pages/ProductionRuns';
 import PlanRunReview from '@/pages/PlanRunReview';
 import ProductionRunDetail from '@/pages/ProductionRunDetail';
@@ -124,19 +120,16 @@ const AuthenticatedApp = () => {
         <Route path="/stock/transfer" element={<StockTransfer />} />
         <Route path="/stock/receive" element={<Receiving />} />
         <Route path="/shopify" element={<ShopifySync />} />
-        <Route path="/master-data/meals" element={<MasterDataMeals />} />
-        <Route path="/master-data/skus" element={<MasterDataSKUs />} />
-        <Route path="/master-data/par-levels" element={<MasterDataParLevels />} />
-        <Route path="/master-data/packages" element={<MasterDataPackages />} />
-        <Route path="/master-data/bom" element={<MasterDataBOM />} />
-        <Route path="/demand" element={<DemandAudit />} />
+        <Route path="/stock/par-levels" element={<MasterDataParLevels />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/reports/team" element={<TeamPerformance />} />
         <Route path="/reports/forecasting" element={<TrendForecasting />} />
         <Route path="/settings" element={<SettingsPage />} />
         {/* Redirects for old routes */}
         <Route path="/stock" element={<Navigate to="/stock/new-production" replace />} />
-        <Route path="/master-data" element={<Navigate to="/master-data/meals" replace />} />
+        <Route path="/master-data" element={<Navigate to="/catalog" replace />} />
+        <Route path="/master-data/par-levels" element={<Navigate to="/stock/par-levels" replace />} />
+        <Route path="/demand" element={<Navigate to="/" replace />} />
       </Route>
       <Route path="/Dashboard" element={<Navigate to="/" replace />} />
       <Route path="*" element={<PageNotFound />} />

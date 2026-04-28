@@ -13,12 +13,10 @@ import {
   ChevronDown,
   Plus,
   ClipboardCheck,
-  Calculator,
   UtensilsCrossed,
   Barcode,
   Gauge,
   Box,
-  List,
   Truck,
   CookingPot,
   PlayCircle,
@@ -58,20 +56,11 @@ const navItems = [
       { label: 'Transfer Stock', path: '/stock/transfer', icon: ArrowLeftRight },
       { label: 'Stock Take', path: '/stock/stock-take', icon: ClipboardCheck },
       { label: 'Wastage', path: '/stock/wastage', icon: Trash2 },
+      { label: 'Par Levels', path: '/stock/par-levels', icon: Gauge },
     ]
   },
   { label: 'Shopify Sync', path: '/shopify', icon: ShoppingCart, settingsOnly: true },
-  { label: 'Demand Audit', path: '/demand', icon: Calculator },
-  { 
-    label: 'Master Data', icon: List,
-    children: [
-      { label: 'Meals', path: '/master-data/meals', icon: UtensilsCrossed },
-      { label: 'SKUs', path: '/master-data/skus', icon: Barcode },
-      { label: 'Par Levels', path: '/master-data/par-levels', icon: Gauge },
-      { label: 'Packages', path: '/master-data/packages', icon: Box },
-      { label: 'Recipes', path: '/master-data/bom', icon: ClipboardCheck },
-    ]
-  },
+
   { 
     label: 'Reports', icon: FileText,
     children: [
