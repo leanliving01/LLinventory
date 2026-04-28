@@ -250,7 +250,7 @@ export default function FloorPack() {
       if (e.key.length === 1) {
         bufferRef.current += e.key;
         clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => { bufferRef.current = ''; }, 100);
+        timerRef.current = setTimeout(() => { bufferRef.current = ''; }, 300);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -452,7 +452,12 @@ export default function FloorPack() {
             {showCamera && !isPaused && (
               <CameraScanner
                 active={showCamera}
-                onScan={(code) => { setScanInput(code); processCode(code); }}
+                onScan={(code) => {
+                  const trimmed = code.trim();
+                  if (!trimmed) return;
+                  setScanInput(trimmed);
+                  setTimeout(() => processCode(trimmed), 50);
+                }}
                 onClose={() => setShowCamera(false)}
               />
             )}
