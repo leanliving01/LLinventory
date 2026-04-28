@@ -71,9 +71,21 @@ export default function FloorPack() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // SKU → product name lookup
+  const skuNameMap = useMemo(() => {
+    const map = {};
+    products.forEach(p => {
+      if (p.sku) map[p.sku.toLowerCase()] = p.name || p.sku;
+    });
+    return map;
+  }, [products]);
+
+  const resolvedName = (sku, fallbackName) => {
+    if (!sku) return fallbackName || 'Unknown';
+    return skuNameMap[sku.toLowerCase()] || fallbackName || sku;
+  };
+
   // ── Build grouped pack list ──
-  // Step 1: Identify parent lines (is_package_parent) and their children
-  // Step 2: Group children under parent; standalone items go into their own group
   const groups = useMemo(() => {
     const parentLines = orderLines.filter(ol => ol.is_package_parent);
     const componentLines = orderLines.filter(ol => ol.is_package_component && !ol.is_package_parent && ol.status !== 'cancelled');
@@ -81,7 +93,6 @@ export default function FloorPack() {
 
     const result = [];
 
-    // Group components under each parent
     parentLines.forEach(parent => {
       const children = componentLines.filter(c => c.parent_line_id === parent.id);
       if (children.length === 0) return;
@@ -93,7 +104,7 @@ export default function FloorPack() {
           key: `sol-${c.id}`,
           sku: c.sku || '',
           skuLower: (c.sku || '').toLowerCase(),
-          name: c.name || c.sku || '',
+          name: resolvedName(c.sku, c.name),
           qty: c.qty || 0,
           source: 'order_line',
           sourceId: c.id,
@@ -101,7 +112,6 @@ export default function FloorPack() {
       });
     });
 
-    // Orphaned components (parent not found) — shouldn't happen but safety net
     const parentIds = new Set(parentLines.map(p => p.id));
     const orphans = componentLines.filter(c => !parentIds.has(c.parent_line_id));
     if (orphans.length > 0) {
@@ -113,7 +123,7 @@ export default function FloorPack() {
           key: `sol-${c.id}`,
           sku: c.sku || '',
           skuLower: (c.sku || '').toLowerCase(),
-          name: c.name || c.sku || '',
+          name: resolvedName(c.sku, c.name),
           qty: c.qty || 0,
           source: 'order_line',
           sourceId: c.id,
@@ -121,7 +131,6 @@ export default function FloorPack() {
       });
     }
 
-    // Standalone items — split BYO meals vs true standalone (supplements, shakes)
     const byoLines = standaloneLines.filter(ol => ol.line_type === 'byo' || (ol.portion_weight_g && !ol.variant_title));
     const trueStandalone = standaloneLines.filter(ol => !byoLines.includes(ol));
 
@@ -135,7 +144,7 @@ export default function FloorPack() {
           key: `sol-${ol.id}`,
           sku: ol.sku || '',
           skuLower: (ol.sku || '').toLowerCase(),
-          name: ol.name || ol.sku || '',
+          name: resolvedName(ol.sku, ol.name),
           qty: ol.qty || 0,
           source: 'order_line',
           sourceId: ol.id,
@@ -152,7 +161,7 @@ export default function FloorPack() {
           key: `sol-${ol.id}`,
           sku: ol.sku || '',
           skuLower: (ol.sku || '').toLowerCase(),
-          name: ol.name || ol.sku || '',
+          name: resolvedName(ol.sku, ol.name),
           qty: ol.qty || 0,
           source: 'order_line',
           sourceId: ol.id,
@@ -162,25 +171,24 @@ export default function FloorPack() {
     }
 
     return result;
-  }, [orderLines]);
+  }, [orderLines, skuNameMap]);
 
   // Flat items for scanning
   const allPackItems = useMemo(() => groups.flatMap(g => g.items), [groups]);
 
-  // Barcode/SKU lookup map
-  const lookupMap = useMemo(() => {
+  // Barcode/SKU → sku lookup for ALL products (to detect wrong-item scans)
+  const allProductLookup = useMemo(() => {
     const map = {};
-    const skuSet = new Set(allPackItems.map(i => i.skuLower));
     products.forEach(p => {
       const sku = (p.sku || '').toLowerCase();
-      if (skuSet.has(sku)) {
-        if (p.barcode) map[p.barcode.toLowerCase()] = sku;
-        map[sku] = sku;
-      }
+      if (p.barcode) map[p.barcode.toLowerCase()] = sku;
+      map[sku] = sku;
     });
-    allPackItems.forEach(i => { if (!map[i.skuLower]) map[i.skuLower] = i.skuLower; });
     return map;
-  }, [allPackItems, products]);
+  }, [products]);
+
+  // Set of SKUs actually in this order
+  const orderSkuSet = useMemo(() => new Set(allPackItems.map(i => i.skuLower)), [allPackItems]);
 
   const processCode = (code) => {
     const trimmed = code.trim().toLowerCase();
@@ -190,21 +198,33 @@ export default function FloorPack() {
       setShowCamera(false);
       return;
     }
-    const matchedSku = lookupMap[trimmed];
-    if (!matchedSku) {
-      toast.error(`"${code.trim()}" not in this order`);
+    // Resolve barcode/SKU to a known product SKU
+    const resolvedSku = allProductLookup[trimmed];
+
+    if (!resolvedSku) {
+      // Not a recognised product at all
+      toast.error(`Unknown barcode: "${code.trim()}"`);
       setShowCamera(false);
       return;
     }
-    const item = allPackItems.find(i => i.skuLower === matchedSku);
-    const currentCount = scannedMap[matchedSku] || 0;
+
+    if (!orderSkuSet.has(resolvedSku)) {
+      // Valid product but NOT in this order
+      const wrongName = skuNameMap[resolvedSku] || resolvedSku;
+      toast.error(`Wrong item — "${wrongName}" is not in this order`);
+      setShowCamera(false);
+      return;
+    }
+
+    const item = allPackItems.find(i => i.skuLower === resolvedSku);
+    const currentCount = scannedMap[resolvedSku] || 0;
     if (item && currentCount >= item.qty) {
       toast.warning(`Already scanned all ${item.qty} of ${item.name}`);
       setShowCamera(false);
       return;
     }
-    setScannedMap(prev => ({ ...prev, [matchedSku]: (prev[matchedSku] || 0) + 1 }));
-    toast.success(`Packed: ${item?.name || matchedSku} (${currentCount + 1}/${item?.qty || '?'})`);
+    setScannedMap(prev => ({ ...prev, [resolvedSku]: (prev[resolvedSku] || 0) + 1 }));
+    toast.success(`✓ ${item?.name || resolvedSku} (${currentCount + 1}/${item?.qty || '?'})`);
     setShowCamera(false);
   };
 
@@ -227,7 +247,7 @@ export default function FloorPack() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [lookupMap, selectedOrder, packingStartedAt]);
+  }, [allProductLookup, orderSkuSet, selectedOrder, packingStartedAt]);
 
   const totalNeeded = allPackItems.reduce((s, i) => s + (i.qty || 0), 0);
   const totalScanned = Object.values(scannedMap).reduce((s, v) => s + v, 0);
