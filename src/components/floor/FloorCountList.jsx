@@ -29,7 +29,7 @@ export default function FloorCountList({ products, stockMap, counts, onCountChan
     <div className="space-y-3">
       {sortedCategories.map(cat => {
         const items = groups[cat];
-        const isOpen = expanded[cat] !== false; // default open
+        const isOpen = expanded[cat] === true; // default collapsed
         const countedInCat = items.filter(p => counts[p.id] !== undefined && counts[p.id] !== '').length;
 
         return (
