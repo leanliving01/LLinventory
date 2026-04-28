@@ -1,0 +1,31 @@
+{
+  "name": "DispatchTeamMember",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Team member display name"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "packer",
+        "checker",
+        "dispatcher"
+      ],
+      "default": "packer",
+      "description": "Dispatch role"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive"
+      ],
+      "default": "active"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

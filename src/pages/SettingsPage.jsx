@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Settings as SettingsIcon, Users, Database, Download, Building2, ChefHat, Bell, Ruler } from 'lucide-react';
+import { Settings as SettingsIcon, Users, Database, Download, Building2, ChefHat, Bell, Ruler, Truck } from 'lucide-react';
 import SettingsOrgTab from '@/components/settings/SettingsOrgTab';
 import SettingsUsersTab from '@/components/settings/SettingsUsersTab';
 import SettingsCin7Tab from '@/components/settings/SettingsCin7Tab';
@@ -10,6 +10,7 @@ import SettingsImportLogTab from '@/components/settings/SettingsImportLogTab';
 import SettingsProductionTab from '@/components/settings/SettingsProductionTab';
 import SettingsAlertsTab from '@/components/settings/SettingsAlertsTab';
 import SettingsUomTab from '@/components/settings/SettingsUomTab';
+import SettingsDispatchTab from '@/components/settings/SettingsDispatchTab';
 
 export default function SettingsPage() {
   return (
@@ -27,6 +28,7 @@ export default function SettingsPage() {
           <TabsTrigger value="logs" className="gap-1.5"><Download className="w-3.5 h-3.5" />Import Log</TabsTrigger>
           <TabsTrigger value="alerts" className="gap-1.5"><Bell className="w-3.5 h-3.5" />Alerts</TabsTrigger>
           <TabsTrigger value="uom" className="gap-1.5"><Ruler className="w-3.5 h-3.5" />Units</TabsTrigger>
+          <TabsTrigger value="dispatch" className="gap-1.5"><Truck className="w-3.5 h-3.5" />Dispatch Team</TabsTrigger>
         </TabsList>
         <TabsContent value="org" className="mt-4"><SettingsOrgTab /></TabsContent>
         <TabsContent value="users" className="mt-4"><SettingsUsersTab /></TabsContent>
@@ -35,6 +37,7 @@ export default function SettingsPage() {
         <TabsContent value="logs" className="mt-4"><SettingsImportLogTab /></TabsContent>
         <TabsContent value="alerts" className="mt-4"><SettingsAlertsTab /></TabsContent>
         <TabsContent value="uom" className="mt-4"><SettingsUomTab /></TabsContent>
+        <TabsContent value="dispatch" className="mt-4"><SettingsDispatchTab /></TabsContent>
       </Tabs>
     </div>
   );

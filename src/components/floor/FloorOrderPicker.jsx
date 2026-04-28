@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Loader2, ShoppingBag, AlertCircle, Search, Camera, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Loader2, ShoppingBag, AlertCircle, Search, ScanBarcode, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import CameraScanner from '@/components/floor/CameraScanner';
 
@@ -97,7 +97,7 @@ export default function FloorOrderPicker({ orders, loading, onSelect }) {
           />
         </div>
         <Button variant="outline" className="h-12 w-12 shrink-0" onClick={() => setShowCamera(true)}>
-          <Camera className="w-5 h-5" />
+          <ScanBarcode className="w-5 h-5" />
         </Button>
       </div>
 

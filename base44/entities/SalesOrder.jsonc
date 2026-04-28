@@ -132,6 +132,23 @@
       "type": "string",
       "format": "date-time"
     },
+    "packed_sections": {
+      "type": "string",
+      "description": "JSON array of completed pack section keys e.g. [\"freezer\",\"dry\"] \u2014 enables partial packing by different staff"
+    },
+    "packed_by_name": {
+      "type": "string",
+      "description": "Name of the dispatch team member who packed this order"
+    },
+    "packed_by_member_id": {
+      "type": "string",
+      "description": "FK to DispatchTeamMember who packed this order"
+    },
+    "packing_duration_seconds": {
+      "type": "number",
+      "default": 0,
+      "description": "Total active packing time in seconds (excludes paused time)"
+    },
     "shipped_at": {
       "type": "string",
       "format": "date-time"
