@@ -85,7 +85,7 @@ export default function FloorPackList({ groups, scannedMap }) {
                     <Circle className={cn("w-6 h-6 shrink-0", activeTheme.icon)} strokeWidth={1.5} />
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className={cn("font-semibold text-base truncate", isDone && "line-through text-muted-foreground")}>
+                    <p className={cn("font-semibold text-2xl truncate", isDone && "line-through text-muted-foreground")}>
                       {item.variantTitle
                         ? <>{stripVariantFromName(item.name, item.variantTitle)} – <span className="font-bold">{item.variantTitle}</span></>
                         : item.name}
