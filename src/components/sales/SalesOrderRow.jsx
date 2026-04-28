@@ -22,6 +22,24 @@ const lifecycleLabels = {
   refunded: 'Refunded',
 };
 
+const packStatusColors = {
+  pending: 'bg-slate-100 text-slate-600',
+  picking: 'bg-blue-100 text-blue-700',
+  packed: 'bg-indigo-100 text-indigo-700',
+  shipped: 'bg-green-100 text-green-700',
+  cancelled: 'bg-red-100 text-red-600',
+  refunded: 'bg-red-100 text-red-600',
+};
+
+const packStatusLabels = {
+  pending: 'Not Packed',
+  picking: 'Picking',
+  packed: 'Packed',
+  shipped: 'Shipped',
+  cancelled: 'Cancelled',
+  refunded: 'Refunded',
+};
+
 export default function SalesOrderRow({ order }) {
   const [expanded, setExpanded] = useState(false);
   const [popupPackage, setPopupPackage] = useState(null);
@@ -62,9 +80,16 @@ export default function SalesOrderRow({ order }) {
         <span className="text-sm text-muted-foreground w-36 shrink-0">
           {orderDate ? format(orderDate, 'dd MMM yyyy HH:mm') : '—'}
         </span>
-        <Badge className={`text-[11px] shrink-0 ${lifecycleColors[order.lifecycle_state] || ''}`}>
-          {lifecycleLabels[order.lifecycle_state] || order.lifecycle_state}
-        </Badge>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Badge className={`text-[11px] ${lifecycleColors[order.lifecycle_state] || ''}`}>
+            {lifecycleLabels[order.lifecycle_state] || order.lifecycle_state}
+          </Badge>
+          {order.lifecycle_state === 'paid_unfulfilled' && (
+            <Badge className={`text-[11px] ${packStatusColors[order.status] || 'bg-slate-100 text-slate-600'}`}>
+              {packStatusLabels[order.status] || order.status || 'Not Packed'}
+            </Badge>
+          )}
+        </div>
         <span className="text-sm font-medium w-24 text-right shrink-0 ml-auto">
           R{(order.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
         </span>

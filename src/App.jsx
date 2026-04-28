@@ -43,6 +43,7 @@ import XeroCallback from '@/pages/XeroCallback';
 import Sales from '@/pages/Sales';
 import Customers from '@/pages/Customers';
 import EquipmentManager from '@/pages/EquipmentManager';
+import TrendForecasting from '@/pages/TrendForecasting';
 import FloorLayout from '@/components/floor/FloorLayout';
 import FloorHome from '@/pages/floor/FloorHome';
 import FloorScan from '@/pages/floor/FloorScan';
@@ -131,6 +132,7 @@ const AuthenticatedApp = () => {
         <Route path="/demand" element={<DemandAudit />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/reports/team" element={<TeamPerformance />} />
+        <Route path="/reports/forecasting" element={<TrendForecasting />} />
         <Route path="/settings" element={<SettingsPage />} />
         {/* Redirects for old routes */}
         <Route path="/stock" element={<Navigate to="/stock/new-production" replace />} />

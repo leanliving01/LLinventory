@@ -28,7 +28,8 @@ import {
   Users,
   Receipt,
   AlertTriangle,
-  Wrench
+  Wrench,
+  TrendingUp
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
@@ -76,6 +77,7 @@ const navItems = [
     children: [
       { label: 'Audit & Runs', path: '/reports', icon: FileText },
       { label: 'Team Performance', path: '/reports/team', icon: Users },
+      { label: 'Trend Forecasting', path: '/reports/forecasting', icon: TrendingUp },
     ]
   },
   { label: 'Equipment', path: '/equipment', icon: Wrench },

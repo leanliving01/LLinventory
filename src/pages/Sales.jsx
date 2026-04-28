@@ -11,6 +11,7 @@ import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
 export default function Sales() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [packFilter, setPackFilter] = useState('all');
   const queryClient = useQueryClient();
 
   const { data: orders = [], isLoading, error: queryError } = useQuery({
@@ -26,6 +27,9 @@ export default function Sales() {
     if (statusFilter !== 'all') {
       list = list.filter(o => o.lifecycle_state === statusFilter);
     }
+    if (packFilter !== 'all') {
+      list = list.filter(o => o.status === packFilter);
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(o =>
@@ -36,7 +40,7 @@ export default function Sales() {
       );
     }
     return list;
-  }, [orders, statusFilter, search]);
+  }, [orders, statusFilter, packFilter, search]);
 
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-[1400px] mx-auto">
@@ -55,6 +59,8 @@ export default function Sales() {
         onSearchChange={setSearch}
         statusFilter={statusFilter}
         onStatusChange={setStatusFilter}
+        packFilter={packFilter}
+        onPackChange={setPackFilter}
       />
 
       <div className="bg-card rounded-xl border overflow-hidden">
@@ -64,7 +70,7 @@ export default function Sales() {
           <span className="w-28 shrink-0">Order #</span>
           <span className="w-40 shrink-0">Customer</span>
           <span className="w-36 shrink-0">Date & Time</span>
-          <span className="w-auto">Status</span>
+          <span className="w-auto">Status / Pack</span>
           <span className="w-24 text-right shrink-0 ml-auto">Amount</span>
           <span className="hidden xl:block flex-1 ml-3">Items</span>
         </div>
