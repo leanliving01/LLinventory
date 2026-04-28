@@ -65,14 +65,13 @@ export default function Sales() {
 
       <div className="bg-card rounded-xl border overflow-hidden">
         {/* Table header */}
-        <div className="flex items-center gap-3 px-4 py-2.5 border-b text-xs font-medium text-muted-foreground bg-muted/40">
+        <div className="hidden md:flex items-center gap-3 px-4 py-2.5 border-b text-xs font-medium text-muted-foreground bg-muted/40">
           <span className="w-4" />
           <span className="w-28 shrink-0">Order #</span>
           <span className="w-40 shrink-0">Customer</span>
           <span className="w-36 shrink-0">Date & Time</span>
-          <span className="w-auto">Status / Pack</span>
-          <span className="w-24 text-right shrink-0 ml-auto">Amount</span>
-          <span className="hidden xl:block flex-1 ml-3">Items</span>
+          <span className="flex-1 min-w-[180px]">Status</span>
+          <span className="w-28 text-right shrink-0">Amount</span>
         </div>
 
         {queryError ? (

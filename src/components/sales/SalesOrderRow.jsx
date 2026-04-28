@@ -72,15 +72,16 @@ export default function SalesOrderRow({ order }) {
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors text-left"
       >
-        <span className="text-muted-foreground">
+        <span className="text-muted-foreground shrink-0">
           {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </span>
-        <span className="font-semibold text-sm w-28 shrink-0">{order.order_number || order.shopify_order_id}</span>
-        <span className="text-sm w-40 truncate shrink-0">{order.customer_name || '—'}</span>
-        <span className="text-sm text-muted-foreground w-36 shrink-0">
+        {/* Desktop layout */}
+        <span className="hidden md:inline font-semibold text-sm w-28 shrink-0">{order.order_number || order.shopify_order_id}</span>
+        <span className="hidden md:inline text-sm w-40 truncate shrink-0">{order.customer_name || '—'}</span>
+        <span className="hidden md:inline text-sm text-muted-foreground w-36 shrink-0">
           {orderDate ? format(orderDate, 'dd MMM yyyy HH:mm') : '—'}
         </span>
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="hidden md:flex items-center gap-1.5 flex-1 min-w-[180px]">
           <Badge className={`text-[11px] ${lifecycleColors[order.lifecycle_state] || ''}`}>
             {lifecycleLabels[order.lifecycle_state] || order.lifecycle_state}
           </Badge>
@@ -90,9 +91,25 @@ export default function SalesOrderRow({ order }) {
             </Badge>
           )}
         </div>
-        <span className="text-sm font-medium w-24 text-right shrink-0 ml-auto">
+        <span className="hidden md:inline text-sm font-medium w-28 text-right shrink-0">
           R{(order.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
         </span>
+
+        {/* Mobile layout */}
+        <div className="flex md:hidden flex-1 min-w-0">
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm">{order.order_number || order.shopify_order_id}</p>
+            <p className="text-xs text-muted-foreground truncate">{order.customer_name || '—'}</p>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-sm font-medium">R{(order.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
+            <div className="flex items-center gap-1 justify-end mt-0.5">
+              <Badge className={`text-[10px] py-0 ${lifecycleColors[order.lifecycle_state] || ''}`}>
+                {lifecycleLabels[order.lifecycle_state] || order.lifecycle_state}
+              </Badge>
+            </div>
+          </div>
+        </div>
       </button>
 
       {expanded && (
