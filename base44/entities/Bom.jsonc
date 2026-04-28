@@ -24,6 +24,10 @@
       ],
       "description": "Cook (raw\u2192WIP), Portion (WIP\u2192meal), Pack (meals\u2192package), Prep (pre-processing step)"
     },
+    "subcategory": {
+      "type": "string",
+      "description": "Grouping within a layer (e.g. Meats, Vegetables for Cook; MWL/BYO, Low Carb for Portion)"
+    },
     "yield_qty": {
       "type": "number",
       "default": 1,

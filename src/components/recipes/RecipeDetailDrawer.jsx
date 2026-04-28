@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import AddComponentModal from '@/components/recipes/AddComponentModal';
 import OperationsEditor from '@/components/recipes/OperationsEditor';
 import RecipeFilesEditor from '@/components/recipes/RecipeFilesEditor';
+import { getSubcategories } from '@/lib/bomSubcategories';
 
 const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack', prep: 'Prep' };
 const LAYER_COLORS = {
@@ -35,6 +36,7 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
   const [yieldQty, setYieldQty] = useState(String(bom.yield_qty || 1));
   const [yieldUom, setYieldUom] = useState(bom.yield_uom || '');
   const [bomType, setBomType] = useState(bom.bom_type);
+  const [subcategory, setSubcategory] = useState(bom.subcategory || '');
   const [chefNotes, setChefNotes] = useState(bom.chef_notes || '');
   const [notes, setNotes] = useState(bom.notes || '');
   const [files, setFiles] = useState(bom.files || []);
@@ -55,10 +57,11 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
     const qtyChanged = Object.keys(editedQtys).length > 0;
     const yieldChanged = String(bom.yield_qty || 1) !== yieldQty || (bom.yield_uom || '') !== yieldUom;
     const typeChanged = bomType !== bom.bom_type;
+    const subChanged = subcategory !== (bom.subcategory || '');
     const chefChanged = chefNotes !== (bom.chef_notes || '');
     const notesChanged = notes !== (bom.notes || '');
     const filesChanged = JSON.stringify(files) !== JSON.stringify(bom.files || []);
-    return qtyChanged || yieldChanged || typeChanged || chefChanged || notesChanged || filesChanged;
+    return qtyChanged || yieldChanged || typeChanged || subChanged || chefChanged || notesChanged || filesChanged;
   };
 
   const handleSave = async () => {
@@ -70,6 +73,7 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
     if (newYield !== (bom.yield_qty || 1)) bomUpdate.yield_qty = newYield || 1;
     if (yieldUom !== (bom.yield_uom || '')) bomUpdate.yield_uom = yieldUom;
     if (bomType !== bom.bom_type) bomUpdate.bom_type = bomType;
+    if (subcategory !== (bom.subcategory || '')) bomUpdate.subcategory = subcategory;
     if (chefNotes !== (bom.chef_notes || '')) bomUpdate.chef_notes = chefNotes;
     if (notes !== (bom.notes || '')) bomUpdate.notes = notes;
     if (JSON.stringify(files) !== JSON.stringify(bom.files || [])) bomUpdate.files = files;
@@ -218,6 +222,28 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
             </Select>
             {bomType !== bom.bom_type && (
               <p className="text-[10px] text-amber-600 font-medium">Layer changed from {LAYER_LABELS[bom.bom_type]} → {LAYER_LABELS[bomType]}. Save to apply.</p>
+            )}
+
+            {/* Subcategory */}
+            {getSubcategories(bomType).length > 0 && (
+              <div className="pt-2">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">Subcategory</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {getSubcategories(bomType).map(sub => (
+                    <button
+                      key={sub}
+                      onClick={() => setSubcategory(subcategory === sub ? '' : sub)}
+                      className={`text-[11px] px-2.5 py-1 rounded-full font-medium border transition-all ${
+                        subcategory === sub
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground hover:bg-muted/30'
+                      }`}
+                    >
+                      {sub}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 

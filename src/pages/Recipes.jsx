@@ -4,9 +4,10 @@ import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Search, X, ChevronRight, Plus } from 'lucide-react';
+import { Search, X, ChevronRight, Plus, ChevronDown, FolderOpen } from 'lucide-react';
 import RecipeDetailDrawer from '@/components/recipes/RecipeDetailDrawer';
 import CreateBomModal from '@/components/recipes/CreateBomModal';
+import { getSubcategories } from '@/lib/bomSubcategories';
 
 const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack', prep: 'Prep' };
 const LAYER_COLORS = {
@@ -22,6 +23,7 @@ export default function Recipes() {
   const [page, setPage] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [createDefaults, setCreateDefaults] = useState(null);
+  const [subcategoryFilter, setSubcategoryFilter] = useState('all');
   const PAGE_SIZE = 15;
 
   // Support URL params: ?search=X&layer=cook or ?create=cook&productId=ID
@@ -49,6 +51,7 @@ export default function Recipes() {
   const filtered = useMemo(() => {
     return boms.filter(b => {
       if (layerFilter !== 'all' && b.bom_type !== layerFilter) return false;
+      if (subcategoryFilter !== 'all' && (b.subcategory || 'Uncategorised') !== subcategoryFilter) return false;
       if (search) {
         const s = search.toLowerCase();
         return (b.product_sku || '').toLowerCase().includes(s) ||
@@ -56,7 +59,26 @@ export default function Recipes() {
       }
       return true;
     });
-  }, [boms, search, layerFilter]);
+  }, [boms, search, layerFilter, subcategoryFilter]);
+
+  // Available subcategories for the selected layer filter
+  const activeSubcategories = useMemo(() => {
+    if (layerFilter === 'all') return [];
+    const defined = getSubcategories(layerFilter);
+    // Count BOMs per subcategory within this layer
+    const layerBoms = boms.filter(b => b.bom_type === layerFilter);
+    const counts = {};
+    layerBoms.forEach(b => {
+      const sub = b.subcategory || 'Uncategorised';
+      counts[sub] = (counts[sub] || 0) + 1;
+    });
+    // Include defined subcategories + any existing ones not in the list
+    const allSubs = [...defined];
+    Object.keys(counts).forEach(s => {
+      if (!allSubs.includes(s)) allSubs.push(s);
+    });
+    return allSubs.map(s => ({ label: s, count: counts[s] || 0 }));
+  }, [boms, layerFilter]);
 
   const pageBoms = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -83,10 +105,10 @@ export default function Recipes() {
 
       {/* Layer chips */}
       <div className="flex flex-wrap gap-2">
-        {['cook', 'portion', 'pack', 'prep'].map(layer => (
+        {['prep', 'cook', 'portion', 'pack'].map(layer => (
           <button
             key={layer}
-            onClick={() => { setLayerFilter(layerFilter === layer ? 'all' : layer); setPage(0); }}
+            onClick={() => { setLayerFilter(layerFilter === layer ? 'all' : layer); setSubcategoryFilter('all'); setPage(0); }}
             className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
               layerFilter === layer
                 ? LAYER_COLORS[layer] + ' ring-2 ring-primary/30'
@@ -97,6 +119,36 @@ export default function Recipes() {
           </button>
         ))}
       </div>
+
+      {/* Subcategory chips — shown when a layer is selected */}
+      {layerFilter !== 'all' && activeSubcategories.length > 0 && (
+        <div className="flex flex-wrap gap-2 items-center">
+          <FolderOpen className="w-4 h-4 text-muted-foreground" />
+          <button
+            onClick={() => { setSubcategoryFilter('all'); setPage(0); }}
+            className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
+              subcategoryFilter === 'all'
+                ? 'bg-foreground text-background'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80'
+            }`}
+          >
+            All
+          </button>
+          {activeSubcategories.map(sub => (
+            <button
+              key={sub.label}
+              onClick={() => { setSubcategoryFilter(subcategoryFilter === sub.label ? 'all' : sub.label); setPage(0); }}
+              className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
+                subcategoryFilter === sub.label
+                  ? 'bg-foreground text-background'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              }`}
+            >
+              {sub.label} ({sub.count})
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Search */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -109,8 +161,8 @@ export default function Recipes() {
             className="pl-9"
           />
         </div>
-        {(search || layerFilter !== 'all') && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setLayerFilter('all'); setPage(0); }} className="gap-1">
+        {(search || layerFilter !== 'all' || subcategoryFilter !== 'all') && (
+          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setLayerFilter('all'); setSubcategoryFilter('all'); setPage(0); }} className="gap-1">
             <X className="w-3.5 h-3.5" /> Clear
           </Button>
         )}
@@ -127,6 +179,7 @@ export default function Recipes() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Output SKU</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Output Product</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Layer</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Subcategory</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Yield</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Version</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Active</th>
@@ -147,6 +200,7 @@ export default function Recipes() {
                       {LAYER_LABELS[b.bom_type]}
                     </Badge>
                   </td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{b.subcategory || '—'}</td>
                   <td className="px-4 py-2.5 text-sm text-center tabular-nums">
                     {b.yield_qty} {b.yield_uom}
                   </td>
@@ -161,7 +215,7 @@ export default function Recipes() {
               ))}
               {pageBoms.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     {boms.length === 0 ? 'No recipes imported yet. Go to Settings → Cin7 Import.' : 'No recipes match your filters.'}
                   </td>
                 </tr>

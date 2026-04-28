@@ -7,12 +7,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { X, Plus, Loader2, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import PackColorPicker from '@/components/recipes/PackColorPicker';
+import { getSubcategories } from '@/lib/bomSubcategories';
 
 const LAYER_OPTIONS = [
+  { value: 'prep', label: 'Prep', desc: 'Pre-processing step (e.g. prep work)' },
   { value: 'cook', label: 'Cook', desc: 'Raw materials → Bulk cooked (WIP)' },
   { value: 'portion', label: 'Portion', desc: 'Bulk cooked → Portioned meal' },
   { value: 'pack', label: 'Pack', desc: 'Meals → Package' },
-  { value: 'prep', label: 'Prep', desc: 'Pre-processing step (e.g. prep work)' },
 ];
 
 export default function CreateBomModal({ onCreated, onCancel, defaults }) {
@@ -22,6 +23,7 @@ export default function CreateBomModal({ onCreated, onCancel, defaults }) {
   const [yieldQty, setYieldQty] = useState('1');
   const [yieldUom, setYieldUom] = useState('');
   const [notes, setNotes] = useState('');
+  const [subcategory, setSubcategory] = useState('');
   const [packColor, setPackColor] = useState('');
   const [creating, setCreating] = useState(false);
 
@@ -64,6 +66,7 @@ export default function CreateBomModal({ onCreated, onCancel, defaults }) {
       version: 1,
       is_active: true,
       notes: notes || undefined,
+      subcategory: subcategory || undefined,
     };
     if (bomType === 'pack' && packColor) {
       bomData.pack_color_theme = packColor;
@@ -104,6 +107,28 @@ export default function CreateBomModal({ onCreated, onCancel, defaults }) {
               ))}
             </div>
           </div>
+
+          {/* Subcategory */}
+          {getSubcategories(bomType).length > 0 && (
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">Subcategory</label>
+              <div className="flex flex-wrap gap-2">
+                {getSubcategories(bomType).map(sub => (
+                  <button
+                    key={sub}
+                    onClick={() => setSubcategory(subcategory === sub ? '' : sub)}
+                    className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-all ${
+                      subcategory === sub
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border text-muted-foreground hover:bg-muted/30'
+                    }`}
+                  >
+                    {sub}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Output product */}
           <div>
