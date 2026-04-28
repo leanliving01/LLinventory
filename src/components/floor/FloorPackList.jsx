@@ -10,6 +10,25 @@ import { getPackThemeOrDone, getPackTheme, DEFAULT_THEME } from '@/lib/packColor
  *  - groups: [{ groupKey, label, subtitle, colorTheme?, items: [{key, sku, skuLower, name, qty, ...}] }]
  *  - scannedMap: { skuLower: count }
  */
+/** Remove variant text from product name when it's already shown separately */
+function stripVariantFromName(name, variant) {
+  if (!name || !variant) return name;
+  // Case-insensitive check: if name ends with the variant, strip it
+  const lower = name.toLowerCase();
+  const vLower = variant.toLowerCase();
+  if (lower.endsWith(vLower)) {
+    return name.slice(0, name.length - variant.length).replace(/[\s\-–—]+$/, '').trim() || name;
+  }
+  // Also check if variant words appear as a suffix (e.g. "Protein Pudding Chocolate Brownie" / "Chocolate Brownie")
+  if (lower.includes(vLower)) {
+    const idx = lower.indexOf(vLower);
+    const before = name.slice(0, idx).replace(/[\s\-–—]+$/, '').trim();
+    const after = name.slice(idx + variant.length).trim();
+    return (before + (after ? ' ' + after : '')).trim() || name;
+  }
+  return name;
+}
+
 export default function FloorPackList({ groups, scannedMap }) {
   return (
     <div className="space-y-4">
@@ -66,11 +85,11 @@ export default function FloorPackList({ groups, scannedMap }) {
                     <Circle className={cn("w-6 h-6 shrink-0", activeTheme.icon)} strokeWidth={1.5} />
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className={cn("font-semibold text-sm truncate", isDone && "line-through text-muted-foreground")}>
-                      {item.name}
+                    <p className={cn("font-semibold text-base truncate", isDone && "line-through text-muted-foreground")}>
+                      {item.variantTitle ? stripVariantFromName(item.name, item.variantTitle) : item.name}
                     </p>
                     {item.variantTitle && (
-                      <p className="text-[11px] text-muted-foreground truncate">{item.variantTitle}</p>
+                      <p className="text-sm text-muted-foreground truncate">{item.variantTitle}</p>
                     )}
                     <p className="text-[11px] font-mono text-muted-foreground">{item.sku}</p>
                   </div>
