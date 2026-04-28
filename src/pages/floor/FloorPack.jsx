@@ -12,6 +12,7 @@ import FloorPackTimer from '@/components/floor/FloorPackTimer';
 import CameraScanner from '@/components/floor/CameraScanner';
 import PackerSelectModal from '@/components/floor/PackerSelectModal';
 import { useScanFeedback } from '@/components/floor/ScanFeedback';
+import ScanResultBanner from '@/components/floor/ScanResultBanner';
 
 /* ── SKU-to-friendly-name map ── */
 const SKU_LABELS = {
@@ -48,6 +49,7 @@ export default function FloorPack() {
   const [showCamera, setShowCamera] = useState(false);
   const [packing, setPacking] = useState(false);
   const [showBackConfirm, setShowBackConfirm] = useState(false);
+  const [lastScanResult, setLastScanResult] = useState(null); // { type: 'success'|'error', message: string }
 
   // Timer: pause/resume
   const [packingStartedAt, setPackingStartedAt] = useState(null);
@@ -200,25 +202,25 @@ export default function FloorPack() {
     const trimmed = code.trim().toLowerCase();
     if (!trimmed) return;
     if (!packingStartedAt) {
-      toast.error('Press "Start Packing" first');
+      setLastScanResult({ type: 'error', message: 'Press "Start Packing" first' });
       triggerFeedback('error');
       return;
     }
     if (isPaused) {
-      toast.error('Packing is paused — press Resume first');
+      setLastScanResult({ type: 'error', message: 'Packing is paused — press Resume first' });
       triggerFeedback('error');
       return;
     }
 
     const resolvedSku = allProductLookup[trimmed];
     if (!resolvedSku) {
-      toast.error(`Unknown barcode: "${code.trim()}"`);
+      setLastScanResult({ type: 'error', message: `Unknown barcode: "${code.trim()}"` });
       triggerFeedback('error');
       return;
     }
     if (!orderSkuSet.has(resolvedSku)) {
       const wrongName = skuNameMap[resolvedSku] || resolvedSku;
-      toast.error(`Wrong item — "${wrongName}" is not in this order`);
+      setLastScanResult({ type: 'error', message: `Wrong item — "${wrongName}" is not in this order` });
       triggerFeedback('error');
       return;
     }
@@ -226,13 +228,13 @@ export default function FloorPack() {
     const item = allPackItems.find(i => i.skuLower === resolvedSku);
     const currentCount = scannedMap[resolvedSku] || 0;
     if (item && currentCount >= item.qty) {
-      toast.warning(`Already scanned all ${item.qty} of ${item.name}`);
+      setLastScanResult({ type: 'error', message: `Already scanned all ${item.qty} of ${item.name}` });
       triggerFeedback('error');
       return;
     }
 
     setScannedMap(prev => ({ ...prev, [resolvedSku]: (prev[resolvedSku] || 0) + 1 }));
-    toast.success(`✓ ${item?.name || resolvedSku} (${currentCount + 1}/${item?.qty || '?'})`);
+    setLastScanResult({ type: 'success', message: `✓ ${item?.name || resolvedSku} (${currentCount + 1}/${item?.qty || '?'})` });
     triggerFeedback('success');
   };
 
@@ -449,12 +451,16 @@ export default function FloorPack() {
               </Button>
             </form>
 
+            {/* Last scan result banner */}
+            <ScanResultBanner result={lastScanResult} onDismiss={() => setLastScanResult(null)} />
+
             {showCamera && !isPaused && (
               <CameraScanner
                 active={showCamera}
                 onScan={(code) => {
                   const trimmed = code.trim();
                   if (!trimmed) return;
+                  setShowCamera(false);
                   setScanInput(trimmed);
                   setTimeout(() => processCode(trimmed), 50);
                 }}
