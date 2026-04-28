@@ -75,7 +75,7 @@ const AuthenticatedApp = () => {
   }
 
   // Floor-only roles go straight to /floor
-  const FLOOR_ROLES = ['kitchen', 'picker_packer', 'stock_controller'];
+  const FLOOR_ROLES = ['kitchen', 'picker_packer', 'stock_controller', 'floor_operator'];
   const isFloorUser = FLOOR_ROLES.includes(user?.role);
 
   return (

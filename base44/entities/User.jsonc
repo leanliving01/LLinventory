@@ -11,6 +11,7 @@
         "kitchen",
         "stock_controller",
         "picker_packer",
+        "floor_operator",
         "viewer"
       ],
       "default": "viewer",

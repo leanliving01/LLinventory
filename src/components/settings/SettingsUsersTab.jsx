@@ -15,6 +15,7 @@ const roleColors = {
   kitchen: 'bg-green-100 text-green-700',
   stock_controller: 'bg-orange-100 text-orange-700',
   picker_packer: 'bg-amber-100 text-amber-700',
+  floor_operator: 'bg-purple-100 text-purple-700',
   viewer: 'bg-gray-100 text-gray-700',
 };
 
@@ -220,8 +221,8 @@ export default function SettingsUsersTab() {
 
 /** Compact matrix showing default permissions per role template */
 function RoleDefaultsMatrix() {
-  const roles = ['admin', 'ops_manager', 'kitchen_manager', 'kitchen', 'stock_controller', 'picker_packer', 'viewer'];
-  const labels = { admin: 'Admin', ops_manager: 'Ops Mgr', kitchen_manager: 'Kitchen Mgr', kitchen: 'Kitchen', stock_controller: 'Stock Ctrl', picker_packer: 'Pick/Pack', viewer: 'Viewer' };
+  const roles = ['admin', 'ops_manager', 'kitchen_manager', 'kitchen', 'stock_controller', 'picker_packer', 'floor_operator', 'viewer'];
+  const labels = { admin: 'Admin', ops_manager: 'Ops Mgr', kitchen_manager: 'Kitchen Mgr', kitchen: 'Kitchen', stock_controller: 'Stock Ctrl', picker_packer: 'Pick/Pack', floor_operator: 'Floor Op', viewer: 'Viewer' };
 
   return (
     <div className="overflow-x-auto border-t border-border">
