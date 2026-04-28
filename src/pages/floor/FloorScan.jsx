@@ -29,7 +29,7 @@ export default function FloorScan() {
     staleTime: 60 * 1000,
   });
 
-  const lookup = (code) => {
+  const lookup = (code, fromScan = false) => {
     const trimmed = code.trim().toLowerCase();
     if (!trimmed) return;
 
@@ -40,6 +40,7 @@ export default function FloorScan() {
 
     if (found) {
       setMatchedProduct(found);
+      if (fromScan) setQuery('');
       toast.success(`Found: ${found.name}`);
     } else {
       setMatchedProduct(null);
@@ -89,7 +90,7 @@ export default function FloorScan() {
       {showCamera && (
         <CameraScanner
           active={showCamera}
-          onScan={(code) => { setQuery(code); lookup(code); }}
+          onScan={(code) => { setQuery(''); lookup(code, true); }}
           onClose={() => setShowCamera(false)}
         />
       )}

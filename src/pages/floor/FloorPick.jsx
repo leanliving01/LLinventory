@@ -83,7 +83,11 @@ export default function FloorPick() {
       const active = document.activeElement;
       if (active && active.tagName === 'INPUT' && active.type !== 'hidden') return;
       if (e.key === 'Enter') {
-        if (bufferRef.current.length > 3) processCode(bufferRef.current);
+        e.preventDefault();
+        if (bufferRef.current.length > 3) {
+          processCode(bufferRef.current);
+          setScanInput('');
+        }
         bufferRef.current = '';
         return;
       }
@@ -253,7 +257,7 @@ export default function FloorPick() {
           {showCamera && (
             <CameraScanner
               active={showCamera}
-              onScan={(code) => { setScanInput(code); processCode(code); }}
+              onScan={(code) => { setScanInput(''); processCode(code); }}
               onClose={() => setShowCamera(false)}
             />
           )}

@@ -89,9 +89,11 @@ export default function FloorStockTake() {
     );
     if (found) {
       setHighlightId(found.id);
-      setSearchQuery(found.sku || '');
+      setSearchQuery('');
       toast.success(`Found: ${found.name}`);
-      setTimeout(() => setHighlightId(null), 3000);
+      // Briefly show the SKU as search filter so the item is visible, then clear
+      setSearchQuery(found.sku || '');
+      setTimeout(() => { setSearchQuery(''); setHighlightId(null); }, 3000);
     } else {
       toast.error(`No match for "${code.trim()}"`);
     }
@@ -103,6 +105,7 @@ export default function FloorStockTake() {
     const handleKeyDown = (e) => {
       if (document.activeElement?.tagName === 'INPUT') return;
       if (e.key === 'Enter') {
+        e.preventDefault();
         if (bufferRef.current.length > 3) handleBarcodeScan(bufferRef.current);
         bufferRef.current = '';
         return;
