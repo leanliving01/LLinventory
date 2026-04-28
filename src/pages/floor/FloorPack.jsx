@@ -46,11 +46,27 @@ export default function FloorPack() {
 
   const { data: orders = [], isLoading: loadingOrders } = useQuery({
     queryKey: ['floor-pack-orders'],
-    queryFn: () => base44.entities.SalesOrder.filter(
-      { lifecycle_state: 'paid_unfulfilled' },
-      '-order_date',
-      50,
-    ),
+    queryFn: async () => {
+      const pending = await base44.entities.SalesOrder.filter(
+        { lifecycle_state: 'paid_unfulfilled', status: 'pending' },
+        '-order_date',
+        500,
+      );
+      const picking = await base44.entities.SalesOrder.filter(
+        { lifecycle_state: 'paid_unfulfilled', status: 'picking' },
+        '-order_date',
+        500,
+      );
+      // Merge and deduplicate by id
+      const map = new Map();
+      [...picking, ...pending].forEach(o => { if (!map.has(o.id)) map.set(o.id, o); });
+      // Sort: picking first, then by order_date descending
+      return Array.from(map.values()).sort((a, b) => {
+        if (a.status === 'picking' && b.status !== 'picking') return -1;
+        if (b.status === 'picking' && a.status !== 'picking') return 1;
+        return new Date(b.order_date || 0) - new Date(a.order_date || 0);
+      });
+    },
   });
 
   // All SalesOrderLines for the selected order
