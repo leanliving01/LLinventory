@@ -84,10 +84,9 @@ export default function FloorPack() {
       });
     });
 
-    // 2) Add standalone order lines that are NOT package parents and NOT already covered by decomposed lines
+    // 2) Add order lines: package components + standalone items (skip package parents)
     orderLines.forEach(ol => {
       if (ol.is_package_parent) return;           // skip package headers (e.g. MenLeaMus15)
-      if (ol.is_package_component) return;         // skip decomposed component lines — already in DecomposedLine
       if (ol.status === 'cancelled') return;
       const skuLower = (ol.sku || '').toLowerCase();
       // Don't duplicate if a decomposed line already covers this SKU
