@@ -82,14 +82,13 @@ export default function SalesOrderRow({ order }) {
           {orderDate ? format(orderDate, 'dd MMM yyyy HH:mm') : '—'}
         </span>
         <div className="hidden md:flex items-center gap-1.5 flex-1 min-w-[180px]">
-          <Badge className={`text-[11px] ${lifecycleColors[order.lifecycle_state] || ''}`}>
-            {lifecycleLabels[order.lifecycle_state] || order.lifecycle_state}
+          <Badge className={`text-[11px] ${order.lifecycle_state === 'paid_unfulfilled' && order.status !== 'pending'
+            ? (packStatusColors[order.status] || lifecycleColors[order.lifecycle_state] || '')
+            : (lifecycleColors[order.lifecycle_state] || '')}`}>
+            {order.lifecycle_state === 'paid_unfulfilled'
+              ? (packStatusLabels[order.status] || 'Awaiting Fulfilment')
+              : (lifecycleLabels[order.lifecycle_state] || order.lifecycle_state)}
           </Badge>
-          {order.lifecycle_state === 'paid_unfulfilled' && (
-            <Badge className={`text-[11px] ${packStatusColors[order.status] || 'bg-slate-100 text-slate-600'}`}>
-              {packStatusLabels[order.status] || order.status || 'Not Packed'}
-            </Badge>
-          )}
         </div>
         <span className="hidden md:inline text-sm font-medium w-28 text-right shrink-0">
           R{(order.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
@@ -104,8 +103,12 @@ export default function SalesOrderRow({ order }) {
           <div className="text-right shrink-0">
             <p className="text-sm font-medium">R{(order.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
             <div className="flex items-center gap-1 justify-end mt-0.5">
-              <Badge className={`text-[10px] py-0 ${lifecycleColors[order.lifecycle_state] || ''}`}>
-                {lifecycleLabels[order.lifecycle_state] || order.lifecycle_state}
+              <Badge className={`text-[10px] py-0 ${order.lifecycle_state === 'paid_unfulfilled' && order.status !== 'pending'
+                ? (packStatusColors[order.status] || lifecycleColors[order.lifecycle_state] || '')
+                : (lifecycleColors[order.lifecycle_state] || '')}`}>
+                {order.lifecycle_state === 'paid_unfulfilled'
+                  ? (packStatusLabels[order.status] || 'Awaiting Fulfilment')
+                  : (lifecycleLabels[order.lifecycle_state] || order.lifecycle_state)}
               </Badge>
             </div>
           </div>
