@@ -66,6 +66,11 @@
       ],
       "default": "pending"
     },
+    "packing_paused": {
+      "type": "boolean",
+      "default": false,
+      "description": "True if packing is currently paused"
+    },
     "payment_status": {
       "type": "string",
       "enum": [
@@ -147,7 +152,7 @@
     "packing_duration_seconds": {
       "type": "number",
       "default": 0,
-      "description": "Total active packing time in seconds (excludes paused time)"
+      "description": "Total active packing time in seconds (excludes paused time) \u2014 persisted on pause/back"
     },
     "shipped_at": {
       "type": "string",

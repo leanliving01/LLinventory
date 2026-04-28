@@ -40,6 +40,43 @@ const packStatusLabels = {
   refunded: 'Refunded',
 };
 
+function formatDuration(seconds) {
+  if (!seconds || seconds <= 0) return null;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m ${s}s`;
+}
+
+function getPackLabel(order) {
+  if (order.lifecycle_state !== 'paid_unfulfilled') {
+    return lifecycleLabels[order.lifecycle_state] || order.lifecycle_state;
+  }
+  const base = packStatusLabels[order.status] || 'Awaiting Fulfilment';
+  if (order.status === 'picking' && order.packing_paused) {
+    const dur = formatDuration(order.packing_duration_seconds);
+    return dur ? `Picking (Paused) · ${dur}` : 'Picking (Paused)';
+  }
+  if (order.status === 'picking') {
+    const dur = formatDuration(order.packing_duration_seconds);
+    return dur ? `${base} · ${dur}` : base;
+  }
+  if (order.status === 'packed') {
+    const dur = formatDuration(order.packing_duration_seconds);
+    return dur ? `${base} · ${dur}` : base;
+  }
+  return base;
+}
+
+function getPackColor(order) {
+  if (order.lifecycle_state !== 'paid_unfulfilled' || order.status === 'pending') {
+    return order.lifecycle_state === 'paid_unfulfilled'
+      ? (packStatusColors[order.status] || lifecycleColors[order.lifecycle_state] || '')
+      : (lifecycleColors[order.lifecycle_state] || '');
+  }
+  if (order.status === 'picking' && order.packing_paused) return 'bg-orange-100 text-orange-700';
+  return packStatusColors[order.status] || lifecycleColors[order.lifecycle_state] || '';
+}
+
 export default function SalesOrderRow({ order }) {
   const [expanded, setExpanded] = useState(false);
   const [popupPackage, setPopupPackage] = useState(null);
@@ -82,12 +119,8 @@ export default function SalesOrderRow({ order }) {
           {orderDate ? format(orderDate, 'dd MMM yyyy HH:mm') : '—'}
         </span>
         <div className="hidden md:flex items-center gap-1.5 flex-1 min-w-[180px]">
-          <Badge className={`text-[11px] ${order.lifecycle_state === 'paid_unfulfilled' && order.status !== 'pending'
-            ? (packStatusColors[order.status] || lifecycleColors[order.lifecycle_state] || '')
-            : (lifecycleColors[order.lifecycle_state] || '')}`}>
-            {order.lifecycle_state === 'paid_unfulfilled'
-              ? (packStatusLabels[order.status] || 'Awaiting Fulfilment')
-              : (lifecycleLabels[order.lifecycle_state] || order.lifecycle_state)}
+          <Badge className={`text-[11px] ${getPackColor(order)}`}>
+            {getPackLabel(order)}
           </Badge>
         </div>
         <span className="hidden md:inline text-sm font-medium w-28 text-right shrink-0">
@@ -103,12 +136,8 @@ export default function SalesOrderRow({ order }) {
           <div className="text-right shrink-0">
             <p className="text-sm font-medium">R{(order.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
             <div className="flex items-center gap-1 justify-end mt-0.5">
-              <Badge className={`text-[10px] py-0 ${order.lifecycle_state === 'paid_unfulfilled' && order.status !== 'pending'
-                ? (packStatusColors[order.status] || lifecycleColors[order.lifecycle_state] || '')
-                : (lifecycleColors[order.lifecycle_state] || '')}`}>
-                {order.lifecycle_state === 'paid_unfulfilled'
-                  ? (packStatusLabels[order.status] || 'Awaiting Fulfilment')
-                  : (lifecycleLabels[order.lifecycle_state] || order.lifecycle_state)}
+              <Badge className={`text-[10px] py-0 ${getPackColor(order)}`}>
+                {getPackLabel(order)}
               </Badge>
             </div>
           </div>

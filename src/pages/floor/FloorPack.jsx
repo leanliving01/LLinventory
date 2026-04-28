@@ -57,6 +57,25 @@ export default function FloorPack() {
   const bufferRef = useRef('');
   const timerRef = useRef(null);
 
+  // ── Restore timer state when re-entering a picking order ──
+  useEffect(() => {
+    if (selectedOrder && selectedOrder.status === 'picking' && selectedOrder.picking_started_at) {
+      setPackingStartedAt(selectedOrder.picking_started_at);
+      const savedSeconds = selectedOrder.packing_duration_seconds || 0;
+      setAccumulatedSeconds(savedSeconds);
+      if (selectedOrder.packing_paused) {
+        setIsPaused(true);
+        segmentStartRef.current = null;
+      } else {
+        setIsPaused(false);
+        segmentStartRef.current = Date.now();
+      }
+      if (selectedOrder.packed_by_name && !packer) {
+        setPacker({ name: selectedOrder.packed_by_name, id: selectedOrder.packed_by_member_id });
+      }
+    }
+  }, [selectedOrder?.id]);
+
   // ── Data queries ──
   const { data: orders = [], isLoading: loadingOrders } = useQuery({
     queryKey: ['floor-pack-orders'],
@@ -262,23 +281,33 @@ export default function FloorPack() {
     await base44.entities.SalesOrder.update(selectedOrder.id, {
       status: 'picking',
       picking_started_at: now,
+      packing_paused: false,
+      packing_duration_seconds: 0,
       packed_by_name: packer?.name || '',
       packed_by_member_id: packer?.id || '',
     });
     toast.success('Packing started — scan items!');
   };
 
-  const handlePause = () => {
+  const handlePause = async () => {
     const segSec = getCurrentSegmentSeconds();
-    setAccumulatedSeconds(prev => prev + segSec);
+    const newTotal = accumulatedSeconds + segSec;
+    setAccumulatedSeconds(newTotal);
     segmentStartRef.current = null;
     setIsPaused(true);
+    await base44.entities.SalesOrder.update(selectedOrder.id, {
+      packing_paused: true,
+      packing_duration_seconds: newTotal,
+    });
     toast('Packing paused');
   };
 
-  const handleResume = () => {
+  const handleResume = async () => {
     segmentStartRef.current = Date.now();
     setIsPaused(false);
+    await base44.entities.SalesOrder.update(selectedOrder.id, {
+      packing_paused: false,
+    });
     toast.success('Resumed packing — scan items!');
   };
 
@@ -294,6 +323,7 @@ export default function FloorPack() {
     await base44.entities.SalesOrder.update(selectedOrder.id, {
       status: 'packed',
       packed_at: now,
+      packing_paused: false,
       packing_duration_seconds: totalSec,
     });
     queryClient.invalidateQueries({ queryKey: ['floor-pack-orders'] });
@@ -307,7 +337,17 @@ export default function FloorPack() {
     segmentStartRef.current = null;
   };
 
-  const handleBack = () => {
+  const handleBack = async () => {
+    // Persist timer state if packing was in progress
+    if (packingStartedAt && selectedOrder) {
+      const segSec = getCurrentSegmentSeconds();
+      const totalSoFar = accumulatedSeconds + segSec;
+      await base44.entities.SalesOrder.update(selectedOrder.id, {
+        packing_paused: true,
+        packing_duration_seconds: totalSoFar,
+      });
+      queryClient.invalidateQueries({ queryKey: ['floor-pack-orders'] });
+    }
     setSelectedOrder(null);
     setScannedMap({});
     setPackingStartedAt(null);
