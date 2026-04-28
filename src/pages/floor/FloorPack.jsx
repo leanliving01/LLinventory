@@ -197,36 +197,62 @@ export default function FloorPack() {
 
   const orderSkuSet = useMemo(() => new Set(allPackItems.map(i => i.skuLower)), [allPackItems]);
 
+  // ── Refs to avoid stale closures in HID keydown handler ──
+  const allProductLookupRef = useRef(allProductLookup);
+  const orderSkuSetRef = useRef(orderSkuSet);
+  const allPackItemsRef = useRef(allPackItems);
+  const skuNameMapRef = useRef(skuNameMap);
+  const scannedMapRef = useRef(scannedMap);
+  const packingStartedAtRef = useRef(packingStartedAt);
+  const isPausedRef = useRef(isPaused);
+
+  useEffect(() => { allProductLookupRef.current = allProductLookup; }, [allProductLookup]);
+  useEffect(() => { orderSkuSetRef.current = orderSkuSet; }, [orderSkuSet]);
+  useEffect(() => { allPackItemsRef.current = allPackItems; }, [allPackItems]);
+  useEffect(() => { skuNameMapRef.current = skuNameMap; }, [skuNameMap]);
+  useEffect(() => { scannedMapRef.current = scannedMap; }, [scannedMap]);
+  useEffect(() => { packingStartedAtRef.current = packingStartedAt; }, [packingStartedAt]);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+
   // ── Scan processing ──
   const processCode = (code) => {
     const trimmed = code.trim().toLowerCase();
     if (!trimmed) return;
-    if (!packingStartedAt) {
+
+    const started = packingStartedAtRef.current;
+    const paused = isPausedRef.current;
+    const lookup = allProductLookupRef.current;
+    const skuSet = orderSkuSetRef.current;
+    const items = allPackItemsRef.current;
+    const nameMap = skuNameMapRef.current;
+    const scanned = scannedMapRef.current;
+
+    if (!started) {
       setLastScanResult({ type: 'error', message: 'Press "Start Packing" first' });
       triggerFeedback('error');
       return;
     }
-    if (isPaused) {
+    if (paused) {
       setLastScanResult({ type: 'error', message: 'Packing is paused — press Resume first' });
       triggerFeedback('error');
       return;
     }
 
-    const resolvedSku = allProductLookup[trimmed];
+    const resolvedSku = lookup[trimmed];
     if (!resolvedSku) {
       setLastScanResult({ type: 'error', message: `Unknown barcode: "${code.trim()}"` });
       triggerFeedback('error');
       return;
     }
-    if (!orderSkuSet.has(resolvedSku)) {
-      const wrongName = skuNameMap[resolvedSku] || resolvedSku;
+    if (!skuSet.has(resolvedSku)) {
+      const wrongName = nameMap[resolvedSku] || resolvedSku;
       setLastScanResult({ type: 'error', message: `Wrong item — "${wrongName}" is not in this order` });
       triggerFeedback('error');
       return;
     }
 
-    const item = allPackItems.find(i => i.skuLower === resolvedSku);
-    const currentCount = scannedMap[resolvedSku] || 0;
+    const item = items.find(i => i.skuLower === resolvedSku);
+    const currentCount = scanned[resolvedSku] || 0;
     if (item && currentCount >= item.qty) {
       setLastScanResult({ type: 'error', message: `Already scanned all ${item.qty} of ${item.name}` });
       triggerFeedback('error');
@@ -238,13 +264,14 @@ export default function FloorPack() {
     triggerFeedback('success');
   };
 
-  // HID barcode scanner
+  // HID barcode scanner — uses refs so handler never goes stale
   useEffect(() => {
     if (!selectedOrder) return;
     const handleKeyDown = (e) => {
       const active = document.activeElement;
       if (active && active.tagName === 'INPUT' && active.type !== 'hidden') return;
       if (e.key === 'Enter') {
+        e.preventDefault(); // prevent form submission from Enter key
         if (bufferRef.current.length > 3) processCode(bufferRef.current);
         bufferRef.current = '';
         return;
@@ -257,7 +284,7 @@ export default function FloorPack() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [allProductLookup, orderSkuSet, selectedOrder, packingStartedAt, isPaused]);
+  }, [selectedOrder]);
 
   const totalNeeded = allPackItems.reduce((s, i) => s + (i.qty || 0), 0);
   const totalScanned = Object.values(scannedMap).reduce((s, v) => s + v, 0);
