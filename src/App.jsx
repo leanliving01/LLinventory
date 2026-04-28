@@ -46,6 +46,7 @@ import EquipmentManager from '@/pages/EquipmentManager';
 import FloorLayout from '@/components/floor/FloorLayout';
 import FloorHome from '@/pages/floor/FloorHome';
 import FloorScan from '@/pages/floor/FloorScan';
+import FloorTasks from '@/pages/floor/FloorTasks';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -83,6 +84,7 @@ const AuthenticatedApp = () => {
       {/* Floor Workspace — mobile-first, no sidebar */}
       <Route element={<FloorLayout />}>
         <Route path="/floor" element={<FloorHome />} />
+        <Route path="/floor/tasks" element={<FloorTasks />} />
         <Route path="/floor/scan" element={<FloorScan />} />
       </Route>
 

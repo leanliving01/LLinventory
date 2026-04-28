@@ -1,0 +1,306 @@
+import React, { useState, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Utensils, Flame, ChefHat, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { logTaskEvent } from '@/lib/taskEventLog';
+import FloorRunPicker from '@/components/floor/FloorRunPicker';
+import FloorStationPicker from '@/components/floor/FloorStationPicker';
+import FloorTaskList from '@/components/floor/FloorTaskList';
+import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
+import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
+import DependencyBlockModal from '@/components/kitchen/DependencyBlockModal';
+
+const STATIONS = [
+  { id: 'prep', label: 'Prep', icon: Utensils, color: 'bg-blue-500' },
+  { id: 'cook', label: 'Cook', icon: Flame, color: 'bg-amber-500' },
+  { id: 'portion', label: 'Portion', icon: ChefHat, color: 'bg-green-500' },
+];
+
+export default function FloorTasks() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [selectedRunId, setSelectedRunId] = useState(null);
+  const [selectedStation, setSelectedStation] = useState(user?.station || null);
+  const [pendingStart, setPendingStart] = useState(null);
+  const [pendingDone, setPendingDone] = useState(null);
+  const [blockMessage, setBlockMessage] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  // Active production runs
+  const { data: runs = [], isLoading: loadingRuns } = useQuery({
+    queryKey: ['floor-active-runs'],
+    queryFn: () => base44.entities.ProductionRun.filter({ status: 'in_progress' }, '-run_date', 10),
+  });
+
+  // Auto-select if only one run
+  useMemo(() => {
+    if (runs.length === 1 && !selectedRunId) setSelectedRunId(runs[0].id);
+  }, [runs]);
+
+  // Tasks for selected run
+  const { data: tasks = [], isLoading: loadingTasks } = useQuery({
+    queryKey: ['floor-tasks', selectedRunId],
+    queryFn: () => base44.entities.ProductionTask.filter({ run_id: selectedRunId, archived: false }, 'step_no', 500),
+    enabled: !!selectedRunId,
+    refetchInterval: 10000,
+  });
+
+  // Task logs for timers
+  const { data: taskLogs = [] } = useQuery({
+    queryKey: ['floor-task-logs', selectedRunId],
+    queryFn: () => base44.entities.ProductionTaskLog.filter({ run_id: selectedRunId }, 'timestamp', 2000),
+    enabled: !!selectedRunId,
+    refetchInterval: 15000,
+  });
+
+  // Team members
+  const { data: allTeamMembers = [] } = useQuery({
+    queryKey: ['floor-team-members'],
+    queryFn: () => base44.entities.TeamMember.filter({ is_active: true }, 'name', 100),
+  });
+
+  // Selected run object
+  const selectedRun = runs.find(r => r.id === selectedRunId);
+
+  // Filter tasks by station
+  const stationTasks = useMemo(() => {
+    if (!selectedStation) return tasks;
+    return tasks.filter(t => t.station === selectedStation);
+  }, [tasks, selectedStation]);
+
+  // Progress stats
+  const progress = useMemo(() => {
+    const total = stationTasks.length;
+    const done = stationTasks.filter(t => t.status === 'done').length;
+    const active = stationTasks.filter(t => t.status === 'in_progress').length;
+    return { total, done, active, pending: total - done - active - stationTasks.filter(t => t.status === 'paused').length };
+  }, [stationTasks]);
+
+  // Dependency check (same logic as admin Kanban)
+  const checkDependencies = (task) => {
+    if (!selectedRun?.pick_list_confirmed) {
+      return 'Pick list has not been confirmed yet. Stock must be picked first.';
+    }
+    const prereqStation = task.station === 'cook' ? 'prep' : task.station === 'portion' ? 'cook' : null;
+    if (!prereqStation) return null;
+    const prereqTasks = tasks.filter(t => t.station === prereqStation && t.line_id === task.line_id && !t.archived);
+    if (prereqTasks.length === 0) return null;
+    const incomplete = prereqTasks.filter(t => t.status !== 'done');
+    if (incomplete.length === 0) return null;
+    const names = incomplete.map(t => `"${t.name || t.meal_name}"`).join(', ');
+    return task.station === 'cook'
+      ? `First prepare ${names} before cooking.`
+      : `First finish cooking ${names} before portioning.`;
+  };
+
+  const handleStatusChange = async (taskId, newStatus) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    if (newStatus === 'in_progress') {
+      const depError = checkDependencies(task);
+      if (depError) { setBlockMessage(depError); return; }
+      const memberStations = (m) => Array.isArray(m.stations) && m.stations.length > 0 ? m.stations : m.station ? [m.station] : [];
+      const stationMembers = allTeamMembers.filter(m => memberStations(m).includes(task.station));
+      if (!task.started_at && stationMembers.length > 0 && !task.assigned_to) {
+        setPendingStart({ taskId, newStatus, station: task.station });
+        return;
+      }
+    }
+
+    if (newStatus === 'done') { setPendingDone(task); return; }
+
+    await doStatusChange(taskId, newStatus);
+  };
+
+  const handleTeamMemberSelected = async (member) => {
+    if (!pendingStart) return;
+    const { taskId, newStatus } = pendingStart;
+    setPendingStart(null);
+    await base44.entities.ProductionTask.update(taskId, { assigned_to: member.id, assigned_name: member.name });
+    await doStatusChange(taskId, newStatus);
+  };
+
+  // Task completion — identical logic to admin Kanban
+  const handleTaskCompleted = async (taskId, consumption, meta = {}) => {
+    setLoading(true);
+    const task = tasks.find(t => t.id === taskId);
+    if (task) logTaskEvent(task, 'completed');
+
+    const isPortioningTask = consumption.length > 0 && consumption[0].is_portioning;
+
+    if (isPortioningTask) {
+      const varianceParts = consumption
+        .filter(c => c.actual !== c.picked)
+        .map(c => `${c.name}: recipe ${c.picked}, calc ${c.actual} ${c.uom}`);
+      let notes = `Plates produced: ${meta.plates_produced || 0}`;
+      if (varianceParts.length > 0) notes += ` | Variance: ${varianceParts.join('; ')}`;
+      if (meta.variance_note) notes += ` | Note: ${meta.variance_note}`;
+
+      const packagingItems = consumption.filter(c => {
+        const sku = (c.sku || '').toUpperCase();
+        return sku === 'BPM' || sku === 'SVP' || sku.includes('SLEEVE');
+      });
+      for (const item of packagingItems) {
+        const diff = Math.round((item.actual - item.picked) * 100) / 100;
+        if (diff === 0) continue;
+        await base44.entities.StockMovement.create({
+          product_id: item.input_product_id, product_sku: item.sku, product_name: item.name,
+          qty: Math.abs(diff), uom: item.uom,
+          reason: diff < 0 ? 'return' : 'production_consume',
+          ref_type: 'production_run', ref_id: selectedRunId,
+          notes: `[task:${taskId}] Packaging ${diff < 0 ? 'returned' : 'consumed'} (planned ${item.picked}, used ${item.actual})`,
+        });
+      }
+      await base44.entities.ProductionTask.update(taskId, { status: 'done', finished_at: new Date().toISOString(), notes });
+    } else {
+      const returns = consumption.filter(c => c.actual < c.picked);
+      for (const r of returns) {
+        const returnQty = Math.round((r.picked - r.actual) * 100) / 100;
+        await base44.entities.StockMovement.create({
+          product_id: r.input_product_id, product_sku: r.sku, product_name: r.name,
+          qty: returnQty, uom: r.uom, reason: 'return',
+          ref_type: 'production_run', ref_id: selectedRunId,
+          notes: `[task:${taskId}] Returned: picked ${r.picked}, consumed ${r.actual} ${r.uom}`,
+        });
+      }
+      const wastageItems = consumption.filter(c => (c.unusable_wastage || 0) > 0);
+      for (const w of wastageItems) {
+        await base44.entities.StockMovement.create({
+          product_id: w.input_product_id, product_sku: w.sku, product_name: w.name,
+          qty: w.unusable_wastage, uom: w.uom, reason: 'wastage_unusable',
+          ref_type: 'production_run', ref_id: selectedRunId,
+          unit_cost_at_movement: w.cost_per_unit || 0,
+          notes: `[task:${taskId}] Unusable waste: ${w.unusable_wastage} ${w.uom}`,
+        });
+      }
+      const summary = consumption.filter(c => c.actual !== c.picked || (c.unusable_wastage || 0) > 0)
+        .map(c => `${c.name}: picked ${c.picked}, used ${c.actual} ${c.uom}${c.unusable_wastage > 0 ? `, waste ${c.unusable_wastage}` : ''}`)
+        .join('; ');
+      await base44.entities.ProductionTask.update(taskId, { status: 'done', finished_at: new Date().toISOString(), notes: summary || undefined });
+    }
+
+    setPendingDone(null);
+    setLoading(false);
+    queryClient.invalidateQueries({ queryKey: ['floor-tasks', selectedRunId] });
+    queryClient.invalidateQueries({ queryKey: ['floor-task-logs', selectedRunId] });
+    toast.success('Task completed');
+  };
+
+  const doStatusChange = async (taskId, newStatus) => {
+    setLoading(true);
+    const now = new Date().toISOString();
+    const task = tasks.find(t => t.id === taskId);
+    const eventMap = { in_progress: task?.status === 'paused' ? 'resumed' : 'started', paused: 'paused', done: 'completed', undo: 'undone' };
+    if (task && eventMap[newStatus]) logTaskEvent(task, eventMap[newStatus]);
+
+    if (newStatus === 'undo') {
+      const tag = `[task:${taskId}]`;
+      const movements = await base44.entities.StockMovement.filter({ ref_type: 'production_run', ref_id: selectedRunId }, '-created_date', 200);
+      const taskMovements = movements.filter(m => m.notes && m.notes.includes(tag));
+      for (const m of taskMovements) {
+        await base44.entities.StockMovement.create({
+          product_id: m.product_id, product_sku: m.product_sku, product_name: m.product_name,
+          qty: m.qty, uom: m.uom, reason: m.reason === 'return' ? 'production_consume' : 'return',
+          ref_type: 'production_run', ref_id: selectedRunId,
+          notes: `[undo:${taskId}] Reversed: ${m.notes}`,
+        });
+      }
+      await base44.entities.ProductionTask.update(taskId, { status: 'in_progress', finished_at: null });
+    } else if (newStatus === 'in_progress') {
+      const update = { status: 'in_progress' };
+      if (!task?.started_at) update.started_at = now;
+      await base44.entities.ProductionTask.update(taskId, update);
+    } else if (newStatus === 'done') {
+      await base44.entities.ProductionTask.update(taskId, { status: 'done', finished_at: now });
+    } else {
+      await base44.entities.ProductionTask.update(taskId, { status: newStatus });
+    }
+    setLoading(false);
+    queryClient.invalidateQueries({ queryKey: ['floor-tasks', selectedRunId] });
+    queryClient.invalidateQueries({ queryKey: ['floor-task-logs', selectedRunId] });
+  };
+
+  // Step 1: Pick a run
+  if (!selectedRunId) {
+    return <FloorRunPicker runs={runs} loading={loadingRuns} onSelect={setSelectedRunId} />;
+  }
+
+  // Step 2: Pick a station
+  if (!selectedStation) {
+    return (
+      <FloorStationPicker
+        stations={STATIONS}
+        tasks={tasks}
+        run={selectedRun}
+        onSelect={setSelectedStation}
+        onBack={() => setSelectedRunId(null)}
+      />
+    );
+  }
+
+  const currentStation = STATIONS.find(s => s.id === selectedStation);
+
+  return (
+    <div className="space-y-3">
+      {/* Station header */}
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="sm" onClick={() => setSelectedStation(null)} className="shrink-0 -ml-2">
+          ← Stations
+        </Button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            {currentStation && <currentStation.icon className="w-5 h-5" />}
+            <h1 className="text-xl font-bold">{currentStation?.label} Station</h1>
+          </div>
+          <p className="text-xs text-muted-foreground">{selectedRun?.run_number}</p>
+        </div>
+        <Badge variant="outline" className="text-xs tabular-nums shrink-0">
+          {progress.done}/{progress.total} done
+        </Badge>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-2 bg-muted rounded-full overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all", currentStation?.color)}
+          style={{ width: progress.total > 0 ? `${(progress.done / progress.total) * 100}%` : '0%' }}
+        />
+      </div>
+
+      {/* Task list */}
+      {loadingTasks ? (
+        <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+          <Loader2 className="w-5 h-5 animate-spin" /> Loading tasks...
+        </div>
+      ) : (
+        <FloorTaskList
+          tasks={stationTasks}
+          taskLogs={taskLogs}
+          onStatusChange={handleStatusChange}
+          loading={loading}
+        />
+      )}
+
+      {/* Modals — reuse existing admin modals */}
+      {blockMessage && <DependencyBlockModal message={blockMessage} onClose={() => setBlockMessage(null)} />}
+      {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} />}
+      {pendingStart && (
+        <TeamMemberSelect
+          members={allTeamMembers.filter(m => {
+            const s = Array.isArray(m.stations) && m.stations.length > 0 ? m.stations : m.station ? [m.station] : [];
+            return s.includes(pendingStart.station);
+          })}
+          station={pendingStart.station}
+          onSelect={handleTeamMemberSelected}
+          onCancel={() => setPendingStart(null)}
+        />
+      )}
+    </div>
+  );
+}
