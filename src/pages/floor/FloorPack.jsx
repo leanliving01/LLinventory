@@ -272,7 +272,10 @@ export default function FloorPack() {
       if (active && active.tagName === 'INPUT' && active.type !== 'hidden') return;
       if (e.key === 'Enter') {
         e.preventDefault(); // prevent form submission from Enter key
-        if (bufferRef.current.length > 3) processCode(bufferRef.current);
+        if (bufferRef.current.length > 3) {
+          processCode(bufferRef.current);
+          setScanInput('');
+        }
         bufferRef.current = '';
         return;
       }
@@ -488,7 +491,7 @@ export default function FloorPack() {
                   const trimmed = code.trim();
                   if (!trimmed) return;
                   setShowCamera(false);
-                  setScanInput(trimmed);
+                  setScanInput('');
                   setTimeout(() => processCode(trimmed), 50);
                 }}
                 onClose={() => setShowCamera(false)}
