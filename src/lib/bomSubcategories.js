@@ -33,7 +33,9 @@ export const BOM_SUBCATEGORIES = {
     'Goal Based',
     'Low Carb',
     'BYO',
+    'Supplement',
     'Bundle',
+    'Other',
   ],
 };
 
