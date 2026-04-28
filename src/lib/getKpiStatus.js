@@ -66,6 +66,13 @@ export const STATUS_COLORS = {
     icon: 'text-status-bad',
     dot: 'bg-status-bad',
   },
+  info: {
+    bg: 'bg-status-info-subtle',
+    text: 'text-status-info',
+    border: 'border-status-info',
+    icon: 'text-status-info',
+    dot: 'bg-status-info',
+  },
   neutral: {
     bg: 'bg-muted',
     text: 'text-muted-foreground',
