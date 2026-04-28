@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ChevronDown, ChevronUp, CheckCheck, XCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ChevronDown, ChevronUp, CheckCheck, XCircle, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -14,6 +15,7 @@ export default function FloorPickCategory({
   onTogglePicked, onQtyChange, onMarkAll, disabled, confirmed,
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [showUnmarkConfirm, setShowUnmarkConfirm] = useState(false);
   const checkedCount = confirmed ? items.length : items.filter(i => pickedState[i.product.id]?.picked).length;
   const allChecked = !confirmed && items.length > 0 && items.every(i => pickedState[i.product.id]?.picked);
   const allDone = confirmed || items.every(i => {
@@ -42,7 +44,16 @@ export default function FloorPickCategory({
           {/* Mark / Unmark all button */}
           {!disabled && !confirmed && (
             <button
-              onClick={() => onMarkAll(items, allChecked)}
+              onClick={() => {
+                if (allChecked) {
+                  const hasQtyData = items.some(i => pickedState[i.product.id]?.qty);
+                  if (hasQtyData) {
+                    setShowUnmarkConfirm(true);
+                    return;
+                  }
+                }
+                onMarkAll(items, allChecked);
+              }}
               className={cn(
                 "w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted/30",
                 allChecked ? "text-orange-600" : "text-primary",
@@ -51,6 +62,39 @@ export default function FloorPickCategory({
               {allChecked ? <XCircle className="w-4 h-4" /> : <CheckCheck className="w-4 h-4" />}
               <span>{allChecked ? 'Unmark All' : 'Mark All Checked'}</span>
             </button>
+          )}
+
+          {/* Unmark confirmation dialog */}
+          {showUnmarkConfirm && (
+            <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-6">
+              <div className="bg-card rounded-2xl shadow-xl p-6 max-w-sm w-full space-y-4">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-6 h-6 text-orange-500 shrink-0" />
+                  <h2 className="text-lg font-bold">Are you sure?</h2>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  This will uncheck all items and clear all picked quantities in this category.
+                </p>
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-12"
+                    onClick={() => setShowUnmarkConfirm(false)}
+                  >
+                    No
+                  </Button>
+                  <Button
+                    className="flex-1 h-12 bg-orange-600 hover:bg-orange-700 text-white"
+                    onClick={() => {
+                      onMarkAll(items, true);
+                      setShowUnmarkConfirm(false);
+                    }}
+                  >
+                    Yes, Unmark All
+                  </Button>
+                </div>
+              </div>
+            </div>
           )}
 
           {items.map(item => {

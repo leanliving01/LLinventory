@@ -126,7 +126,7 @@ export default function FloorPick() {
       categoryItems.forEach(item => {
         const pid = item.product.id;
         if (unmark) {
-          next[pid] = { picked: false, qty: next[pid]?.qty || '' };
+          next[pid] = { picked: false, qty: '' };
         } else if (!next[pid]?.picked) {
           next[pid] = { picked: true, qty: next[pid]?.qty || '' };
         }
