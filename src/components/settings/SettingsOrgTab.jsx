@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Save, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import XeroConnectionCard from './XeroConnectionCard';
+import WarehouseManager from './WarehouseManager';
 
 const ORG_FIELDS = [
   { key: 'company_name', label: 'Organisation Name', group: 'org', type: 'text' },
@@ -30,10 +31,7 @@ export default function SettingsOrgTab() {
     queryFn: () => base44.entities.Setting.list('-created_date', 100),
   });
 
-  const { data: locations = [] } = useQuery({
-    queryKey: ['locations'],
-    queryFn: () => base44.entities.Location.list('-created_date', 20),
-  });
+  // locations query removed — WarehouseManager handles its own data
 
   useEffect(() => {
     const vals = {};
@@ -100,24 +98,7 @@ export default function SettingsOrgTab() {
 
       <div className="space-y-6">
         <XeroConnectionCard />
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-border">
-            <h3 className="text-sm font-semibold">Warehouse Zones ({locations.length})</h3>
-          </div>
-          <div className="divide-y divide-border">
-            {locations.map(loc => (
-              <div key={loc.id} className="px-6 py-3 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{loc.name}</p>
-                  <p className="text-xs text-muted-foreground">{loc.type} · {loc.code}</p>
-                </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${loc.is_stock_bearing ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                  {loc.is_stock_bearing ? 'Stock-bearing' : 'Transient'}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <WarehouseManager />
       </div>
     </div>
   );
