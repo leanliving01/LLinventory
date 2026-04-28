@@ -73,7 +73,7 @@ export default function Recipes() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Bill of Materials</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {filtered.length} of {boms.length} BOMs — 3-layer model: Cook → Portion → Pack
+            {filtered.length} of {boms.length} BOMs — 4-layer model: Prep → Cook → Portion → Pack
           </p>
         </div>
         <Button className="gap-2" onClick={() => setShowCreate(true)}>
