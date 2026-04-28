@@ -62,6 +62,18 @@
     "notes": {
       "type": "string",
       "description": "Notes about this recipe"
+    },
+    "chef_notes": {
+      "type": "string",
+      "description": "Chef instructions \u2014 shown to kitchen staff on the floor (e.g. cook times, seasoning tips)"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Recipe file URLs (PDFs, images) that staff can view on the floor"
     }
   },
   "required": [

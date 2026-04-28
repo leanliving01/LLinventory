@@ -1,0 +1,59 @@
+{
+  "name": "TaskConsumption",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "FK to ProductionTask"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "FK to ProductionRun (denormalized for querying)"
+    },
+    "bom_component_id": {
+      "type": "string",
+      "description": "FK to BomComponent"
+    },
+    "input_product_id": {
+      "type": "string",
+      "description": "FK to Product (the ingredient)"
+    },
+    "input_product_sku": {
+      "type": "string",
+      "description": "Denormalized SKU"
+    },
+    "input_product_name": {
+      "type": "string",
+      "description": "Denormalized product name"
+    },
+    "required_qty": {
+      "type": "number",
+      "description": "Scaled required qty from BOM"
+    },
+    "consumed_qty": {
+      "type": "number",
+      "default": 0,
+      "description": "Actual qty consumed by staff"
+    },
+    "wastage_qty": {
+      "type": "number",
+      "default": 0,
+      "description": "Unusable waste qty (not usable leftover \u2014 that is end-of-day)"
+    },
+    "uom": {
+      "type": "string",
+      "description": "Unit of measure"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional per-line note"
+    }
+  },
+  "required": [
+    "task_id",
+    "run_id",
+    "input_product_id",
+    "required_qty",
+    "uom"
+  ]
+}
