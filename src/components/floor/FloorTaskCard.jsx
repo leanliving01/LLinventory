@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, Pause, CheckCircle2, Clock, Undo2, Wrench, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, Pause, CheckCircle2, Clock, Undo2, Wrench, ChevronDown, ChevronUp, Lock, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import LiveTimer, { formatDuration } from '@/components/kitchen/LiveTimer';
 
@@ -11,12 +11,13 @@ const BTN_COLORS = {
   portion: 'bg-green-500 hover:bg-green-600',
 };
 
-export default function FloorTaskCard({ task, taskLogs, onStatusChange, loading }) {
+export default function FloorTaskCard({ task, taskLogs, onStatusChange, loading, isBlocked }) {
   const [showNotes, setShowNotes] = useState(false);
   const isDone = task.status === 'done';
   const isActive = task.status === 'in_progress';
   const isPaused = task.status === 'paused';
   const isPending = task.status === 'pending';
+  const isReady = isPending && !isBlocked;
   const btnColor = BTN_COLORS[task.station] || BTN_COLORS.cook;
 
   const completedDuration = isDone && task.started_at && task.finished_at
@@ -29,7 +30,8 @@ export default function FloorTaskCard({ task, taskLogs, onStatusChange, loading 
       isActive && "border-amber-400 ring-2 ring-amber-200 dark:ring-amber-800",
       isDone && "border-green-300 opacity-60",
       isPaused && "border-blue-300",
-      isPending && "border-border",
+      isPending && isBlocked && "border-border opacity-50",
+      isPending && !isBlocked && "border-primary/30",
     )}>
       {/* Top row: name + qty */}
       <div className="flex items-start justify-between gap-3 mb-2">
@@ -71,9 +73,14 @@ export default function FloorTaskCard({ task, taskLogs, onStatusChange, loading 
 
       {/* Timer */}
       <div className="flex items-center justify-center py-2 mb-3 rounded-xl bg-muted/50">
-        {isPending && (
+        {isPending && isBlocked && (
           <span className="text-sm text-muted-foreground flex items-center gap-1.5">
-            <Clock className="w-4 h-4" /> Waiting to start
+            <Lock className="w-4 h-4" /> Waiting for prior stage
+          </span>
+        )}
+        {isPending && !isBlocked && (
+          <span className="text-sm text-primary flex items-center gap-1.5 font-medium">
+            <Zap className="w-4 h-4" /> Ready to start
           </span>
         )}
         {isActive && task.started_at && (

@@ -281,9 +281,11 @@ export default function FloorTasks() {
       ) : (
         <FloorTaskList
           tasks={stationTasks}
+          allTasks={tasks}
           taskLogs={taskLogs}
           onStatusChange={handleStatusChange}
           loading={loading}
+          pickListConfirmed={selectedRun?.pick_list_confirmed}
         />
       )}
 
