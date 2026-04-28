@@ -79,6 +79,15 @@ const navItems = [
     ]
   },
   { label: 'Equipment', path: '/equipment', icon: Wrench },
+  { 
+    label: 'Floor', icon: Warehouse,
+    children: [
+      { label: 'Production Pick', path: '/floor/pick', icon: PackageCheck },
+      { label: 'Order Packing', path: '/floor/pack', icon: Box },
+      { label: 'Production Tasks', path: '/floor/tasks', icon: UtensilsCrossed },
+      { label: 'Quick Scan', path: '/floor/scan', icon: Barcode },
+    ]
+  },
   { label: 'Settings', path: '/settings', icon: Settings },
 ];
 
