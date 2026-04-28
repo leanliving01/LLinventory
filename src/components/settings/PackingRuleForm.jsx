@@ -9,12 +9,12 @@ import { X, Save, Loader2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
-export default function PackingRuleForm({ rule, products, onClose }) {
+export default function PackingRuleForm({ rule, products, onClose, defaultTrigger }) {
   const queryClient = useQueryClient();
   const isEditing = !!rule;
 
   const [name, setName] = useState(rule?.name || '');
-  const [trigger, setTrigger] = useState(rule?.trigger || 'has_meals');
+  const [trigger, setTrigger] = useState(rule?.trigger || defaultTrigger || 'has_meals');
   const [materialProductId, setMaterialProductId] = useState(rule?.material_product_id || '');
   const [deductionMode, setDeductionMode] = useState(rule?.deduction_mode || 'fixed_per_order');
   const [qtyPerDeduction, setQtyPerDeduction] = useState(rule?.qty_per_deduction ?? 1);
