@@ -1,23 +1,23 @@
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { CheckCircle2, Circle, ScanBarcode } from 'lucide-react';
+import { CheckCircle2, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
- * Shows the list of meal items for an order, with scan-to-pack status.
+ * Shows the list of items to pack for an order, with scan-to-pack progress.
+ * Each item: { key, sku, skuLower, name, qty, source, variantTitle? }
  */
 export default function FloorPackList({ items, scannedMap }) {
   return (
     <div className="space-y-2">
       {items.map(item => {
-        const scannedQty = scannedMap[item.meal_sku?.toLowerCase()] || scannedMap[item.meal_sku] || 0;
+        const scannedQty = scannedMap[item.skuLower] || 0;
         const neededQty = item.qty;
         const isDone = scannedQty >= neededQty;
 
         return (
           <div
-            key={item.id}
+            key={item.key}
             className={cn(
               "flex items-center gap-3 px-4 py-3 rounded-2xl border-2 transition-colors",
               isDone
@@ -32,9 +32,9 @@ export default function FloorPackList({ items, scannedMap }) {
             )}
             <div className="flex-1 min-w-0">
               <p className={cn("font-semibold text-sm truncate", isDone && "line-through text-muted-foreground")}>
-                {item.meal_name || item.meal_sku}
+                {item.name}{item.variantTitle ? ` — ${item.variantTitle}` : ''}
               </p>
-              <p className="text-[11px] font-mono text-muted-foreground">{item.meal_sku}</p>
+              <p className="text-[11px] font-mono text-muted-foreground">{item.sku}</p>
             </div>
             <div className="text-right shrink-0">
               <p className="text-lg font-bold tabular-nums">

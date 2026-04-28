@@ -11,13 +11,13 @@ import FloorPackList from '@/components/floor/FloorPackList';
 import CameraScanner from '@/components/floor/CameraScanner';
 
 /**
- * Order Scan & Pack — staff picks an order, scans each meal into the box, then marks order packed.
- * One-pass: pick + pack combined in a single scan flow.
+ * Order Scan & Pack — staff picks an order, scans each item into the box, then marks order packed.
+ * Supports both decomposed package components (DecomposedLine) AND standalone items (SalesOrderLine).
  */
 export default function FloorPack() {
   const queryClient = useQueryClient();
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [scannedMap, setScannedMap] = useState({}); // { meal_sku: count }
+  const [scannedMap, setScannedMap] = useState({}); // { sku_lower: count }
   const [scanInput, setScanInput] = useState('');
   const [showCamera, setShowCamera] = useState(false);
   const [packing, setPacking] = useState(false);
@@ -34,12 +34,23 @@ export default function FloorPack() {
     ),
   });
 
-  // Fetch decomposed lines for the selected order
+  // Fetch decomposed lines for the selected order (package components)
   const { data: decomposedLines = [] } = useQuery({
     queryKey: ['floor-pack-lines', selectedOrder?.id],
     queryFn: () => base44.entities.DecomposedLine.filter(
       { sales_order_id: selectedOrder.id },
       'meal_sku',
+      200,
+    ),
+    enabled: !!selectedOrder?.id,
+  });
+
+  // Fetch SalesOrderLines for standalone items (supplements, solo products)
+  const { data: orderLines = [] } = useQuery({
+    queryKey: ['floor-pack-order-lines', selectedOrder?.id],
+    queryFn: () => base44.entities.SalesOrderLine.filter(
+      { sales_order_id: selectedOrder.id },
+      'sku',
       200,
     ),
     enabled: !!selectedOrder?.id,
@@ -52,39 +63,88 @@ export default function FloorPack() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Build lookup: barcode/SKU → meal_sku (from decomposed lines)
+  // Build unified pack list: decomposed lines + standalone order lines
+  // Each item: { key, sku, name, qty, source: 'decomposed'|'order_line', sourceId }
+  const packItems = useMemo(() => {
+    const items = [];
+    const decomposedSkus = new Set();
+
+    // 1) Add all decomposed lines (package component meals)
+    decomposedLines.forEach(d => {
+      const skuLower = (d.meal_sku || '').toLowerCase();
+      decomposedSkus.add(skuLower);
+      items.push({
+        key: `dl-${d.id}`,
+        sku: d.meal_sku || '',
+        skuLower,
+        name: d.meal_name || d.meal_sku || '',
+        qty: d.qty || 0,
+        source: 'decomposed',
+        sourceId: d.id,
+      });
+    });
+
+    // 2) Add standalone order lines that are NOT package parents and NOT already covered by decomposed lines
+    orderLines.forEach(ol => {
+      if (ol.is_package_parent) return;           // skip package headers (e.g. MenLeaMus15)
+      if (ol.is_package_component) return;         // skip decomposed component lines — already in DecomposedLine
+      if (ol.status === 'cancelled') return;
+      const skuLower = (ol.sku || '').toLowerCase();
+      // Don't duplicate if a decomposed line already covers this SKU
+      if (decomposedSkus.has(skuLower)) return;
+      items.push({
+        key: `sol-${ol.id}`,
+        sku: ol.sku || '',
+        skuLower,
+        name: ol.name || ol.sku || '',
+        qty: ol.qty || 0,
+        source: 'order_line',
+        sourceId: ol.id,
+        variantTitle: ol.variant_title,
+      });
+    });
+
+    return items;
+  }, [decomposedLines, orderLines]);
+
+  // Build lookup: barcode/SKU → skuLower (from pack items)
   const lookupMap = useMemo(() => {
     const map = {};
-    const mealSkus = new Set(decomposedLines.map(d => d.meal_sku?.toLowerCase()));
+    const skuSet = new Set(packItems.map(i => i.skuLower));
+    // Map product barcodes and SKUs to their lowercase SKU
     products.forEach(p => {
       const sku = (p.sku || '').toLowerCase();
-      if (mealSkus.has(sku)) {
+      if (skuSet.has(sku)) {
         if (p.barcode) map[p.barcode.toLowerCase()] = sku;
         map[sku] = sku;
       }
     });
+    // Also directly map any pack item SKUs (in case product not in catalog)
+    packItems.forEach(i => {
+      if (!map[i.skuLower]) map[i.skuLower] = i.skuLower;
+    });
     return map;
-  }, [decomposedLines, products]);
+  }, [packItems, products]);
 
   const processCode = (code) => {
     const trimmed = code.trim().toLowerCase();
     if (!trimmed) return;
-    const mealSku = lookupMap[trimmed];
-    if (!mealSku) {
+    const matchedSku = lookupMap[trimmed];
+    if (!matchedSku) {
       toast.error(`"${code.trim()}" not in this order`);
       setShowCamera(false);
       return;
     }
-    // Check if we still need more of this SKU
-    const line = decomposedLines.find(d => d.meal_sku?.toLowerCase() === mealSku);
-    const currentCount = scannedMap[mealSku] || 0;
-    if (line && currentCount >= line.qty) {
-      toast.warning(`Already scanned all ${line.qty} of ${line.meal_name || mealSku}`);
+    // Find the pack item and check qty
+    const item = packItems.find(i => i.skuLower === matchedSku);
+    const currentCount = scannedMap[matchedSku] || 0;
+    if (item && currentCount >= item.qty) {
+      toast.warning(`Already scanned all ${item.qty} of ${item.name}`);
       setShowCamera(false);
       return;
     }
-    setScannedMap(prev => ({ ...prev, [mealSku]: (prev[mealSku] || 0) + 1 }));
-    toast.success(`Packed: ${line?.meal_name || mealSku} (${currentCount + 1}/${line?.qty || '?'})`);
+    setScannedMap(prev => ({ ...prev, [matchedSku]: (prev[matchedSku] || 0) + 1 }));
+    toast.success(`Packed: ${item?.name || matchedSku} (${currentCount + 1}/${item?.qty || '?'})`);
     setShowCamera(false);
   };
 
@@ -109,7 +169,7 @@ export default function FloorPack() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [lookupMap, selectedOrder]);
 
-  const totalNeeded = decomposedLines.reduce((s, d) => s + (d.qty || 0), 0);
+  const totalNeeded = packItems.reduce((s, i) => s + (i.qty || 0), 0);
   const totalScanned = Object.values(scannedMap).reduce((s, v) => s + v, 0);
   const allDone = totalScanned >= totalNeeded && totalNeeded > 0;
 
@@ -120,13 +180,20 @@ export default function FloorPack() {
   };
 
   const handleMarkPacked = async () => {
+    // Final guard — ensure every item is fully scanned
+    const incomplete = packItems.find(i => (scannedMap[i.skuLower] || 0) < i.qty);
+    if (incomplete) {
+      toast.error(`Still need to scan ${incomplete.name} (${scannedMap[incomplete.skuLower] || 0}/${incomplete.qty})`);
+      return;
+    }
+
     setPacking(true);
 
-    // Update DecomposedLine packed_qty
-    for (const line of decomposedLines) {
-      const packed = scannedMap[line.meal_sku?.toLowerCase()] || 0;
+    // Update DecomposedLine packed_qty for decomposed items
+    for (const item of packItems.filter(i => i.source === 'decomposed')) {
+      const packed = scannedMap[item.skuLower] || 0;
       if (packed > 0) {
-        await base44.entities.DecomposedLine.update(line.id, { packed_qty: packed });
+        await base44.entities.DecomposedLine.update(item.sourceId, { packed_qty: packed });
       }
     }
 
@@ -197,25 +264,25 @@ export default function FloorPack() {
         />
       )}
 
-      {/* Meal list */}
-      <FloorPackList items={decomposedLines} scannedMap={scannedMap} />
+      {/* Pack item list */}
+      <FloorPackList items={packItems} scannedMap={scannedMap} />
 
-      {decomposedLines.length === 0 && (
+      {packItems.length === 0 && (
         <div className="text-center py-12 text-sm text-muted-foreground">
-          No decomposed meal lines found for this order.
+          No items found for this order.
         </div>
       )}
 
-      {/* Confirm FAB */}
-      {allDone && (
+      {/* Confirm bar — always visible, disabled until all scanned */}
+      {packItems.length > 0 && (
         <div className="sticky bottom-0 pb-4 pt-2 bg-gradient-to-t from-background via-background to-transparent">
           <Button
             onClick={handleMarkPacked}
-            disabled={packing}
-            className="w-full h-14 text-base gap-2 bg-green-600 hover:bg-green-700 text-white"
+            disabled={packing || !allDone}
+            className="w-full h-14 text-base gap-2 bg-green-600 hover:bg-green-700 text-white disabled:opacity-50"
           >
             <PackageCheck className="w-5 h-5" />
-            {packing ? 'Saving...' : 'Mark Order Packed'}
+            {packing ? 'Saving...' : allDone ? 'Mark Order Packed' : `Scan all items (${totalScanned}/${totalNeeded})`}
           </Button>
         </div>
       )}
