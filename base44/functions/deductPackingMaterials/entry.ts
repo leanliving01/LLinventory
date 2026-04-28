@@ -42,7 +42,11 @@ Deno.serve(async (req) => {
     const productTypeBySku = {};
     products.forEach(p => { if (p.sku) productTypeBySku[p.sku.toLowerCase()] = p.type; });
 
-    // Count meals and supplements
+    // Build sellable flag lookup (to distinguish customer sauces from kitchen raw sauces)
+    const productSellableBySku = {};
+    products.forEach(p => { if (p.sku) productSellableBySku[p.sku.toLowerCase()] = !!p.sellable; });
+
+    // Count meals and supplements (sellable sauces count as supplements — they ship in supplement boxes)
     let mealCount = 0;
     let supplementCount = 0;
 
@@ -50,7 +54,10 @@ Deno.serve(async (req) => {
       if (line.status === 'cancelled' || line.is_package_parent) continue;
       const sku = (line.sku || '').toLowerCase();
       const productType = productTypeBySku[sku];
+      const isSellable = productSellableBySku[sku];
       if (productType === 'supplement') {
+        supplementCount += line.qty || 0;
+      } else if (productType === 'sauce' && isSellable) {
         supplementCount += line.qty || 0;
       } else if (productType === 'finished_meal' || line.is_package_component) {
         mealCount += line.qty || 0;
