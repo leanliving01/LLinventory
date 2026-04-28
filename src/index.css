@@ -87,6 +87,11 @@
   }
 }
 
+/* ── Floor workspace safe-area for mobile devices ── */
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 /* ── Print styles ── */
 @media print {
   /* Hide sidebar, navigation, and interactive controls */

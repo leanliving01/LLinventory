@@ -43,6 +43,9 @@ import XeroCallback from '@/pages/XeroCallback';
 import Sales from '@/pages/Sales';
 import Customers from '@/pages/Customers';
 import EquipmentManager from '@/pages/EquipmentManager';
+import FloorLayout from '@/components/floor/FloorLayout';
+import FloorHome from '@/pages/floor/FloorHome';
+import FloorScan from '@/pages/floor/FloorScan';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -64,20 +67,27 @@ const AuthenticatedApp = () => {
     }
   }
 
-  // Kitchen-role users go straight to /kitchen
-  const isKitchenUser = user?.role === 'kitchen';
+  // Floor-only roles go straight to /floor
+  const FLOOR_ROLES = ['kitchen', 'picker_packer', 'stock_controller'];
+  const isFloorUser = FLOOR_ROLES.includes(user?.role);
 
   return (
     <Routes>
       {/* Xero OAuth callback — no sidebar */}
       <Route path="/XeroCallback" element={<XeroCallback />} />
 
-      {/* Kitchen tablet routes — no sidebar */}
+      {/* Kitchen tablet routes — no sidebar (legacy, still accessible) */}
       <Route path="/kitchen" element={<Kitchen />} />
       <Route path="/kitchen/settings" element={<KitchenSettings />} />
 
+      {/* Floor Workspace — mobile-first, no sidebar */}
+      <Route element={<FloorLayout />}>
+        <Route path="/floor" element={<FloorHome />} />
+        <Route path="/floor/scan" element={<FloorScan />} />
+      </Route>
+
       <Route element={<AppLayout />}>
-        <Route path="/" element={isKitchenUser ? <Navigate to="/kitchen" replace /> : <Dashboard />} />
+        <Route path="/" element={isFloorUser ? <Navigate to="/floor" replace /> : <Dashboard />} />
         <Route path="/catalog" element={<Catalog />} />
         <Route path="/catalog/:productId" element={<ProductEdit />} />
         <Route path="/recipes" element={<Recipes />} />
