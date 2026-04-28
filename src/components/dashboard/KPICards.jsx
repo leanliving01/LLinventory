@@ -1,5 +1,6 @@
 import React from 'react';
 import StatCard from './StatCard';
+import getKpiStatus from '@/lib/getKpiStatus';
 import {
   DollarSign, ShoppingCart, TrendingDown, TrendingUp,
   Factory, AlertTriangle, Package, Trash2
@@ -22,55 +23,55 @@ export default function KPICards({ data }) {
   } = data;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <StatCard
         title="Revenue"
         value={fmtZAR(revenue)}
         icon={DollarSign}
-        variant="success"
+        status={getKpiStatus(revenue, 'revenue')}
       />
       <StatCard
         title="Pending Orders"
         value={pendingOrders}
         icon={ShoppingCart}
-        variant={pendingOrders > 10 ? 'warning' : 'default'}
+        status={getKpiStatus(pendingOrders, 'pendingOrders')}
       />
       <StatCard
         title="PO Spend"
         value={fmtZAR(poSpend)}
         icon={TrendingUp}
-        variant="info"
+        status={getKpiStatus(poSpend, 'poSpend')}
       />
       <StatCard
         title="PO Outstanding"
         value={fmtZAR(poOutstanding)}
         icon={TrendingDown}
-        variant={poOutstanding > 0 ? 'warning' : 'default'}
+        status={getKpiStatus(poOutstanding, 'poOutstanding')}
       />
       <StatCard
         title="Wastage"
         value={fmtZAR(wastageValue)}
         icon={Trash2}
-        variant={wastageValue > 0 ? 'danger' : 'success'}
+        status={getKpiStatus(wastageValue, 'wastageValue')}
       />
       <StatCard
         title="Production Runs"
         value={productionRuns}
         icon={Factory}
-        variant="default"
-        trendLabel={`${productionUnits} units`}
+        status={getKpiStatus(productionRuns, 'productionRuns')}
+        trendLabel={`${productionUnits} units produced`}
       />
       <StatCard
         title="Low Stock Items"
         value={lowStockCount}
         icon={AlertTriangle}
-        variant={lowStockCount > 0 ? 'danger' : 'success'}
+        status={getKpiStatus(lowStockCount, 'lowStockCount')}
       />
       <StatCard
         title="Active Products"
         value={data.activeProducts || 0}
         icon={Package}
-        variant="default"
+        status={getKpiStatus(data.activeProducts, 'activeProducts')}
       />
     </div>
   );

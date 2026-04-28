@@ -141,14 +141,14 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Executive Dashboard</h1>
+          <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {format(new Date(), 'EEEE, d MMMM yyyy')}
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Clock className="w-3.5 h-3.5" />
-          Last updated: {format(new Date(), 'HH:mm')}
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
+          <Clock className="w-3.5 h-3.5" strokeWidth={1.5} />
+          Updated {format(new Date(), 'HH:mm')}
         </div>
       </div>
 

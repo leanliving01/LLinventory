@@ -5,12 +5,24 @@ module.exports = {
   theme: {
   	extend: {
   		fontFamily: {
-  			inter: ['var(--font-inter)']
+  			inter: ['var(--font-inter)'],
+  			mono: ['var(--font-mono)'],
   		},
   		borderRadius: {
-  			lg: 'var(--radius)',
-  			md: 'calc(var(--radius) - 2px)',
-  			sm: 'calc(var(--radius) - 4px)'
+  			lg: 'var(--radius-lg)',
+  			md: 'var(--radius-md)',
+  			sm: 'var(--radius-sm)',
+  			full: 'var(--radius-full)',
+  		},
+  		boxShadow: {
+  			'none': 'none',
+  			'xs': 'var(--shadow-xs)',
+  			'sm': 'var(--shadow-sm)',
+  			DEFAULT: 'var(--shadow-sm)',
+  			'md': 'var(--shadow-md)',
+  			'lg': 'var(--shadow-lg)',
+  			'xl': 'var(--shadow-xl)',
+  			'inset': 'var(--shadow-inset)',
   		},
   		colors: {
   			background: 'hsl(var(--background))',
@@ -44,8 +56,17 @@ module.exports = {
   				foreground: 'hsl(var(--destructive-foreground))'
   			},
   			border: 'hsl(var(--border))',
+  			'border-strong': 'hsl(var(--border-strong))',
   			input: 'hsl(var(--input))',
   			ring: 'hsl(var(--ring))',
+  			'status-good': 'hsl(var(--status-good))',
+  			'status-good-subtle': 'hsl(var(--status-good-subtle))',
+  			'status-warn': 'hsl(var(--status-warn))',
+  			'status-warn-subtle': 'hsl(var(--status-warn-subtle))',
+  			'status-bad': 'hsl(var(--status-bad))',
+  			'status-bad-subtle': 'hsl(var(--status-bad-subtle))',
+  			'status-info': 'hsl(var(--status-info))',
+  			'status-info-subtle': 'hsl(var(--status-info-subtle))',
   			chart: {
   				'1': 'hsl(var(--chart-1))',
   				'2': 'hsl(var(--chart-2))',
@@ -66,44 +87,31 @@ module.exports = {
   		},
   		keyframes: {
   			'accordion-down': {
-  				from: {
-  					height: '0'
-  				},
-  				to: {
-  					height: 'var(--radix-accordion-content-height)'
-  				}
+  				from: { height: '0' },
+  				to: { height: 'var(--radix-accordion-content-height)' }
   			},
   			'accordion-up': {
-  				from: {
-  					height: 'var(--radix-accordion-content-height)'
-  				},
-  				to: {
-  					height: '0'
-  				}
+  				from: { height: 'var(--radix-accordion-content-height)' },
+  				to: { height: '0' }
+  			},
+  			'count-up': {
+  				from: { opacity: '0', transform: 'translateY(4px)' },
+  				to: { opacity: '1', transform: 'translateY(0)' }
   			}
   		},
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
-  			'accordion-up': 'accordion-up 0.2s ease-out'
+  			'accordion-up': 'accordion-up 0.2s ease-out',
+  			'count-up': 'count-up 400ms ease-out',
   		}
   	}
   },
   safelist: [
-    'bg-blue-500', 'bg-green-500', 'bg-orange-500', 'bg-pink-400', 'bg-yellow-400',
-    'text-white', 'text-yellow-900',
-    'bg-blue-50', 'bg-green-50', 'bg-orange-50', 'bg-pink-50', 'bg-yellow-50',
-    'text-blue-700', 'text-green-700', 'text-orange-700', 'text-pink-700', 'text-yellow-700',
-    'border-blue-200', 'border-green-200', 'border-orange-200', 'border-pink-200', 'border-yellow-200',
-    'bg-blue-100', 'bg-green-100', 'bg-orange-100', 'bg-pink-100', 'bg-yellow-100', 'bg-amber-100',
-    'text-amber-700',
-    'bg-purple-100', 'text-purple-700', 'border-purple-200',
-    'bg-purple-50', 'text-purple-600', 'bg-purple-500',
-    'bg-slate-600', 'bg-orange-500', 'bg-indigo-500',
-    'bg-blue-50', 'bg-blue-100', 'bg-blue-200', 'text-blue-700', 'text-blue-800', 'text-blue-900', 'border-blue-200', 'border-blue-300',
-    'bg-pink-50', 'bg-pink-100', 'bg-pink-200', 'text-pink-700', 'text-pink-800', 'text-pink-900', 'border-pink-200', 'border-pink-300',
-    'bg-green-50', 'bg-green-100', 'bg-green-200', 'text-green-700', 'text-green-800', 'text-green-900', 'border-green-200', 'border-green-300',
-    'bg-orange-50', 'bg-orange-100', 'bg-orange-200', 'text-orange-700', 'text-orange-800', 'text-orange-900', 'border-orange-200', 'border-orange-300',
-    'bg-yellow-50', 'bg-yellow-100', 'bg-yellow-200', 'text-yellow-700', 'text-yellow-800', 'text-yellow-900', 'border-yellow-200', 'border-yellow-300',
+    'bg-status-good', 'bg-status-good-subtle', 'text-status-good',
+    'bg-status-warn', 'bg-status-warn-subtle', 'text-status-warn',
+    'bg-status-bad', 'bg-status-bad-subtle', 'text-status-bad',
+    'bg-status-info', 'bg-status-info-subtle', 'text-status-info',
+    'border-status-good', 'border-status-warn', 'border-status-bad', 'border-status-info',
   ],
   plugins: [require("tailwindcss-animate")],
 }

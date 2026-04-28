@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { Button } from '@/components/ui/button';
+import React from 'react';
 import { Input } from '@/components/ui/input';
 import { Calendar } from 'lucide-react';
-import { format, subDays, startOfDay, startOfWeek, startOfMonth } from 'date-fns';
+import { format, subDays, startOfDay, startOfMonth } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 const PRESETS = [
   { label: 'Today', key: 'today' },
@@ -19,34 +19,27 @@ export default function DateRangePicker({ from, to, onChange }) {
   const handlePreset = (key) => {
     setActive(key);
     const now = new Date();
-    if (key === 'today') {
-      onChange(startOfDay(now), now);
-      setShowCustom(false);
-    } else if (key === '7d') {
-      onChange(subDays(now, 7), now);
-      setShowCustom(false);
-    } else if (key === '30d') {
-      onChange(subDays(now, 30), now);
-      setShowCustom(false);
-    } else if (key === 'month') {
-      onChange(startOfMonth(now), now);
-      setShowCustom(false);
-    } else {
-      setShowCustom(true);
-    }
+    if (key === 'today') { onChange(startOfDay(now), now); setShowCustom(false); }
+    else if (key === '7d') { onChange(subDays(now, 7), now); setShowCustom(false); }
+    else if (key === '30d') { onChange(subDays(now, 30), now); setShowCustom(false); }
+    else if (key === 'month') { onChange(startOfMonth(now), now); setShowCustom(false); }
+    else { setShowCustom(true); }
   };
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <Calendar className="w-4 h-4 text-muted-foreground" />
-      <div className="flex bg-muted rounded-lg p-0.5">
+      <Calendar className="w-4 h-4 text-muted-foreground" strokeWidth={1.5} />
+      <div className="flex bg-muted rounded-md p-0.5">
         {PRESETS.map(p => (
           <button
             key={p.key}
             onClick={() => handlePreset(p.key)}
-            className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${
-              active === p.key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-            }`}
+            className={cn(
+              "text-xs px-3 py-1.5 rounded-sm font-medium transition-colors",
+              active === p.key
+                ? 'bg-card text-foreground shadow-xs'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
           >
             {p.label}
           </button>
@@ -69,7 +62,7 @@ export default function DateRangePicker({ from, to, onChange }) {
           />
         </div>
       )}
-      <span className="text-[10px] text-muted-foreground ml-1">
+      <span className="text-[11px] text-muted-foreground ml-1 tabular-nums">
         {format(from, 'dd MMM')} — {format(to, 'dd MMM yyyy')}
       </span>
     </div>

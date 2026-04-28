@@ -1,14 +1,16 @@
 import React, { useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import ChartCard from '@/components/shared/ChartCard';
 
-const COLORS = [
-  'hsl(var(--chart-1))',
-  'hsl(var(--chart-2))',
-  'hsl(var(--chart-3))',
-  'hsl(var(--chart-4))',
-  'hsl(var(--chart-5))',
-  'hsl(142 71% 35%)',
-];
+const CustomTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-card border border-border rounded-md shadow-lg px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-sm font-semibold tabular-nums text-foreground">{payload[0].value.toLocaleString()} meals</p>
+    </div>
+  );
+};
 
 export default function PackageBreakdownChart({ orders }) {
   const chartData = useMemo(() => {
@@ -26,33 +28,22 @@ export default function PackageBreakdownChart({ orders }) {
       .sort((a, b) => b.value - a.value);
   }, [orders]);
 
-  if (chartData.length === 0) {
-    return (
-      <div className="bg-card border border-border rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-foreground mb-4">Meals by Package Type</h3>
-        <div className="text-center py-12 text-sm text-muted-foreground">No order data in period</div>
-      </div>
-    );
-  }
+  const empty = chartData.length === 0 ? (
+    <div className="text-center py-12 text-sm text-muted-foreground">No order data in period</div>
+  ) : null;
 
   return (
-    <div className="bg-card border border-border rounded-xl p-5">
-      <h3 className="text-sm font-semibold text-foreground mb-4">Meals by Package Type</h3>
-      <ResponsiveContainer width="100%" height={240}>
-        <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-          <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
-          <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
-          <Tooltip
-            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid hsl(var(--border))' }}
-            formatter={(val) => [val.toLocaleString(), 'Meals']}
-          />
-          <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-            {chartData.map((_, i) => (
-              <Cell key={i} fill={COLORS[i % COLORS.length]} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
+    <ChartCard title="Meals by Package Type" emptyState={empty}>
+      {!empty && (
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+            <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+            <Tooltip content={<CustomTooltip />} />
+            <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
   );
 }

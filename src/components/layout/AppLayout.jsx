@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
+import CommandPalette from '@/components/shared/CommandPalette';
 import { cn } from '@/lib/utils';
 
 export default function AppLayout() {
@@ -19,6 +20,7 @@ export default function AppLayout() {
           <Outlet />
         </div>
       </main>
+      <CommandPalette />
     </div>
   );
 }

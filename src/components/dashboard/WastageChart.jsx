@@ -1,6 +1,17 @@
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { format } from 'date-fns';
+import ChartCard from '@/components/shared/ChartCard';
+
+const CustomTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-card border border-border rounded-md shadow-lg px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-sm font-semibold tabular-nums text-status-bad">R {payload[0].value.toLocaleString()}</p>
+    </div>
+  );
+};
 
 export default function WastageChart({ wastageLogs }) {
   const chartData = useMemo(() => {
@@ -14,30 +25,25 @@ export default function WastageChart({ wastageLogs }) {
       .slice(-15);
   }, [wastageLogs]);
 
-  if (chartData.length === 0) {
-    return (
-      <div className="bg-card border border-border rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-foreground mb-4">Wastage Trend (ZAR)</h3>
-        <div className="text-center py-12 text-sm text-muted-foreground">No wastage data in period</div>
-      </div>
-    );
-  }
+  const empty = chartData.length === 0 ? (
+    <div className="text-center py-12 text-sm text-muted-foreground">
+      No wastage data in period
+    </div>
+  ) : null;
 
   return (
-    <div className="bg-card border border-border rounded-xl p-5">
-      <h3 className="text-sm font-semibold text-foreground mb-4">Wastage Trend (ZAR)</h3>
-      <ResponsiveContainer width="100%" height={240}>
-        <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
-          <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={v => `R${v}`} />
-          <Tooltip
-            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid hsl(var(--border))' }}
-            formatter={(val) => [`R ${val.toLocaleString()}`, 'Wastage']}
-          />
-          <Bar dataKey="value" fill="hsl(var(--chart-4))" radius={[6, 6, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
+    <ChartCard title="Wastage Trend" subtitle="ZAR value" emptyState={empty}>
+      {!empty && (
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+            <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={v => `R${v}`} axisLine={false} tickLine={false} />
+            <Tooltip content={<CustomTooltip />} />
+            <Bar dataKey="value" fill="hsl(var(--status-bad))" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
   );
 }

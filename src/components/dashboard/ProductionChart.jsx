@@ -1,6 +1,17 @@
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { format } from 'date-fns';
+import ChartCard from '@/components/shared/ChartCard';
+
+const CustomTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-card border border-border rounded-md shadow-lg px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-sm font-semibold tabular-nums text-foreground">{payload[0].value.toLocaleString()} units</p>
+    </div>
+  );
+};
 
 export default function ProductionChart({ runs }) {
   const chartData = useMemo(() => {
@@ -15,30 +26,25 @@ export default function ProductionChart({ runs }) {
     return Object.values(byDate).slice(-15);
   }, [runs]);
 
-  if (chartData.length === 0) {
-    return (
-      <div className="bg-card border border-border rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-foreground mb-4">Production Output</h3>
-        <div className="text-center py-12 text-sm text-muted-foreground">No production runs in period</div>
-      </div>
-    );
-  }
+  const empty = chartData.length === 0 ? (
+    <div className="text-center py-12 text-sm text-muted-foreground">
+      No production runs in period
+    </div>
+  ) : null;
 
   return (
-    <div className="bg-card border border-border rounded-xl p-5">
-      <h3 className="text-sm font-semibold text-foreground mb-4">Production Output</h3>
-      <ResponsiveContainer width="100%" height={240}>
-        <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
-          <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
-          <Tooltip
-            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid hsl(var(--border))' }}
-            formatter={(val, name) => [val.toLocaleString(), name === 'units' ? 'Units' : 'Runs']}
-          />
-          <Bar dataKey="units" fill="hsl(var(--chart-2))" radius={[6, 6, 0, 0]} name="Units" />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
+    <ChartCard title="Production Output" emptyState={empty}>
+      {!empty && (
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+            <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+            <Tooltip content={<CustomTooltip />} />
+            <Bar dataKey="units" fill="hsl(var(--status-info))" radius={[4, 4, 0, 0]} name="Units" />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
   );
 }

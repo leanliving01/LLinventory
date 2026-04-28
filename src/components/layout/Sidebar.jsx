@@ -11,7 +11,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  Plus,
   ClipboardCheck,
   UtensilsCrossed,
   Barcode,
@@ -27,7 +26,8 @@ import {
   Receipt,
   AlertTriangle,
   Wrench,
-  TrendingUp
+  TrendingUp,
+  Search
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
@@ -108,24 +108,38 @@ export default function Sidebar({ collapsed, onToggle }) {
       collapsed ? "w-16" : "w-60"
     )}>
       {/* Logo */}
-      <div className="flex items-center h-16 px-4 border-b border-sidebar-border">
+      <div className="flex items-center h-14 px-4 border-b border-sidebar-border">
         {!collapsed && (
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center shadow-sm">
               <span className="text-primary-foreground font-bold text-sm">LL</span>
             </div>
             <div>
-              <h1 className="text-sm font-semibold text-sidebar-foreground">Lean Living</h1>
-              <p className="text-[10px] text-sidebar-foreground/50 tracking-wider uppercase">Production</p>
+              <h1 className="text-sm font-semibold text-sidebar-foreground leading-tight">Lean Living</h1>
+              <p className="text-[10px] text-sidebar-foreground/40 tracking-wider uppercase leading-tight">Production</p>
             </div>
           </div>
         )}
         {collapsed && (
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center mx-auto">
+          <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center mx-auto shadow-sm">
             <span className="text-primary-foreground font-bold text-sm">LL</span>
           </div>
         )}
       </div>
+
+      {/* Quick search hint */}
+      {!collapsed && (
+        <button
+          onClick={() => {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }));
+          }}
+          className="mx-3 mt-3 mb-1 flex items-center gap-2 px-3 py-2 rounded-md bg-sidebar-accent/50 text-sidebar-foreground/40 hover:text-sidebar-foreground/60 transition-colors text-xs"
+        >
+          <Search className="w-3.5 h-3.5" strokeWidth={1.5} />
+          <span className="flex-1 text-left">Search...</span>
+          <kbd className="text-[10px] font-mono bg-sidebar-accent px-1 py-0.5 rounded-sm">⌘K</kbd>
+        </button>
+      )}
 
       {/* Nav */}
       <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
@@ -145,7 +159,7 @@ export default function Sidebar({ collapsed, onToggle }) {
                       : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
                   )}
                 >
-                  <item.icon className={cn("w-5 h-5 shrink-0", isChildActive && "text-sidebar-primary")} />
+                  <item.icon className={cn("w-5 h-5 shrink-0", isChildActive && "text-sidebar-primary")} strokeWidth={1.5} />
                   {!collapsed && (
                     <>
                       <span className="flex-1 text-left">{item.label}</span>
@@ -162,13 +176,13 @@ export default function Sidebar({ collapsed, onToggle }) {
                           key={child.path}
                           to={child.path}
                           className={cn(
-                            "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all",
+                            "flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] font-medium transition-all",
                             isActive
                               ? "bg-sidebar-accent text-sidebar-primary"
                               : "text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
                           )}
                         >
-                          <child.icon className={cn("w-4 h-4 shrink-0", isActive && "text-sidebar-primary")} />
+                          <child.icon className={cn("w-4 h-4 shrink-0", isActive && "text-sidebar-primary")} strokeWidth={1.5} />
                           <span>{child.label}</span>
                         </Link>
                       );
@@ -186,13 +200,14 @@ export default function Sidebar({ collapsed, onToggle }) {
               key={item.path}
               to={item.path}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
+                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all relative",
                 isActive 
                   ? "bg-sidebar-accent text-sidebar-primary" 
                   : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
               )}
             >
-              <item.icon className={cn("w-5 h-5 shrink-0", isActive && "text-sidebar-primary")} />
+              {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-sidebar-primary" />}
+              <item.icon className={cn("w-5 h-5 shrink-0", isActive && "text-sidebar-primary")} strokeWidth={1.5} />
               {!collapsed && <span>{item.label}</span>}
             </Link>
           );

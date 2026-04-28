@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,75 +6,139 @@
 
 @layer base {
   :root {
-    --font-inter: 'Montserrat', sans-serif;
-    --background: 220 20% 97%;
-    --foreground: 222 47% 11%;
+    --font-inter: 'Inter', -apple-system, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+    /* ── Page / Surface ── */
+    --background: 216 20% 98%;
+    --foreground: 220 30% 7%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 220 30% 7%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 221 83% 53%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
+    --popover-foreground: 220 30% 7%;
+
+    /* ── Brand ── */
+    --primary: 153 82% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    /* ── Neutrals ── */
+    --secondary: 216 16% 96%;
+    --secondary-foreground: 220 30% 7%;
+    --muted: 216 16% 96%;
+    --muted-foreground: 215 14% 44%;
+    --accent: 216 16% 96%;
+    --accent-foreground: 220 30% 7%;
+
+    /* ── Destructive ── */
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 221 83% 53%;
-    --chart-1: 142 71% 45%;
-    --chart-2: 221 83% 53%;
+
+    /* ── Borders / Inputs ── */
+    --border: 216 20% 91%;
+    --border-strong: 216 16% 82%;
+    --input: 216 20% 91%;
+    --ring: 153 82% 40%;
+
+    /* ── Status semantic ── */
+    --status-good: 160 84% 39%;
+    --status-good-subtle: 152 81% 92%;
+    --status-warn: 38 92% 50%;
+    --status-warn-subtle: 48 96% 89%;
+    --status-bad: 0 84% 60%;
+    --status-bad-subtle: 0 93% 94%;
+    --status-info: 217 91% 60%;
+    --status-info-subtle: 214 95% 93%;
+
+    /* ── Charts ── */
+    --chart-1: 153 82% 40%;
+    --chart-2: 217 91% 60%;
     --chart-3: 38 92% 50%;
     --chart-4: 0 84% 60%;
     --chart-5: 262 83% 58%;
+
+    /* ── Radius tokens ── */
     --radius: 0.5rem;
-    --sidebar-background: 222 47% 11%;
-    --sidebar-foreground: 210 40% 96%;
-    --sidebar-primary: 221 83% 53%;
-    --sidebar-primary-foreground: 210 40% 98%;
-    --sidebar-accent: 217 33% 17%;
-    --sidebar-accent-foreground: 210 40% 96%;
-    --sidebar-border: 217 33% 17%;
-    --sidebar-ring: 221 83% 53%;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-full: 9999px;
+
+    /* ── Shadow tokens (layered 3D) ── */
+    --shadow-xs: 0 1px 2px rgba(10,15,30,0.04);
+    --shadow-sm: 0 1px 2px rgba(10,15,30,0.06), 0 1px 1px rgba(10,15,30,0.04);
+    --shadow-md: 0 4px 6px rgba(10,15,30,0.07), 0 2px 4px rgba(10,15,30,0.05);
+    --shadow-lg: 0 10px 15px rgba(10,15,30,0.08), 0 4px 6px rgba(10,15,30,0.05);
+    --shadow-xl: 0 20px 25px rgba(10,15,30,0.10), 0 10px 10px rgba(10,15,30,0.04);
+    --shadow-inset: inset 0 2px 4px rgba(10,15,30,0.06);
+
+    /* ── Sidebar ── */
+    --sidebar-background: 220 30% 7%;
+    --sidebar-foreground: 216 16% 96%;
+    --sidebar-primary: 153 82% 40%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 24% 14%;
+    --sidebar-accent-foreground: 216 16% 96%;
+    --sidebar-border: 220 24% 14%;
+    --sidebar-ring: 153 82% 40%;
   }
 
   .dark {
-    --background: 222 47% 8%;
+    --background: 222 40% 5%;
     --foreground: 210 40% 98%;
-    --card: 222 47% 11%;
+    --card: 222 40% 7%;
     --card-foreground: 210 40% 98%;
-    --popover: 222 47% 11%;
+    --popover: 222 40% 7%;
     --popover-foreground: 210 40% 98%;
-    --primary: 221 83% 53%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 217 33% 17%;
+
+    --primary: 153 70% 45%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 24% 14%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 17%;
+    --muted: 220 24% 14%;
     --muted-foreground: 215 20% 65%;
-    --accent: 217 33% 17%;
+    --accent: 220 24% 14%;
     --accent-foreground: 210 40% 98%;
-    --destructive: 0 62% 30%;
+
+    --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 98%;
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 221 83% 53%;
-    --chart-1: 142 71% 45%;
-    --chart-2: 221 83% 53%;
+
+    --border: 220 24% 14%;
+    --border-strong: 220 16% 22%;
+    --input: 220 24% 14%;
+    --ring: 153 70% 45%;
+
+    /* Status stays constant hue, subtle uses alpha */
+    --status-good: 160 84% 39%;
+    --status-good-subtle: 160 40% 12%;
+    --status-warn: 38 92% 50%;
+    --status-warn-subtle: 38 40% 12%;
+    --status-bad: 0 72% 51%;
+    --status-bad-subtle: 0 40% 12%;
+    --status-info: 217 91% 60%;
+    --status-info-subtle: 217 40% 12%;
+
+    --chart-1: 153 70% 45%;
+    --chart-2: 217 91% 60%;
     --chart-3: 38 92% 50%;
-    --chart-4: 0 84% 60%;
+    --chart-4: 0 72% 51%;
     --chart-5: 262 83% 58%;
-    --sidebar-background: 222 47% 6%;
+
+    --shadow-xs: 0 1px 2px rgba(0,0,0,0.2);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3), 0 1px 1px rgba(0,0,0,0.2);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.2);
+    --shadow-lg: 0 10px 15px rgba(0,0,0,0.3), 0 4px 6px rgba(0,0,0,0.2);
+    --shadow-xl: 0 20px 25px rgba(0,0,0,0.4), 0 10px 10px rgba(0,0,0,0.2);
+    --shadow-inset: inset 0 2px 4px rgba(0,0,0,0.3);
+
+    --sidebar-background: 222 40% 4%;
     --sidebar-foreground: 210 40% 96%;
-    --sidebar-primary: 221 83% 53%;
-    --sidebar-primary-foreground: 210 40% 98%;
-    --sidebar-accent: 217 33% 12%;
+    --sidebar-primary: 153 70% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 24% 10%;
     --sidebar-accent-foreground: 210 40% 96%;
-    --sidebar-border: 217 33% 12%;
-    --sidebar-ring: 221 83% 53%;
+    --sidebar-border: 220 24% 10%;
+    --sidebar-ring: 153 70% 45%;
   }
 }
 
@@ -83,7 +147,49 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground font-inter;
+    @apply bg-background text-foreground font-inter antialiased;
+  }
+}
+
+/* ── Tabular nums utility (non-negotiable on every number) ── */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Font mono for SKUs / IDs ── */
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* ── Button tactile states ── */
+.btn-tactile {
+  transition: transform 180ms ease-out, box-shadow 180ms ease-out;
+}
+.btn-tactile:hover {
+  transform: translateY(-1px);
+}
+.btn-tactile:active {
+  transform: translateY(1px);
+  box-shadow: var(--shadow-inset);
+}
+
+/* ── Card lift on hover ── */
+.card-lift {
+  transition: transform 180ms ease-out, box-shadow 180ms ease-out;
+}
+.card-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .btn-tactile,
+  .card-lift,
+  .animate-count-up {
+    transition: none !important;
+    animation: none !important;
+    transform: none !important;
   }
 }
 
@@ -94,38 +200,27 @@
 
 /* ── Print styles ── */
 @media print {
-  /* Hide sidebar, navigation, and interactive controls */
   nav,
   [data-sidebar],
-  .print\\:hidden {
+  .print\:hidden {
     display: none !important;
   }
-
-  /* Remove sidebar margin so content fills the page */
   main {
     margin-left: 0 !important;
     padding: 0 !important;
   }
-
-  /* Let the page content fill full width */
   body {
     background: white !important;
     color: black !important;
     font-size: 11pt;
   }
-
-  /* Show print-only elements */
-  .print\\:block {
+  .print\:block {
     display: block !important;
   }
-
-  /* Remove shadows and borders for cleaner print */
   .bg-card,
   .border {
     box-shadow: none !important;
   }
-
-  /* Prevent page breaks inside categories/tables */
   .break-inside-avoid {
     break-inside: avoid;
   }
