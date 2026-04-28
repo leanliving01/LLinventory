@@ -14,6 +14,7 @@ import { format } from 'date-fns';
 import FloorZonePicker from '@/components/floor/FloorZonePicker';
 import FloorCountList from '@/components/floor/FloorCountList';
 import CameraScanner from '@/components/floor/CameraScanner';
+import { buildMealGrouping } from '@/lib/mealGroupingUtil';
 
 /**
  * §1D — Floor Stock Take
@@ -34,11 +35,29 @@ export default function FloorStockTake() {
   const [showCamera, setShowCamera] = useState(false);
   const [highlightId, setHighlightId] = useState(null);
 
-  const { data: products = [] } = useQuery({
+  const { data: allProducts = [] } = useQuery({
     queryKey: ['floor-products-count', productType],
     queryFn: () => base44.entities.Product.filter({ type: productType, status: 'active' }, 'name', 500),
     enabled: !!zone,
   });
+
+  const { data: packBoms = [] } = useQuery({
+    queryKey: ['floor-pack-boms'],
+    queryFn: () => base44.entities.PackBom.filter({ active: true }, 'package_sku', 100),
+    enabled: !!zone && productType === 'finished_meal',
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // For finished meals: only show products that appear in an active PackBom
+  // Also build package-based grouping
+  const { products, mealGroupMap } = useMemo(() => {
+    if (productType !== 'finished_meal' || packBoms.length === 0) {
+      return { products: allProducts, mealGroupMap: null };
+    }
+    const { groupMap, validSkus } = buildMealGrouping(packBoms);
+    const filtered = allProducts.filter(p => p.sku && validSkus.has(p.sku));
+    return { products: filtered, mealGroupMap: groupMap };
+  }, [allProducts, packBoms, productType]);
 
   const { data: stockRecords = [] } = useQuery({
     queryKey: ['floor-stock-count'],
@@ -274,6 +293,7 @@ export default function FloorStockTake() {
         stockMap={stockMap}
         counts={counts}
         onCountChange={(id, val) => setCounts(prev => ({ ...prev, [id]: val }))}
+        groupMap={mealGroupMap}
       />
 
       {/* Sticky save bar */}

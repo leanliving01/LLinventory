@@ -10,13 +10,15 @@ import { cn } from '@/lib/utils';
  * Renders products grouped by pick_category (or product type).
  * Each row shows product name, system qty, and a large count input.
  */
-export default function FloorCountList({ products, stockMap, counts, onCountChange }) {
+export default function FloorCountList({ products, stockMap, counts, onCountChange, groupMap }) {
   const [expanded, setExpanded] = useState({});
 
-  // Group by pick_category or type
+  // Group by groupMap (package-based) if provided, else by pick_category or type
   const groups = {};
   products.forEach(p => {
-    const cat = p.pick_category || p.type || 'Other';
+    const cat = (groupMap && p.sku && groupMap[p.sku])
+      ? groupMap[p.sku]
+      : (p.pick_category || p.type || 'Other');
     if (!groups[cat]) groups[cat] = [];
     groups[cat].push(p);
   });
