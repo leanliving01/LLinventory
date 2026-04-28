@@ -5,12 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ClipboardCheck, Search, X, Save, AlertTriangle, Eye, EyeOff } from 'lucide-react';
+import { ClipboardCheck, Search, X, Save, AlertTriangle, Eye, EyeOff, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import StockTakeCountTable from '@/components/stock-take/StockTakeCountTable';
 import StockTakeVarianceReport from '@/components/stock-take/StockTakeVarianceReport';
+import ZoneSelector from '@/components/stock-take/ZoneSelector';
 import { writeAuditLog } from '@/lib/auditLog';
 
 export default function StockTakeNew() {
@@ -181,8 +182,23 @@ export default function StockTakeNew() {
         </div>
       </div>
 
-      {/* Summary + Filters */}
-      <div className="flex items-center gap-4 bg-card border border-border rounded-xl px-6 py-4 flex-wrap">
+      {/* Zone selector */}
+      <div className="bg-card border border-border rounded-xl px-5 py-4 space-y-3">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <MapPin className="w-4 h-4" strokeWidth={1.5} />
+          {locationId
+            ? <span>Counting in <span className="font-semibold text-foreground">{locations.find(l => l.id === locationId)?.name || 'Selected zone'}</span></span>
+            : <span>Counting across <span className="font-semibold text-foreground">all zones</span></span>}
+        </div>
+        <ZoneSelector
+          locations={locations}
+          selectedId={locationId}
+          onSelect={(id) => setLocationId(id || '')}
+        />
+      </div>
+
+      {/* Filters row */}
+      <div className="flex items-center gap-4 flex-wrap">
         <Select value={productType} onValueChange={setProductType}>
           <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -191,14 +207,6 @@ export default function StockTakeNew() {
             <SelectItem value="wip_bulk">Bulk Cooked</SelectItem>
             <SelectItem value="sauce">Sauces</SelectItem>
             <SelectItem value="packaging">Packaging</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select value={locationId} onValueChange={setLocationId}>
-          <SelectTrigger className="w-48"><SelectValue placeholder="All locations" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={null}>All locations</SelectItem>
-            {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
           </SelectContent>
         </Select>
 
@@ -220,11 +228,11 @@ export default function StockTakeNew() {
         <div className="flex items-center gap-4 ml-auto">
           <div className="text-center">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Counted</p>
-            <p className="text-lg font-bold text-green-600">{countedCount}</p>
+            <p className="text-lg font-bold tabular-nums text-status-good">{countedCount}</p>
           </div>
           <div className="text-center">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Remaining</p>
-            <p className="text-lg font-bold text-amber-600">{uncountedCount}</p>
+            <p className="text-lg font-bold tabular-nums text-status-warn">{uncountedCount}</p>
           </div>
         </div>
       </div>
