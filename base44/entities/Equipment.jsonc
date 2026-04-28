@@ -1,0 +1,68 @@
+{
+  "name": "Equipment",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Equipment name e.g. Ivario Rational 1, Oven A"
+    },
+    "equipment_type": {
+      "type": "string",
+      "description": "Type/category e.g. Ivario, Oven, Pressure Cooker, Mixer"
+    },
+    "location_id": {
+      "type": "string",
+      "description": "FK to Location \u2014 which kitchen zone"
+    },
+    "default_capacity": {
+      "type": "number",
+      "description": "Default max capacity (used when no product-specific rule exists)"
+    },
+    "default_capacity_uom": {
+      "type": "string",
+      "enum": [
+        "g",
+        "kg",
+        "ml",
+        "L",
+        "pcs",
+        "trays"
+      ],
+      "description": "Unit of measure for default capacity"
+    },
+    "tray_count": {
+      "type": "number",
+      "description": "Number of trays/slots (for ovens)"
+    },
+    "per_tray_capacity": {
+      "type": "number",
+      "description": "Capacity per tray (e.g. kg per tray)"
+    },
+    "per_tray_uom": {
+      "type": "string",
+      "enum": [
+        "g",
+        "kg",
+        "pcs"
+      ],
+      "description": "UoM for per-tray capacity"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Internal notes"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "maintenance",
+        "retired"
+      ],
+      "default": "active"
+    }
+  },
+  "required": [
+    "name",
+    "equipment_type"
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "name": "EquipmentCapacity",
+  "type": "object",
+  "properties": {
+    "equipment_id": {
+      "type": "string",
+      "description": "FK to Equipment"
+    },
+    "equipment_name": {
+      "type": "string",
+      "description": "Denormalized equipment name"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product (the raw/WIP material this capacity applies to)"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Denormalized product name"
+    },
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized product SKU"
+    },
+    "max_capacity": {
+      "type": "number",
+      "description": "Maximum quantity this equipment can process per batch for this product"
+    },
+    "capacity_uom": {
+      "type": "string",
+      "enum": [
+        "g",
+        "kg",
+        "ml",
+        "L",
+        "pcs",
+        "trays"
+      ],
+      "description": "Unit of measure for this capacity"
+    },
+    "cycle_time_min": {
+      "type": "number",
+      "description": "Estimated cycle time in minutes for this product on this equipment"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "equipment_id",
+    "product_id",
+    "max_capacity",
+    "capacity_uom"
+  ]
+}

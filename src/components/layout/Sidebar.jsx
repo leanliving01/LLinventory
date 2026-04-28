@@ -27,7 +27,8 @@ import {
   PackageCheck,
   Users,
   Receipt,
-  AlertTriangle
+  AlertTriangle,
+  Wrench
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
@@ -77,6 +78,7 @@ const navItems = [
       { label: 'Team Performance', path: '/reports/team', icon: Users },
     ]
   },
+  { label: 'Equipment', path: '/equipment', icon: Wrench },
   { label: 'Settings', path: '/settings', icon: Settings },
 ];
 

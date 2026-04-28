@@ -23,6 +23,10 @@
       ],
       "description": "Which station handles this step"
     },
+    "equipment_id": {
+      "type": "string",
+      "description": "FK to Equipment \u2014 which equipment is used for this step"
+    },
     "cycle_time_min": {
       "type": "number",
       "description": "Estimated time in minutes"

@@ -3,15 +3,17 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Save, Loader2, Package, ArrowRightLeft, Settings2 } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Package, ArrowRightLeft, Settings2, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import ProductEditForm from '@/components/catalog/ProductEditForm';
 import ProductStockTab from '@/components/catalog/ProductStockTab';
 import ProductMovementsTab from '@/components/catalog/ProductMovementsTab';
 import ProductCookBomCard from '@/components/catalog/ProductCookBomCard';
+import ProductEquipmentTab from '@/components/catalog/ProductEquipmentTab';
 
 const TABS = [
   { key: 'details', label: 'Details', icon: Settings2 },
+  { key: 'equipment', label: 'Equipment', icon: Wrench },
   { key: 'stock', label: 'Stock', icon: Package },
   { key: 'movements', label: 'Movements', icon: ArrowRightLeft },
 ];
@@ -140,6 +142,10 @@ export default function ProductEdit() {
             categories={categories}
           />
         </>
+      )}
+
+      {activeTab === 'equipment' && product && (
+        <ProductEquipmentTab productId={productId} productName={product.name} productSku={product.sku} />
       )}
 
       {activeTab === 'stock' && (
