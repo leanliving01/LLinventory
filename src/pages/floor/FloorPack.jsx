@@ -47,6 +47,7 @@ export default function FloorPack() {
   const [scanInput, setScanInput] = useState('');
   const [showCamera, setShowCamera] = useState(false);
   const [packing, setPacking] = useState(false);
+  const [showBackConfirm, setShowBackConfirm] = useState(false);
 
   // Timer: pause/resume
   const [packingStartedAt, setPackingStartedAt] = useState(null);
@@ -337,11 +338,24 @@ export default function FloorPack() {
     segmentStartRef.current = null;
   };
 
-  const handleBack = async () => {
-    // Persist timer state if packing was in progress
+  // Back button — if timer is running (not paused, not finished), prompt first
+  const handleBackPress = () => {
+    if (packingStartedAt && !isPaused) {
+      setShowBackConfirm(true);
+      return;
+    }
+    // Already paused or never started — just exit
+    doExit();
+  };
+
+  const doExit = async () => {
+    setShowBackConfirm(false);
     if (packingStartedAt && selectedOrder) {
       const segSec = getCurrentSegmentSeconds();
       const totalSoFar = accumulatedSeconds + segSec;
+      setAccumulatedSeconds(totalSoFar);
+      segmentStartRef.current = null;
+      setIsPaused(true);
       await base44.entities.SalesOrder.update(selectedOrder.id, {
         packing_paused: true,
         packing_duration_seconds: totalSoFar,
@@ -380,7 +394,7 @@ export default function FloorPack() {
       <div className="space-y-4 pb-24">
         {/* Header */}
         <div className="flex items-center gap-3">
-          <button onClick={handleBack} className="p-2 -ml-2 rounded-xl hover:bg-muted">
+          <button onClick={handleBackPress} className="p-2 -ml-2 rounded-xl hover:bg-muted">
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex-1">
@@ -465,6 +479,32 @@ export default function FloorPack() {
               <PackageCheck className="w-5 h-5" />
               {packing ? 'Saving...' : allDone ? 'Finish Packing' : `Scan all items (${totalScanned}/${totalNeeded})`}
             </Button>
+          </div>
+        )}
+        {/* Back confirmation dialog */}
+        {showBackConfirm && (
+          <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-6">
+            <div className="bg-card rounded-2xl shadow-xl p-6 max-w-sm w-full space-y-4">
+              <h2 className="text-lg font-bold">Save progress?</h2>
+              <p className="text-sm text-muted-foreground">
+                The timer is still running. Going back will pause the timer and save your progress so you can resume later.
+              </p>
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1 h-12"
+                  onClick={() => setShowBackConfirm(false)}
+                >
+                  Stay
+                </Button>
+                <Button
+                  className="flex-1 h-12 bg-primary"
+                  onClick={doExit}
+                >
+                  Save & Exit
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </div>
