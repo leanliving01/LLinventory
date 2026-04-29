@@ -39,6 +39,9 @@ export default function Catalog() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('active');
+  const [sellableFilter, setSellableFilter] = useState('all');
+  const [purchasableFilter, setPurchasableFilter] = useState('all');
+  const [inventoryFilter, setInventoryFilter] = useState('all');
   const navigate = useNavigate();
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 15;
@@ -52,6 +55,21 @@ export default function Catalog() {
     return products.filter(p => {
       if (statusFilter !== 'all' && p.status !== statusFilter) return false;
       if (typeFilter !== 'all' && p.type !== typeFilter) return false;
+      if (sellableFilter !== 'all') {
+        const isSellable = p.sellable === true;
+        if (sellableFilter === 'yes' && !isSellable) return false;
+        if (sellableFilter === 'no' && isSellable) return false;
+      }
+      if (purchasableFilter !== 'all') {
+        const isPurchasable = p.purchasable !== false;
+        if (purchasableFilter === 'yes' && !isPurchasable) return false;
+        if (purchasableFilter === 'no' && isPurchasable) return false;
+      }
+      if (inventoryFilter !== 'all') {
+        const isTracked = p.inventory_tracked !== false;
+        if (inventoryFilter === 'yes' && !isTracked) return false;
+        if (inventoryFilter === 'no' && isTracked) return false;
+      }
       if (search) {
         const s = search.toLowerCase();
         return (p.sku || '').toLowerCase().includes(s) ||
@@ -60,7 +78,7 @@ export default function Catalog() {
       }
       return true;
     });
-  }, [products, search, typeFilter, statusFilter]);
+  }, [products, search, typeFilter, statusFilter, sellableFilter, purchasableFilter, inventoryFilter]);
 
   const pageProducts = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -121,8 +139,32 @@ export default function Catalog() {
             <SelectItem value="archived">Archived</SelectItem>
           </SelectContent>
         </Select>
-        {(search || typeFilter !== 'all' || statusFilter !== 'active') && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setTypeFilter('all'); setStatusFilter('active'); setPage(0); }} className="gap-1">
+        <Select value={sellableFilter} onValueChange={v => { setSellableFilter(v); setPage(0); }}>
+          <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Sellable</SelectItem>
+            <SelectItem value="yes">Sellable</SelectItem>
+            <SelectItem value="no">Not Sellable</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={purchasableFilter} onValueChange={v => { setPurchasableFilter(v); setPage(0); }}>
+          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Purchasable</SelectItem>
+            <SelectItem value="yes">Purchasable</SelectItem>
+            <SelectItem value="no">Not Purchasable</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={inventoryFilter} onValueChange={v => { setInventoryFilter(v); setPage(0); }}>
+          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Inventory</SelectItem>
+            <SelectItem value="yes">Tracked</SelectItem>
+            <SelectItem value="no">Not Tracked</SelectItem>
+          </SelectContent>
+        </Select>
+        {(search || typeFilter !== 'all' || statusFilter !== 'active' || sellableFilter !== 'all' || purchasableFilter !== 'all' || inventoryFilter !== 'all') && (
+          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setTypeFilter('all'); setStatusFilter('active'); setSellableFilter('all'); setPurchasableFilter('all'); setInventoryFilter('all'); setPage(0); }} className="gap-1">
             <X className="w-3.5 h-3.5" /> Clear
           </Button>
         )}

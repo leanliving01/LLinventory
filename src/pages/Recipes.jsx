@@ -5,6 +5,7 @@ import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, X, ChevronRight, Plus, ChevronDown, FolderOpen } from 'lucide-react';
 import CreateBomModal from '@/components/recipes/CreateBomModal';
 import { getSubcategories } from '@/lib/bomSubcategories';
@@ -24,6 +25,7 @@ export default function Recipes() {
   const [showCreate, setShowCreate] = useState(false);
   const [createDefaults, setCreateDefaults] = useState(null);
   const [subcategoryFilter, setSubcategoryFilter] = useState('all');
+  const [activeFilter, setActiveFilter] = useState('all');
   const PAGE_SIZE = 15;
 
   // Support URL params: ?search=X&layer=cook or ?create=cook&productId=ID
@@ -52,6 +54,11 @@ export default function Recipes() {
     return boms.filter(b => {
       if (layerFilter !== 'all' && b.bom_type !== layerFilter) return false;
       if (subcategoryFilter !== 'all' && (b.subcategory || 'Uncategorised') !== subcategoryFilter) return false;
+      if (activeFilter !== 'all') {
+        const isActive = b.is_active !== false;
+        if (activeFilter === 'active' && !isActive) return false;
+        if (activeFilter === 'inactive' && isActive) return false;
+      }
       if (search) {
         const s = search.toLowerCase();
         return (b.product_sku || '').toLowerCase().includes(s) ||
@@ -59,7 +66,7 @@ export default function Recipes() {
       }
       return true;
     });
-  }, [boms, search, layerFilter, subcategoryFilter]);
+  }, [boms, search, layerFilter, subcategoryFilter, activeFilter]);
 
   // Available subcategories for the selected layer filter
   const activeSubcategories = useMemo(() => {
@@ -161,8 +168,16 @@ export default function Recipes() {
             className="pl-9"
           />
         </div>
-        {(search || layerFilter !== 'all' || subcategoryFilter !== 'all') && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setLayerFilter('all'); setSubcategoryFilter('all'); setPage(0); }} className="gap-1">
+        <Select value={activeFilter} onValueChange={v => { setActiveFilter(v); setPage(0); }}>
+          <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="inactive">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+        {(search || layerFilter !== 'all' || subcategoryFilter !== 'all' || activeFilter !== 'all') && (
+          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setLayerFilter('all'); setSubcategoryFilter('all'); setActiveFilter('all'); setPage(0); }} className="gap-1">
             <X className="w-3.5 h-3.5" /> Clear
           </Button>
         )}
