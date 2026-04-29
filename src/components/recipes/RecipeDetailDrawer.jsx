@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { X, Package, Utensils, Plus, Trash2, Save, Loader2, ArrowRightLeft, BookOpen, FileText, AlertTriangle } from 'lucide-react';
+import { X, Package, Utensils, Plus, Trash2, Save, Loader2, ArrowRightLeft, BookOpen, FileText, AlertTriangle, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import AddComponentModal from '@/components/recipes/AddComponentModal';
@@ -124,6 +124,61 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
     queryClient.invalidateQueries({ queryKey: ['bom-components', bom.id] });
     setShowAddModal(false);
     toast.success('Ingredient added');
+  };
+
+  const handleDuplicateBom = async () => {
+    setSaving(true);
+    // 1. Create new BOM as a copy
+    const newBom = await base44.entities.Bom.create({
+      product_id: bom.product_id,
+      product_name: bom.product_name,
+      product_sku: bom.product_sku,
+      bom_type: bom.bom_type,
+      subcategory: bom.subcategory || undefined,
+      yield_qty: bom.yield_qty || 1,
+      yield_uom: bom.yield_uom || undefined,
+      chef_notes: bom.chef_notes || undefined,
+      notes: bom.notes ? `(Copy) ${bom.notes}` : '(Copy)',
+      files: bom.files || [],
+      version: (bom.version || 1) + 1,
+      is_active: false, // start inactive so it doesn't conflict
+    });
+
+    // 2. Copy all components
+    const [comps, ops] = await Promise.all([
+      base44.entities.BomComponent.filter({ bom_id: bom.id }),
+      base44.entities.BomOperation.filter({ bom_id: bom.id }),
+    ]);
+
+    await Promise.all(comps.map(c =>
+      base44.entities.BomComponent.create({
+        bom_id: newBom.id,
+        input_product_id: c.input_product_id,
+        input_product_name: c.input_product_name,
+        input_product_sku: c.input_product_sku,
+        qty: c.qty,
+        uom: c.uom,
+        is_consumable: c.is_consumable || false,
+      })
+    ));
+
+    // 3. Copy all operations/steps
+    await Promise.all(ops.map(o =>
+      base44.entities.BomOperation.create({
+        bom_id: newBom.id,
+        step_no: o.step_no,
+        name: o.name,
+        station: o.station,
+        equipment_id: o.equipment_id || undefined,
+        cycle_time_min: o.cycle_time_min || undefined,
+        notes: o.notes || undefined,
+      })
+    ));
+
+    setSaving(false);
+    onUpdated?.();
+    onClose();
+    toast.success(`Recipe duplicated — "${bom.product_name}" copied as inactive. Open it to change layer/details.`);
   };
 
   const handleDeleteBom = () => {
@@ -281,6 +336,9 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
             <p className="text-xs text-muted-foreground mt-1">{LAYER_DESC[bom.bom_type]}</p>
           </div>
           <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary" onClick={handleDuplicateBom} disabled={saving} title="Duplicate this recipe">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+            </Button>
             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={handleDeleteBom} title="Delete this BOM">
               <Trash2 className="w-4 h-4" />
             </Button>
