@@ -50,9 +50,10 @@ export default function ConsumeTab({ task, bom, components }) {
   }, [existing, scaledComponents]);
 
   const updateField = (compId, field, val) => {
+    // Keep raw string so user can type trailing zeros (e.g. 0.500)
     setValues(prev => ({
       ...prev,
-      [compId]: { ...prev[compId], [field]: parseFloat(val) || 0 },
+      [compId]: { ...prev[compId], [field]: val },
     }));
   };
 
@@ -76,8 +77,8 @@ export default function ConsumeTab({ task, bom, components }) {
         input_product_sku: comp.input_product_sku || '',
         input_product_name: comp.input_product_name || '',
         required_qty: comp.required,
-        consumed_qty: v.consumed,
-        wastage_qty: v.wastage,
+        consumed_qty: parseFloat(v.consumed) || 0,
+        wastage_qty: parseFloat(v.wastage) || 0,
         uom: comp.uom,
       };
       if (v.recordId) {
@@ -127,8 +128,8 @@ export default function ConsumeTab({ task, bom, components }) {
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm text-muted-foreground shrink-0">Consumed:</span>
               <Input
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={v.consumed || ''}
                 onChange={(e) => updateField(c.id, 'consumed', e.target.value)}
                 className="h-10 w-28 text-right tabular-nums font-semibold"
@@ -139,8 +140,8 @@ export default function ConsumeTab({ task, bom, components }) {
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm text-muted-foreground shrink-0">Wastage:</span>
               <Input
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={v.wastage || ''}
                 onChange={(e) => updateField(c.id, 'wastage', e.target.value)}
                 className="h-10 w-28 text-right tabular-nums font-semibold"

@@ -238,9 +238,8 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                             <div>
                               <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Left Over</label>
                               <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
+                                type="text"
+                                inputMode="decimal"
                                 value={portionLeftover[row.id] ?? '0'}
                                 onChange={e => setPortionLeftover(prev => ({ ...prev, [row.id]: e.target.value }))}
                                 className="h-10 text-right text-base font-bold"
@@ -359,8 +358,8 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                   </div>
                   <div className="flex items-center gap-2">
                     <Input
-                      type="number"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
                       placeholder={String(task.qty || 0)}
                       value={actualYield}
                       onChange={e => setActualYield(e.target.value)}
@@ -411,8 +410,8 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                         <div>
                           <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Consumed</label>
                           <Input
-                            type="number"
-                            step="0.01"
+                            type="text"
+                            inputMode="decimal"
                             value={actual}
                             onChange={e => setActuals(prev => ({ ...prev, [row.id]: e.target.value }))}
                             className="h-9 mt-0.5"
@@ -421,8 +420,8 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                         <div>
                           <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Unusable Waste</label>
                           <Input
-                            type="number"
-                            step="0.01"
+                            type="text"
+                            inputMode="decimal"
                             placeholder="0"
                             value={waste}
                             onChange={e => setWastage(prev => ({ ...prev, [row.id]: e.target.value }))}
