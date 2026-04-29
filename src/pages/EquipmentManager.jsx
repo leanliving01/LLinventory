@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Wrench, Plus, Trash2, Loader2, ArrowLeft, Search, X, Pencil, Check } from 'lucide-react';
+import { Wrench, Plus, Trash2, Loader2, ArrowLeft, Search, X, Pencil, Check, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
 
 const STATUS_STYLES = {
   active: 'bg-green-100 text-green-700',
@@ -24,6 +25,8 @@ export default function EquipmentManager() {
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [confirmDelete, setConfirmDelete] = useState(null); // equipment object to delete
+  const [confirmEdit, setConfirmEdit] = useState(false); // show edit confirmation
   const [form, setForm] = useState({
     name: '', equipment_type: '', default_capacity: '', default_capacity_uom: 'kg',
     tray_count: '', per_tray_capacity: '', per_tray_uom: 'kg', notes: '',
@@ -72,6 +75,7 @@ export default function EquipmentManager() {
     await base44.entities.Equipment.delete(id);
     queryClient.invalidateQueries({ queryKey: ['equipment-all'] });
     queryClient.invalidateQueries({ queryKey: ['equipment-list'] });
+    setConfirmDelete(null);
     toast.success('Equipment removed');
   };
 
@@ -96,11 +100,33 @@ export default function EquipmentManager() {
     });
   };
 
+  // Compute what fields changed for the edit confirmation dialog
+  const getEditChanges = () => {
+    if (!editingId) return [];
+    const original = equipment.find(e => e.id === editingId);
+    if (!original) return [];
+    const labels = {
+      name: 'Name', equipment_type: 'Type', default_capacity: 'Default Capacity',
+      default_capacity_uom: 'Capacity UoM', tray_count: 'Tray Count',
+      per_tray_capacity: 'Per-Tray Capacity', per_tray_uom: 'Per-Tray UoM', notes: 'Notes',
+    };
+    const changes = [];
+    Object.keys(labels).forEach(key => {
+      const oldVal = original[key] ?? '';
+      const newVal = editForm[key] ?? '';
+      if (String(oldVal) !== String(newVal)) {
+        changes.push({ label: labels[key], from: oldVal || '(empty)', to: newVal || '(empty)' });
+      }
+    });
+    return changes;
+  };
+
   const handleSaveEdit = async () => {
     if (!editForm.name || !editForm.equipment_type) {
       toast.error('Name and type are required');
       return;
     }
+    setConfirmEdit(false);
     setSaving(true);
     await base44.entities.Equipment.update(editingId, {
       name: editForm.name,
@@ -280,7 +306,10 @@ export default function EquipmentManager() {
                       <div className="flex items-center gap-0.5 justify-end">
                         {editingId === eq.id ? (
                           <>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700" onClick={handleSaveEdit} disabled={saving}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700" onClick={() => {
+                              if (!editForm.name || !editForm.equipment_type) { toast.error('Name and type are required'); return; }
+                              setConfirmEdit(true);
+                            }} disabled={saving}>
                               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                             </Button>
                             <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => setEditingId(null)}>
@@ -292,7 +321,7 @@ export default function EquipmentManager() {
                             <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={() => startEdit(eq)}>
                               <Pencil className="w-3.5 h-3.5" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => handleDelete(eq.id)}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => setConfirmDelete(eq)}>
                               <Trash2 className="w-3.5 h-3.5" />
                             </Button>
                           </>
@@ -353,6 +382,60 @@ export default function EquipmentManager() {
           </table>
         </div>
       )}
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!confirmDelete} onOpenChange={open => { if (!open) setConfirmDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-500" /> Delete Equipment
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete <strong>{confirmDelete?.name}</strong>? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => handleDelete(confirmDelete.id)}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit confirmation dialog */}
+      <AlertDialog open={confirmEdit} onOpenChange={open => { if (!open) setConfirmEdit(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Pencil className="w-5 h-5 text-primary" /> Confirm Changes
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p className="mb-3">Are you sure you want to save these changes?</p>
+                {getEditChanges().length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">No changes detected.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {getEditChanges().map((c, i) => (
+                      <div key={i} className="bg-muted/50 rounded-lg px-3 py-2 text-sm">
+                        <span className="font-semibold text-foreground">{c.label}:</span>{' '}
+                        <span className="text-red-500 line-through">{c.from}</span>{' → '}
+                        <span className="text-green-600 font-medium">{c.to}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSaveEdit} disabled={getEditChanges().length === 0}>
+              Save Changes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
