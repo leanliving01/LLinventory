@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Users, UserPlus, Pencil, X, Loader2, Shield, ChevronDown, ChevronUp } from 'lucide-react';
+import { Users, UserPlus, Pencil, X, Loader2, Shield, ChevronDown, ChevronUp, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import UserPermissionsEditor from './UserPermissionsEditor';
 import { ROLE_DEFAULTS, PERMISSION_KEYS, getUserPermissions } from '@/lib/permissions';
@@ -20,6 +21,8 @@ const roleColors = {
 };
 
 export default function SettingsUsersTab() {
+  const { user: currentUser } = useAuth();
+  const isAdmin = currentUser?.role === 'admin';
   const queryClient = useQueryClient();
   const [editingUserId, setEditingUserId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -75,11 +78,41 @@ export default function SettingsUsersTab() {
 
   const sendInvite = async (role, permString) => {
     setInviting(true);
-    await base44.users.inviteUser(inviteEmail, role === 'admin' ? 'admin' : 'user');
-    // Note: The new user gets created with base role. We can't set custom permissions
-    // until they accept & appear in the User entity. We log the intended config.
-    queryClient.invalidateQueries({ queryKey: ['users'] });
-    toast.success(`Invited ${inviteEmail} — set their permissions once they accept`);
+
+    if (isAdmin) {
+      // Admin: directly invite
+      await base44.users.inviteUser(inviteEmail, role === 'admin' ? 'admin' : 'user');
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success(`Invited ${inviteEmail} — set their permissions once they accept`);
+    } else {
+      // Non-admin: send approval request to all admins via email
+      const allUsers = await base44.entities.User.list('-created_date', 100);
+      const admins = allUsers.filter(u => u.role === 'admin');
+      const adminEmails = admins.map(u => u.email).filter(Boolean);
+
+      if (adminEmails.length === 0) {
+        toast.error('No admin found to approve this request');
+        setInviting(false);
+        return;
+      }
+
+      const roleName = (role || 'viewer').replace(/_/g, ' ');
+      for (const adminEmail of adminEmails) {
+        await base44.integrations.Core.SendEmail({
+          to: adminEmail,
+          subject: `Invite Request: ${inviteEmail}`,
+          body: `<h3>Team Invite Request</h3>
+<p><strong>${currentUser?.full_name || currentUser?.email}</strong> has requested to invite a new team member:</p>
+<ul>
+  <li><strong>Email:</strong> ${inviteEmail}</li>
+  <li><strong>Requested role:</strong> ${roleName}</li>
+</ul>
+<p>Please log in to the Lean Living app → Settings → Users to add this person.</p>`,
+        });
+      }
+      toast.success(`Request sent to admin for approval`);
+    }
+
     setShowInvite(false);
     setInviting(false);
   };
@@ -100,14 +133,16 @@ export default function SettingsUsersTab() {
               <UserPlus className="w-4 h-4" /> Invite Team Member
             </h3>
             <Button size="sm" onClick={startInvite} className="gap-1.5">
-              <UserPlus className="w-3.5 h-3.5" /> Invite
+              {isAdmin ? <UserPlus className="w-3.5 h-3.5" /> : <Mail className="w-3.5 h-3.5" />}
+              {isAdmin ? 'Invite' : 'Request Invite'}
             </Button>
           </div>
         ) : (
           <div className="p-5 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold flex items-center gap-2">
-                <UserPlus className="w-4 h-4" /> New Invitation
+                {isAdmin ? <UserPlus className="w-4 h-4" /> : <Mail className="w-4 h-4" />}
+                {isAdmin ? 'New Invitation' : 'Request Invite (Admin Approval Required)'}
               </h3>
               <Button variant="ghost" size="icon" onClick={() => setShowInvite(false)}>
                 <X className="w-4 h-4" />
@@ -145,8 +180,10 @@ export default function SettingsUsersTab() {
                   saving={inviting}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Note: Permissions will be applied once the user accepts their invitation.
-                </p>
+                   {isAdmin
+                     ? 'Note: Permissions will be applied once the user accepts their invitation.'
+                     : 'Note: Your request will be emailed to an admin for approval.'}
+                 </p>
               </div>
             )}
           </div>
@@ -172,14 +209,16 @@ export default function SettingsUsersTab() {
                     {(user.role || 'viewer').replace(/_/g, ' ')}
                   </span>
                   <span className="text-[10px] text-muted-foreground">{countPerms(user)}/{PERMISSION_KEYS.length}</span>
-                  <Button
-                    variant={editingUserId === user.id ? 'secondary' : 'ghost'}
-                    size="icon"
-                    className="w-8 h-8"
-                    onClick={() => setEditingUserId(editingUserId === user.id ? null : user.id)}
-                  >
-                    {editingUserId === user.id ? <X className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-                  </Button>
+                  {isAdmin && (
+                    <Button
+                      variant={editingUserId === user.id ? 'secondary' : 'ghost'}
+                      size="icon"
+                      className="w-8 h-8"
+                      onClick={() => setEditingUserId(editingUserId === user.id ? null : user.id)}
+                    >
+                      {editingUserId === user.id ? <X className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                    </Button>
+                  )}
                 </div>
               </div>
 
