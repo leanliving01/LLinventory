@@ -112,14 +112,15 @@ export default function EquipmentManager() {
     };
     const changes = [];
     Object.keys(labels).forEach(key => {
-      const oldVal = original[key] ?? '';
-      const newVal = editForm[key] ?? '';
-      if (String(oldVal) !== String(newVal)) {
+      const oldVal = (original[key] == null || original[key] === '') ? '' : String(original[key]);
+      const newVal = (editForm[key] == null || editForm[key] === '') ? '' : String(editForm[key]);
+      if (oldVal !== newVal) {
         changes.push({ label: labels[key], from: oldVal || '(empty)', to: newVal || '(empty)' });
       }
     });
     return changes;
   };
+  const hasEditChanges = editingId ? getEditChanges().length > 0 : false;
 
   const handleSaveEdit = async () => {
     if (!editForm.name || !editForm.equipment_type) {
@@ -369,9 +370,19 @@ export default function EquipmentManager() {
                             </div>
                           </div>
                         </div>
-                        <div>
+                        <div className="mb-3">
                           <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Notes</label>
                           <Input value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} className="h-9" placeholder="Optional notes" />
+                        </div>
+                        <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                          <Button variant="outline" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+                          <Button size="sm" className="gap-1.5" disabled={saving || !hasEditChanges} onClick={() => {
+                            if (!editForm.name || !editForm.equipment_type) { toast.error('Name and type are required'); return; }
+                            setConfirmEdit(true);
+                          }}>
+                            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                            Save Changes
+                          </Button>
                         </div>
                       </td>
                     </tr>
