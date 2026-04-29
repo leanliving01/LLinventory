@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Wrench, Plus, Trash2, Loader2, ArrowLeft, Search, X } from 'lucide-react';
+import { Wrench, Plus, Trash2, Loader2, ArrowLeft, Search, X, Pencil, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 
@@ -22,6 +22,8 @@ export default function EquipmentManager() {
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
   const [form, setForm] = useState({
     name: '', equipment_type: '', default_capacity: '', default_capacity_uom: 'kg',
     tray_count: '', per_tray_capacity: '', per_tray_uom: 'kg', notes: '',
@@ -78,6 +80,43 @@ export default function EquipmentManager() {
     queryClient.invalidateQueries({ queryKey: ['equipment-all'] });
     queryClient.invalidateQueries({ queryKey: ['equipment-list'] });
     toast.success(`Status updated to ${status}`);
+  };
+
+  const startEdit = (eq) => {
+    setEditingId(eq.id);
+    setEditForm({
+      name: eq.name || '',
+      equipment_type: eq.equipment_type || '',
+      default_capacity: eq.default_capacity ?? '',
+      default_capacity_uom: eq.default_capacity_uom || 'kg',
+      tray_count: eq.tray_count ?? '',
+      per_tray_capacity: eq.per_tray_capacity ?? '',
+      per_tray_uom: eq.per_tray_uom || 'kg',
+      notes: eq.notes || '',
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editForm.name || !editForm.equipment_type) {
+      toast.error('Name and type are required');
+      return;
+    }
+    setSaving(true);
+    await base44.entities.Equipment.update(editingId, {
+      name: editForm.name,
+      equipment_type: editForm.equipment_type,
+      default_capacity: editForm.default_capacity ? Number(editForm.default_capacity) : null,
+      default_capacity_uom: editForm.default_capacity_uom,
+      tray_count: editForm.tray_count ? Number(editForm.tray_count) : null,
+      per_tray_capacity: editForm.per_tray_capacity ? Number(editForm.per_tray_capacity) : null,
+      per_tray_uom: editForm.per_tray_uom,
+      notes: editForm.notes,
+    });
+    queryClient.invalidateQueries({ queryKey: ['equipment-all'] });
+    queryClient.invalidateQueries({ queryKey: ['equipment-list'] });
+    setEditingId(null);
+    setSaving(false);
+    toast.success('Equipment updated');
   };
 
   // Get unique equipment types for suggestions
@@ -206,7 +245,62 @@ export default function EquipmentManager() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.map(eq => (
+              {filtered.map(eq => editingId === eq.id ? (
+                <tr key={eq.id} className="bg-primary/5">
+                  <td className="px-4 py-2 font-medium">
+                    <Input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="h-8 text-sm" placeholder="Name" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Input value={editForm.equipment_type} onChange={e => setEditForm(f => ({ ...f, equipment_type: e.target.value }))} className="h-8 text-sm" placeholder="Type" list="eq-types-edit" />
+                    <datalist id="eq-types-edit">{existingTypes.map(t => <option key={t} value={t} />)}</datalist>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-1">
+                      <Input type="number" min="0" step="0.1" value={editForm.default_capacity} onChange={e => setEditForm(f => ({ ...f, default_capacity: e.target.value }))} className="h-8 text-sm w-20" placeholder="Cap" />
+                      <Select value={editForm.default_capacity_uom} onValueChange={v => setEditForm(f => ({ ...f, default_capacity_uom: v }))}>
+                        <SelectTrigger className="h-8 text-xs w-16"><SelectValue /></SelectTrigger>
+                        <SelectContent>{UOM_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-1">
+                      <Input type="number" min="0" value={editForm.tray_count} onChange={e => setEditForm(f => ({ ...f, tray_count: e.target.value }))} className="h-8 text-sm w-14" placeholder="#" />
+                      <span className="text-xs text-muted-foreground">×</span>
+                      <Input type="number" min="0" step="0.1" value={editForm.per_tray_capacity} onChange={e => setEditForm(f => ({ ...f, per_tray_capacity: e.target.value }))} className="h-8 text-sm w-16" placeholder="Cap" />
+                      <Select value={editForm.per_tray_uom} onValueChange={v => setEditForm(f => ({ ...f, per_tray_uom: v }))}>
+                        <SelectTrigger className="h-8 text-xs w-16"><SelectValue /></SelectTrigger>
+                        <SelectContent>{UOM_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <Select value={eq.status} onValueChange={v => handleStatusChange(eq.id, v)}>
+                      <SelectTrigger className="h-7 text-xs w-28 mx-auto">
+                        <Badge className={`${STATUS_STYLES[eq.status]} text-[10px]`}>{eq.status}</Badge>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="maintenance">Maintenance</SelectItem>
+                        <SelectItem value="retired">Retired</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </td>
+                  <td className="px-3 py-2">
+                    <Input value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} className="h-8 text-sm" placeholder="Notes" />
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="flex items-center gap-1 justify-end">
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700" onClick={handleSaveEdit} disabled={saving}>
+                        {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => setEditingId(null)}>
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
                 <tr key={eq.id} className="hover:bg-muted/20">
                   <td className="px-4 py-2.5 font-medium">
                     <div className="flex items-center gap-2">
@@ -235,9 +329,14 @@ export default function EquipmentManager() {
                   </td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground max-w-[200px] truncate">{eq.notes || '—'}</td>
                   <td className="px-3 py-2.5 text-right">
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => handleDelete(eq.id)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    <div className="flex items-center gap-0.5 justify-end">
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={() => startEdit(eq)}>
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => handleDelete(eq.id)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
