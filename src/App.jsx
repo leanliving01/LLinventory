@@ -23,6 +23,7 @@ import SettingsPage from '@/pages/SettingsPage';
 import Catalog from '@/pages/Catalog';
 import ProductEdit from '@/pages/ProductEdit';
 import Recipes from '@/pages/Recipes';
+import RecipeDetail from '@/pages/RecipeDetail';
 import Suppliers from '@/pages/Suppliers';
 import StockTransfer from '@/pages/StockTransfer';
 import Receiving from '@/pages/Receiving';
@@ -101,6 +102,7 @@ const AuthenticatedApp = () => {
         <Route path="/catalog" element={<Catalog />} />
         <Route path="/catalog/:productId" element={<ProductEdit />} />
         <Route path="/recipes" element={<Recipes />} />
+        <Route path="/recipes/:bomId" element={<RecipeDetail />} />
         <Route path="/suppliers" element={<Suppliers />} />
         <Route path="/purchasing/orders" element={<PurchaseOrders />} />
         <Route path="/purchasing/settings" element={<POSettings />} />

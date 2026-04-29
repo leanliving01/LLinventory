@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Search, X, ChevronRight, Plus, ChevronDown, FolderOpen } from 'lucide-react';
-import RecipeDetailDrawer from '@/components/recipes/RecipeDetailDrawer';
 import CreateBomModal from '@/components/recipes/CreateBomModal';
 import { getSubcategories } from '@/lib/bomSubcategories';
 
@@ -19,7 +19,7 @@ const LAYER_COLORS = {
 
 export default function Recipes() {
   const queryClient = useQueryClient();
-  const [selectedBom, setSelectedBom] = useState(null);
+  const navigate = useNavigate();
   const [page, setPage] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [createDefaults, setCreateDefaults] = useState(null);
@@ -191,7 +191,7 @@ export default function Recipes() {
                 <tr
                   key={b.id}
                   className="hover:bg-muted/30 transition-colors cursor-pointer"
-                  onClick={() => setSelectedBom(b)}
+                  onClick={() => navigate(`/recipes/${b.id}`)}
                 >
                   <td className="px-4 py-2.5 text-sm font-mono font-medium">{b.product_sku}</td>
                   <td className="px-4 py-2.5 text-sm">{b.product_name}</td>
@@ -235,14 +235,6 @@ export default function Recipes() {
             </div>
           )}
         </div>
-      )}
-
-      {selectedBom && (
-        <RecipeDetailDrawer
-          bom={selectedBom}
-          onClose={() => setSelectedBom(null)}
-          onUpdated={() => queryClient.invalidateQueries({ queryKey: ['recipes-boms'] })}
-        />
       )}
 
       {showCreate && (
