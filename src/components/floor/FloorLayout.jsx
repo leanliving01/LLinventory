@@ -2,6 +2,7 @@ import React from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import FloorTopBar from './FloorTopBar';
 import FloorBottomNav from './FloorBottomNav';
+import RouteGuard from '@/components/layout/RouteGuard';
 import { cn } from '@/lib/utils';
 
 /**
@@ -18,7 +19,9 @@ export default function FloorLayout() {
       <FloorTopBar />
       <main className="flex-1 overflow-y-auto pb-20">
         <div className={cn("p-4", isTasksPage ? "max-w-full" : "max-w-2xl mx-auto")}>
-          <Outlet />
+          <RouteGuard>
+            <Outlet />
+          </RouteGuard>
         </div>
       </main>
       <FloorBottomNav />

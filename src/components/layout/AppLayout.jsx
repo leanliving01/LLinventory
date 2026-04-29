@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
+import RouteGuard from './RouteGuard';
 import CommandPalette from '@/components/shared/CommandPalette';
 import { cn } from '@/lib/utils';
 
@@ -17,7 +18,9 @@ export default function AppLayout() {
         collapsed ? "ml-16" : "ml-60"
       )}>
         <div className="p-6 max-w-[1600px] print:p-2 print:max-w-none">
-          <Outlet />
+          <RouteGuard>
+            <Outlet />
+          </RouteGuard>
         </div>
       </main>
       <CommandPalette />

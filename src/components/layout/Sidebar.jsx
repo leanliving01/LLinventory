@@ -32,6 +32,45 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
+
+/**
+ * Maps each nav path to the permission key that controls access.
+ * Paths not listed here are visible to everyone (e.g. /bugs).
+ */
+const PATH_PERMISSION_MAP = {
+  '/': 'dashboard',
+  '/catalog': 'catalog_view',
+  '/customers': 'customers',
+  '/recipes': 'recipes_view',
+  '/suppliers': 'purchase_orders',
+  '/purchasing/orders': 'purchase_orders',
+  '/purchasing/reorder': 'purchase_orders',
+  '/purchasing/settings': 'purchase_orders',
+  '/sales': 'sales_orders',
+  '/production': 'production_planning',
+  '/production/runs': 'production_runs',
+  '/production/plan-review': 'production_planning',
+  '/stock/receive': 'receiving',
+  '/stock/transfer': 'stock_transfers',
+  '/stock/stock-take': 'stock_take',
+  '/stock/wastage': 'wastage',
+  '/stock/par-levels': 'dashboard',
+  '/shopify': 'settings',
+  '/reports': 'reports',
+  '/reports/team': 'reports',
+  '/reports/forecasting': 'reports',
+  '/equipment': 'settings',
+  '/floor/pick': 'pick_lists',
+  '/floor/pack': 'pick_lists',
+  '/floor/tasks': 'kitchen_tablet',
+  '/floor/stock-take': 'stock_take',
+  '/floor/transfer': 'stock_transfers',
+  '/floor/receive': 'receiving',
+  '/floor/scan': 'pick_lists',
+  '/settings': 'settings',
+};
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -87,7 +126,32 @@ const navItems = [
 ];
 
 export default function Sidebar({ collapsed, onToggle }) {
+  const { user } = useAuth();
   const location = useLocation();
+  const perms = getUserPermissions(user || {});
+  const isAdmin = user?.role === 'admin';
+
+  /** Check if a nav path is allowed for the current user */
+  const isAllowed = (path) => {
+    if (isAdmin) return true;
+    const permKey = PATH_PERMISSION_MAP[path];
+    if (!permKey) return true; // no restriction
+    return !!perms[permKey];
+  };
+
+  /** Filter nav items based on permissions */
+  const filteredNavItems = navItems
+    .map(item => {
+      if (item.children) {
+        const allowedChildren = item.children.filter(c => isAllowed(c.path));
+        if (allowedChildren.length === 0) return null;
+        return { ...item, children: allowedChildren };
+      }
+      if (item.path && !isAllowed(item.path)) return null;
+      return item;
+    })
+    .filter(Boolean);
+
   const [openSections, setOpenSections] = useState(() => {
     // Auto-open sections based on current path
     const sections = {};
@@ -145,7 +209,7 @@ export default function Sidebar({ collapsed, onToggle }) {
 
       {/* Nav */}
       <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
-        {navItems.filter(item => !item.settingsOnly).map((item) => {
+        {filteredNavItems.filter(item => !item.settingsOnly).map((item) => {
           if (item.children) {
             const isOpen = openSections[item.label];
             const isChildActive = item.children.some(c => location.pathname === c.path);
