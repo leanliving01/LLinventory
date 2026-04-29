@@ -144,18 +144,20 @@ export default function Kanban() {
     await doStatusChange(taskId, newStatus);
   };
 
-  const handleTeamMultiSelected = async (members) => {
+  const handleTeamMultiSelected = async (members, shortageReason) => {
     if (!pendingStart) return;
     const { taskId, newStatus } = pendingStart;
     setPendingStart(null);
     const ids = JSON.stringify(members.map(m => m.id));
     const names = members.map(m => m.name).join(', ');
-    await base44.entities.ProductionTask.update(taskId, {
+    const update = {
       assigned_members: ids,
       assigned_members_names: names,
       assigned_to: members[0]?.id,
       assigned_name: names,
-    });
+    };
+    if (shortageReason) update.notes = `Short-staffed: ${shortageReason}`;
+    await base44.entities.ProductionTask.update(taskId, update);
     await doStatusChange(taskId, newStatus);
   };
 
