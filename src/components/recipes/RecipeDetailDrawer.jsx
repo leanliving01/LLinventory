@@ -444,7 +444,9 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
               value={chefNotes}
               onChange={e => setChefNotes(e.target.value)}
               placeholder="e.g. Sear chicken at 180°C until internal temp hits 74°C. Rest 5 min before slicing..."
-              className="min-h-[80px] text-sm"
+              className="min-h-[120px] text-sm resize-none overflow-hidden"
+              style={{ height: 'auto', minHeight: '120px' }}
+              ref={el => { if (el) { el.style.height = 'auto'; el.style.height = Math.max(120, el.scrollHeight) + 'px'; } }}
             />
           </div>
 
@@ -458,7 +460,9 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
               value={notes}
               onChange={e => setNotes(e.target.value)}
               placeholder="Internal notes about this recipe (not shown on floor)..."
-              className="min-h-[60px] text-sm"
+              className="min-h-[120px] text-sm resize-none overflow-hidden"
+              style={{ height: 'auto', minHeight: '120px' }}
+              ref={el => { if (el) { el.style.height = 'auto'; el.style.height = Math.max(120, el.scrollHeight) + 'px'; } }}
             />
           </div>
 
