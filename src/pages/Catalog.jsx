@@ -136,7 +136,7 @@ export default function Catalog() {
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="archived">Archived</SelectItem>
+            <SelectItem value="archived">Inactive</SelectItem>
           </SelectContent>
         </Select>
         <Select value={sellableFilter} onValueChange={v => { setSellableFilter(v); setPage(0); }}>
