@@ -302,7 +302,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                   <div className="space-y-2">
                     {otherRows.map(row => {
                       const calc = Math.round(row.perUnit * plates * 100) / 100;
-                      const excess = Math.round((row.picked - calc) * 100) / 100;
+                      const diff = Math.round((calc - row.picked) * 100) / 100;
                       return (
                         <div key={row.id} className="bg-muted/50 rounded-xl p-3 flex items-center justify-between gap-3">
                           <div className="flex-1 min-w-0">
@@ -312,12 +312,18 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                           <div className="text-right shrink-0">
                             <p className="text-sm font-bold">
                               <span className="text-green-600">{calc}</span>
-                              <span className="text-muted-foreground font-normal"> / {row.picked}</span>
+                              <span className="text-muted-foreground font-normal"> / {row.picked} {row.uom}</span>
                             </p>
-                            {excess > 0 && (
-                              <p className="text-[10px] text-amber-600 font-medium">{excess} {row.uom} excess</p>
+                            {diff < 0 && (
+                              <p className="text-[10px] text-green-600 font-medium">
+                                {Math.abs(diff)} {row.uom} returning to stock
+                              </p>
                             )}
-                            <p className="text-[10px] text-muted-foreground">{row.uom}</p>
+                            {diff > 0 && (
+                              <p className="text-[10px] text-amber-600 font-medium">
+                                {diff} {row.uom} extra deducted from stock
+                              </p>
+                            )}
                           </div>
                         </div>
                       );
