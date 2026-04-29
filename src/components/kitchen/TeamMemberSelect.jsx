@@ -73,7 +73,6 @@ export default function TeamMemberSelect({ members, onSelect, onSelectMultiple, 
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="pl-9"
-              autoFocus
             />
           </div>
         </div>
