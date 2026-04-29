@@ -94,6 +94,21 @@ export const AuthProvider = ({ children }) => {
       // Now check if the user is authenticated
       setIsLoadingAuth(true);
       const currentUser = await base44.auth.me();
+      
+      // Fetch full User entity record to get custom fields (permissions, station, etc.)
+      // auth.me() only returns basic fields; the entity record has permission overrides
+      try {
+        const records = await base44.entities.User.filter({ email: currentUser.email }, 'email', 1);
+        if (records.length > 0) {
+          const entityRecord = records[0];
+          currentUser.permissions = entityRecord.permissions;
+          currentUser.station = entityRecord.station;
+          if (entityRecord.role) currentUser.role = entityRecord.role;
+        }
+      } catch (e) {
+        console.warn('Could not fetch user entity record for permissions:', e);
+      }
+      
       setUser(currentUser);
       setIsAuthenticated(true);
       setIsLoadingAuth(false);
