@@ -34,10 +34,10 @@ export function checkTaskDependencies(task, allTasks, bomComponents, allBoms, pi
   // PREP tasks have no upstream dependencies
   if (task.station === 'prep') return null;
 
-  // COOK tasks: simple — all prep tasks for same line_id must be done
+  // COOK tasks: all prep tasks for the SAME PRODUCT must be done
   if (task.station === 'cook') {
     const prepTasks = allTasks.filter(
-      t => t.station === 'prep' && t.line_id === task.line_id && !t.archived
+      t => t.station === 'prep' && t.product_id === task.product_id && !t.archived
     );
     const incomplete = prepTasks.filter(t => t.status !== 'done');
     if (incomplete.length > 0) {
@@ -128,7 +128,7 @@ export function getBlockedTaskIds(tasks, allTasks, bomComponentsMap, allBoms, pi
 
     if (task.station === 'cook') {
       const prepTasks = allTasks.filter(
-        t => t.station === 'prep' && t.line_id === task.line_id && !t.archived
+        t => t.station === 'prep' && t.product_id === task.product_id && !t.archived
       );
       if (prepTasks.length > 0 && prepTasks.some(t => t.status !== 'done')) {
         blocked.add(task.id);
