@@ -8,6 +8,7 @@ import { Utensils, Flame, ChefHat, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { logTaskEvent } from '@/lib/taskEventLog';
+import { checkTaskDependencies } from '@/lib/taskDependencyCheck';
 import FloorRunPicker from '@/components/floor/FloorRunPicker';
 import FloorStationPills from '@/components/floor/FloorStationPills';
 import FloorTaskList from '@/components/floor/FloorTaskList';
@@ -68,6 +69,27 @@ export default function FloorTasks() {
     queryFn: () => base44.entities.TeamMember.filter({ is_active: true }, 'name', 100),
   });
 
+  // BOM data for component-level dependency checking
+  const { data: allBoms = [] } = useQuery({
+    queryKey: ['floor-boms'],
+    queryFn: () => base44.entities.Bom.filter({ is_active: true }, '-created_date', 500),
+  });
+
+  const { data: allBomComponents = [] } = useQuery({
+    queryKey: ['floor-bom-components'],
+    queryFn: () => base44.entities.BomComponent.list('-created_date', 3000),
+  });
+
+  // Map: product_id → portion BOM components (for dependency checking)
+  const bomComponentsMap = useMemo(() => {
+    const portionBoms = allBoms.filter(b => b.bom_type === 'portion');
+    const map = {};
+    portionBoms.forEach(bom => {
+      map[bom.product_id] = allBomComponents.filter(c => c.bom_id === bom.id);
+    });
+    return map;
+  }, [allBoms, allBomComponents]);
+
   const selectedRun = runs.find(r => r.id === selectedRunId);
 
   // Filter tasks by selected station
@@ -83,21 +105,10 @@ export default function FloorTasks() {
     return { total, done, active, pending: total - done - active - stationTasks.filter(t => t.status === 'paused').length };
   }, [stationTasks]);
 
-  // Dependency check
+  // Dependency check — component-level for portioning
   const checkDependencies = (task) => {
-    if (!selectedRun?.pick_list_confirmed) {
-      return 'Pick list has not been confirmed yet. Stock must be picked first.';
-    }
-    const prereqStation = task.station === 'cook' ? 'prep' : task.station === 'portion' ? 'cook' : null;
-    if (!prereqStation) return null;
-    const prereqTasks = tasks.filter(t => t.station === prereqStation && t.line_id === task.line_id && !t.archived);
-    if (prereqTasks.length === 0) return null;
-    const incomplete = prereqTasks.filter(t => t.status !== 'done');
-    if (incomplete.length === 0) return null;
-    const names = incomplete.map(t => `"${t.name || t.meal_name}"`).join(', ');
-    return task.station === 'cook'
-      ? `First prepare ${names} before cooking.`
-      : `First finish cooking ${names} before portioning.`;
+    const comps = bomComponentsMap[task.product_id] || [];
+    return checkTaskDependencies(task, tasks, comps, allBoms, selectedRun?.pick_list_confirmed);
   };
 
   const handleStatusChange = async (taskId, newStatus) => {
@@ -315,6 +326,8 @@ export default function FloorTasks() {
           onOpenDetail={setActiveDetailTaskId}
           loading={loading}
           pickListConfirmed={selectedRun?.pick_list_confirmed}
+          bomComponentsMap={bomComponentsMap}
+          allBoms={allBoms}
           horizontal
         />
       )}

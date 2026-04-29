@@ -15,6 +15,7 @@ import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
 import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
 import DependencyBlockModal from '@/components/kitchen/DependencyBlockModal';
 import { logTaskEvent } from '@/lib/taskEventLog';
+import { checkTaskDependencies } from '@/lib/taskDependencyCheck';
 
 const STATIONS = [
   { id: 'prep', label: 'PREP', icon: Utensils, color: 'bg-blue-500' },
@@ -56,6 +57,26 @@ export default function Kanban() {
     queryFn: () => base44.entities.TeamMember.filter({ is_active: true }, 'name', 100),
   });
 
+  // BOM data for component-level dependency checking
+  const { data: allBoms = [] } = useQuery({
+    queryKey: ['kanban-boms'],
+    queryFn: () => base44.entities.Bom.filter({ is_active: true }, '-created_date', 500),
+  });
+
+  const { data: allBomComponents = [] } = useQuery({
+    queryKey: ['kanban-bom-components'],
+    queryFn: () => base44.entities.BomComponent.list('-created_date', 3000),
+  });
+
+  const bomComponentsMap = useMemo(() => {
+    const portionBoms = allBoms.filter(b => b.bom_type === 'portion');
+    const map = {};
+    portionBoms.forEach(bom => {
+      map[bom.product_id] = allBomComponents.filter(c => c.bom_id === bom.id);
+    });
+    return map;
+  }, [allBoms, allBomComponents]);
+
   // Fetch products to build category lookup (needed for Low Carb detection)
   const productIds = useMemo(() => [...new Set(tasks.map(t => t.product_id).filter(Boolean))], [tasks]);
   const { data: products = [] } = useQuery({
@@ -80,29 +101,10 @@ export default function Kanban() {
     return cols;
   }, [tasks]);
 
-  // Dependency check: prep→cook→portion + pick list must be confirmed
+  // Dependency check — component-level for portioning
   const checkDependencies = (task) => {
-    // Pick list must be confirmed before any task can start
-    if (!run?.pick_list_confirmed) {
-      return 'The pick list has not been confirmed yet. Stock must be picked from storage before kitchen tasks can begin. Go to the Pick List page to confirm.';
-    }
-
-    const prereqStation = task.station === 'cook' ? 'prep' : task.station === 'portion' ? 'cook' : null;
-    if (!prereqStation) return null;
-    const prereqTasks = tasks.filter(t =>
-      t.station === prereqStation &&
-      t.line_id === task.line_id &&
-      !t.archived
-    );
-    if (prereqTasks.length === 0) return null;
-    const incomplete = prereqTasks.filter(t => t.status !== 'done');
-    if (incomplete.length === 0) return null;
-
-    const taskNames = incomplete.map(t => `"${t.name || t.meal_name}"`).join(', ');
-    if (task.station === 'cook') {
-      return `First prepare ${taskNames} before you can start cooking ${task.meal_name || task.name}.`;
-    }
-    return `First finish cooking ${taskNames} before you can start portioning ${task.meal_name || task.name}.`;
+    const comps = bomComponentsMap[task.product_id] || [];
+    return checkTaskDependencies(task, tasks, comps, allBoms, run?.pick_list_confirmed);
   };
 
   const handleStatusChange = async (taskId, newStatus) => {

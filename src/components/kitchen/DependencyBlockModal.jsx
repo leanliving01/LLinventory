@@ -14,7 +14,15 @@ export default function DependencyBlockModal({ message, onClose }) {
           </Button>
         </div>
         <div className="px-6 py-6">
-          <p className="text-sm text-foreground leading-relaxed">{message}</p>
+          {message.includes('\n') ? (
+            <div className="text-sm text-foreground leading-relaxed space-y-1">
+              {message.split('\n').map((line, i) => (
+                <p key={i} className={line.startsWith('•') ? 'pl-2 font-medium' : ''}>{line}</p>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-foreground leading-relaxed">{message}</p>
+          )}
         </div>
         <div className="px-6 py-4 border-t border-border">
           <Button onClick={onClose} className="w-full h-12 text-base">

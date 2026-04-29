@@ -10,6 +10,7 @@ import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
 import DependencyBlockModal from '@/components/kitchen/DependencyBlockModal';
 import TaskDetailView from '@/components/kitchen/TaskDetailView';
 import { logTaskEvent } from '@/lib/taskEventLog';
+import { checkTaskDependencies } from '@/lib/taskDependencyCheck';
 
 export default function Kitchen() {
   const { user } = useAuth();
@@ -56,6 +57,26 @@ export default function Kitchen() {
     refetchInterval: 15000,
   });
 
+  // BOM data for component-level dependency checking
+  const { data: allBoms = [] } = useQuery({
+    queryKey: ['kitchen-boms'],
+    queryFn: () => base44.entities.Bom.filter({ is_active: true }, '-created_date', 500),
+  });
+
+  const { data: allBomComponents = [] } = useQuery({
+    queryKey: ['kitchen-bom-components'],
+    queryFn: () => base44.entities.BomComponent.list('-created_date', 3000),
+  });
+
+  const bomComponentsMap = useMemo(() => {
+    const portionBoms = allBoms.filter(b => b.bom_type === 'portion');
+    const map = {};
+    portionBoms.forEach(bom => {
+      map[bom.product_id] = allBomComponents.filter(c => c.bom_id === bom.id);
+    });
+    return map;
+  }, [allBoms, allBomComponents]);
+
   // Load team members for this station (supports both old `station` and new `stations` array)
   const { data: allStationMembers = [] } = useQuery({
     queryKey: ['team-members-all'],
@@ -76,31 +97,10 @@ export default function Kitchen() {
 
   const doneCount = tasks.filter(t => t.status === 'done').length;
 
-  // Check if prerequisite station tasks are done for a given task + pick list
+  // Dependency check — component-level for portioning
   const checkDependencies = (task) => {
-    // Pick list must be confirmed before any task can start
-    if (!activeRun?.pick_list_confirmed) {
-      return 'The pick list has not been confirmed yet. Stock must be picked from storage before kitchen tasks can begin.';
-    }
-
-    const prereqStation = task.station === 'cook' ? 'prep' : task.station === 'portion' ? 'cook' : null;
-    if (!prereqStation) return null;
-
-    const prereqTasks = allRunTasks.filter(t =>
-      t.station === prereqStation &&
-      t.line_id === task.line_id &&
-      !t.archived
-    );
-
-    if (prereqTasks.length === 0) return null;
-    const incomplete = prereqTasks.filter(t => t.status !== 'done');
-    if (incomplete.length === 0) return null;
-
-    const taskNames = incomplete.map(t => `"${t.name || t.meal_name}"`).join(', ');
-    if (task.station === 'cook') {
-      return `First prepare ${taskNames} before you can start cooking ${task.meal_name || task.name}.`;
-    }
-    return `First finish cooking ${taskNames} before you can start portioning ${task.meal_name || task.name}.`;
+    const comps = bomComponentsMap[task.product_id] || [];
+    return checkTaskDependencies(task, allRunTasks, comps, allBoms, activeRun?.pick_list_confirmed);
   };
 
   const handleStatusChange = async (taskId, newStatus) => {

@@ -1,31 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import FloorTaskCard from './FloorTaskCard';
+import { getBlockedTaskIds } from '@/lib/taskDependencyCheck';
 
 /**
  * Renders station tasks grouped: active first, then pending (ready above blocked), then done (collapsed).
  * Max 15 visible by default per non-negotiable rule.
  * allTasks = all tasks in the run (across stations) — used for dependency checking.
  */
-export default function FloorTaskList({ tasks, allTasks, taskLogs, onStatusChange, onOpenDetail, loading, pickListConfirmed, horizontal }) {
-  // Build a set of blocked task IDs (pending tasks whose prerequisite stage isn't done)
+export default function FloorTaskList({ tasks, allTasks, taskLogs, onStatusChange, onOpenDetail, loading, pickListConfirmed, bomComponentsMap, allBoms, horizontal }) {
+  // Build a set of blocked task IDs using component-level dependency checking
   const blockedIds = useMemo(() => {
-    const blocked = new Set();
-    if (!pickListConfirmed) {
-      // If pick list not confirmed, ALL pending tasks are blocked
-      tasks.filter(t => t.status === 'pending').forEach(t => blocked.add(t.id));
-      return blocked;
-    }
-    const lookup = allTasks || tasks;
-    tasks.filter(t => t.status === 'pending').forEach(task => {
-      const prereqStation = task.station === 'cook' ? 'prep' : task.station === 'portion' ? 'cook' : null;
-      if (!prereqStation) return;
-      const prereqs = lookup.filter(t => t.station === prereqStation && t.line_id === task.line_id && !t.archived);
-      if (prereqs.length > 0 && prereqs.some(t => t.status !== 'done')) {
-        blocked.add(task.id);
-      }
-    });
-    return blocked;
-  }, [tasks, allTasks, pickListConfirmed]);
+    return getBlockedTaskIds(tasks, allTasks || tasks, bomComponentsMap || {}, allBoms || [], pickListConfirmed);
+  }, [tasks, allTasks, pickListConfirmed, bomComponentsMap, allBoms]);
 
   const { active, pendingReady, pendingBlocked, done } = useMemo(() => {
     const active = tasks.filter(t => t.status === 'in_progress' || t.status === 'paused');
