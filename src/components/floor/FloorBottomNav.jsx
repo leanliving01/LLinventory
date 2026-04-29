@@ -43,8 +43,8 @@ export default function FloorBottomNav() {
                   : "text-muted-foreground active:text-foreground"
               )}
             >
-              <item.icon className={cn("w-6 h-6 mb-0.5", isActive && "text-primary")} />
-              <span className="text-[10px] font-medium leading-tight">{item.label}</span>
+              <item.icon className={cn("w-5 h-5 mb-0.5 shrink-0", isActive && "text-primary")} />
+              <span className="text-[10px] font-medium leading-tight text-center">{item.label}</span>
             </Link>
           );
         })}
