@@ -219,7 +219,29 @@ export default function FloorTasks() {
       const summary = consumption.filter(c => c.actual !== c.picked || (c.unusable_wastage || 0) > 0)
         .map(c => `${c.name}: picked ${c.picked}, used ${c.actual} ${c.uom}${c.unusable_wastage > 0 ? `, waste ${c.unusable_wastage}` : ''}`)
         .join('; ');
-      await base44.entities.ProductionTask.update(taskId, { status: 'done', finished_at: new Date().toISOString(), notes: summary || undefined });
+
+      // Record actual yield as a production_yield stock movement
+      const actualYield = meta.actual_yield;
+      const plannedYield = task.qty || 0;
+      let yieldNote = summary || '';
+      if (actualYield != null && task.product_id) {
+        await base44.entities.StockMovement.create({
+          product_id: task.product_id,
+          product_sku: task.product_sku || '',
+          product_name: task.meal_name || task.name || '',
+          qty: actualYield,
+          uom: task.qty_uom || '',
+          reason: 'production_yield',
+          ref_type: 'production_run',
+          ref_id: selectedRunId,
+          notes: `[task:${taskId}] Yield: planned ${plannedYield}, actual ${actualYield} ${task.qty_uom || ''}`,
+        });
+        if (actualYield !== plannedYield) {
+          yieldNote = `Yield: ${actualYield} ${task.qty_uom || ''} (planned ${plannedYield})${yieldNote ? ' | ' + yieldNote : ''}`;
+        }
+      }
+
+      await base44.entities.ProductionTask.update(taskId, { status: 'done', finished_at: new Date().toISOString(), notes: yieldNote || summary || undefined });
     }
 
     setPendingDone(null);

@@ -10,6 +10,7 @@ import { X, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react';
 export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
   const [actuals, setActuals] = useState({});
   const [wastage, setWastage] = useState({});
+  const [actualYield, setActualYield] = useState('');
   const [platesProduced, setPlatesProduced] = useState('');
   const [varianceNote, setVarianceNote] = useState('');
   const [confirming, setConfirming] = useState(false);
@@ -131,7 +132,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
         variance_note: varianceNote.trim(),
       });
     } else {
-      // Prep/Cook flow: manual actual + unusable wastage
+      // Prep/Cook flow: manual actual + unusable wastage + actual yield
       const consumption = componentRows.map(r => ({
         component_id: r.id,
         input_product_id: r.input_product_id,
@@ -144,7 +145,10 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
         cost_per_unit: r.cost_per_unit,
         is_portioning: false,
       }));
-      await onConfirm(task.id, consumption, {});
+      const yieldVal = actualYield !== '' ? Number(actualYield) : null;
+      await onConfirm(task.id, consumption, {
+        actual_yield: yieldVal,
+      });
     }
     setConfirming(false);
   };
@@ -265,8 +269,41 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
           ) : (
             /* ===== PREP / COOK FLOW ===== */
             <>
+              {/* Actual Yield */}
+              <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold">Actual Yield</p>
+                    <p className="text-xs text-muted-foreground">
+                      Planned: {task.qty != null ? (Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)) : '—'} {task.qty_uom || ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder={String(task.qty || 0)}
+                      value={actualYield}
+                      onChange={e => setActualYield(e.target.value)}
+                      className="w-28 h-12 text-right text-lg font-bold"
+                    />
+                    <span className="text-sm text-muted-foreground">{task.qty_uom || ''}</span>
+                  </div>
+                </div>
+                {actualYield !== '' && Number(actualYield) !== (task.qty || 0) && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-500" />
+                    <p className="text-xs font-medium text-amber-600">
+                      {Number(actualYield) < (task.qty || 0)
+                        ? `${((task.qty || 0) - Number(actualYield)).toFixed(2)} ${task.qty_uom || ''} under planned`
+                        : `${(Number(actualYield) - (task.qty || 0)).toFixed(2)} ${task.qty_uom || ''} over planned`}
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <p className="text-sm text-muted-foreground">
-                Confirm actual quantities consumed for <strong>{task.meal_name || task.name}</strong> (Qty: {task.qty || 1}).
+                Confirm actual quantities consumed for <strong>{task.meal_name || task.name}</strong>.
                 Record any unusable waste (peels, skins, off-cuts).
               </p>
 
