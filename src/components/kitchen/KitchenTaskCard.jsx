@@ -50,10 +50,12 @@ export default function KitchenTaskCard({ task, onStatusChange, onTap, loading, 
           </div>
         </div>
         <div className="text-right shrink-0">
-          {task.qty && (
-            <div className="text-3xl font-bold tabular-nums">{task.qty}</div>
+          {task.qty != null && (
+            <div className="text-3xl font-bold tabular-nums">
+              {Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)}
+            </div>
           )}
-          <span className="text-xs text-muted-foreground">{task.qty_uom || 'units'}</span>
+          <span className="text-xs text-muted-foreground">{task.qty_uom || (task.station === 'portion' ? 'pcs' : 'units')}</span>
         </div>
       </div>
 

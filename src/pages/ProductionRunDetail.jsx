@@ -197,24 +197,26 @@ export default function ProductionRunDetail() {
     const productMap = {};
     products.forEach(p => { productMap[p.id] = p; });
 
-    // Aggregate total qty needed per WIP product across all lines
-    const wipQtyNeeded = {}; // { productId: totalQty }
+    // Aggregate total WIP qty needed per bulk product across ALL lines.
+    // Key = WIP product_id, value = total kg/L needed (in WIP's stock_uom).
+    // Walks every Portion BOM component that has a Cook BOM, then sums
+    // (comp.qty ÷ portionBom.yield_qty) × line.planned_qty across lines.
+    const wipQtyNeeded = {};
     for (const line of lines) {
       const portionBom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
       if (!portionBom) continue;
       const portionComps = compsByBom[portionBom.id] || [];
       for (const comp of portionComps) {
-        const cookBom = boms.find(b => b.product_id === comp.input_product_id && b.bom_type === 'cook');
-        if (!cookBom) continue;
-        // Calculate total raw qty needed for this WIP from its Cook BOM
-        const cookComps = compsByBom[cookBom.id] || [];
+        // Only WIP ingredients that have their own Cook BOM
+        const hasCookBom = boms.some(b => b.product_id === comp.input_product_id && b.bom_type === 'cook');
+        if (!hasCookBom) continue;
         const perUnit = comp.qty / (portionBom.yield_qty || 1);
         const totalForLine = perUnit * line.planned_qty;
-        // Sum Cook BOM total yield needed (in yield_uom) — qty is the WIP amount
-        if (!wipQtyNeeded[comp.input_product_id]) wipQtyNeeded[comp.input_product_id] = 0;
-        wipQtyNeeded[comp.input_product_id] += totalForLine;
+        wipQtyNeeded[comp.input_product_id] = (wipQtyNeeded[comp.input_product_id] || 0) + totalForLine;
       }
     }
+
+    console.log('[TaskGen] WIP qty needed:', JSON.stringify(wipQtyNeeded));
 
     // Collect unique WIP products from all lines' Portion BOMs to generate Cook tasks
     const wipTasksCreated = new Set();
@@ -233,8 +235,17 @@ export default function ProductionRunDetail() {
         if (!cookBom || wipTasksCreated.has(cookBom.id)) continue;
         wipTasksCreated.add(cookBom.id);
 
-        // Total qty for this WIP across all lines (in the WIP's stock_uom)
-        const totalWipQty = wipQtyNeeded[inputProduct.id] || line.planned_qty;
+        // Total qty for this WIP across all lines (in the WIP's stock_uom).
+        // Use the aggregated value — NEVER fall back to line.planned_qty (that's meal count, not kg).
+        const totalWipQty = Math.round((wipQtyNeeded[inputProduct.id] || 0) * 100) / 100;
+        const wipUom = inputProduct.stock_uom || cookBom.yield_uom || 'kg';
+
+        if (totalWipQty <= 0) {
+          console.warn(`[TaskGen] Skipping ${inputProduct.sku}: wipQtyNeeded=0`);
+          continue;
+        }
+
+        console.log(`[TaskGen] ${inputProduct.sku} (${inputProduct.name}): ${totalWipQty} ${wipUom}`);
 
         const cookOps = opsByBom[cookBom.id] || [];
         if (cookOps.length > 0) {
@@ -249,7 +260,7 @@ export default function ProductionRunDetail() {
               station: op.station,
               step_no: op.step_no,
               qty: totalWipQty,
-              qty_uom: inputProduct.stock_uom || 'kg',
+              qty_uom: wipUom,
               status: 'pending',
               notes: op.notes || '',
               _equipment_id: op.equipment_id || null,
@@ -266,7 +277,7 @@ export default function ProductionRunDetail() {
             station: 'cook',
             step_no: 1,
             qty: totalWipQty,
-            qty_uom: inputProduct.stock_uom || 'kg',
+            qty_uom: wipUom,
             status: 'pending',
             _equipment_id: null,
           });

@@ -112,8 +112,8 @@ export default function KanbanColumn({ station, tasks, onStatusChange, taskLogs 
                   </Badge>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  {task.qty && (
-                    <p className="text-xs text-muted-foreground">Qty: <strong>{task.qty}{task.qty_uom ? ` ${task.qty_uom}` : ''}</strong></p>
+                  {task.qty != null && (
+                    <p className="text-xs text-muted-foreground">Qty: <strong>{Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)}{task.qty_uom ? ` ${task.qty_uom}` : (task.station === 'portion' ? ' pcs' : '')}</strong></p>
                   )}
                   {task.total_batches > 1 && (
                     <Badge className="bg-purple-100 text-purple-700 text-[9px] gap-0.5">

@@ -31,10 +31,12 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
   const isActive = task.status === 'in_progress';
   const isPaused = task.status === 'paused';
 
-  // Fetch BOM for this product + station
+  // Fetch BOM for this product + station.
+  // Prep and cook tasks both belong to the Cook BOM layer. Portion tasks use their own Portion BOM.
+  const bomType = task.station === 'portion' ? 'portion' : 'cook';
   const { data: boms = [] } = useQuery({
-    queryKey: ['task-bom', task.product_id, task.station],
-    queryFn: () => base44.entities.Bom.filter({ product_id: task.product_id, bom_type: task.station, is_active: true }),
+    queryKey: ['task-bom', task.product_id, bomType],
+    queryFn: () => base44.entities.Bom.filter({ product_id: task.product_id, bom_type: bomType, is_active: true }),
     enabled: !!task.product_id,
   });
   const bom = boms[0] || null;
@@ -82,8 +84,10 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
             </div>
           </div>
           <div className="text-right shrink-0">
-            <div className="text-2xl font-bold tabular-nums">{task.qty || '—'}</div>
-            <span className="text-[10px] text-muted-foreground">{task.qty_uom || 'units'}</span>
+            <div className="text-2xl font-bold tabular-nums">
+              {task.qty != null ? (Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)) : '—'}
+            </div>
+            <span className="text-[10px] text-muted-foreground">{task.qty_uom || (task.station === 'portion' ? 'pcs' : 'units')}</span>
           </div>
         </div>
 

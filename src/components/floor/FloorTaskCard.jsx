@@ -59,8 +59,10 @@ export default function FloorTaskCard({ task, taskLogs, onStatusChange, onOpenDe
           </div>
         </div>
         <div className="text-right shrink-0">
-          <div className="text-2xl font-bold tabular-nums">{task.qty || '—'}</div>
-          <span className="text-[10px] text-muted-foreground">{task.qty_uom || 'units'}</span>
+          <div className="text-2xl font-bold tabular-nums">
+            {task.qty != null ? (Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)) : '—'}
+          </div>
+          <span className="text-[10px] text-muted-foreground">{task.qty_uom || (task.station === 'portion' ? 'pcs' : 'units')}</span>
         </div>
       </div>
 

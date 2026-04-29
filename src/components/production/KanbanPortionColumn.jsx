@@ -153,8 +153,8 @@ export default function KanbanPortionColumn({ station, tasks, onStatusChange, ta
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {task.qty && (
-                      <p className={cn("text-xs opacity-80", pkgColor.text || 'text-muted-foreground')}>Qty: <strong>{task.qty}</strong></p>
+                    {task.qty != null && (
+                      <p className={cn("text-xs opacity-80", pkgColor.text || 'text-muted-foreground')}>Qty: <strong>{task.qty} {task.qty_uom || 'pcs'}</strong></p>
                     )}
                     {task.assigned_name && (
                       <Badge variant="outline" className="text-[10px]">{task.assigned_name}</Badge>
