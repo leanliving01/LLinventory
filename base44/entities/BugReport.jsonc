@@ -1,0 +1,45 @@
+{
+  "name": "BugReport",
+  "type": "object",
+  "properties": {
+    "subject": {
+      "type": "string",
+      "description": "Brief subject of the bug"
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed description of the bug"
+    },
+    "page_route": {
+      "type": "string",
+      "description": "Page route where the bug was reported from"
+    },
+    "ai_prompt": {
+      "type": "string",
+      "description": "AI-generated fix prompt"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "new",
+        "in_progress",
+        "resolved",
+        "closed"
+      ],
+      "default": "new",
+      "description": "Bug status"
+    },
+    "reporter_name": {
+      "type": "string",
+      "description": "Name of the user who reported the bug"
+    },
+    "reporter_email": {
+      "type": "string",
+      "description": "Email of the user who reported the bug"
+    }
+  },
+  "required": [
+    "subject",
+    "description"
+  ]
+}

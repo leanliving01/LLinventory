@@ -27,11 +27,11 @@ import {
   AlertTriangle,
   Wrench,
   TrendingUp,
-  Search
+  Search,
+  Bug
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
-import BugReporter from './BugReporter';
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -82,6 +82,7 @@ const navItems = [
       { label: 'Quick Scan', path: '/floor/scan', icon: Barcode },
     ]
   },
+  { label: 'Bugs', path: '/bugs', icon: Bug },
   { label: 'Settings', path: '/settings', icon: Settings },
 ];
 
@@ -214,9 +215,6 @@ export default function Sidebar({ collapsed, onToggle }) {
           );
         })}
       </nav>
-
-      {/* Bug reporter */}
-      {!collapsed && <BugReporter />}
 
       {/* Dark mode + Collapse toggle */}
       <div className="border-t border-sidebar-border">
