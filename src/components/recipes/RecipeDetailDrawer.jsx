@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { X, Package, Utensils, Plus, Trash2, Save, Loader2, ArrowRightLeft, BookOpen, FileText } from 'lucide-react';
+import { X, Package, Utensils, Plus, Trash2, Save, Loader2, ArrowRightLeft, BookOpen, FileText, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import AddComponentModal from '@/components/recipes/AddComponentModal';
@@ -108,6 +108,23 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
     toast.success('Ingredient added');
   };
 
+  const handleDeleteBom = async () => {
+    if (!window.confirm(`Delete the entire "${bom.product_name}" ${LAYER_LABELS[bom.bom_type]} BOM? This will also delete all its components and operations. This cannot be undone.`)) return;
+    setSaving(true);
+    // Delete all components and operations first
+    const [comps, ops] = await Promise.all([
+      base44.entities.BomComponent.filter({ bom_id: bom.id }),
+      base44.entities.BomOperation.filter({ bom_id: bom.id }),
+    ]);
+    for (const c of comps) await base44.entities.BomComponent.delete(c.id);
+    for (const o of ops) await base44.entities.BomOperation.delete(o.id);
+    await base44.entities.Bom.delete(bom.id);
+    setSaving(false);
+    onUpdated?.();
+    onClose();
+    toast.success('BOM deleted');
+  };
+
   const renderComponentTable = (comps, title, icon) => (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -196,9 +213,14 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
             <p className="text-xs text-muted-foreground font-mono">{bom.product_sku}</p>
             <p className="text-xs text-muted-foreground mt-1">{LAYER_DESC[bom.bom_type]}</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="w-5 h-5" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={handleDeleteBom} title="Delete this BOM">
+              <Trash2 className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
         </div>
 
         {/* Content */}
