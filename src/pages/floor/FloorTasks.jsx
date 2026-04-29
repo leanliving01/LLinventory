@@ -239,6 +239,17 @@ export default function FloorTasks() {
         if (actualYield !== plannedYield) {
           yieldNote = `Yield: ${actualYield} ${task.qty_uom || ''} (planned ${plannedYield})${yieldNote ? ' | ' + yieldNote : ''}`;
         }
+
+        // Cascade actual yield to the downstream task (prep→cook, cook→portion)
+        const nextStation = task.station === 'prep' ? 'cook' : task.station === 'cook' ? 'portion' : null;
+        if (nextStation) {
+          const downstream = tasks.filter(
+            t => t.station === nextStation && t.product_id === task.product_id && !t.archived && t.status !== 'done'
+          );
+          for (const dt of downstream) {
+            await base44.entities.ProductionTask.update(dt.id, { qty: actualYield });
+          }
+        }
       }
 
       await base44.entities.ProductionTask.update(taskId, { status: 'done', finished_at: new Date().toISOString(), notes: yieldNote || summary || undefined });
