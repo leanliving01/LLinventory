@@ -123,7 +123,7 @@ export default function EquipmentManager() {
   const existingTypes = [...new Set(equipment.map(e => e.equipment_type).filter(Boolean))].sort();
 
   return (
-    <div className="space-y-4 max-w-4xl">
+    <div className="space-y-4 max-w-5xl">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link to="/settings">
@@ -245,100 +245,109 @@ export default function EquipmentManager() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.map(eq => editingId === eq.id ? (
-                <tr key={eq.id} className="bg-primary/5">
-                  <td className="px-4 py-2 font-medium">
-                    <Input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="h-8 text-sm" placeholder="Name" />
-                  </td>
-                  <td className="px-3 py-2">
-                    <Input value={editForm.equipment_type} onChange={e => setEditForm(f => ({ ...f, equipment_type: e.target.value }))} className="h-8 text-sm" placeholder="Type" list="eq-types-edit" />
-                    <datalist id="eq-types-edit">{existingTypes.map(t => <option key={t} value={t} />)}</datalist>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1">
-                      <Input type="number" min="0" step="0.1" value={editForm.default_capacity} onChange={e => setEditForm(f => ({ ...f, default_capacity: e.target.value }))} className="h-8 text-sm w-20" placeholder="Cap" />
-                      <Select value={editForm.default_capacity_uom} onValueChange={v => setEditForm(f => ({ ...f, default_capacity_uom: v }))}>
-                        <SelectTrigger className="h-8 text-xs w-16"><SelectValue /></SelectTrigger>
-                        <SelectContent>{UOM_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+              {filtered.map(eq => (
+                <React.Fragment key={eq.id}>
+                  <tr className={editingId === eq.id ? 'bg-primary/5' : 'hover:bg-muted/20'}>
+                    <td className="px-4 py-2.5 font-medium">
+                      <div className="flex items-center gap-2">
+                        <Wrench className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <span className="whitespace-normal">{eq.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-muted-foreground">{eq.equipment_type}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">
+                      {eq.default_capacity ? `${eq.default_capacity} ${eq.default_capacity_uom || ''}` : '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">
+                      {eq.tray_count ? `${eq.tray_count} × ${eq.per_tray_capacity || '?'} ${eq.per_tray_uom || ''}` : '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <Select value={eq.status} onValueChange={v => handleStatusChange(eq.id, v)}>
+                        <SelectTrigger className="h-7 text-xs w-28 mx-auto">
+                          <Badge className={`${STATUS_STYLES[eq.status]} text-[10px]`}>{eq.status}</Badge>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="maintenance">Maintenance</SelectItem>
+                          <SelectItem value="retired">Retired</SelectItem>
+                        </SelectContent>
                       </Select>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1">
-                      <Input type="number" min="0" value={editForm.tray_count} onChange={e => setEditForm(f => ({ ...f, tray_count: e.target.value }))} className="h-8 text-sm w-14" placeholder="#" />
-                      <span className="text-xs text-muted-foreground">×</span>
-                      <Input type="number" min="0" step="0.1" value={editForm.per_tray_capacity} onChange={e => setEditForm(f => ({ ...f, per_tray_capacity: e.target.value }))} className="h-8 text-sm w-16" placeholder="Cap" />
-                      <Select value={editForm.per_tray_uom} onValueChange={v => setEditForm(f => ({ ...f, per_tray_uom: v }))}>
-                        <SelectTrigger className="h-8 text-xs w-16"><SelectValue /></SelectTrigger>
-                        <SelectContent>{UOM_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <Select value={eq.status} onValueChange={v => handleStatusChange(eq.id, v)}>
-                      <SelectTrigger className="h-7 text-xs w-28 mx-auto">
-                        <Badge className={`${STATUS_STYLES[eq.status]} text-[10px]`}>{eq.status}</Badge>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="active">Active</SelectItem>
-                        <SelectItem value="maintenance">Maintenance</SelectItem>
-                        <SelectItem value="retired">Retired</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </td>
-                  <td className="px-3 py-2">
-                    <Input value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} className="h-8 text-sm" placeholder="Notes" />
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="flex items-center gap-1 justify-end">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700" onClick={handleSaveEdit} disabled={saving}>
-                        {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => setEditingId(null)}>
-                        <X className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                <tr key={eq.id} className="hover:bg-muted/20">
-                  <td className="px-4 py-2.5 font-medium">
-                    <div className="flex items-center gap-2">
-                      <Wrench className="w-4 h-4 text-muted-foreground shrink-0" />
-                      {eq.name}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5 text-muted-foreground">{eq.equipment_type}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">
-                    {eq.default_capacity ? `${eq.default_capacity} ${eq.default_capacity_uom || ''}` : '—'}
-                  </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">
-                    {eq.tray_count ? `${eq.tray_count} × ${eq.per_tray_capacity || '?'} ${eq.per_tray_uom || ''}` : '—'}
-                  </td>
-                  <td className="px-3 py-2.5 text-center">
-                    <Select value={eq.status} onValueChange={v => handleStatusChange(eq.id, v)}>
-                      <SelectTrigger className="h-7 text-xs w-28 mx-auto">
-                        <Badge className={`${STATUS_STYLES[eq.status]} text-[10px]`}>{eq.status}</Badge>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="active">Active</SelectItem>
-                        <SelectItem value="maintenance">Maintenance</SelectItem>
-                        <SelectItem value="retired">Retired</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </td>
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground max-w-[200px] truncate">{eq.notes || '—'}</td>
-                  <td className="px-3 py-2.5 text-right">
-                    <div className="flex items-center gap-0.5 justify-end">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={() => startEdit(eq)}>
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => handleDelete(eq.id)}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                      <span className="block max-w-[200px] truncate" title={eq.notes || ''}>{eq.notes || '—'}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <div className="flex items-center gap-0.5 justify-end">
+                        {editingId === eq.id ? (
+                          <>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700" onClick={handleSaveEdit} disabled={saving}>
+                              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => setEditingId(null)}>
+                              <X className="w-3.5 h-3.5" />
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={() => startEdit(eq)}>
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => handleDelete(eq.id)}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                  {editingId === eq.id && (
+                    <tr className="bg-primary/5">
+                      <td colSpan={7} className="px-4 py-4">
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                          <div>
+                            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Name</label>
+                            <Input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="h-9" placeholder="Name" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Type</label>
+                            <Input value={editForm.equipment_type} onChange={e => setEditForm(f => ({ ...f, equipment_type: e.target.value }))} className="h-9" placeholder="Type" list="eq-types-edit" />
+                            <datalist id="eq-types-edit">{existingTypes.map(t => <option key={t} value={t} />)}</datalist>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3 mb-3">
+                          <div>
+                            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Default Capacity</label>
+                            <div className="flex items-center gap-2">
+                              <Input type="number" min="0" step="0.1" value={editForm.default_capacity} onChange={e => setEditForm(f => ({ ...f, default_capacity: e.target.value }))} className="h-9 flex-1" placeholder="e.g. 20" />
+                              <Select value={editForm.default_capacity_uom} onValueChange={v => setEditForm(f => ({ ...f, default_capacity_uom: v }))}>
+                                <SelectTrigger className="h-9 w-20"><SelectValue /></SelectTrigger>
+                                <SelectContent>{UOM_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Tray Count</label>
+                            <Input type="number" min="0" value={editForm.tray_count} onChange={e => setEditForm(f => ({ ...f, tray_count: e.target.value }))} className="h-9" placeholder="e.g. 10" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Per-Tray Capacity</label>
+                            <div className="flex items-center gap-2">
+                              <Input type="number" min="0" step="0.1" value={editForm.per_tray_capacity} onChange={e => setEditForm(f => ({ ...f, per_tray_capacity: e.target.value }))} className="h-9 flex-1" placeholder="e.g. 5" />
+                              <Select value={editForm.per_tray_uom} onValueChange={v => setEditForm(f => ({ ...f, per_tray_uom: v }))}>
+                                <SelectTrigger className="h-9 w-20"><SelectValue /></SelectTrigger>
+                                <SelectContent>{UOM_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Notes</label>
+                          <Input value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} className="h-9" placeholder="Optional notes" />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>
