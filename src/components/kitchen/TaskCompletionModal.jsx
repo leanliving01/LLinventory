@@ -456,7 +456,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
           <Button
             className="flex-1 h-12 gap-2 bg-green-600 hover:bg-green-700 text-white"
             onClick={handleConfirm}
-            disabled={confirming || (isPortioning && !platesProduced)}
+            disabled={confirming || (isPortioning && platesProduced === '')}
           >
             {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
             Confirm Done
