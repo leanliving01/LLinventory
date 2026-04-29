@@ -93,18 +93,16 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               </SelectContent>
             </Select>
           </FormField>
-          <FormField label="Status">
-            <Select value={formData.status || 'active'} onValueChange={v => set('status', v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="archived">Archived</SelectItem>
-              </SelectContent>
-            </Select>
-          </FormField>
           <FormField label="Weight (grams)">
             <Input type="number" value={formData.weight_g || ''} onChange={e => set('weight_g', e.target.value ? Number(e.target.value) : null)} />
           </FormField>
+        </div>
+        <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
+          <div>
+            <p className="text-sm font-medium">Active</p>
+            <p className="text-xs text-muted-foreground">Inactive products are hidden from production and ordering</p>
+          </div>
+          <Switch checked={(formData.status || 'active') === 'active'} onCheckedChange={v => set('status', v ? 'active' : 'archived')} />
         </div>
         <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
           <div>
