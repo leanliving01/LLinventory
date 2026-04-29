@@ -661,7 +661,7 @@ export default function ProductionRunDetail() {
             </Link>
           )}
           {(run.status === 'in_progress') && (
-            <Link to={`/production/run/${runId}/kanban`}>
+            <Link to={`/floor/tasks?runId=${runId}`}>
               <Button variant="outline" size="sm" className="gap-1.5">
                 <LayoutGrid className="w-4 h-4" /> Kitchen Board
               </Button>

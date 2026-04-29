@@ -25,7 +25,9 @@ const STATIONS = [
 export default function FloorTasks() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [selectedRunId, setSelectedRunId] = useState(null);
+  // Accept ?runId=xxx from production run detail page
+  const urlRunId = useMemo(() => new URLSearchParams(window.location.search).get('runId'), []);
+  const [selectedRunId, setSelectedRunId] = useState(urlRunId || null);
   const [selectedStation, setSelectedStation] = useState(user?.station || 'prep');
   const [activeDetailTaskId, setActiveDetailTaskId] = useState(null);
   const [pendingStart, setPendingStart] = useState(null);
