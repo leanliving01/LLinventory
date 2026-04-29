@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
+import BugReporter from './BugReporter';
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -213,6 +214,9 @@ export default function Sidebar({ collapsed, onToggle }) {
           );
         })}
       </nav>
+
+      {/* Bug reporter */}
+      {!collapsed && <BugReporter />}
 
       {/* Dark mode + Collapse toggle */}
       <div className="border-t border-sidebar-border">
