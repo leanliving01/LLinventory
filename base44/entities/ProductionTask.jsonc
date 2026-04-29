@@ -79,11 +79,19 @@
     },
     "assigned_to": {
       "type": "string",
-      "description": "FK to TeamMember \u2014 who is working on this task"
+      "description": "FK to TeamMember \u2014 who is working on this task (single person, prep/cook)"
     },
     "assigned_name": {
       "type": "string",
-      "description": "Denormalized team member name for display"
+      "description": "Denormalized team member name for display (single person)"
+    },
+    "assigned_members": {
+      "type": "string",
+      "description": "JSON array of team member IDs for multi-person tasks (portioning). e.g. [\"id1\",\"id2\"]"
+    },
+    "assigned_members_names": {
+      "type": "string",
+      "description": "Comma-separated names for multi-person display. e.g. 'John, Sarah, Mike'"
     },
     "notes": {
       "type": "string",

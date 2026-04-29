@@ -36,7 +36,11 @@
     },
     "assigned_name": {
       "type": "string",
-      "description": "Who was assigned at time of event"
+      "description": "Who was assigned at time of event (single person)"
+    },
+    "assigned_members_names": {
+      "type": "string",
+      "description": "Comma-separated names for group tasks (portioning)"
     },
     "timestamp": {
       "type": "string",

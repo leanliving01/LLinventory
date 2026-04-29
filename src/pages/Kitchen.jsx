@@ -114,8 +114,9 @@ export default function Kitchen() {
         return;
       }
       // If starting fresh (not resuming) and team members exist, ask for name
-      if (!task.started_at && teamMembers.length > 0 && !task.assigned_to) {
-        setPendingStart({ taskId, newStatus });
+      const alreadyAssigned = task.assigned_to || (task.assigned_members && task.assigned_members !== '[]');
+      if (!task.started_at && teamMembers.length > 0 && !alreadyAssigned) {
+        setPendingStart({ taskId, newStatus, isPortioning: task.station === 'portion' });
         return;
       }
     }
@@ -255,13 +256,27 @@ export default function Kitchen() {
     if (!pendingStart) return;
     const { taskId, newStatus } = pendingStart;
     setPendingStart(null);
-    // Assign member and then start
     await base44.entities.ProductionTask.update(taskId, {
       assigned_to: member.id,
       assigned_name: member.name,
     });
     await doStatusChange(taskId, newStatus);
-    // Open detail view when starting a task
+    if (newStatus === 'in_progress') setActiveTaskId(taskId);
+  };
+
+  const handleTeamMultiSelected = async (members) => {
+    if (!pendingStart) return;
+    const { taskId, newStatus } = pendingStart;
+    setPendingStart(null);
+    const ids = JSON.stringify(members.map(m => m.id));
+    const names = members.map(m => m.name).join(', ');
+    await base44.entities.ProductionTask.update(taskId, {
+      assigned_members: ids,
+      assigned_members_names: names,
+      assigned_to: members[0]?.id,
+      assigned_name: names,
+    });
+    await doStatusChange(taskId, newStatus);
     if (newStatus === 'in_progress') setActiveTaskId(taskId);
   };
 
@@ -338,7 +353,7 @@ export default function Kitchen() {
           <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} />
         )}
         {pendingStart && (
-          <TeamMemberSelect members={teamMembers} station={station} onSelect={handleTeamMemberSelected} onCancel={() => setPendingStart(null)} />
+          <TeamMemberSelect members={teamMembers} station={station} multiSelect={pendingStart.isPortioning} onSelect={handleTeamMemberSelected} onSelectMultiple={handleTeamMultiSelected} onCancel={() => setPendingStart(null)} />
         )}
       </>
     );
@@ -431,7 +446,9 @@ export default function Kitchen() {
           <TeamMemberSelect
             members={teamMembers}
             station={station}
+            multiSelect={pendingStart.isPortioning}
             onSelect={handleTeamMemberSelected}
+            onSelectMultiple={handleTeamMultiSelected}
             onCancel={() => setPendingStart(null)}
           />
         )}

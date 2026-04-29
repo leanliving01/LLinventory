@@ -11,6 +11,7 @@ export async function logTaskEvent(task, eventType) {
     station: task.station,
     task_name: task.meal_name || task.name,
     assigned_name: task.assigned_name || '',
+    assigned_members_names: task.assigned_members_names || '',
     timestamp: new Date().toISOString(),
   });
 }

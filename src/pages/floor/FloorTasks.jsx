@@ -109,8 +109,9 @@ export default function FloorTasks() {
       if (depError) { setBlockMessage(depError); return; }
       const memberStations = (m) => Array.isArray(m.stations) && m.stations.length > 0 ? m.stations : m.station ? [m.station] : [];
       const stationMembers = allTeamMembers.filter(m => memberStations(m).includes(task.station));
-      if (!task.started_at && stationMembers.length > 0 && !task.assigned_to) {
-        setPendingStart({ taskId, newStatus, station: task.station });
+      const alreadyAssigned = task.assigned_to || (task.assigned_members && task.assigned_members !== '[]');
+      if (!task.started_at && stationMembers.length > 0 && !alreadyAssigned) {
+        setPendingStart({ taskId, newStatus, station: task.station, isPortioning: task.station === 'portion' });
         return;
       }
     }
@@ -131,7 +132,22 @@ export default function FloorTasks() {
     setPendingStart(null);
     await base44.entities.ProductionTask.update(taskId, { assigned_to: member.id, assigned_name: member.name });
     await doStatusChange(taskId, newStatus);
-    // Drill into task detail after starting
+    setActiveDetailTaskId(taskId);
+  };
+
+  const handleTeamMultiSelected = async (members) => {
+    if (!pendingStart) return;
+    const { taskId, newStatus } = pendingStart;
+    setPendingStart(null);
+    const ids = JSON.stringify(members.map(m => m.id));
+    const names = members.map(m => m.name).join(', ');
+    await base44.entities.ProductionTask.update(taskId, {
+      assigned_members: ids,
+      assigned_members_names: names,
+      assigned_to: members[0]?.id,
+      assigned_name: names,
+    });
+    await doStatusChange(taskId, newStatus);
     setActiveDetailTaskId(taskId);
   };
 
@@ -311,7 +327,9 @@ export default function FloorTasks() {
             return s.includes(pendingStart.station);
           })}
           station={pendingStart.station}
+          multiSelect={pendingStart.isPortioning}
           onSelect={handleTeamMemberSelected}
+          onSelectMultiple={handleTeamMultiSelected}
           onCancel={() => setPendingStart(null)}
         />
       )}

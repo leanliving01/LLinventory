@@ -10,9 +10,9 @@ const NAV_ITEMS = [
   { path: '/floor/tasks', icon: UtensilsCrossed, label: 'Tasks', permission: 'kitchen_tablet' },
   { path: '/floor/pick', icon: PackageCheck, label: 'Pick', permission: 'pick_lists' },
   { path: '/floor/pack', icon: Box, label: 'Pack', permission: 'pick_lists' },
-  { path: '/floor/stock-take', icon: ClipboardCheck, label: 'Count', permission: 'stock_take' },
-  { path: '/floor/transfer', icon: ArrowLeftRight, label: 'Transfer', permission: 'stock_transfers' },
-  { path: '/floor/receive', icon: Truck, label: 'Receive', permission: 'receiving' },
+  { path: '/floor/stock-take', icon: ClipboardCheck, label: 'Stock Take', permission: 'stock_take' },
+  { path: '/floor/transfer', icon: ArrowLeftRight, label: 'Transfer Stock', permission: 'stock_transfers' },
+  { path: '/floor/receive', icon: Truck, label: 'Receive Stock', permission: 'receiving' },
 ];
 
 export default function FloorBottomNav() {
