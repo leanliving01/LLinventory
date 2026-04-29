@@ -16,6 +16,13 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
 
   const isPortioning = task.station === 'portion';
 
+  // Load existing TaskConsumption records (saved from ConsumeTab)
+  const { data: existingConsumption = [] } = useQuery({
+    queryKey: ['task-consumption-modal', task.id],
+    queryFn: () => base44.entities.TaskConsumption.filter({ task_id: task.id }),
+    enabled: !!task.id,
+  });
+
   // Load BOM and components
   const { data: boms = [] } = useQuery({
     queryKey: ['boms-for-task', task.product_id],
@@ -67,14 +74,26 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
     });
   }, [relevantBom, allComponents, task.qty, productMap]);
 
-  // Pre-fill actuals with picked values on first load (only for prep/cook)
+  // Pre-fill actuals from saved TaskConsumption records, falling back to picked values
   useMemo(() => {
     if (!isPortioning && componentRows.length > 0 && Object.keys(actuals).length === 0) {
       const prefilled = {};
-      componentRows.forEach(r => { prefilled[r.id] = r.picked; });
+      const prefilledWaste = {};
+      componentRows.forEach(r => {
+        const saved = existingConsumption.find(e => e.bom_component_id === r.id);
+        if (saved && saved.consumed_qty > 0) {
+          prefilled[r.id] = saved.consumed_qty;
+          prefilledWaste[r.id] = saved.wastage_qty || 0;
+        } else {
+          prefilled[r.id] = r.picked;
+        }
+      });
       setActuals(prefilled);
+      if (Object.values(prefilledWaste).some(v => v > 0)) {
+        setWastage(prefilledWaste);
+      }
     }
-  }, [componentRows, isPortioning]);
+  }, [componentRows, isPortioning, existingConsumption]);
 
   // For portioning: auto-calculate consumption from plates produced
   const portionCalculated = useMemo(() => {
