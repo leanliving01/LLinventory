@@ -68,6 +68,12 @@ export default function Kitchen() {
     queryFn: () => base44.entities.BomComponent.list('-created_date', 3000),
   });
 
+  // Pre-fetch products so the completion modal opens instantly
+  const { data: allProducts = [] } = useQuery({
+    queryKey: ['kitchen-products'],
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
+  });
+
   const bomComponentsMap = useMemo(() => {
     const portionBoms = allBoms.filter(b => b.bom_type === 'portion');
     const map = {};
@@ -357,7 +363,7 @@ export default function Kitchen() {
           <DependencyBlockModal message={blockMessage} onClose={() => setBlockMessage(null)} />
         )}
         {pendingDone && (
-          <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} />
+          <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} cachedBoms={allBoms} cachedComponents={allBomComponents} cachedProducts={allProducts} />
         )}
         {pendingStart && (
           <TeamMemberSelect members={teamMembers} station={station} multiSelect={pendingStart.isPortioning} onSelect={handleTeamMemberSelected} onSelectMultiple={handleTeamMultiSelected} onCancel={() => setPendingStart(null)} />
@@ -445,6 +451,9 @@ export default function Kitchen() {
             task={pendingDone}
             onConfirm={handleTaskCompleted}
             onCancel={() => setPendingDone(null)}
+            cachedBoms={allBoms}
+            cachedComponents={allBomComponents}
+            cachedProducts={allProducts}
           />
         )}
 

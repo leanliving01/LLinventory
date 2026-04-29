@@ -80,6 +80,12 @@ export default function FloorTasks() {
     queryFn: () => base44.entities.BomComponent.list('-created_date', 3000),
   });
 
+  // Pre-fetch products so the completion modal doesn't need to (eliminates delay)
+  const { data: allProducts = [] } = useQuery({
+    queryKey: ['floor-products'],
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
+  });
+
   // Map: product_id → portion BOM components (for dependency checking)
   const bomComponentsMap = useMemo(() => {
     const portionBoms = allBoms.filter(b => b.bom_type === 'portion');
@@ -325,7 +331,7 @@ export default function FloorTasks() {
           onDone={(task) => setPendingDone(task)}
           loading={loading}
         />
-        {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} />}
+        {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} cachedBoms={allBoms} cachedComponents={allBomComponents} cachedProducts={allProducts} />}
       </>
     );
   }
@@ -334,53 +340,10 @@ export default function FloorTasks() {
 
   return (
     <div className="space-y-3">
-      {/* Run header + back */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => setSelectedRunId(null)} className="shrink-0 -ml-2">
-          ← Runs
-        </Button>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-lg font-bold">{selectedRun?.run_number || 'Production'}</h1>
-        </div>
-        <Badge variant="outline" className="text-xs tabular-nums shrink-0">
-          {progress.done}/{progress.total} done
-        </Badge>
-      </div>
-
-      {/* Station filter pills */}
-      <FloorStationPills selected={selectedStation} onSelect={setSelectedStation} tasks={tasks} />
-
-      {/* Progress bar */}
-      <div className="h-2 bg-muted rounded-full overflow-hidden">
-        <div
-          className={cn("h-full rounded-full transition-all", currentStation?.color)}
-          style={{ width: progress.total > 0 ? `${(progress.done / progress.total) * 100}%` : '0%' }}
-        />
-      </div>
-
-      {/* Task list — horizontal scroll */}
-      {loadingTasks ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
-          <Loader2 className="w-5 h-5 animate-spin" /> Loading tasks...
-        </div>
-      ) : (
-        <FloorTaskList
-          tasks={stationTasks}
-          allTasks={tasks}
-          taskLogs={taskLogs}
-          onStatusChange={handleStatusChange}
-          onOpenDetail={setActiveDetailTaskId}
-          loading={loading}
-          pickListConfirmed={selectedRun?.pick_list_confirmed}
-          bomComponentsMap={bomComponentsMap}
-          allBoms={allBoms}
-          horizontal
-        />
-      )}
-
+...
       {/* Modals */}
       {blockMessage && <DependencyBlockModal message={blockMessage} onClose={() => setBlockMessage(null)} />}
-      {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => { setPendingDone(null); }} />}
+      {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => { setPendingDone(null); }} cachedBoms={allBoms} cachedComponents={allBomComponents} cachedProducts={allProducts} />}
       {pendingStart && (
         <TeamMemberSelect
           members={allTeamMembers.filter(m => {

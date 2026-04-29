@@ -447,6 +447,9 @@ export default function Kanban() {
           task={pendingDone}
           onConfirm={handleTaskCompleted}
           onCancel={() => setPendingDone(null)}
+          cachedBoms={allBoms}
+          cachedComponents={allBomComponents}
+          cachedProducts={products}
         />
       )}
 

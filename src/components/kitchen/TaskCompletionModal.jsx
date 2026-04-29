@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { X, CheckCircle2, Loader2, AlertTriangle, ArrowDown } from 'lucide-react';
 
-export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
+export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedBoms, cachedComponents, cachedProducts }) {
   const [actuals, setActuals] = useState({});
   const [wastage, setWastage] = useState({});
   const [actualYield, setActualYield] = useState('');
@@ -25,22 +25,32 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
     enabled: !!task.id,
   });
 
-  // Load BOM and components
-  const { data: boms = [] } = useQuery({
+  // Use pre-loaded data if available, otherwise fetch (fallback for other callers)
+  const { data: fetchedBoms = [] } = useQuery({
     queryKey: ['boms-for-task', task.product_id],
     queryFn: () => base44.entities.Bom.filter({ product_id: task.product_id, is_active: true }, '-created_date', 10),
-    enabled: !!task.product_id,
+    enabled: !!task.product_id && !cachedBoms,
   });
 
-  const { data: allComponents = [] } = useQuery({
+  const { data: fetchedComponents = [] } = useQuery({
     queryKey: ['bom-components-all'],
     queryFn: () => base44.entities.BomComponent.list('-created_date', 2000),
+    enabled: !cachedComponents,
   });
 
-  const { data: products = [] } = useQuery({
+  const { data: fetchedProducts = [] } = useQuery({
     queryKey: ['products-for-cost'],
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
+    enabled: !cachedProducts,
   });
+
+  // Filter cached BOMs to this product if provided as full list
+  const boms = useMemo(() => {
+    if (cachedBoms) return cachedBoms.filter(b => b.product_id === task.product_id && b.is_active !== false);
+    return fetchedBoms;
+  }, [cachedBoms, fetchedBoms, task.product_id]);
+  const allComponents = cachedComponents || fetchedComponents;
+  const products = cachedProducts || fetchedProducts;
 
   const productMap = useMemo(() => {
     const map = {};
