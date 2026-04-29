@@ -170,51 +170,75 @@ export default function Kanban() {
     const isPortioningTask = consumption.length > 0 && consumption[0].is_portioning;
 
     if (isPortioningTask) {
-      // PORTIONING: Auto-calculated consumption + packaging stock movements
+      // PORTIONING: Manual bulk WIP consumption + auto-calculated packaging
       const varianceParts = consumption
         .filter(c => c.actual !== c.picked)
-        .map(c => `${c.name}: recipe ${c.picked}, calc ${c.actual} ${c.uom} (excess ${Math.round((c.picked - c.actual) * 100) / 100})`);
+        .map(c => `${c.name}: available ${c.picked}, used ${c.actual} ${c.uom}`);
       
       let notes = `Plates produced: ${meta.plates_produced || 0}`;
       if (varianceParts.length > 0) notes += ` | Variance: ${varianceParts.join('; ')}`;
       if (meta.variance_note) notes += ` | Note: ${meta.variance_note}`;
 
-      // Create stock movements for packaging components (plates, skin vacuum, sleeves)
-      const packagingItems = consumption.filter(c => {
-        const sku = (c.sku || '').toUpperCase();
-        return sku === 'BPM' || sku === 'SVP' || sku.includes('SLEEVE');
-      });
-
-      for (const item of packagingItems) {
+      // Handle stock movements for ALL portioning components
+      for (const item of consumption) {
         const diff = Math.round((item.actual - item.picked) * 100) / 100;
         if (diff === 0) continue;
 
-        if (diff < 0) {
-          // Fewer plates produced than planned — return unused packaging
-          await base44.entities.StockMovement.create({
-            product_id: item.input_product_id,
-            product_sku: item.sku,
-            product_name: item.name,
-            qty: Math.abs(diff),
-            uom: item.uom,
-            reason: 'return',
-            ref_type: 'production_run',
-            ref_id: runId,
-            notes: `[task:${taskId}] Unused packaging returned (planned ${item.picked}, used ${item.actual})`,
-          });
+        if (item.is_bulk_wip) {
+          // Bulk WIP: return excess to stock (e.g. 3kg available, only used 2.5kg → return 0.5kg)
+          if (diff < 0) {
+            await base44.entities.StockMovement.create({
+              product_id: item.input_product_id,
+              product_sku: item.sku,
+              product_name: item.name,
+              qty: Math.abs(diff),
+              uom: item.uom,
+              reason: 'return',
+              ref_type: 'production_run',
+              ref_id: runId,
+              notes: `[task:${taskId}] Excess bulk returned (available ${item.picked}, used ${item.actual} ${item.uom})`,
+            });
+          } else {
+            // Used more than available — extra consumption
+            await base44.entities.StockMovement.create({
+              product_id: item.input_product_id,
+              product_sku: item.sku,
+              product_name: item.name,
+              qty: diff,
+              uom: item.uom,
+              reason: 'production_consume',
+              ref_type: 'production_run',
+              ref_id: runId,
+              notes: `[task:${taskId}] Extra bulk consumed (available ${item.picked}, used ${item.actual} ${item.uom})`,
+            });
+          }
         } else {
-          // More plates produced than planned — deduct extra packaging
-          await base44.entities.StockMovement.create({
-            product_id: item.input_product_id,
-            product_sku: item.sku,
-            product_name: item.name,
-            qty: diff,
-            uom: item.uom,
-            reason: 'production_consume',
-            ref_type: 'production_run',
-            ref_id: runId,
-            notes: `[task:${taskId}] Extra packaging consumed (planned ${item.picked}, used ${item.actual})`,
-          });
+          // Packaging: same logic as before
+          if (diff < 0) {
+            await base44.entities.StockMovement.create({
+              product_id: item.input_product_id,
+              product_sku: item.sku,
+              product_name: item.name,
+              qty: Math.abs(diff),
+              uom: item.uom,
+              reason: 'return',
+              ref_type: 'production_run',
+              ref_id: runId,
+              notes: `[task:${taskId}] Unused packaging returned (planned ${item.picked}, used ${item.actual})`,
+            });
+          } else {
+            await base44.entities.StockMovement.create({
+              product_id: item.input_product_id,
+              product_sku: item.sku,
+              product_name: item.name,
+              qty: diff,
+              uom: item.uom,
+              reason: 'production_consume',
+              ref_type: 'production_run',
+              ref_id: runId,
+              notes: `[task:${taskId}] Extra packaging consumed (planned ${item.picked}, used ${item.actual})`,
+            });
+          }
         }
       }
 

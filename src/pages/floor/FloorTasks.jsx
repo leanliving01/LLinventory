@@ -174,25 +174,35 @@ export default function FloorTasks() {
     if (isPortioningTask) {
       const varianceParts = consumption
         .filter(c => c.actual !== c.picked)
-        .map(c => `${c.name}: recipe ${c.picked}, calc ${c.actual} ${c.uom}`);
+        .map(c => `${c.name}: available ${c.picked}, used ${c.actual} ${c.uom}`);
       let notes = `Plates produced: ${meta.plates_produced || 0}`;
       if (varianceParts.length > 0) notes += ` | Variance: ${varianceParts.join('; ')}`;
       if (meta.variance_note) notes += ` | Note: ${meta.variance_note}`;
 
-      const packagingItems = consumption.filter(c => {
-        const sku = (c.sku || '').toUpperCase();
-        return sku === 'BPM' || sku === 'SVP' || sku.includes('SLEEVE');
-      });
-      for (const item of packagingItems) {
+      // Handle stock movements for ALL portioning components (bulk WIP + packaging)
+      for (const item of consumption) {
         const diff = Math.round((item.actual - item.picked) * 100) / 100;
         if (diff === 0) continue;
-        await base44.entities.StockMovement.create({
-          product_id: item.input_product_id, product_sku: item.sku, product_name: item.name,
-          qty: Math.abs(diff), uom: item.uom,
-          reason: diff < 0 ? 'return' : 'production_consume',
-          ref_type: 'production_run', ref_id: selectedRunId,
-          notes: `[task:${taskId}] Packaging ${diff < 0 ? 'returned' : 'consumed'} (planned ${item.picked}, used ${item.actual})`,
-        });
+
+        if (item.is_bulk_wip) {
+          // Bulk WIP: return excess or record extra consumption
+          await base44.entities.StockMovement.create({
+            product_id: item.input_product_id, product_sku: item.sku, product_name: item.name,
+            qty: Math.abs(diff), uom: item.uom,
+            reason: diff < 0 ? 'return' : 'production_consume',
+            ref_type: 'production_run', ref_id: selectedRunId,
+            notes: `[task:${taskId}] Bulk ${diff < 0 ? 'excess returned' : 'extra consumed'} (available ${item.picked}, used ${item.actual} ${item.uom})`,
+          });
+        } else {
+          // Packaging
+          await base44.entities.StockMovement.create({
+            product_id: item.input_product_id, product_sku: item.sku, product_name: item.name,
+            qty: Math.abs(diff), uom: item.uom,
+            reason: diff < 0 ? 'return' : 'production_consume',
+            ref_type: 'production_run', ref_id: selectedRunId,
+            notes: `[task:${taskId}] Packaging ${diff < 0 ? 'returned' : 'consumed'} (planned ${item.picked}, used ${item.actual})`,
+          });
+        }
       }
       await base44.entities.ProductionTask.update(taskId, { status: 'done', finished_at: new Date().toISOString(), notes });
     } else {

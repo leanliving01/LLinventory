@@ -140,50 +140,37 @@ export default function Kitchen() {
     const isPortioningTask = consumption.length > 0 && consumption[0].is_portioning;
 
     if (isPortioningTask) {
-      // PORTIONING: Auto-calculated consumption + packaging stock movements
+      // PORTIONING: Manual bulk WIP consumption + auto-calculated packaging
       const varianceParts = consumption
         .filter(c => c.actual !== c.picked)
-        .map(c => `${c.name}: recipe ${c.picked}, calc ${c.actual} ${c.uom} (excess ${Math.round((c.picked - c.actual) * 100) / 100})`);
+        .map(c => `${c.name}: available ${c.picked}, used ${c.actual} ${c.uom}`);
       
       let notes = `Plates produced: ${meta.plates_produced || 0}`;
       if (varianceParts.length > 0) notes += ` | Variance: ${varianceParts.join('; ')}`;
       if (meta.variance_note) notes += ` | Note: ${meta.variance_note}`;
 
-      // Create stock movements for packaging components (plates, skin vacuum, sleeves)
-      const packagingItems = consumption.filter(c => {
-        const sku = (c.sku || '').toUpperCase();
-        return sku === 'BPM' || sku === 'SVP' || sku.includes('SLEEVE');
-      });
-
-      for (const item of packagingItems) {
+      // Handle stock movements for ALL portioning components (bulk WIP + packaging)
+      for (const item of consumption) {
         const diff = Math.round((item.actual - item.picked) * 100) / 100;
         if (diff === 0) continue;
 
-        if (diff < 0) {
-          // Fewer plates produced than planned — return unused packaging
+        if (item.is_bulk_wip) {
+          // Bulk WIP: return excess or record extra consumption
           await base44.entities.StockMovement.create({
-            product_id: item.input_product_id,
-            product_sku: item.sku,
-            product_name: item.name,
-            qty: Math.abs(diff),
-            uom: item.uom,
-            reason: 'return',
-            ref_type: 'production_run',
-            ref_id: activeRun?.id,
-            notes: `[task:${taskId}] Unused packaging returned (planned ${item.picked}, used ${item.actual})`,
+            product_id: item.input_product_id, product_sku: item.sku, product_name: item.name,
+            qty: Math.abs(diff), uom: item.uom,
+            reason: diff < 0 ? 'return' : 'production_consume',
+            ref_type: 'production_run', ref_id: activeRun?.id,
+            notes: `[task:${taskId}] Bulk ${diff < 0 ? 'excess returned' : 'extra consumed'} (available ${item.picked}, used ${item.actual} ${item.uom})`,
           });
         } else {
-          // More plates produced than planned — deduct extra packaging
+          // Packaging
           await base44.entities.StockMovement.create({
-            product_id: item.input_product_id,
-            product_sku: item.sku,
-            product_name: item.name,
-            qty: diff,
-            uom: item.uom,
-            reason: 'production_consume',
-            ref_type: 'production_run',
-            ref_id: activeRun?.id,
-            notes: `[task:${taskId}] Extra packaging consumed (planned ${item.picked}, used ${item.actual})`,
+            product_id: item.input_product_id, product_sku: item.sku, product_name: item.name,
+            qty: Math.abs(diff), uom: item.uom,
+            reason: diff < 0 ? 'return' : 'production_consume',
+            ref_type: 'production_run', ref_id: activeRun?.id,
+            notes: `[task:${taskId}] Packaging ${diff < 0 ? 'returned' : 'consumed'} (planned ${item.picked}, used ${item.actual})`,
           });
         }
       }
@@ -209,14 +196,9 @@ export default function Kitchen() {
       for (const r of returns) {
         const returnQty = Math.round((r.picked - r.actual) * 100) / 100;
         await base44.entities.StockMovement.create({
-          product_id: r.input_product_id,
-          product_sku: r.sku,
-          product_name: r.name,
-          qty: returnQty,
-          uom: r.uom,
-          reason: 'return',
-          ref_type: 'production_run',
-          ref_id: activeRun?.id,
+          product_id: r.input_product_id, product_sku: r.sku, product_name: r.name,
+          qty: returnQty, uom: r.uom, reason: 'return',
+          ref_type: 'production_run', ref_id: activeRun?.id,
           notes: `[task:${taskId}] Returned: picked ${r.picked}, consumed ${r.actual} ${r.uom}`,
         });
       }
@@ -225,23 +207,46 @@ export default function Kitchen() {
       const wastageItems = consumption.filter(c => (c.unusable_wastage || 0) > 0);
       for (const w of wastageItems) {
         await base44.entities.StockMovement.create({
-          product_id: w.input_product_id,
-          product_sku: w.sku,
-          product_name: w.name,
-          qty: w.unusable_wastage,
-          uom: w.uom,
-          reason: 'wastage_unusable',
-          ref_type: 'production_run',
-          ref_id: activeRun?.id,
+          product_id: w.input_product_id, product_sku: w.sku, product_name: w.name,
+          qty: w.unusable_wastage, uom: w.uom, reason: 'wastage_unusable',
+          ref_type: 'production_run', ref_id: activeRun?.id,
           unit_cost_at_movement: w.cost_per_unit || 0,
           notes: `[task:${taskId}] Unusable waste: ${w.unusable_wastage} ${w.uom} of ${w.name}`,
         });
       }
 
+      // Record actual yield + cascade to downstream station
+      const actualYield = meta.actual_yield;
+      const plannedYield = task.qty || 0;
+      let yieldNote = consumptionSummary || '';
+      if (actualYield != null && task.product_id) {
+        await base44.entities.StockMovement.create({
+          product_id: task.product_id, product_sku: task.product_sku || '',
+          product_name: task.meal_name || task.name || '',
+          qty: actualYield, uom: task.qty_uom || '',
+          reason: 'production_yield', ref_type: 'production_run', ref_id: activeRun?.id,
+          notes: `[task:${taskId}] Yield: planned ${plannedYield}, actual ${actualYield} ${task.qty_uom || ''}`,
+        });
+        if (actualYield !== plannedYield) {
+          yieldNote = `Yield: ${actualYield} ${task.qty_uom || ''} (planned ${plannedYield})${yieldNote ? ' | ' + yieldNote : ''}`;
+        }
+
+        // Cascade actual yield to downstream tasks (prep→cook, cook→portion)
+        const nextStation = task.station === 'prep' ? 'cook' : task.station === 'cook' ? 'portion' : null;
+        if (nextStation) {
+          const downstream = allRunTasks.filter(
+            t => t.station === nextStation && t.product_id === task.product_id && !t.archived && t.status !== 'done'
+          );
+          for (const dt of downstream) {
+            await base44.entities.ProductionTask.update(dt.id, { qty: actualYield });
+          }
+        }
+      }
+
       await base44.entities.ProductionTask.update(taskId, {
         status: 'done',
         finished_at: new Date().toISOString(),
-        notes: consumptionSummary || undefined,
+        notes: yieldNote || consumptionSummary || undefined,
       });
     }
 

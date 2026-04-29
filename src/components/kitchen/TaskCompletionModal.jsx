@@ -1,17 +1,18 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { X, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react';
+import { X, CheckCircle2, Loader2, AlertTriangle, ArrowDown } from 'lucide-react';
 
 export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
   const [actuals, setActuals] = useState({});
   const [wastage, setWastage] = useState({});
   const [actualYield, setActualYield] = useState('');
   const [platesProduced, setPlatesProduced] = useState('');
+  const [portionActuals, setPortionActuals] = useState({}); // manual override for portioning bulk inputs
   const [varianceNote, setVarianceNote] = useState('');
   const [confirming, setConfirming] = useState(false);
 
@@ -62,6 +63,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
       const perUnit = c.qty / yieldQty;
       const totalRequired = Math.round(perUnit * (task.qty || 1) * 100) / 100;
       const product = productMap[c.input_product_id];
+      const isBulkWip = product?.type === 'wip_bulk';
       return {
         id: c.id,
         input_product_id: c.input_product_id,
@@ -71,9 +73,15 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
         picked: totalRequired,
         perUnit,
         cost_per_unit: product?.cost_avg || 0,
+        isBulkWip,
+        is_consumable: c.is_consumable || false,
       };
     });
   }, [relevantBom, allComponents, task.qty, productMap]);
+
+  // Separate bulk WIP rows from packaging/consumable rows for portioning
+  const bulkRows = useMemo(() => componentRows.filter(r => r.isBulkWip && !r.is_consumable), [componentRows]);
+  const otherRows = useMemo(() => componentRows.filter(r => !r.isBulkWip || r.is_consumable), [componentRows]);
 
   // Pre-fill actuals from saved TaskConsumption records, falling back to picked values
   useMemo(() => {
@@ -96,23 +104,42 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
     }
   }, [componentRows, isPortioning, existingConsumption]);
 
-  // For portioning: auto-calculate consumption from plates produced
-  const portionCalculated = useMemo(() => {
-    if (!isPortioning || !platesProduced) return [];
-    const yieldNum = Number(platesProduced) || 0;
-    return componentRows.map(row => ({
-      ...row,
-      calculated: Math.round(row.perUnit * yieldNum * 100) / 100,
-    }));
-  }, [isPortioning, platesProduced, componentRows]);
+  // Pre-fill portioning bulk actuals with the planned (which may have been cascaded from cook yield)
+  useEffect(() => {
+    if (isPortioning && bulkRows.length > 0 && Object.keys(portionActuals).length === 0) {
+      const prefilled = {};
+      bulkRows.forEach(r => {
+        prefilled[r.id] = r.picked; // task.qty already reflects cascaded yield
+      });
+      setPortionActuals(prefilled);
+    }
+  }, [bulkRows, isPortioning]);
 
   const handleConfirm = async () => {
     setConfirming(true);
 
     if (isPortioning) {
-      // Portioning flow: auto-calculated consumption, variance logged, no stock return
       const plates = Number(platesProduced) || task.qty || 0;
+      // Build consumption: bulk WIP uses manual actuals, packaging uses auto-calc from plates
       const consumption = componentRows.map(r => {
+        if (r.isBulkWip && !r.is_consumable) {
+          // Manually entered actual
+          const manualActual = Number(portionActuals[r.id]) || 0;
+          return {
+            component_id: r.id,
+            input_product_id: r.input_product_id,
+            name: r.name,
+            sku: r.sku,
+            uom: r.uom,
+            picked: r.picked,
+            actual: manualActual,
+            unusable_wastage: 0,
+            cost_per_unit: r.cost_per_unit,
+            is_portioning: true,
+            is_bulk_wip: true,
+          };
+        }
+        // Packaging / other: auto-calc from plates
         const calculated = Math.round(r.perUnit * plates * 100) / 100;
         return {
           component_id: r.id,
@@ -125,6 +152,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
           unusable_wastage: 0,
           cost_per_unit: r.cost_per_unit,
           is_portioning: true,
+          is_bulk_wip: false,
         };
       });
       await onConfirm(task.id, consumption, {
@@ -181,7 +209,59 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
           ) : isPortioning ? (
             /* ===== PORTIONING FLOW ===== */
             <>
-              {/* Plates Produced input */}
+              {/* Step 1: Actual bulk input consumed */}
+              {bulkRows.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <ArrowDown className="w-3 h-3" /> Bulk Input From Cooking
+                  </p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Enter the actual quantity of each bulk ingredient you are using. If the cook yielded less or more, adjust here. Excess will be returned to stock.
+                  </p>
+                  <div className="space-y-3">
+                    {bulkRows.map(row => {
+                      const val = portionActuals[row.id] ?? row.picked;
+                      const diff = Number(val) - row.picked;
+                      return (
+                        <div key={row.id} className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-bold">{row.name}</p>
+                              {row.sku && <p className="text-[10px] font-mono text-muted-foreground">{row.sku}</p>}
+                            </div>
+                            <Badge variant="outline" className="text-[10px]">{row.uom}</Badge>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Available (from cook)</label>
+                              <p className="text-sm font-bold">{row.picked} {row.uom}</p>
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Actually Used</label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={val}
+                                onChange={e => setPortionActuals(prev => ({ ...prev, [row.id]: e.target.value }))}
+                                className="h-10 text-right text-base font-bold"
+                              />
+                            </div>
+                          </div>
+                          {diff !== 0 && (
+                            <p className={`text-[11px] font-medium ${diff > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                              {diff < 0
+                                ? `${Math.abs(diff).toFixed(2)} ${row.uom} excess → returning to bulk stock`
+                                : `+${diff.toFixed(2)} ${row.uom} over available — check with cook`}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Step 2: Plates produced */}
               <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-xl p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -210,48 +290,38 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                 )}
               </div>
 
-              {/* Auto-calculated breakdown (read-only) */}
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  Auto-Calculated Consumption
-                </p>
-                <div className="space-y-2">
-                  {(plates > 0 ? portionCalculated : componentRows).map(row => {
-                    const excess = plates > 0 && row.calculated !== undefined
-                      ? Math.round((row.picked - row.calculated) * 100) / 100
-                      : 0;
-                    return (
-                      <div key={row.id} className="bg-muted/50 rounded-xl p-3 flex items-center justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold truncate">{row.name}</p>
-                          {row.sku && <p className="text-[10px] font-mono text-muted-foreground">{row.sku}</p>}
-                        </div>
-                        <div className="text-right shrink-0">
-                          {plates > 0 && row.calculated !== undefined ? (
-                            <>
-                              <p className="text-sm font-bold">
-                                <span className="text-green-600">{row.calculated}</span>
-                                <span className="text-muted-foreground font-normal"> / {row.picked}</span>
-                              </p>
-                              {excess > 0 && (
-                                <p className="text-[10px] text-amber-600 font-medium">{excess} {row.uom} excess</p>
-                              )}
-                            </>
-                          ) : (
-                            <p className="text-sm font-bold">{row.picked}</p>
-                          )}
-                          <p className="text-[10px] text-muted-foreground">{row.uom}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {!plates && (
-                  <p className="text-xs text-muted-foreground text-center py-2">
-                    Enter plates produced above to see calculated consumption
+              {/* Auto-calculated packaging breakdown */}
+              {otherRows.length > 0 && plates > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    Packaging (auto-calculated from plates)
                   </p>
-                )}
-              </div>
+                  <div className="space-y-2">
+                    {otherRows.map(row => {
+                      const calc = Math.round(row.perUnit * plates * 100) / 100;
+                      const excess = Math.round((row.picked - calc) * 100) / 100;
+                      return (
+                        <div key={row.id} className="bg-muted/50 rounded-xl p-3 flex items-center justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold truncate">{row.name}</p>
+                            {row.sku && <p className="text-[10px] font-mono text-muted-foreground">{row.sku}</p>}
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-bold">
+                              <span className="text-green-600">{calc}</span>
+                              <span className="text-muted-foreground font-normal"> / {row.picked}</span>
+                            </p>
+                            {excess > 0 && (
+                              <p className="text-[10px] text-amber-600 font-medium">{excess} {row.uom} excess</p>
+                            )}
+                            <p className="text-[10px] text-muted-foreground">{row.uom}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Variance Note */}
               <div>
@@ -300,6 +370,9 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                     </p>
                   </div>
                 )}
+                <p className="text-[10px] text-muted-foreground mt-2">
+                  This yield will cascade to the next station — {task.station === 'prep' ? 'cook' : 'portioning'} will see the actual amount available.
+                </p>
               </div>
 
               <p className="text-sm text-muted-foreground">
