@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import AddComponentModal from '@/components/recipes/AddComponentModal';
 import OperationsEditor from '@/components/recipes/OperationsEditor';
 import RecipeFilesEditor from '@/components/recipes/RecipeFilesEditor';
+import ConfirmActionModal from '@/components/recipes/ConfirmActionModal';
 import { getSubcategories } from '@/lib/bomSubcategories';
 
 const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack', prep: 'Prep' };
@@ -32,6 +33,7 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null); // { type, data }
   const [editedQtys, setEditedQtys] = useState({});
   const [yieldQty, setYieldQty] = useState(String(bom.yield_qty || 1));
   const [yieldUom, setYieldUom] = useState(bom.yield_uom || '');
@@ -95,8 +97,24 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
     setSaving(false);
   };
 
-  const handleRemoveComponent = async (comp) => {
-    if (!window.confirm(`Remove "${comp.input_product_name}" from this BOM?`)) return;
+  const handleRemoveComponent = (comp) => {
+    setConfirmAction({
+      type: 'delete_component',
+      data: comp,
+      title: 'Remove Ingredient',
+      message: (
+        <span>
+          Are you sure you want to remove <strong>{comp.input_product_name}</strong> ({comp.input_product_sku}) from this recipe?
+          <br /><br />
+          This ingredient will be permanently removed and won't appear in future production tasks for this product.
+        </span>
+      ),
+      confirmLabel: 'Remove Ingredient',
+      icon: 'delete',
+    });
+  };
+
+  const doRemoveComponent = async (comp) => {
     await base44.entities.BomComponent.delete(comp.id);
     queryClient.invalidateQueries({ queryKey: ['bom-components', bom.id] });
     toast.success('Ingredient removed');
@@ -108,10 +126,23 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
     toast.success('Ingredient added');
   };
 
-  const handleDeleteBom = async () => {
-    if (!window.confirm(`Delete the entire "${bom.product_name}" ${LAYER_LABELS[bom.bom_type]} BOM? This will also delete all its components and operations. This cannot be undone.`)) return;
-    setSaving(true);
-    // Delete all components and operations first
+  const handleDeleteBom = () => {
+    setConfirmAction({
+      type: 'delete_bom',
+      title: 'Delete Entire Recipe',
+      message: (
+        <span>
+          Are you sure you want to delete the <strong>{bom.product_name}</strong> {LAYER_LABELS[bom.bom_type]} recipe?
+          <br /><br />
+          This will <strong>permanently delete</strong> the recipe along with all {components.length} ingredient{components.length !== 1 ? 's' : ''} and all production steps. This cannot be undone.
+        </span>
+      ),
+      confirmLabel: 'Delete Permanently',
+      icon: 'delete',
+    });
+  };
+
+  const doDeleteBom = async () => {
     const [comps, ops] = await Promise.all([
       base44.entities.BomComponent.filter({ bom_id: bom.id }),
       base44.entities.BomOperation.filter({ bom_id: bom.id }),
@@ -119,10 +150,46 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
     for (const c of comps) await base44.entities.BomComponent.delete(c.id);
     for (const o of ops) await base44.entities.BomOperation.delete(o.id);
     await base44.entities.Bom.delete(bom.id);
-    setSaving(false);
     onUpdated?.();
     onClose();
-    toast.success('BOM deleted');
+    toast.success('Recipe deleted');
+  };
+
+  const handleLayerChange = (newType) => {
+    if (newType === bomType) return;
+    setConfirmAction({
+      type: 'change_layer',
+      data: newType,
+      title: 'Move to Different Layer',
+      message: (
+        <span>
+          Are you sure you want to move <strong>{bom.product_name}</strong> from <strong>{LAYER_LABELS[bomType]}</strong> to <strong>{LAYER_LABELS[newType]}</strong>?
+          <br /><br />
+          This will change which production stage this recipe belongs to:
+          <br />• <strong>{LAYER_LABELS[bomType]}:</strong> {LAYER_DESC[bomType]}
+          <br />• <strong>{LAYER_LABELS[newType]}:</strong> {LAYER_DESC[newType]}
+          <br /><br />
+          All ingredients and steps will be kept. You'll still need to press <strong>Save</strong> to apply this change.
+        </span>
+      ),
+      confirmLabel: `Move to ${LAYER_LABELS[newType]}`,
+      confirmVariant: 'default',
+      icon: 'move',
+    });
+  };
+
+  const handleConfirmAction = async () => {
+    if (!confirmAction) return;
+    setSaving(true);
+    if (confirmAction.type === 'delete_component') {
+      await doRemoveComponent(confirmAction.data);
+    } else if (confirmAction.type === 'delete_bom') {
+      await doDeleteBom();
+    } else if (confirmAction.type === 'change_layer') {
+      setBomType(confirmAction.data);
+    }
+    setSaving(false);
+    setConfirmAction(null);
   };
 
   const renderComponentTable = (comps, title, icon) => (
@@ -231,7 +298,7 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
               <ArrowRightLeft className="w-4 h-4 text-primary" />
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Layer</span>
             </div>
-            <Select value={bomType} onValueChange={setBomType}>
+            <Select value={bomType} onValueChange={handleLayerChange}>
               <SelectTrigger className="h-8 text-sm w-36">
                 <SelectValue />
               </SelectTrigger>
@@ -243,7 +310,12 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
               </SelectContent>
             </Select>
             {bomType !== bom.bom_type && (
-              <p className="text-[10px] text-amber-600 font-medium">Layer changed from {LAYER_LABELS[bom.bom_type]} → {LAYER_LABELS[bomType]}. Save to apply.</p>
+              <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+                <ArrowRightLeft className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                  Moving from {LAYER_LABELS[bom.bom_type]} → {LAYER_LABELS[bomType]}. Press <strong>Save</strong> to apply.
+                </p>
+              </div>
             )}
 
             {/* Subcategory */}
@@ -354,6 +426,20 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
           existingProductIds={components.map(c => c.input_product_id)}
           onAdded={handleComponentAdded}
           onCancel={() => setShowAddModal(false)}
+        />
+      )}
+
+      {/* Confirmation modal */}
+      {confirmAction && (
+        <ConfirmActionModal
+          title={confirmAction.title}
+          message={confirmAction.message}
+          confirmLabel={confirmAction.confirmLabel}
+          confirmVariant={confirmAction.confirmVariant || 'destructive'}
+          icon={confirmAction.icon}
+          onConfirm={handleConfirmAction}
+          onCancel={() => setConfirmAction(null)}
+          loading={saving}
         />
       )}
     </div>

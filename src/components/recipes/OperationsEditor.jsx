@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Wrench, Plus, Trash2, GripVertical, Save, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import ConfirmActionModal from '@/components/recipes/ConfirmActionModal';
 
 const STATIONS = ['prep', 'cook', 'portion'];
 
@@ -14,6 +15,7 @@ export default function OperationsEditor({ bomId }) {
   const [saving, setSaving] = useState(false);
   const [addingNew, setAddingNew] = useState(false);
   const [newStep, setNewStep] = useState({ name: '', station: 'cook', cycle_time_min: '', notes: '' });
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   const { data: operations = [], isLoading } = useQuery({
     queryKey: ['bom-operations', bomId],
@@ -22,11 +24,18 @@ export default function OperationsEditor({ bomId }) {
 
   const sorted = [...operations].sort((a, b) => (a.step_no || 0) - (b.step_no || 0));
 
-  const handleDelete = async (op) => {
-    if (!window.confirm(`Remove step "${op.name}"?`)) return;
-    await base44.entities.BomOperation.delete(op.id);
+  const handleDelete = (op) => {
+    setConfirmDelete(op);
+  };
+
+  const doDelete = async () => {
+    if (!confirmDelete) return;
+    setSaving(true);
+    await base44.entities.BomOperation.delete(confirmDelete.id);
     queryClient.invalidateQueries({ queryKey: ['bom-operations', bomId] });
     toast.success('Step removed');
+    setConfirmDelete(null);
+    setSaving(false);
   };
 
   const handleAddStep = async () => {
@@ -156,6 +165,24 @@ export default function OperationsEditor({ bomId }) {
           </div>
         )}
       </div>
+
+      {confirmDelete && (
+        <ConfirmActionModal
+          title="Remove Step"
+          message={
+            <span>
+              Are you sure you want to remove the step <strong>"{confirmDelete.name}"</strong>?
+              <br /><br />
+              This step will be permanently deleted and won't appear in future production tasks.
+            </span>
+          }
+          confirmLabel="Remove Step"
+          icon="delete"
+          onConfirm={doDelete}
+          onCancel={() => setConfirmDelete(null)}
+          loading={saving}
+        />
+      )}
     </div>
   );
 }
