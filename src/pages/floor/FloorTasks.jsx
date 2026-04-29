@@ -273,14 +273,17 @@ export default function FloorTasks() {
   const detailTask = activeDetailTaskId ? tasks.find(t => t.id === activeDetailTaskId) : null;
   if (detailTask && (detailTask.status === 'in_progress' || detailTask.status === 'paused')) {
     return (
-      <FloorTaskDetail
-        task={detailTask}
-        taskLogs={taskLogs.filter(l => l.task_id === detailTask.id)}
-        onStatusChange={handleStatusChange}
-        onBack={() => setActiveDetailTaskId(null)}
-        onDone={(task) => setPendingDone(task)}
-        loading={loading}
-      />
+      <>
+        <FloorTaskDetail
+          task={detailTask}
+          taskLogs={taskLogs.filter(l => l.task_id === detailTask.id)}
+          onStatusChange={handleStatusChange}
+          onBack={() => setActiveDetailTaskId(null)}
+          onDone={(task) => setPendingDone(task)}
+          loading={loading}
+        />
+        {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} />}
+      </>
     );
   }
 
