@@ -12,7 +12,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
   const [wastage, setWastage] = useState({});
   const [actualYield, setActualYield] = useState('');
   const [platesProduced, setPlatesProduced] = useState('');
-  const [portionActuals, setPortionActuals] = useState({}); // manual override for portioning bulk inputs
+  const [portionLeftover, setPortionLeftover] = useState({}); // how much bulk WIP is left over after portioning
   const [varianceNote, setVarianceNote] = useState('');
   const [confirming, setConfirming] = useState(false);
 
@@ -104,14 +104,12 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
     }
   }, [componentRows, isPortioning, existingConsumption]);
 
-  // Pre-fill portioning bulk actuals with the planned (which may have been cascaded from cook yield)
+  // Pre-fill portioning leftover with 0 (assume they used everything unless they say otherwise)
   useEffect(() => {
-    if (isPortioning && bulkRows.length > 0 && Object.keys(portionActuals).length === 0) {
+    if (isPortioning && bulkRows.length > 0 && Object.keys(portionLeftover).length === 0) {
       const prefilled = {};
-      bulkRows.forEach(r => {
-        prefilled[r.id] = r.picked; // task.qty already reflects cascaded yield
-      });
-      setPortionActuals(prefilled);
+      bulkRows.forEach(r => { prefilled[r.id] = '0'; });
+      setPortionLeftover(prefilled);
     }
   }, [bulkRows, isPortioning]);
 
@@ -120,11 +118,12 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
 
     if (isPortioning) {
       const plates = Number(platesProduced) || task.qty || 0;
-      // Build consumption: bulk WIP uses manual actuals, packaging uses auto-calc from plates
+      // Build consumption: bulk WIP = available minus leftover, packaging = auto-calc from plates
       const consumption = componentRows.map(r => {
         if (r.isBulkWip && !r.is_consumable) {
-          // Manually entered actual
-          const manualActual = Number(portionActuals[r.id]) || 0;
+          // actual consumed = available - leftover
+          const leftover = Number(portionLeftover[r.id]) || 0;
+          const actualUsed = Math.round((r.picked - leftover) * 100) / 100;
           return {
             component_id: r.id,
             input_product_id: r.input_product_id,
@@ -132,7 +131,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
             sku: r.sku,
             uom: r.uom,
             picked: r.picked,
-            actual: manualActual,
+            actual: Math.max(0, actualUsed),
             unusable_wastage: 0,
             cost_per_unit: r.cost_per_unit,
             is_portioning: true,
@@ -209,19 +208,19 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
           ) : isPortioning ? (
             /* ===== PORTIONING FLOW ===== */
             <>
-              {/* Step 1: Actual bulk input consumed */}
+              {/* Step 1: Bulk leftover */}
               {bulkRows.length > 0 && (
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <ArrowDown className="w-3 h-3" /> Bulk Input From Cooking
+                    <ArrowDown className="w-3 h-3" /> Bulk Ingredients — What's Left Over?
                   </p>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Enter the actual quantity of each bulk ingredient you are using. If the cook yielded less or more, adjust here. Excess will be returned to stock.
+                    Enter how much of each bulk ingredient is left over after portioning. If nothing is left, leave it at 0. Leftover will be returned to stock.
                   </p>
                   <div className="space-y-3">
                     {bulkRows.map(row => {
-                      const val = portionActuals[row.id] ?? row.picked;
-                      const diff = Number(val) - row.picked;
+                      const leftover = Number(portionLeftover[row.id]) || 0;
+                      const used = Math.round((row.picked - leftover) * 100) / 100;
                       return (
                         <div key={row.id} className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-2">
                           <div className="flex items-center justify-between">
@@ -237,21 +236,25 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel }) {
                               <p className="text-sm font-bold">{row.picked} {row.uom}</p>
                             </div>
                             <div>
-                              <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Actually Used</label>
+                              <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Left Over</label>
                               <Input
                                 type="number"
                                 step="0.01"
-                                value={val}
-                                onChange={e => setPortionActuals(prev => ({ ...prev, [row.id]: e.target.value }))}
+                                min="0"
+                                value={portionLeftover[row.id] ?? '0'}
+                                onChange={e => setPortionLeftover(prev => ({ ...prev, [row.id]: e.target.value }))}
                                 className="h-10 text-right text-base font-bold"
                               />
                             </div>
                           </div>
-                          {diff !== 0 && (
-                            <p className={`text-[11px] font-medium ${diff > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                              {diff < 0
-                                ? `${Math.abs(diff).toFixed(2)} ${row.uom} excess → returning to bulk stock`
-                                : `+${diff.toFixed(2)} ${row.uom} over available — check with cook`}
+                          {leftover > 0 && (
+                            <p className="text-[11px] font-medium text-green-600">
+                              {leftover.toFixed(2)} {row.uom} returning to bulk stock · Used: {Math.max(0, used).toFixed(2)} {row.uom}
+                            </p>
+                          )}
+                          {leftover === 0 && (
+                            <p className="text-[11px] font-medium text-muted-foreground">
+                              All {row.picked} {row.uom} used
                             </p>
                           )}
                         </div>
