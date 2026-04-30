@@ -12,7 +12,29 @@ import InventoryImportReview from './InventoryImportReview';
  *  - stockByProduct: { productId: { on_hand, committed, available } }
  *  - onImportComplete: callback after successful import
  */
-function parseCSVLine(line) {
+/**
+ * Auto-detect CSV delimiter from the header line.
+ * Excel in South African locale uses semicolon (;) when decimal is comma.
+ * Also handles tab-separated.
+ */
+function detectDelimiter(headerLine) {
+  // Count occurrences of common delimiters outside quotes
+  const candidates = [',', ';', '\t'];
+  let best = ',';
+  let bestCount = 0;
+  for (const delim of candidates) {
+    let count = 0;
+    let inQ = false;
+    for (const ch of headerLine) {
+      if (ch === '"') inQ = !inQ;
+      else if (ch === delim && !inQ) count++;
+    }
+    if (count > bestCount) { bestCount = count; best = delim; }
+  }
+  return best;
+}
+
+function parseCSVLine(line, delimiter = ',') {
   const result = [];
   let current = '';
   let inQuotes = false;
@@ -30,7 +52,7 @@ function parseCSVLine(line) {
     } else {
       if (ch === '"') {
         inQuotes = true;
-      } else if (ch === ',') {
+      } else if (ch === delimiter) {
         result.push(current.trim());
         current = '';
       } else {
@@ -102,7 +124,10 @@ export default function InventoryCSVImport({ products, stockByProduct, onImportC
         return;
       }
 
-      const headers = parseCSVLine(lines[0]).map(h =>
+      // Auto-detect delimiter (comma vs semicolon vs tab)
+      const delimiter = detectDelimiter(lines[0]);
+
+      const headers = parseCSVLine(lines[0], delimiter).map(h =>
         h.toLowerCase().replace(/[\u00A0\u200B\uFEFF]/g, '').replace(/\s+/g, '_')
       );
 
@@ -112,15 +137,16 @@ export default function InventoryCSVImport({ products, stockByProduct, onImportC
       const reorderIdx = headers.indexOf('reorder_point');
 
       if (skuIdx === -1) {
-        setParseErrors(['Missing required "sku" column in CSV.']);
+        setParseErrors(['Missing required "sku" column in CSV. Detected delimiter: "' + (delimiter === '\t' ? 'TAB' : delimiter) + '". Headers found: ' + headers.join(', ')]);
         return;
       }
 
       const diffs = [];
       const errors = [];
+      let matchedCount = 0;
 
       for (let i = 1; i < lines.length; i++) {
-        const cols = parseCSVLine(lines[i]);
+        const cols = parseCSVLine(lines[i], delimiter);
         const sku = (cols[skuIdx] || '').replace(/[\u00A0\u200B\uFEFF]/g, '').trim();
         if (!sku) continue;
 
@@ -130,6 +156,7 @@ export default function InventoryCSVImport({ products, stockByProduct, onImportC
           continue;
         }
 
+        matchedCount++;
         const currentStock = stockByProduct[product.id] || { on_hand: 0, committed: 0, available: 0 };
         const currentReorder = product.min_before_reorder || 0;
 
@@ -153,7 +180,9 @@ export default function InventoryCSVImport({ products, stockByProduct, onImportC
         }
       }
 
-      setParseErrors(errors);
+      // Add summary as first info line
+      const summary = `Parsed ${lines.length - 1} data rows · Matched ${matchedCount} SKUs · ${diffs.length} with changes · Delimiter: "${delimiter === '\t' ? 'TAB' : delimiter}"`;
+      setParseErrors([summary, ...errors]);
       setChanges(diffs);
     };
     reader.readAsText(file);
