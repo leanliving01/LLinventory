@@ -10,7 +10,7 @@ import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
 
 export default function Sales() {
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('paid_unfulfilled');
   const [packFilter, setPackFilter] = useState('all');
   const queryClient = useQueryClient();
 
@@ -47,7 +47,7 @@ export default function Sales() {
       <div className="flex items-center gap-3">
         <ShoppingCart className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-bold">Sales Orders</h1>
-        <span className="text-sm text-muted-foreground ml-auto">{orders.length} orders</span>
+        <span className="text-sm text-muted-foreground ml-auto">{filtered.length} shown</span>
       </div>
 
       <SyncStatusBanner />

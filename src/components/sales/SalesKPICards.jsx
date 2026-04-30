@@ -18,23 +18,24 @@ function KPICard({ label, value, sub, icon: Icon, color }) {
 
 export default function SalesKPICards({ orders }) {
   const paid = orders.filter(o => o.lifecycle_state === 'paid_unfulfilled');
-  const fulfilled = orders.filter(o => o.lifecycle_state === 'fulfilled');
-  const cancelled = orders.filter(o => ['cancelled', 'refunded'].includes(o.lifecycle_state));
   const pending = orders.filter(o => o.lifecycle_state === 'pending_payment');
 
-  const totalRevenue = paid.reduce((s, o) => s + (o.total_amount || 0), 0)
-    + fulfilled.reduce((s, o) => s + (o.total_amount || 0), 0);
+  const openRevenue = paid.reduce((s, o) => s + (o.total_amount || 0), 0);
+
+  const notPacked = paid.filter(o => o.status === 'pending');
+  const picking = paid.filter(o => o.status === 'picking');
+  const packed = paid.filter(o => o.status === 'packed');
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-      <KPICard label="Total Orders" value={orders.length} icon={Package} color="bg-blue-500" />
-      <KPICard label="Awaiting Fulfilment" value={paid.length} icon={Clock} color="bg-orange-500" />
-      <KPICard label="Fulfilled" value={fulfilled.length} icon={CheckCircle2} color="bg-green-500" />
-      <KPICard label="Cancelled / Refunded" value={cancelled.length} icon={XCircle} color="bg-red-500" />
+      <KPICard label="Awaiting Fulfilment" value={paid.length} icon={Package} color="bg-orange-500" />
+      <KPICard label="Not Packed" value={notPacked.length} icon={Clock} color="bg-slate-500" />
+      <KPICard label="Picking" value={picking.length} icon={Package} color="bg-blue-500" />
+      <KPICard label="Packed" value={packed.length} icon={CheckCircle2} color="bg-green-500" />
       <KPICard
-        label="Revenue"
-        value={`R${totalRevenue.toLocaleString('en-ZA', { minimumFractionDigits: 0 })}`}
-        sub="Paid + Fulfilled"
+        label="Open Revenue"
+        value={`R${openRevenue.toLocaleString('en-ZA', { minimumFractionDigits: 0 })}`}
+        sub={pending.length > 0 ? `+ ${pending.length} pending payment` : ''}
         icon={DollarSign}
         color="bg-purple-500"
       />
