@@ -134,6 +134,7 @@ export default function InventoryCSVImport({ products, stockByProduct, onImportC
       // Validate required headers
       const skuIdx = headers.indexOf('sku');
       const onHandIdx = headers.indexOf('on_hand');
+      const availableIdx = headers.indexOf('available');
       const reorderIdx = headers.indexOf('reorder_point');
 
       if (skuIdx === -1) {
@@ -161,9 +162,19 @@ export default function InventoryCSVImport({ products, stockByProduct, onImportC
         const currentReorder = product.min_before_reorder || 0;
 
         const rawOnHand = onHandIdx !== -1 ? cols[onHandIdx] : undefined;
+        const rawAvailable = availableIdx !== -1 ? cols[availableIdx] : undefined;
         const rawReorder = reorderIdx !== -1 ? cols[reorderIdx] : undefined;
-        const csvOnHand = rawOnHand !== undefined ? parseNumber(rawOnHand) : NaN;
+        let csvOnHand = rawOnHand !== undefined ? parseNumber(rawOnHand) : NaN;
+        const csvAvailable = rawAvailable !== undefined ? parseNumber(rawAvailable) : NaN;
         const csvReorder = rawReorder !== undefined ? parseNumber(rawReorder) : NaN;
+
+        // If user edited the "available" column but NOT on_hand, derive on_hand from it:
+        // new on_hand = new available + committed
+        if (isNaN(csvOnHand) || Math.abs(csvOnHand - currentStock.on_hand) < 0.001) {
+          if (!isNaN(csvAvailable) && Math.abs(csvAvailable - currentStock.available) > 0.001) {
+            csvOnHand = csvAvailable + (currentStock.committed || 0);
+          }
+        }
 
         // Debug: log every row where CSV value differs from 0 for on_hand or reorder
         const debugOnHandDiff = !isNaN(csvOnHand) && csvOnHand !== 0;

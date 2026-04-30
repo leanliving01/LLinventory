@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
 
 const CSV_HEADERS = ['sku', 'name', 'type', 'uom', 'on_hand', 'committed', 'available', 'reorder_point'];
+// Editable columns: on_hand, available, reorder_point
+// If "available" is changed, import will back-calculate on_hand = available + committed
 
 function escapeCSV(val) {
   const str = String(val ?? '');
