@@ -9,6 +9,7 @@ import {
   ArrowLeftRight,
   Truck,
   ScanBarcode,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -36,6 +37,14 @@ const MODULES = [
     icon: PackageCheck,
     permission: 'pick_lists',
     color: 'bg-indigo-500',
+  },
+  {
+    path: '/floor/shortages',
+    label: 'Yield Tracker',
+    description: 'Shortages & surplus plating',
+    icon: AlertTriangle,
+    permission: 'kitchen_tablet',
+    color: 'bg-red-500',
   },
   {
     path: '/floor/stock-take',

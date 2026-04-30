@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, UtensilsCrossed, PackageCheck, ClipboardCheck, ArrowLeftRight, Truck, Box } from 'lucide-react';
+import { Home, UtensilsCrossed, PackageCheck, ClipboardCheck, ArrowLeftRight, Truck, Box, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { path: '/floor/tasks', icon: UtensilsCrossed, label: 'Tasks', permission: 'kitchen_tablet' },
   { path: '/floor/pick', icon: PackageCheck, label: 'Pick', permission: 'pick_lists' },
   { path: '/floor/pack', icon: Box, label: 'Pack', permission: 'pick_lists' },
+  { path: '/floor/shortages', icon: AlertTriangle, label: 'Yields', permission: 'kitchen_tablet' },
   { path: '/floor/stock-take', icon: ClipboardCheck, label: 'Stock Take', permission: 'stock_take' },
   { path: '/floor/transfer', icon: ArrowLeftRight, label: 'Transfer Stock', permission: 'stock_transfers' },
   { path: '/floor/receive', icon: Truck, label: 'Receive Stock', permission: 'receiving' },

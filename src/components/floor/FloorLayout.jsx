@@ -13,12 +13,13 @@ import { cn } from '@/lib/utils';
 export default function FloorLayout() {
   const location = useLocation();
   const isTasksPage = location.pathname === '/floor/tasks';
+  const isShortagesPage = location.pathname === '/floor/shortages';
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <FloorTopBar />
       <main className="flex-1 overflow-y-auto pb-20">
-        <div className={cn("p-4", isTasksPage ? "max-w-full" : "max-w-2xl mx-auto")}>
+        <div className={cn("p-4", isTasksPage ? "max-w-full" : isShortagesPage ? "max-w-xl mx-auto" : "max-w-2xl mx-auto")}>
           <RouteGuard>
             <Outlet />
           </RouteGuard>
