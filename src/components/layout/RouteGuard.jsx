@@ -1,7 +1,8 @@
 import React from 'react';
-import { useLocation, Navigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import { ShieldAlert } from 'lucide-react';
 
 /**
@@ -54,6 +55,7 @@ function getRequiredPermission(pathname) {
 export default function RouteGuard({ children }) {
   const { user } = useAuth();
   const location = useLocation();
+  const customRoles = useCustomRoles();
 
   if (!user) return children;
   if (user.role === 'admin') return children;
@@ -61,7 +63,7 @@ export default function RouteGuard({ children }) {
   const requiredPerm = getRequiredPermission(location.pathname);
   if (!requiredPerm) return children;
 
-  const perms = getUserPermissions(user);
+  const perms = getUserPermissions(user, customRoles);
   if (perms[requiredPerm]) return children;
 
   // Blocked — show access denied

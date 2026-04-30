@@ -4,18 +4,8 @@
   "properties": {
     "role": {
       "type": "string",
-      "enum": [
-        "admin",
-        "ops_manager",
-        "kitchen_manager",
-        "kitchen",
-        "stock_controller",
-        "picker_packer",
-        "floor_operator",
-        "viewer"
-      ],
       "default": "viewer",
-      "description": "User role for permissions"
+      "description": "User role \u2014 either a built-in role key or a custom role key"
     },
     "station": {
       "type": "string",

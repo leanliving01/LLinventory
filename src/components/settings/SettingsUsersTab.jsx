@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Users, UserPlus, Pencil, X, Loader2, Shield, ChevronDown, ChevronUp, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import UserPermissionsEditor from './UserPermissionsEditor';
+import CustomRolesManager, { useCustomRoles } from './CustomRolesManager';
 import { ROLE_DEFAULTS, PERMISSION_KEYS, getUserPermissions } from '@/lib/permissions';
 
 const roleColors = {
@@ -37,6 +38,9 @@ export default function SettingsUsersTab() {
 
   // Reference matrix
   const [showMatrix, setShowMatrix] = useState(false);
+
+  // Custom roles
+  const customRoles = useCustomRoles();
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
@@ -119,8 +123,16 @@ export default function SettingsUsersTab() {
 
   // Count active permissions for display
   const countPerms = (user) => {
-    const perms = getUserPermissions(user);
+    const perms = getUserPermissions(user, customRoles);
     return Object.values(perms).filter(Boolean).length;
+  };
+
+  // Get display name for a role (built-in or custom)
+  const getRoleLabel = (roleKey) => {
+    const builtIn = { admin: 'Admin', ops_manager: 'Ops Manager', kitchen_manager: 'Kitchen Mgr', kitchen: 'Kitchen Staff', stock_controller: 'Stock Controller', picker_packer: 'Pick/Pack', floor_operator: 'Floor Op', viewer: 'Viewer' };
+    if (builtIn[roleKey]) return builtIn[roleKey];
+    const custom = customRoles.find(r => r.key === roleKey);
+    return custom?.name || roleKey.replace(/_/g, ' ');
   };
 
   return (
@@ -174,11 +186,12 @@ export default function SettingsUsersTab() {
                   Configuring permissions for <span className="font-medium text-foreground">{inviteEmail}</span>
                 </p>
                 <UserPermissionsEditor
-                  role={inviteRole}
-                  permissions={invitePermissions}
-                  onSave={handleInvitePermsSave}
-                  saving={inviting}
-                />
+                    role={inviteRole}
+                    permissions={invitePermissions}
+                    onSave={handleInvitePermsSave}
+                    saving={inviting}
+                    customRoles={customRoles}
+                  />
                 <p className="text-xs text-muted-foreground">
                    {isAdmin
                      ? 'Note: Permissions will be applied once the user accepts their invitation.'
@@ -205,8 +218,8 @@ export default function SettingsUsersTab() {
                   <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${roleColors[user.role] || 'bg-gray-100 text-gray-700'}`}>
-                    {(user.role || 'viewer').replace(/_/g, ' ')}
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${roleColors[user.role] || 'bg-indigo-100 text-indigo-700'}`}>
+                    {getRoleLabel(user.role || 'viewer')}
                   </span>
                   <span className="text-[10px] text-muted-foreground">{countPerms(user)}/{PERMISSION_KEYS.length}</span>
                   {isAdmin && (
@@ -229,6 +242,7 @@ export default function SettingsUsersTab() {
                     permissions={user.permissions}
                     onSave={(newRole, permString) => handleSaveUserPermissions(user.id, newRole, permString)}
                     saving={saving}
+                    customRoles={customRoles}
                   />
                 </div>
               )}
@@ -239,6 +253,13 @@ export default function SettingsUsersTab() {
           )}
         </div>
       </div>
+
+      {/* ── Custom Roles Manager ── */}
+      {isAdmin && (
+        <div className="bg-card border border-border rounded-xl p-5">
+          <CustomRolesManager />
+        </div>
+      )}
 
       {/* ── Role defaults reference ── */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -252,16 +273,20 @@ export default function SettingsUsersTab() {
           </div>
           {showMatrix ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
-        {showMatrix && <RoleDefaultsMatrix />}
+        {showMatrix && <RoleDefaultsMatrix customRoles={customRoles} />}
       </div>
     </div>
   );
 }
 
-/** Compact matrix showing default permissions per role template */
-function RoleDefaultsMatrix() {
-  const roles = ['admin', 'ops_manager', 'kitchen_manager', 'kitchen', 'stock_controller', 'picker_packer', 'floor_operator', 'viewer'];
-  const labels = { admin: 'Admin', ops_manager: 'Ops Mgr', kitchen_manager: 'Kitchen Mgr', kitchen: 'Kitchen', stock_controller: 'Stock Ctrl', picker_packer: 'Pick/Pack', floor_operator: 'Floor Op', viewer: 'Viewer' };
+/** Compact matrix showing default permissions per role template (including custom) */
+function RoleDefaultsMatrix({ customRoles = [] }) {
+  const builtInRoles = ['admin', 'ops_manager', 'kitchen_manager', 'kitchen', 'stock_controller', 'picker_packer', 'floor_operator', 'viewer'];
+  const builtInLabels = { admin: 'Admin', ops_manager: 'Ops Mgr', kitchen_manager: 'Kitchen Mgr', kitchen: 'Kitchen', stock_controller: 'Stock Ctrl', picker_packer: 'Pick/Pack', floor_operator: 'Floor Op', viewer: 'Viewer' };
+
+  const allRoles = [...builtInRoles, ...customRoles.map(r => r.key)];
+  const getLabel = (key) => builtInLabels[key] || customRoles.find(r => r.key === key)?.name || key;
+  const getPerms = (roleKey) => ROLE_DEFAULTS[roleKey] || customRoles.find(r => r.key === roleKey)?.permissions || {};
 
   return (
     <div className="overflow-x-auto border-t border-border">
@@ -269,8 +294,8 @@ function RoleDefaultsMatrix() {
         <thead>
           <tr className="bg-muted/50">
             <th className="text-left px-4 py-2.5 font-semibold text-muted-foreground">Area</th>
-            {roles.map(r => (
-              <th key={r} className="text-center px-2 py-2.5 font-semibold text-muted-foreground whitespace-nowrap">{labels[r]}</th>
+            {allRoles.map(r => (
+              <th key={r} className="text-center px-2 py-2.5 font-semibold text-muted-foreground whitespace-nowrap">{getLabel(r)}</th>
             ))}
           </tr>
         </thead>
@@ -278,9 +303,9 @@ function RoleDefaultsMatrix() {
           {PERMISSION_KEYS.map(pk => (
             <tr key={pk.key} className="hover:bg-muted/20">
               <td className="px-4 py-2 text-sm">{pk.label}</td>
-              {roles.map(r => (
+              {allRoles.map(r => (
                 <td key={r} className="text-center px-2 py-2">
-                  {ROLE_DEFAULTS[r]?.[pk.key] ? '✓' : '—'}
+                  {getPerms(r)[pk.key] ? '✓' : '—'}
                 </td>
               ))}
             </tr>

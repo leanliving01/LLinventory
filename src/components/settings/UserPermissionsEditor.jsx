@@ -5,17 +5,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Save, Loader2, RotateCcw } from 'lucide-react';
 import { PERMISSION_KEYS, ROLE_DEFAULTS } from '@/lib/permissions';
 
-const ROLES = [
+const BUILT_IN_ROLES = [
   { value: 'admin', label: 'Admin' },
   { value: 'ops_manager', label: 'Ops Manager' },
   { value: 'kitchen_manager', label: 'Kitchen Manager' },
   { value: 'kitchen', label: 'Kitchen Staff' },
   { value: 'stock_controller', label: 'Stock Controller' },
   { value: 'picker_packer', label: 'Picker / Packer' },
+  { value: 'floor_operator', label: 'Floor Operator' },
   { value: 'viewer', label: 'Viewer' },
 ];
 
-export default function UserPermissionsEditor({ role, permissions, onSave, saving }) {
+export default function UserPermissionsEditor({ role, permissions, onSave, saving, customRoles = [] }) {
   const [currentRole, setCurrentRole] = useState(role || 'viewer');
   const [perms, setPerms] = useState(() => {
     const defaults = ROLE_DEFAULTS[role || 'viewer'] || ROLE_DEFAULTS.viewer;
@@ -25,9 +26,16 @@ export default function UserPermissionsEditor({ role, permissions, onSave, savin
     return { ...defaults };
   });
 
+  const getDefaultsForRole = (roleKey) => {
+    if (ROLE_DEFAULTS[roleKey]) return ROLE_DEFAULTS[roleKey];
+    const custom = customRoles.find(r => r.key === roleKey);
+    if (custom?.permissions) return custom.permissions;
+    return ROLE_DEFAULTS.viewer;
+  };
+
   const handleRoleChange = (newRole) => {
     setCurrentRole(newRole);
-    setPerms({ ...(ROLE_DEFAULTS[newRole] || ROLE_DEFAULTS.viewer) });
+    setPerms({ ...getDefaultsForRole(newRole) });
   };
 
   const togglePerm = (key) => {
@@ -35,12 +43,12 @@ export default function UserPermissionsEditor({ role, permissions, onSave, savin
   };
 
   const resetToDefaults = () => {
-    setPerms({ ...(ROLE_DEFAULTS[currentRole] || ROLE_DEFAULTS.viewer) });
+    setPerms({ ...getDefaultsForRole(currentRole) });
   };
 
   const handleSave = () => {
     // Only store overrides that differ from role defaults
-    const defaults = ROLE_DEFAULTS[currentRole] || ROLE_DEFAULTS.viewer;
+    const defaults = getDefaultsForRole(currentRole);
     const overrides = {};
     for (const pk of PERMISSION_KEYS) {
       if (perms[pk.key] !== defaults[pk.key]) {
@@ -57,9 +65,15 @@ export default function UserPermissionsEditor({ role, permissions, onSave, savin
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">Role Template</label>
           <Select value={currentRole} onValueChange={handleRoleChange}>
-            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {ROLES.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+              {BUILT_IN_ROLES.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+              {customRoles.length > 0 && (
+                <>
+                  <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Custom Roles</div>
+                  {customRoles.map(r => <SelectItem key={r.key} value={r.key}>{r.name}</SelectItem>)}
+                </>
+              )}
             </SelectContent>
           </Select>
         </div>

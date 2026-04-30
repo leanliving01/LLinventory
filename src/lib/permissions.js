@@ -38,14 +38,29 @@ export const ROLE_DEFAULTS = {
   viewer:           { dashboard: true, catalog_view: true, catalog_edit: false, recipes_view: true, recipes_edit: false, production_planning: true, production_runs: true, kitchen_tablet: false, pick_lists: false, wastage: true, stock_take: false, stock_transfers: false, receiving: false, purchase_orders: true, sales_orders: true, customers: true, reports: true, cost_data: false, settings: false, user_management: false },
 };
 
-/** Parse stored permissions JSON, falling back to role defaults */
-export function getUserPermissions(user) {
-  const roleDefaults = ROLE_DEFAULTS[user.role || 'viewer'] || ROLE_DEFAULTS.viewer;
-  if (!user.permissions) return { ...roleDefaults };
+/** Built-in role keys */
+export const BUILT_IN_ROLES = Object.keys(ROLE_DEFAULTS);
+
+/** Parse stored permissions JSON, falling back to role defaults.
+ *  Supports custom roles — if role key isn't in ROLE_DEFAULTS, uses viewer defaults
+ *  but still applies any stored permission overrides. */
+export function getUserPermissions(user, customRoles = []) {
+  const roleKey = user.role || 'viewer';
+  // Check built-in first, then custom roles
+  let defaults = ROLE_DEFAULTS[roleKey];
+  if (!defaults) {
+    const custom = customRoles.find(r => r.key === roleKey);
+    if (custom?.permissions) {
+      defaults = custom.permissions;
+    } else {
+      defaults = ROLE_DEFAULTS.viewer;
+    }
+  }
+  if (!user.permissions) return { ...defaults };
   try {
     const overrides = JSON.parse(user.permissions);
-    return { ...roleDefaults, ...overrides };
+    return { ...defaults, ...overrides };
   } catch {
-    return { ...roleDefaults };
+    return { ...defaults };
   }
 }
