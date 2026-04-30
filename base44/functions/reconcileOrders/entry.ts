@@ -1,15 +1,16 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 /**
- * Reconcile stale local orders against Shopify.
- * Finds SalesOrder records stuck in 'paid_unfulfilled' and checks Shopify
- * for their actual status. Updates both SalesOrder and legacy ShopifyOrder.
+ * Reconcile stale local orders against Shopify (v2 — batch Shopify API).
  *
- * This is a separate function from bulkSyncOrders so it doesn't compete
- * for rate-limit budget during the main sync.
+ * Instead of checking orders one-by-one (1 Shopify call each), this uses
+ * the Shopify `?ids=` parameter to check up to 100 orders per API call.
+ *
+ * Flow:
+ *  1. Load all local SalesOrders stuck in 'paid_unfulfilled'
+ *  2. Batch-check their Shopify IDs (100 per call)
+ *  3. Update any that have changed lifecycle
  */
-
-const MAX_RUNTIME_MS = 55000;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -50,6 +51,27 @@ function mapPaymentStatus(fin) {
   return map[(fin || '').toLowerCase()] || 'pending';
 }
 
+async function fetchShopifyBatch(storeDomain, accessToken, ids) {
+  const url = `https://${storeDomain}/admin/api/2024-01/orders.json?ids=${ids.join(',')}&status=any&fields=id,financial_status,fulfillment_status,cancelled_at&limit=250`;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const res = await fetch(url, {
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+    });
+    if (res.status === 429) {
+      const retryAfter = parseFloat(res.headers.get('retry-after') || '2');
+      await sleep(retryAfter * 1000);
+      continue;
+    }
+    if (!res.ok) {
+      console.error(`[Reconcile] Shopify API ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+    return data.orders || [];
+  }
+  return [];
+}
+
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
@@ -63,123 +85,74 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'Shopify credentials not set' }, { status: 500 });
   }
 
-  const body = await req.json().catch(() => ({}));
-  const batchSize = body.batch_size || 50; // How many to check per run
-  const startFrom = body.skip || 0;
-
-  const runStart = Date.now();
-
-  // Get local orders stuck as paid_unfulfilled
+  // Load all local unfulfilled orders
   const localUnfulfilled = await withRetry(() =>
     base44.asServiceRole.entities.SalesOrder.filter(
-      { lifecycle_state: 'paid_unfulfilled' }, 'order_date', 500
+      { lifecycle_state: 'paid_unfulfilled' }, 'order_date', 2000
     )
   );
-
-  console.log(`[Reconcile] ${localUnfulfilled.length} local unfulfilled orders, starting from ${startFrom}, batch ${batchSize}`);
 
   if (localUnfulfilled.length === 0) {
     return Response.json({ reconciled: 0, checked: 0, remaining: 0, message: 'All orders up to date' });
   }
 
-  // Process a batch
-  const batch = localUnfulfilled.slice(startFrom, startFrom + batchSize);
+  // Filter to those with valid Shopify IDs
+  const ordersWithIds = localUnfulfilled.filter(o => o.external_id);
+  console.log(`[Reconcile] ${ordersWithIds.length} paid_unfulfilled orders to check`);
+
   let reconciled = 0;
   let checked = 0;
-  let errors = 0;
 
-  for (const so of batch) {
-    if (Date.now() - runStart > MAX_RUNTIME_MS) break;
+  // Process in batches of 100 (Shopify ids= limit)
+  for (let i = 0; i < ordersWithIds.length; i += 100) {
+    const chunk = ordersWithIds.slice(i, i + 100);
+    const ids = chunk.map(o => o.external_id);
 
-    const sid = so.external_id || so.shopify_order_id;
-    if (!sid) { checked++; continue; }
+    const shopifyOrders = await fetchShopifyBatch(storeDomain, accessToken, ids);
+    const shopMap = {};
+    for (const so of shopifyOrders) shopMap[String(so.id)] = so;
 
-    // Query Shopify for the actual order status
-    const orderUrl = `https://${storeDomain}/admin/api/2024-01/orders/${sid}.json?fields=id,name,financial_status,fulfillment_status,cancelled_at`;
-    const res = await fetch(orderUrl, {
-      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-    }).catch(() => null);
+    for (const localOrder of chunk) {
+      const shopOrder = shopMap[localOrder.external_id];
 
-    if (!res) { errors++; checked++; continue; }
-
-    if (res.status === 429) {
-      // Wait and retry
-      const retryAfter = parseFloat(res.headers.get('retry-after') || '2');
-      await sleep(retryAfter * 1000);
-      const retryRes = await fetch(orderUrl, {
-        headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-      }).catch(() => null);
-      if (!retryRes || !retryRes.ok) { errors++; checked++; continue; }
-      const { order: shopOrder } = await retryRes.json();
-      if (shopOrder) {
-        const updated = await updateIfChanged(base44, so, shopOrder, sid);
-        if (updated) reconciled++;
+      if (!shopOrder) {
+        // Not found — mark cancelled
+        await withRetry(() => base44.asServiceRole.entities.SalesOrder.update(localOrder.id, {
+          lifecycle_state: 'cancelled',
+          last_synced_at: new Date().toISOString(),
+        }));
+        reconciled++;
+        checked++;
+        continue;
       }
-    } else if (res.ok) {
-      const { order: shopOrder } = await res.json();
-      if (shopOrder) {
-        const updated = await updateIfChanged(base44, so, shopOrder, sid);
-        if (updated) reconciled++;
+
+      const newLifecycle = deriveLifecycle(shopOrder);
+      if (newLifecycle !== 'paid_unfulfilled') {
+        await withRetry(() => base44.asServiceRole.entities.SalesOrder.update(localOrder.id, {
+          lifecycle_state: newLifecycle,
+          fulfillment_status: mapFulfillmentStatus(shopOrder.fulfillment_status),
+          payment_status: mapPaymentStatus(shopOrder.financial_status),
+          cancelled_at: shopOrder.cancelled_at || '',
+          last_synced_at: new Date().toISOString(),
+        }));
+        reconciled++;
       }
-    } else if (res.status === 404) {
-      // Order was deleted from Shopify — mark as cancelled
-      await withRetry(() => base44.asServiceRole.entities.SalesOrder.update(so.id, {
-        lifecycle_state: 'cancelled',
-        last_synced_at: new Date().toISOString(),
-      }));
-      reconciled++;
+      checked++;
     }
 
-    checked++;
-    await sleep(500); // Respect Shopify rate limits (2 calls/sec)
+    // Small pause between batches
+    if (i + 100 < ordersWithIds.length) await sleep(500);
   }
 
-  const remaining = localUnfulfilled.length - startFrom - checked;
-
-  console.log(`[Reconcile] Done: ${reconciled} reconciled, ${checked} checked, ${remaining} remaining`);
+  console.log(`[Reconcile] Done: ${reconciled} reconciled out of ${checked} checked`);
 
   await base44.asServiceRole.entities.AuditLog.create({
-    action: 'sync',
-    entity_type: 'SalesOrder',
-    description: `Order reconciliation: ${reconciled} updated out of ${checked} checked (${remaining} remaining)`,
+    action: 'sync', entity_type: 'SalesOrder',
+    description: `Order reconciliation v2: ${reconciled} updated out of ${checked} checked`,
   }).catch(() => {});
 
-  return Response.json({ reconciled, checked, errors, remaining, total_unfulfilled: localUnfulfilled.length });
+  return Response.json({
+    reconciled, checked, remaining: 0,
+    total_unfulfilled: localUnfulfilled.length,
+  });
 });
-
-async function updateIfChanged(base44, so, shopOrder, sid) {
-  const newLifecycle = deriveLifecycle(shopOrder);
-  if (newLifecycle === 'paid_unfulfilled') return false; // No change
-
-  const newFulfilment = mapFulfillmentStatus(shopOrder.fulfillment_status);
-  const newPayment = mapPaymentStatus(shopOrder.financial_status);
-
-  // Update SalesOrder
-  await withRetry(() => base44.asServiceRole.entities.SalesOrder.update(so.id, {
-    lifecycle_state: newLifecycle,
-    fulfillment_status: newFulfilment,
-    payment_status: newPayment,
-    cancelled_at: shopOrder.cancelled_at || '',
-    last_synced_at: new Date().toISOString(),
-  }));
-
-  // Update legacy ShopifyOrder
-  const legacyOrders = await withRetry(() =>
-    base44.asServiceRole.entities.ShopifyOrder.filter({ shopify_order_id: sid })
-  );
-  if (legacyOrders.length > 0) {
-    const legacyFulfilment = !shopOrder.fulfillment_status ? 'unfulfilled'
-      : shopOrder.fulfillment_status === 'fulfilled' ? 'fulfilled'
-      : shopOrder.fulfillment_status === 'partial' ? 'partial' : 'unfulfilled';
-    const legacyPaid = (shopOrder.financial_status || '').toLowerCase() === 'refunded' ? 'refunded'
-      : (shopOrder.financial_status || '').toLowerCase() === 'paid' ? 'paid' : 'unpaid';
-    await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.update(legacyOrders[0].id, {
-      fulfilment_status: legacyFulfilment,
-      paid_status: legacyPaid,
-      synced_at: new Date().toISOString(),
-    }));
-  }
-
-  console.log(`[Reconcile] ${so.order_number}: ${so.lifecycle_state} → ${newLifecycle}`);
-  return true;
-}

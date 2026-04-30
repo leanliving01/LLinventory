@@ -95,7 +95,13 @@ export default function SyncStatusBanner({ showAll = false, syncKeys: customKeys
       if (res.data?.status === 'already_running') {
         toast.info(`${config.label} sync is already running`);
       } else if (res.data?.status === 'completed') {
-        toast.success(`${config.label} sync completed: ${res.data.created || 0} new, ${res.data.updated || 0} updated`);
+        const d = res.data;
+        const parts = [];
+        if (d.created) parts.push(`${d.created} new`);
+        if (d.updated) parts.push(`${d.updated} updated`);
+        if (d.reconciled) parts.push(`${d.reconciled} reconciled`);
+        if (d.skipped) parts.push(`${d.skipped} unchanged`);
+        toast.success(`${config.label} sync completed: ${parts.join(', ') || 'up to date'}`);
       }
     } catch (err) {
       toast.error(`${config.label} sync failed: ${err.message}`);

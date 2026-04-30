@@ -1,26 +1,34 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 /**
- * Bulk sync orders from Shopify.
- * v3 — Minimal API calls: only updates headers for existing orders,
- * only creates lines for NEW orders. Fully sequential to avoid rate limits.
+ * Bulk sync orders from Shopify → SalesOrder + SalesOrderLine.
+ *
+ * Architecture (v4 — bulk-first):
+ *  1. Paginate ALL open orders from Shopify (250/page, ~2-3 API calls)
+ *  2. Load ALL existing SalesOrders in ONE call → build lookup map
+ *  3. Classify: new → bulkCreate headers. Changed → update header only. Unchanged → skip.
+ *  4. For NEW orders only: create lines (parent + component decomposition).
+ *  5. Reconcile: any local paid_unfulfilled order NOT in Shopify's open set → batch-check via ids= param.
+ *
+ * This keeps Shopify API calls to ~5 total and Base44 calls proportional to actual changes.
  */
 
 const SYNC_KEY = 'shopify_orders';
-const PAGE_SIZE = 250;
-const API_DELAY = 120; // ms between Base44 API calls
+const SHOPIFY_PAGE_SIZE = 250;
+const BULK_CREATE_SIZE = 25;
+const COMPONENT_BULK_SIZE = 20;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function withRetry(fn, maxRetries = 5) {
+async function withRetry(fn, maxRetries = 4) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err) {
       const msg = (err.message || '').toLowerCase();
-      if (msg.includes('rate limit') && attempt < maxRetries) {
-        const backoff = Math.min(4000 * attempt, 20000);
-        console.log(`[BulkSync] Rate limited, backoff ${backoff}ms (attempt ${attempt}/${maxRetries})`);
+      if ((msg.includes('rate limit') || err.status === 429) && attempt < maxRetries) {
+        const backoff = Math.min(3000 * attempt, 15000);
+        console.log(`[BulkSync] Rate limited, backoff ${backoff}ms (attempt ${attempt})`);
         await sleep(backoff);
         continue;
       }
@@ -29,17 +37,7 @@ async function withRetry(fn, maxRetries = 5) {
   }
 }
 
-/** Throttled Base44 API call — enforces minimum delay between calls */
-let lastApiCall = 0;
-async function throttledCall(fn) {
-  const now = Date.now();
-  const elapsed = now - lastApiCall;
-  if (elapsed < API_DELAY) await sleep(API_DELAY - elapsed);
-  lastApiCall = Date.now();
-  return await withRetry(fn);
-}
-
-// ─── Lifecycle derivation ───
+// ─── Lifecycle derivation (always re-derive from Shopify fields) ───
 function deriveLifecycle(order) {
   if (order.cancelled_at) return 'cancelled';
   const fin = (order.financial_status || '').toLowerCase();
@@ -87,30 +85,7 @@ function classifyLine(li, packBomIndex, orderTags) {
   return 'unknown';
 }
 
-/** Create a simple hash of the line-items to detect if decomposition changed */
-function lineHash(order, packBomIndex) {
-  const parts = [];
-  for (const li of (order.line_items || [])) {
-    if (isExcluded(li)) continue;
-    parts.push(`${li.sku || ''}:${li.quantity || 1}:${li.id}`);
-  }
-  // Include active pack bom disabled/override state
-  for (const li of (order.line_items || [])) {
-    const sku = li.sku || '';
-    if (packBomIndex[sku]) {
-      const pb = packBomIndex[sku];
-      parts.push(`pb:${sku}:${(pb.disabled_skus || []).sort().join(',')}:${pb.sku_overrides || '{}'}`);
-    }
-  }
-  // Simple string hash
-  const str = parts.join('|');
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-  }
-  return String(hash);
-}
-
+// ─── Build SalesOrder header from Shopify payload ───
 function buildSalesOrder(order) {
   const addr = order.shipping_address || order.billing_address || {};
   return {
@@ -144,6 +119,7 @@ function buildSalesOrder(order) {
   };
 }
 
+// ─── Decompose order lines using PackBom ───
 function decomposeLines(order, packBomIndex) {
   const parentLines = [];
   const componentLines = [];
@@ -204,122 +180,68 @@ function decomposeLines(order, packBomIndex) {
   return { parentLines, componentLines, hasUnresolved, decompositionStatus };
 }
 
-/**
- * Process a single order.
- * For EXISTING orders: only update the header (1 API call).
- * For NEW orders: create header + lines.
- * Returns 'created' | 'updated' | 'skipped'
- */
-async function processOrder(base44, order, packBomIndex) {
-  const orderId = String(order.id);
-  const hash = lineHash(order, packBomIndex);
+// ─── Fetch all Shopify pages ───
+async function fetchAllShopifyOrders(storeDomain, accessToken) {
+  const allOrders = [];
+  let url = `https://${storeDomain}/admin/api/2024-01/orders.json?status=open&limit=${SHOPIFY_PAGE_SIZE}`;
+  let page = 0;
 
-  const existingOrders = await throttledCall(() =>
-    base44.asServiceRole.entities.SalesOrder.filter({ external_id: orderId })
-  );
+  while (url) {
+    page++;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const res = await fetch(url, {
+        headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+      });
+      if (res.status === 429) {
+        const retryAfter = parseFloat(res.headers.get('retry-after') || '2');
+        console.log(`[BulkSync] Shopify rate limited on page ${page}, waiting ${retryAfter}s`);
+        await sleep(retryAfter * 1000);
+        continue;
+      }
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Shopify API ${res.status}: ${errText.slice(0, 300)}`);
+      }
+      const data = await res.json();
+      allOrders.push(...(data.orders || []));
+      console.log(`[BulkSync] Page ${page}: ${(data.orders || []).length} orders (total: ${allOrders.length})`);
 
-  const soData = buildSalesOrder(order);
-  const { parentLines, componentLines, hasUnresolved, decompositionStatus } = decomposeLines(order, packBomIndex);
-  soData.has_unresolved_skus = hasUnresolved;
-  soData.decomposition_status = decompositionStatus;
-  soData.data_hash = hash;
-
-  if (existingOrders.length > 0) {
-    // ─── EXISTING ORDER: just update header ───
-    const existing = existingOrders[0];
-    const { shopify_order_id, external_id, ...updateData } = soData;
-
-    // Skip entirely if nothing meaningful changed
-    const headerChanged = existing.lifecycle_state !== updateData.lifecycle_state ||
-      existing.payment_status !== updateData.payment_status ||
-      existing.fulfillment_status !== updateData.fulfillment_status ||
-      existing.total_amount !== updateData.total_amount ||
-      existing.data_hash !== hash;
-
-    if (!headerChanged) return 'skipped';
-
-    await throttledCall(() =>
-      base44.asServiceRole.entities.SalesOrder.update(existing.id, updateData)
-    );
-
-    // Only rebuild lines if the line composition actually changed
-    if (existing.data_hash !== hash) {
-      await rebuildLines(base44, existing.id, parentLines, componentLines);
+      const linkHeader = res.headers.get('link') || '';
+      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+      url = nextMatch ? nextMatch[1] : '';
+      break;
     }
-
-    return 'updated';
-  } else {
-    // ─── NEW ORDER: create header + all lines ───
-    const created = await throttledCall(() =>
-      base44.asServiceRole.entities.SalesOrder.create(soData)
-    );
-    await createLines(base44, created.id, parentLines, componentLines);
-    return 'created';
+    if (url) await sleep(500); // Small pause between pages
   }
+
+  return allOrders;
 }
 
-/** Delete all existing lines then create new ones — fully sequential */
-async function rebuildLines(base44, salesOrderId, parentLines, componentLines) {
-  // Delete existing lines one by one
-  const existingLines = await throttledCall(() =>
-    base44.asServiceRole.entities.SalesOrderLine.filter({ sales_order_id: salesOrderId })
-  );
-  for (const el of existingLines) {
-    await throttledCall(() =>
-      base44.asServiceRole.entities.SalesOrderLine.delete(el.id)
-    );
-  }
-  await createLines(base44, salesOrderId, parentLines, componentLines);
-}
-
-/** Create parent + component lines — fully sequential, using bulkCreate for components */
-async function createLines(base44, salesOrderId, parentLines, componentLines) {
+// ─── Create lines for a single new order (parent + components) ───
+async function createLinesForOrder(base44, salesOrderId, parentLines, componentLines) {
+  // Create parent lines one by one (need their IDs for component linking)
   const parentIdMap = {};
   for (const pl of parentLines) {
-    const created = await throttledCall(() =>
+    const created = await withRetry(() =>
       base44.asServiceRole.entities.SalesOrderLine.create({ ...pl, sales_order_id: salesOrderId })
     );
     parentIdMap[pl.external_id] = created.id;
   }
 
+  // Bulk create component lines
   if (componentLines.length > 0) {
-    const BULK_SIZE = 15;
-    for (let i = 0; i < componentLines.length; i += BULK_SIZE) {
-      const batch = componentLines.slice(i, i + BULK_SIZE).map(cl => {
+    for (let i = 0; i < componentLines.length; i += COMPONENT_BULK_SIZE) {
+      const batch = componentLines.slice(i, i + COMPONENT_BULK_SIZE).map(cl => {
         const parentB44Id = parentIdMap[cl.parent_line_external_id] || '';
         const { parent_line_external_id, ...lineData } = cl;
         return { ...lineData, sales_order_id: salesOrderId, parent_line_id: parentB44Id };
       });
-      await throttledCall(() =>
-        base44.asServiceRole.entities.SalesOrderLine.bulkCreate(batch)
-      );
+      await withRetry(() => base44.asServiceRole.entities.SalesOrderLine.bulkCreate(batch));
     }
   }
 }
 
-async function fetchShopifyPage(url, accessToken) {
-  const MAX_RETRIES = 3;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    const res = await fetch(url, {
-      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-    });
-    if (res.status === 429) {
-      const retryAfter = parseFloat(res.headers.get('retry-after') || '2');
-      await new Promise(r => setTimeout(r, retryAfter * 1000));
-      continue;
-    }
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Shopify API ${res.status}: ${errText.slice(0, 500)}`);
-    }
-    const data = await res.json();
-    const linkHeader = res.headers.get('link') || '';
-    const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-    return { items: data.orders || [], nextUrl: nextMatch ? nextMatch[1] : '' };
-  }
-  throw new Error('Shopify rate limit exceeded after retries');
-}
-
+// ─── Get or create SyncState record ───
 async function getSyncState(base44) {
   const existing = await base44.asServiceRole.entities.SyncState.filter({ source_key: SYNC_KEY });
   if (existing.length > 0) return existing[0];
@@ -328,6 +250,17 @@ async function getSyncState(base44) {
   });
 }
 
+// ─── Check if header fields meaningfully changed ───
+function headerChanged(existing, newData) {
+  return existing.lifecycle_state !== newData.lifecycle_state ||
+    existing.payment_status !== newData.payment_status ||
+    existing.fulfillment_status !== newData.fulfillment_status ||
+    Math.abs((existing.total_amount || 0) - (newData.total_amount || 0)) > 0.01;
+}
+
+// ═══════════════════════════════════════════════
+// MAIN HANDLER
+// ═══════════════════════════════════════════════
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
@@ -341,12 +274,9 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'Shopify credentials not set' }, { status: 500 });
   }
 
-  const body = await req.json().catch(() => ({}));
-  const forceRedecompose = body.force_redecompose === true;
-
   const syncState = await getSyncState(base44);
 
-  // If stuck in running for > 5 minutes, force reset
+  // Guard: don't run if already running (unless stale > 5 min)
   if (syncState.sync_status === 'running') {
     const lastSync = syncState.last_sync_at ? new Date(syncState.last_sync_at) : new Date(0);
     const minutesStale = (Date.now() - lastSync.getTime()) / 60000;
@@ -359,57 +289,191 @@ Deno.serve(async (req) => {
   // Mark as running
   await base44.asServiceRole.entities.SyncState.update(syncState.id, {
     sync_status: 'running', records_synced: 0, records_failed: 0,
-    error_message: 'Starting...', last_cursor: null,
+    error_message: 'Fetching Shopify orders...', last_cursor: null,
     last_sync_at: new Date().toISOString(),
   });
 
-  // Load PackBom index
-  const packBoms = await base44.asServiceRole.entities.PackBom.filter({ active: true });
-  const packBomIndex = {};
-  for (const pb of packBoms) packBomIndex[pb.package_sku] = pb;
-  console.log(`[BulkSync] Loaded ${packBoms.length} active PackBoms`);
-
-  const startUrl = `https://${storeDomain}/admin/api/2024-01/orders.json?status=open&limit=${PAGE_SIZE}`;
-  let currentUrl = startUrl;
-  let created = 0, updated = 0, skipped = 0, failed = 0, totalProcessed = 0, pageNum = 0;
-
   try {
-    while (currentUrl) {
-      pageNum++;
-      const { items: orders, nextUrl } = await fetchShopifyPage(currentUrl, accessToken);
-      console.log(`[BulkSync] Page ${pageNum}: fetched ${orders.length} orders from Shopify`);
+    // ═══ STEP 1: Fetch ALL open orders from Shopify (2-3 API calls) ═══
+    const shopifyOrders = await fetchAllShopifyOrders(storeDomain, accessToken);
+    console.log(`[BulkSync] Fetched ${shopifyOrders.length} open orders from Shopify`);
 
-      for (let oi = 0; oi < orders.length; oi++) {
-        const order = orders[oi];
-        try {
-          const action = await processOrder(base44, order, packBomIndex);
-          if (action === 'created') created++;
-          else if (action === 'updated') updated++;
-          else skipped++;
-        } catch (err) {
-          console.error(`[BulkSync] Error on ${order.name || order.id}: ${err.message}`);
-          failed++;
-        }
-        totalProcessed++;
+    await base44.asServiceRole.entities.SyncState.update(syncState.id, {
+      error_message: `Fetched ${shopifyOrders.length} orders, loading local data...`,
+    });
 
-        // Update progress every 10 orders
-        if (totalProcessed % 10 === 0) {
-          await throttledCall(() => base44.asServiceRole.entities.SyncState.update(syncState.id, {
-            records_synced: totalProcessed,
-            records_failed: failed,
-            error_message: `Page ${pageNum}: ${created}c ${updated}u ${skipped}s ${failed}e`,
-            last_sync_at: new Date().toISOString(),
-          }));
-        }
+    // ═══ STEP 2: Load ALL existing SalesOrders in ONE call ═══
+    const existingOrders = await withRetry(() =>
+      base44.asServiceRole.entities.SalesOrder.filter({}, '-order_date', 5000)
+    );
+    const existingMap = {};
+    for (const eo of existingOrders) {
+      if (eo.external_id) existingMap[eo.external_id] = eo;
+    }
+    console.log(`[BulkSync] Loaded ${existingOrders.length} existing SalesOrders`);
+
+    // ═══ STEP 3: Load PackBom index ═══
+    const packBoms = await withRetry(() =>
+      base44.asServiceRole.entities.PackBom.filter({ active: true })
+    );
+    const packBomIndex = {};
+    for (const pb of packBoms) packBomIndex[pb.package_sku] = pb;
+    console.log(`[BulkSync] Loaded ${packBoms.length} active PackBoms`);
+
+    await base44.asServiceRole.entities.SyncState.update(syncState.id, {
+      error_message: `Processing ${shopifyOrders.length} orders...`,
+    });
+
+    // ═══ STEP 4: Classify orders ═══
+    const newOrders = [];      // Not in local DB yet
+    const changedOrders = [];  // In DB but header differs
+    let skipped = 0;
+    let failed = 0;
+    const shopifyIdsSeen = new Set();
+
+    for (const order of shopifyOrders) {
+      const eid = String(order.id);
+      shopifyIdsSeen.add(eid);
+      const soData = buildSalesOrder(order);
+      const { parentLines, componentLines, hasUnresolved, decompositionStatus } = decomposeLines(order, packBomIndex);
+      soData.has_unresolved_skus = hasUnresolved;
+      soData.decomposition_status = decompositionStatus;
+
+      const existing = existingMap[eid];
+      if (!existing) {
+        newOrders.push({ soData, parentLines, componentLines });
+      } else if (headerChanged(existing, soData)) {
+        changedOrders.push({ existingId: existing.id, soData });
+      } else {
+        skipped++;
       }
-
-      console.log(`[BulkSync] Page ${pageNum} done. Total: ${totalProcessed} (${created}c ${updated}u ${skipped}s ${failed}e)`);
-
-      currentUrl = nextUrl || '';
-      if (currentUrl) await sleep(500);
     }
 
-    // Done — mark complete
+    console.log(`[BulkSync] Classification: ${newOrders.length} new, ${changedOrders.length} changed, ${skipped} skipped`);
+
+    // ═══ STEP 5: Bulk-create NEW order headers ═══
+    let created = 0;
+    for (let i = 0; i < newOrders.length; i += BULK_CREATE_SIZE) {
+      const batch = newOrders.slice(i, i + BULK_CREATE_SIZE);
+      const headerData = batch.map(o => o.soData);
+      const createdRecords = await withRetry(() =>
+        base44.asServiceRole.entities.SalesOrder.bulkCreate(headerData)
+      );
+
+      // Create lines for each new order
+      for (let j = 0; j < createdRecords.length; j++) {
+        const newId = createdRecords[j].id;
+        const { parentLines, componentLines } = batch[j];
+        if (parentLines.length > 0 || componentLines.length > 0) {
+          try {
+            await createLinesForOrder(base44, newId, parentLines, componentLines);
+          } catch (lineErr) {
+            console.error(`[BulkSync] Error creating lines for ${batch[j].soData.order_number}: ${lineErr.message}`);
+            failed++;
+          }
+        }
+      }
+      created += createdRecords.length;
+
+      // Progress update
+      await base44.asServiceRole.entities.SyncState.update(syncState.id, {
+        records_synced: created + changedOrders.length + skipped,
+        error_message: `Created ${created}/${newOrders.length} new orders...`,
+      }).catch(() => {});
+    }
+
+    // ═══ STEP 6: Update CHANGED order headers (one by one, but only header) ═══
+    let updated = 0;
+    for (const { existingId, soData } of changedOrders) {
+      const { shopify_order_id, external_id, ...updateData } = soData;
+      try {
+        await withRetry(() =>
+          base44.asServiceRole.entities.SalesOrder.update(existingId, updateData)
+        );
+        updated++;
+      } catch (err) {
+        console.error(`[BulkSync] Update failed for ${soData.order_number}: ${err.message}`);
+        failed++;
+      }
+    }
+
+    console.log(`[BulkSync] Sync done: ${created} created, ${updated} updated, ${skipped} skipped, ${failed} failed`);
+
+    // ═══ STEP 7: Reconciliation — find local paid_unfulfilled NOT in Shopify's open set ═══
+    let reconciled = 0;
+    const staleOrders = existingOrders.filter(eo =>
+      eo.lifecycle_state === 'paid_unfulfilled' && eo.external_id && !shopifyIdsSeen.has(eo.external_id)
+    );
+
+    if (staleOrders.length > 0) {
+      console.log(`[BulkSync] Reconciling ${staleOrders.length} orders not in Shopify open set`);
+      await base44.asServiceRole.entities.SyncState.update(syncState.id, {
+        error_message: `Reconciling ${staleOrders.length} stale orders...`,
+      }).catch(() => {});
+
+      // Batch-check via Shopify ids= parameter (up to 100 per call)
+      for (let i = 0; i < staleOrders.length; i += 100) {
+        const chunk = staleOrders.slice(i, i + 100);
+        const ids = chunk.map(o => o.external_id).join(',');
+        const checkUrl = `https://${storeDomain}/admin/api/2024-01/orders.json?ids=${ids}&status=any&fields=id,financial_status,fulfillment_status,cancelled_at&limit=250`;
+
+        let shopifyData = [];
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          const res = await fetch(checkUrl, {
+            headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+          });
+          if (res.status === 429) {
+            const retryAfter = parseFloat(res.headers.get('retry-after') || '2');
+            await sleep(retryAfter * 1000);
+            continue;
+          }
+          if (res.ok) {
+            const data = await res.json();
+            shopifyData = data.orders || [];
+            break;
+          } else {
+            console.error(`[BulkSync] Reconcile batch check failed: ${res.status}`);
+            break;
+          }
+        }
+
+        // Build map of Shopify responses
+        const shopMap = {};
+        for (const so of shopifyData) shopMap[String(so.id)] = so;
+
+        // Update each stale order
+        for (const localOrder of chunk) {
+          const shopOrder = shopMap[localOrder.external_id];
+          if (!shopOrder) {
+            // Not found in Shopify at all — mark cancelled
+            await withRetry(() => base44.asServiceRole.entities.SalesOrder.update(localOrder.id, {
+              lifecycle_state: 'cancelled',
+              last_synced_at: new Date().toISOString(),
+            }));
+            reconciled++;
+            continue;
+          }
+
+          const newLifecycle = deriveLifecycle(shopOrder);
+          if (newLifecycle !== 'paid_unfulfilled') {
+            await withRetry(() => base44.asServiceRole.entities.SalesOrder.update(localOrder.id, {
+              lifecycle_state: newLifecycle,
+              fulfillment_status: mapFulfillmentStatus(shopOrder.fulfillment_status),
+              payment_status: mapPaymentStatus(shopOrder.financial_status),
+              cancelled_at: shopOrder.cancelled_at || '',
+              last_synced_at: new Date().toISOString(),
+            }));
+            reconciled++;
+          }
+        }
+
+        if (i + 100 < staleOrders.length) await sleep(500);
+      }
+      console.log(`[BulkSync] Reconciled ${reconciled} stale orders`);
+    }
+
+    // ═══ DONE ═══
+    const totalProcessed = created + updated + skipped;
     await withRetry(() => base44.asServiceRole.entities.SyncState.update(syncState.id, {
       sync_status: 'idle',
       records_synced: totalProcessed,
@@ -419,36 +483,19 @@ Deno.serve(async (req) => {
       last_sync_at: new Date().toISOString(),
     }));
 
-    console.log(`[BulkSync] Complete: ${totalProcessed} processed (${created}c ${updated}u ${skipped}s ${failed}e)`);
-
     await base44.asServiceRole.entities.AuditLog.create({
       action: 'sync', entity_type: 'SalesOrder',
-      description: `Bulk sync: ${created} new, ${updated} updated, ${skipped} skipped, ${failed} failed (${totalProcessed} total)`,
+      description: `Bulk sync v4: ${created} new, ${updated} updated, ${skipped} unchanged, ${failed} failed, ${reconciled} reconciled (${shopifyOrders.length} Shopify orders)`,
     }).catch(() => {});
 
-    // ── Auto-reconcile after successful sync ──
-    console.log('[BulkSync] Triggering auto-reconciliation...');
-    let totalReconciled = 0, totalChecked = 0, remaining = 999, reconSkip = 0;
-    const RECON_BATCH = 80;
-    while (remaining > 0) {
-      try {
-        const reconRes = await base44.functions.invoke('reconcileOrders', { batch_size: RECON_BATCH, skip: reconSkip });
-        const rd = reconRes.data || {};
-        totalReconciled += rd.reconciled || 0;
-        totalChecked += rd.checked || 0;
-        remaining = rd.remaining || 0;
-        reconSkip += rd.checked || RECON_BATCH;
-        if ((rd.checked || 0) === 0) break;
-      } catch (reconErr) {
-        console.error(`[BulkSync] Reconciliation error: ${reconErr.message}`);
-        break;
-      }
-    }
-    if (totalChecked > 0) {
-      console.log(`[BulkSync] Reconciliation: ${totalReconciled} updated out of ${totalChecked} checked`);
-    }
+    console.log(`[BulkSync] Complete: ${totalProcessed} processed, ${reconciled} reconciled`);
 
-    return Response.json({ ok: true, status: 'completed', created, updated, skipped, failed, total: totalProcessed, reconciled: totalReconciled });
+    return Response.json({
+      ok: true, status: 'completed',
+      created, updated, skipped, failed, reconciled,
+      total_shopify: shopifyOrders.length,
+      total_local: existingOrders.length,
+    });
 
   } catch (err) {
     console.error(`[BulkSync FATAL] ${err.message}`);
