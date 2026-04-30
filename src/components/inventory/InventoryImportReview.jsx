@@ -5,6 +5,9 @@ import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, AlertTriangle, X, ArrowRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+// Fallback location: PE Main Warehouse — used when product has no default_location_id and no SOH record
+const FALLBACK_LOCATION_ID = '69ea6bec8ec21eb79273085e';
+
 /**
  * Modal that shows a diff of what will change when importing a CSV.
  * User must confirm before changes are applied.
@@ -35,8 +38,14 @@ export default function InventoryImportReview({ diffs, parseErrors, onClose, onI
       if (changes.on_hand) {
         const variance = changes.on_hand.to - changes.on_hand.from;
         if (Math.abs(variance) > 0.001) {
-          // Find the default location for this product
-          const locationId = product.default_location_id || null;
+          // Find any existing SOH record for this product first
+          const allSoh = await base44.entities.StockOnHand.filter({
+            product_id: product.id,
+          });
+
+          const locationId = allSoh.length > 0
+            ? allSoh[0].location_id
+            : (product.default_location_id || FALLBACK_LOCATION_ID);
 
           await base44.entities.StockMovement.create({
             product_id: product.id,
@@ -54,19 +63,28 @@ export default function InventoryImportReview({ diffs, parseErrors, onClose, onI
             ),
           });
 
-          // Update StockOnHand — find or create the record
-          const sohRecords = await base44.entities.StockOnHand.filter({
-            product_id: product.id,
-            ...(locationId ? { location_id: locationId } : {}),
-          });
-
-          if (sohRecords.length > 0) {
-            const soh = sohRecords[0];
+          // Update or create StockOnHand record
+          if (allSoh.length > 0) {
+            const soh = allSoh[0];
             const newOnHand = changes.on_hand.to;
             const newAvailable = newOnHand - (soh.qty_committed || 0);
             await base44.entities.StockOnHand.update(soh.id, {
               qty_on_hand: newOnHand,
               qty_available: newAvailable,
+              last_updated_at: new Date().toISOString(),
+            });
+          } else {
+            // No SOH record exists — create one
+            await base44.entities.StockOnHand.create({
+              product_id: product.id,
+              product_sku: product.sku,
+              product_name: product.name,
+              location_id: locationId,
+              location_name: '',
+              qty_on_hand: changes.on_hand.to,
+              qty_committed: 0,
+              qty_available: changes.on_hand.to,
+              uom: product.stock_uom || 'pcs',
               last_updated_at: new Date().toISOString(),
             });
           }
