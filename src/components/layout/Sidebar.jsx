@@ -51,6 +51,7 @@ const PATH_PERMISSION_MAP = {
   '/purchasing/reorder': 'po_view',
   '/purchasing/settings': 'po_create',
   '/purchasing/pack-bom': 'recipes_edit',
+  '/stock/overview': 'inventory_overview',
   '/sales': 'sales_view',
   '/production': 'planning_view',
   '/production/runs': 'runs_view',
@@ -88,7 +89,6 @@ const navItems = [
       { label: 'Suppliers', path: '/suppliers', icon: Truck },
       { label: 'Purchase Orders', path: '/purchasing/orders', icon: Receipt },
       { label: 'Reorder Report', path: '/purchasing/reorder', icon: AlertTriangle },
-      { label: 'Pack Compositions', path: '/purchasing/pack-bom', icon: Box },
     ]
   },
   { label: 'Sales', path: '/sales', icon: ShoppingCart },
@@ -102,9 +102,11 @@ const navItems = [
   { 
     label: 'Inventory', icon: Warehouse,
     children: [
+      { label: 'Inventory Overview', path: '/stock/overview', icon: Package },
       { label: 'Stock Movements', path: '/stock/movements', icon: ArrowRightLeft },
       { label: 'Wastage', path: '/stock/wastage', icon: Trash2 },
       { label: 'Par Levels', path: '/stock/par-levels', icon: Gauge },
+      { label: 'Pack Compositions', path: '/purchasing/pack-bom', icon: Box },
     ]
   },
   { label: 'Shopify Sync', path: '/shopify', icon: ShoppingCart, settingsOnly: true },

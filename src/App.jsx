@@ -39,6 +39,7 @@ import POSettings from '@/pages/POSettings';
 import ReorderReport from '@/pages/ReorderReport';
 import PackBomManager from '@/pages/PackBomManager';
 import PackBomDetail from '@/pages/PackBomDetail';
+import InventoryOverview from '@/pages/InventoryOverview';
 import XeroCallback from '@/pages/XeroCallback';
 import Sales from '@/pages/Sales';
 import Customers from '@/pages/Customers';
@@ -127,6 +128,7 @@ const AuthenticatedApp = () => {
         <Route path="/stock/new-production" element={<Navigate to="/production/runs" replace />} />
         <Route path="/stock/wastage" element={<Wastage />} />
         <Route path="/stock/stock-take" element={<StockTakeNew />} />
+        <Route path="/stock/overview" element={<InventoryOverview />} />
         <Route path="/stock/movements" element={<StockMovements />} />
         <Route path="/stock/stock-take-legacy" element={<StockTake />} />
         <Route path="/stock/transfer" element={<StockTransfer />} />
