@@ -390,7 +390,30 @@ Deno.serve(async (req) => {
       description: `Bulk sync: ${created} new, ${updated} updated, ${unchanged} unchanged, ${failed} failed (${totalProcessed} total)`,
     }).catch(() => {});
 
-    return Response.json({ ok: true, status: 'completed', created, updated, unchanged, failed, total: totalProcessed });
+    // ── Auto-reconcile after successful sync ──
+    // Checks paid_unfulfilled orders against Shopify to catch fulfilled/cancelled/archived orders
+    console.log('[BulkSync] Triggering auto-reconciliation...');
+    let totalReconciled = 0, totalChecked = 0, remaining = 999, skip = 0;
+    const RECON_BATCH = 80;
+    while (remaining > 0 && (Date.now() - runStart) < MAX_RUNTIME_MS - 5000) {
+      try {
+        const reconRes = await base44.functions.invoke('reconcileOrders', { batch_size: RECON_BATCH, skip });
+        const rd = reconRes.data || {};
+        totalReconciled += rd.reconciled || 0;
+        totalChecked += rd.checked || 0;
+        remaining = rd.remaining || 0;
+        skip += rd.checked || RECON_BATCH;
+        if ((rd.checked || 0) === 0) break;
+      } catch (reconErr) {
+        console.error(`[BulkSync] Reconciliation error: ${reconErr.message}`);
+        break;
+      }
+    }
+    if (totalChecked > 0) {
+      console.log(`[BulkSync] Reconciliation: ${totalReconciled} updated out of ${totalChecked} checked`);
+    }
+
+    return Response.json({ ok: true, status: 'completed', created, updated, unchanged, failed, total: totalProcessed, reconciled: totalReconciled });
 
   } catch (err) {
     console.error(`[BulkSync FATAL] ${err.message}`);

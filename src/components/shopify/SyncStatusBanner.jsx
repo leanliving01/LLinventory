@@ -11,8 +11,6 @@ const SYNC_CONFIGS = {
   shopify_customers: { label: 'Customers', fn: 'bulkSyncCustomers' },
 };
 
-const BATCH_SIZE = 80;
-
 function SyncRow({ syncKey, syncState, onTrigger, triggering }) {
   const config = SYNC_CONFIGS[syncKey];
   const isRunning = syncState?.sync_status === 'running';
@@ -76,8 +74,6 @@ function SyncRow({ syncKey, syncState, onTrigger, triggering }) {
 
 export default function SyncStatusBanner({ showAll = false, syncKeys: customKeys }) {
   const [triggering, setTriggering] = useState(null);
-  const [reconciling, setReconciling] = useState(false);
-  const [reconcileResult, setReconcileResult] = useState(null);
 
   // Poll SyncState every 3 seconds while any sync is running, otherwise every 15s
   const { data: syncStates = [] } = useQuery({
@@ -120,33 +116,6 @@ export default function SyncStatusBanner({ showAll = false, syncKeys: customKeys
     }
   };
 
-  const handleReconcile = async () => {
-    setReconciling(true);
-    setReconcileResult(null);
-    let totalReconciled = 0;
-    let totalChecked = 0;
-    let remaining = 999;
-    let skip = 0;
-
-    while (remaining > 0) {
-      const res = await base44.functions.invoke('reconcileOrders', { batch_size: BATCH_SIZE, skip });
-      const data = res.data || {};
-      totalReconciled += data.reconciled || 0;
-      totalChecked += data.checked || 0;
-      remaining = data.remaining || 0;
-      skip += data.checked || BATCH_SIZE;
-      if ((data.checked || 0) === 0) break;
-    }
-
-    setReconcileResult({ reconciled: totalReconciled, checked: totalChecked });
-    if (totalReconciled > 0) {
-      toast.success(`Reconciled ${totalReconciled} orders (${totalChecked} checked)`);
-    } else {
-      toast.info(`All ${totalChecked} orders are up to date`);
-    }
-    setReconciling(false);
-  };
-
   const keys = customKeys
     ? customKeys
     : showAll
@@ -160,16 +129,6 @@ export default function SyncStatusBanner({ showAll = false, syncKeys: customKeys
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-semibold text-foreground">Shopify Sync</h3>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={reconciling || anyRunning}
-            onClick={handleReconcile}
-            className="text-xs h-7 px-2"
-          >
-            {reconciling ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
-            {reconciling ? 'Reconciling...' : 'Reconcile'}
-          </Button>
           {anyRunning && (
             <span className="text-xs text-primary flex items-center gap-1">
               <Loader2 className="w-3 h-3 animate-spin" /> Syncing...
@@ -177,11 +136,6 @@ export default function SyncStatusBanner({ showAll = false, syncKeys: customKeys
           )}
         </div>
       </div>
-      {reconcileResult && (
-        <p className="text-xs text-muted-foreground mb-1">
-          Last reconcile: {reconcileResult.reconciled} updated out of {reconcileResult.checked} checked
-        </p>
-      )}
       <div className="divide-y divide-border">
         {keys.map(k => (
           <SyncRow
