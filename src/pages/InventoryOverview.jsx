@@ -113,7 +113,6 @@ export default function InventoryOverview() {
           <InventoryCSVExport products={filtered} stockByProduct={stockByProduct} />
           <InventoryCSVImport
             products={products}
-            stockByProduct={stockByProduct}
             onImportComplete={() => {
               queryClient.invalidateQueries({ queryKey: ['inv-overview-products'] });
               queryClient.invalidateQueries({ queryKey: ['inv-overview-soh'] });

@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Upload } from 'lucide-react';
 import InventoryImportReview from './InventoryImportReview';
@@ -6,10 +7,10 @@ import InventoryImportReview from './InventoryImportReview';
 /**
  * CSV Import button + file picker.
  * Parses the CSV and opens the review modal with diffs.
+ * Always fetches FRESH stock data at parse time to avoid stale comparisons.
  *
  * Props:
  *  - products: all Product records (to match SKUs)
- *  - stockByProduct: { productId: { on_hand, committed, available } }
  *  - onImportComplete: callback after successful import
  */
 /**
@@ -97,7 +98,7 @@ function parseNumber(raw) {
   return parseFloat(cleaned);
 }
 
-export default function InventoryCSVImport({ products, stockByProduct, onImportComplete }) {
+export default function InventoryCSVImport({ products, onImportComplete }) {
   const [changes, setChanges] = useState(null);
   const [parseErrors, setParseErrors] = useState([]);
   const fileRef = useRef(null);
@@ -113,7 +114,17 @@ export default function InventoryCSVImport({ products, stockByProduct, onImportC
     });
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
+      // Fetch FRESH stock data at parse time to avoid stale comparisons
+      const freshSoh = await base44.entities.StockOnHand.list('product_sku', 5000);
+      const stockByProduct = {};
+      freshSoh.forEach(s => {
+        if (!s.product_id) return;
+        if (!stockByProduct[s.product_id]) stockByProduct[s.product_id] = { on_hand: 0, committed: 0, available: 0 };
+        stockByProduct[s.product_id].on_hand += s.qty_on_hand || 0;
+        stockByProduct[s.product_id].committed += s.qty_committed || 0;
+        stockByProduct[s.product_id].available += s.qty_available || 0;
+      });
       // Strip BOM if present
       let text = evt.target.result;
       if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
