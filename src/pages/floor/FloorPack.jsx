@@ -241,11 +241,30 @@ export default function FloorPack() {
 
   const allPackItems = useMemo(() => groups.flatMap(g => g.items), [groups]);
 
+  // Build barcode/SKU → product SKU lookup.
+  // Handles leading-zero ambiguity: scanners may add or strip a leading '0'.
+  // When multiple products share near-identical barcodes (e.g. 0759649607889 vs 759649607889),
+  // we store ALL variants but track collisions so processCode can disambiguate using the order context.
   const allProductLookup = useMemo(() => {
     const map = {};
+    const addBarcode = (bc, sku) => {
+      const key = bc.toLowerCase();
+      // If already mapped to a different SKU, store as array for disambiguation
+      if (map[key] && map[key] !== sku) {
+        map[key] = Array.isArray(map[key]) ? [...map[key], sku] : [map[key], sku];
+      } else if (!map[key]) {
+        map[key] = sku;
+      }
+    };
     products.forEach(p => {
       const sku = (p.sku || '').toLowerCase();
-      if (p.barcode) map[p.barcode.toLowerCase()] = sku;
+      if (p.barcode) {
+        const bc = p.barcode.trim();
+        addBarcode(bc, sku);
+        // Also index the zero-stripped and zero-prefixed variants
+        if (bc.startsWith('0')) addBarcode(bc.replace(/^0+/, ''), sku);
+        else addBarcode('0' + bc, sku);
+      }
       map[sku] = sku;
     });
     return map;
@@ -337,18 +356,29 @@ export default function FloorPack() {
       return;
     }
 
-    const resolvedSku = lookup[trimmed];
-    if (!resolvedSku) {
+    const rawLookup = lookup[trimmed];
+    if (!rawLookup) {
       setLastScanResult({ type: 'error', message: `Unknown barcode: "${code.trim()}"` });
       triggerFeedback('error');
       return;
     }
-    // Check direct match first, then check prefix mapping for abbreviated PackBom SKUs
+
+    // Disambiguate barcode collisions: if multiple SKUs share the same barcode,
+    // pick the one that's actually in this order (via direct or prefix match).
     const skuMapping = productSkuToLineSkuRef.current;
-    const matchedSku = skuSet.has(resolvedSku) ? resolvedSku : (skuMapping[resolvedSku] || null);
+    const candidates = Array.isArray(rawLookup) ? rawLookup : [rawLookup];
+
+    let matchedSku = null;
+    for (const candidate of candidates) {
+      if (skuSet.has(candidate)) { matchedSku = candidate; break; }
+      if (skuMapping[candidate]) { matchedSku = skuMapping[candidate]; break; }
+    }
+
     if (!matchedSku) {
-      const wrongName = nameMap[resolvedSku] || resolvedSku;
-      setLastScanResult({ type: 'error', message: `Wrong item — "${wrongName}" is not in this order` });
+      // Show all candidate names so the user knows what was detected
+      const names = candidates.map(c => nameMap[c] || c).filter(Boolean);
+      const displayName = names.join(' / ');
+      setLastScanResult({ type: 'error', message: `Wrong item — "${displayName}" is not in this order` });
       triggerFeedback('error');
       return;
     }
