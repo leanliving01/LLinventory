@@ -472,6 +472,28 @@ Deno.serve(async (req) => {
       console.log(`[BulkSync] Reconciled ${reconciled} stale orders`);
     }
 
+    // ═══ STEP 8: Recalculate committed stock if anything changed ═══
+    let committedResult = null;
+    if (created > 0 || updated > 0 || reconciled > 0) {
+      console.log(`[BulkSync] Changes detected — triggering committed stock recalc…`);
+      await base44.asServiceRole.entities.SyncState.update(syncState.id, {
+        error_message: 'Recalculating committed stock…',
+      }).catch(() => {});
+
+      try {
+        const res = await base44.functions.invoke('recalcCommittedDemand', {
+          action: 'commit', refresh_audit: false,
+        });
+        committedResult = res.data || res;
+        console.log(`[BulkSync] Committed recalc done: ${committedResult.skus_committed || 0} SKUs, ${committedResult.soh_updated || 0} SOH updated`);
+      } catch (err) {
+        console.error(`[BulkSync] Committed recalc failed: ${err.message}`);
+        committedResult = { error: err.message };
+      }
+    } else {
+      console.log(`[BulkSync] No changes — skipping committed stock recalc`);
+    }
+
     // ═══ DONE ═══
     const totalProcessed = created + updated + skipped;
     await withRetry(() => base44.asServiceRole.entities.SyncState.update(syncState.id, {
@@ -485,7 +507,7 @@ Deno.serve(async (req) => {
 
     await base44.asServiceRole.entities.AuditLog.create({
       action: 'sync', entity_type: 'SalesOrder',
-      description: `Bulk sync v4: ${created} new, ${updated} updated, ${skipped} unchanged, ${failed} failed, ${reconciled} reconciled (${shopifyOrders.length} Shopify orders)`,
+      description: `Bulk sync v4: ${created} new, ${updated} updated, ${skipped} unchanged, ${failed} failed, ${reconciled} reconciled (${shopifyOrders.length} Shopify orders)${committedResult ? `, committed: ${committedResult.skus_committed || 0} SKUs` : ''}`,
     }).catch(() => {});
 
     console.log(`[BulkSync] Complete: ${totalProcessed} processed, ${reconciled} reconciled`);
@@ -493,6 +515,7 @@ Deno.serve(async (req) => {
     return Response.json({
       ok: true, status: 'completed',
       created, updated, skipped, failed, reconciled,
+      committed_recalc: committedResult,
       total_shopify: shopifyOrders.length,
       total_local: existingOrders.length,
     });
