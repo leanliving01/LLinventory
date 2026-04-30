@@ -2,11 +2,13 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 /**
  * Bulk sync orders from Shopify.
- * Optimised: uses bulkCreate for lines, minimal sleeps, no pause/resume.
+ * v3 — Minimal API calls: only updates headers for existing orders,
+ * only creates lines for NEW orders. Fully sequential to avoid rate limits.
  */
 
 const SYNC_KEY = 'shopify_orders';
 const PAGE_SIZE = 250;
+const API_DELAY = 120; // ms between Base44 API calls
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -17,14 +19,24 @@ async function withRetry(fn, maxRetries = 5) {
     } catch (err) {
       const msg = (err.message || '').toLowerCase();
       if (msg.includes('rate limit') && attempt < maxRetries) {
-        const backoff = Math.min(3000 * attempt, 15000);
-        console.log(`[BulkSync] Rate limited, retry ${attempt}/${maxRetries} (waiting ${backoff}ms)`);
+        const backoff = Math.min(4000 * attempt, 20000);
+        console.log(`[BulkSync] Rate limited, backoff ${backoff}ms (attempt ${attempt}/${maxRetries})`);
         await sleep(backoff);
         continue;
       }
       throw err;
     }
   }
+}
+
+/** Throttled Base44 API call — enforces minimum delay between calls */
+let lastApiCall = 0;
+async function throttledCall(fn) {
+  const now = Date.now();
+  const elapsed = now - lastApiCall;
+  if (elapsed < API_DELAY) await sleep(API_DELAY - elapsed);
+  lastApiCall = Date.now();
+  return await withRetry(fn);
 }
 
 // ─── Lifecycle derivation ───
@@ -73,6 +85,30 @@ function classifyLine(li, packBomIndex, orderTags) {
   if (title.includes('build your own') || title.includes('byo') || tags.includes('byo meals') || tags.includes('byo')) return 'byo';
   if (sku) return 'standalone';
   return 'unknown';
+}
+
+/** Create a simple hash of the line-items to detect if decomposition changed */
+function lineHash(order, packBomIndex) {
+  const parts = [];
+  for (const li of (order.line_items || [])) {
+    if (isExcluded(li)) continue;
+    parts.push(`${li.sku || ''}:${li.quantity || 1}:${li.id}`);
+  }
+  // Include active pack bom disabled/override state
+  for (const li of (order.line_items || [])) {
+    const sku = li.sku || '';
+    if (packBomIndex[sku]) {
+      const pb = packBomIndex[sku];
+      parts.push(`pb:${sku}:${(pb.disabled_skus || []).sort().join(',')}:${pb.sku_overrides || '{}'}`);
+    }
+  }
+  // Simple string hash
+  const str = parts.join('|');
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return String(hash);
 }
 
 function buildSalesOrder(order) {
@@ -168,10 +204,17 @@ function decomposeLines(order, packBomIndex) {
   return { parentLines, componentLines, hasUnresolved, decompositionStatus };
 }
 
-async function processOrder(base44, order, packBomIndex, forceRedecompose) {
+/**
+ * Process a single order.
+ * For EXISTING orders: only update the header (1 API call).
+ * For NEW orders: create header + lines.
+ * Returns 'created' | 'updated' | 'skipped'
+ */
+async function processOrder(base44, order, packBomIndex) {
   const orderId = String(order.id);
+  const hash = lineHash(order, packBomIndex);
 
-  const existingOrders = await withRetry(() =>
+  const existingOrders = await throttledCall(() =>
     base44.asServiceRole.entities.SalesOrder.filter({ external_id: orderId })
   );
 
@@ -179,67 +222,79 @@ async function processOrder(base44, order, packBomIndex, forceRedecompose) {
   const { parentLines, componentLines, hasUnresolved, decompositionStatus } = decomposeLines(order, packBomIndex);
   soData.has_unresolved_skus = hasUnresolved;
   soData.decomposition_status = decompositionStatus;
-
-  let salesOrderId;
-  let action;
+  soData.data_hash = hash;
 
   if (existingOrders.length > 0) {
-    salesOrderId = existingOrders[0].id;
+    // ─── EXISTING ORDER: just update header ───
+    const existing = existingOrders[0];
     const { shopify_order_id, external_id, ...updateData } = soData;
-    await withRetry(() =>
-      base44.asServiceRole.entities.SalesOrder.update(salesOrderId, updateData)
+
+    // Skip entirely if nothing meaningful changed
+    const headerChanged = existing.lifecycle_state !== updateData.lifecycle_state ||
+      existing.payment_status !== updateData.payment_status ||
+      existing.fulfillment_status !== updateData.fulfillment_status ||
+      existing.total_amount !== updateData.total_amount ||
+      existing.data_hash !== hash;
+
+    if (!headerChanged) return 'skipped';
+
+    await throttledCall(() =>
+      base44.asServiceRole.entities.SalesOrder.update(existing.id, updateData)
     );
-    action = 'updated';
+
+    // Only rebuild lines if the line composition actually changed
+    if (existing.data_hash !== hash) {
+      await rebuildLines(base44, existing.id, parentLines, componentLines);
+    }
+
+    return 'updated';
   } else {
-    const created = await withRetry(() =>
+    // ─── NEW ORDER: create header + all lines ───
+    const created = await throttledCall(() =>
       base44.asServiceRole.entities.SalesOrder.create(soData)
     );
-    salesOrderId = created.id;
-    action = 'created';
+    await createLines(base44, created.id, parentLines, componentLines);
+    return 'created';
   }
+}
 
-  // Delete existing lines sequentially with throttle
-  const existingLines = await withRetry(() =>
+/** Delete all existing lines then create new ones — fully sequential */
+async function rebuildLines(base44, salesOrderId, parentLines, componentLines) {
+  // Delete existing lines one by one
+  const existingLines = await throttledCall(() =>
     base44.asServiceRole.entities.SalesOrderLine.filter({ sales_order_id: salesOrderId })
   );
-  if (existingLines.length > 0) {
-    for (let i = 0; i < existingLines.length; i += 5) {
-      const batch = existingLines.slice(i, i + 5);
-      await Promise.all(batch.map(el =>
-        withRetry(() => base44.asServiceRole.entities.SalesOrderLine.delete(el.id))
-      ));
-      if (i + 5 < existingLines.length) await sleep(200);
-    }
+  for (const el of existingLines) {
+    await throttledCall(() =>
+      base44.asServiceRole.entities.SalesOrderLine.delete(el.id)
+    );
   }
+  await createLines(base44, salesOrderId, parentLines, componentLines);
+}
 
-  // Create parent lines with throttle
+/** Create parent + component lines — fully sequential, using bulkCreate for components */
+async function createLines(base44, salesOrderId, parentLines, componentLines) {
   const parentIdMap = {};
-  for (let i = 0; i < parentLines.length; i++) {
-    const pl = parentLines[i];
-    const created = await withRetry(() =>
+  for (const pl of parentLines) {
+    const created = await throttledCall(() =>
       base44.asServiceRole.entities.SalesOrderLine.create({ ...pl, sales_order_id: salesOrderId })
     );
     parentIdMap[pl.external_id] = created.id;
-    if ((i + 1) % 3 === 0) await sleep(150);
   }
 
-  // Create component lines in small bulk batches with throttle
   if (componentLines.length > 0) {
-    const BULK_SIZE = 10;
+    const BULK_SIZE = 15;
     for (let i = 0; i < componentLines.length; i += BULK_SIZE) {
       const batch = componentLines.slice(i, i + BULK_SIZE).map(cl => {
         const parentB44Id = parentIdMap[cl.parent_line_external_id] || '';
         const { parent_line_external_id, ...lineData } = cl;
         return { ...lineData, sales_order_id: salesOrderId, parent_line_id: parentB44Id };
       });
-      await withRetry(() =>
+      await throttledCall(() =>
         base44.asServiceRole.entities.SalesOrderLine.bulkCreate(batch)
       );
-      if (i + BULK_SIZE < componentLines.length) await sleep(200);
     }
   }
-
-  return action;
 }
 
 async function fetchShopifyPage(url, accessToken) {
@@ -291,62 +346,67 @@ Deno.serve(async (req) => {
 
   const syncState = await getSyncState(base44);
 
-  // If stuck in running for > 3 minutes, force reset
+  // If stuck in running for > 5 minutes, force reset
   if (syncState.sync_status === 'running') {
     const lastSync = syncState.last_sync_at ? new Date(syncState.last_sync_at) : new Date(0);
     const minutesStale = (Date.now() - lastSync.getTime()) / 60000;
-    if (minutesStale < 3) {
+    if (minutesStale < 5) {
       return Response.json({ ok: true, status: 'already_running' });
     }
     console.log(`[BulkSync] Stale running state (${Math.round(minutesStale)}m), resetting`);
   }
 
-  // Always start fresh — clear any stale cursor
+  // Mark as running
   await base44.asServiceRole.entities.SyncState.update(syncState.id, {
-    sync_status: 'running', records_synced: 0, records_failed: 0, error_message: '', last_cursor: null,
+    sync_status: 'running', records_synced: 0, records_failed: 0,
+    error_message: 'Starting...', last_cursor: null,
+    last_sync_at: new Date().toISOString(),
   });
 
   // Load PackBom index
   const packBoms = await base44.asServiceRole.entities.PackBom.filter({ active: true });
   const packBomIndex = {};
   for (const pb of packBoms) packBomIndex[pb.package_sku] = pb;
+  console.log(`[BulkSync] Loaded ${packBoms.length} active PackBoms`);
 
   const startUrl = `https://${storeDomain}/admin/api/2024-01/orders.json?status=open&limit=${PAGE_SIZE}`;
   let currentUrl = startUrl;
-  let created = 0, updated = 0, failed = 0, totalProcessed = 0, pageNum = 0;
+  let created = 0, updated = 0, skipped = 0, failed = 0, totalProcessed = 0, pageNum = 0;
 
   try {
     while (currentUrl) {
       pageNum++;
       const { items: orders, nextUrl } = await fetchShopifyPage(currentUrl, accessToken);
+      console.log(`[BulkSync] Page ${pageNum}: fetched ${orders.length} orders from Shopify`);
 
       for (let oi = 0; oi < orders.length; oi++) {
         const order = orders[oi];
         try {
-          const action = await processOrder(base44, order, packBomIndex, forceRedecompose);
+          const action = await processOrder(base44, order, packBomIndex);
           if (action === 'created') created++;
-          else updated++;
+          else if (action === 'updated') updated++;
+          else skipped++;
         } catch (err) {
           console.error(`[BulkSync] Error on ${order.name || order.id}: ${err.message}`);
           failed++;
         }
         totalProcessed++;
-        // Throttle between orders to avoid Base44 rate limits
-        if ((oi + 1) % 5 === 0) await sleep(500);
+
+        // Update progress every 10 orders
+        if (totalProcessed % 10 === 0) {
+          await throttledCall(() => base44.asServiceRole.entities.SyncState.update(syncState.id, {
+            records_synced: totalProcessed,
+            records_failed: failed,
+            error_message: `Page ${pageNum}: ${created}c ${updated}u ${skipped}s ${failed}e`,
+            last_sync_at: new Date().toISOString(),
+          }));
+        }
       }
 
-      // Update progress after each page
-      await withRetry(() => base44.asServiceRole.entities.SyncState.update(syncState.id, {
-        records_synced: totalProcessed,
-        records_failed: failed,
-        error_message: `Page ${pageNum}: ${created}c ${updated}u ${failed}e`,
-        last_sync_at: new Date().toISOString(),
-      }));
-
-      console.log(`[BulkSync] Page ${pageNum}: ${orders.length} orders. Total: ${totalProcessed} (${created}c ${updated}u ${failed}e)`);
+      console.log(`[BulkSync] Page ${pageNum} done. Total: ${totalProcessed} (${created}c ${updated}u ${skipped}s ${failed}e)`);
 
       currentUrl = nextUrl || '';
-      if (currentUrl) await sleep(300);
+      if (currentUrl) await sleep(500);
     }
 
     // Done — mark complete
@@ -359,25 +419,25 @@ Deno.serve(async (req) => {
       last_sync_at: new Date().toISOString(),
     }));
 
-    console.log(`[BulkSync] Complete: ${totalProcessed} processed (${created}c ${updated}u ${failed}e)`);
+    console.log(`[BulkSync] Complete: ${totalProcessed} processed (${created}c ${updated}u ${skipped}s ${failed}e)`);
 
     await base44.asServiceRole.entities.AuditLog.create({
       action: 'sync', entity_type: 'SalesOrder',
-      description: `Bulk sync: ${created} new, ${updated} updated, ${failed} failed (${totalProcessed} total)`,
+      description: `Bulk sync: ${created} new, ${updated} updated, ${skipped} skipped, ${failed} failed (${totalProcessed} total)`,
     }).catch(() => {});
 
     // ── Auto-reconcile after successful sync ──
     console.log('[BulkSync] Triggering auto-reconciliation...');
-    let totalReconciled = 0, totalChecked = 0, remaining = 999, skip = 0;
+    let totalReconciled = 0, totalChecked = 0, remaining = 999, reconSkip = 0;
     const RECON_BATCH = 80;
     while (remaining > 0) {
       try {
-        const reconRes = await base44.functions.invoke('reconcileOrders', { batch_size: RECON_BATCH, skip });
+        const reconRes = await base44.functions.invoke('reconcileOrders', { batch_size: RECON_BATCH, skip: reconSkip });
         const rd = reconRes.data || {};
         totalReconciled += rd.reconciled || 0;
         totalChecked += rd.checked || 0;
         remaining = rd.remaining || 0;
-        skip += rd.checked || RECON_BATCH;
+        reconSkip += rd.checked || RECON_BATCH;
         if ((rd.checked || 0) === 0) break;
       } catch (reconErr) {
         console.error(`[BulkSync] Reconciliation error: ${reconErr.message}`);
@@ -388,7 +448,7 @@ Deno.serve(async (req) => {
       console.log(`[BulkSync] Reconciliation: ${totalReconciled} updated out of ${totalChecked} checked`);
     }
 
-    return Response.json({ ok: true, status: 'completed', created, updated, failed, total: totalProcessed, reconciled: totalReconciled });
+    return Response.json({ ok: true, status: 'completed', created, updated, skipped, failed, total: totalProcessed, reconciled: totalReconciled });
 
   } catch (err) {
     console.error(`[BulkSync FATAL] ${err.message}`);
