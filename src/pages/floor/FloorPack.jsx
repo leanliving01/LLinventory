@@ -243,11 +243,38 @@ export default function FloorPack() {
     return map;
   }, [products]);
 
-  const orderSkuSet = useMemo(() => new Set(allPackItems.map(i => i.skuLower)), [allPackItems]);
+  // Build order SKU set + a reverse lookup that maps full product SKUs to their
+  // decomposed line SKU. Needed because PackBom component_skus can be abbreviated
+  // (e.g. "ChiBreButandSti") while the actual Product.sku is longer
+  // (e.g. "ChiBreButandStialowitaSweandSouSau"). The barcode resolves to the
+  // full product SKU, but the order line uses the PackBom abbreviated SKU.
+  const { orderSkuSet, productSkuToLineSku } = useMemo(() => {
+    const lineSkus = allPackItems.map(i => i.skuLower);
+    const set = new Set(lineSkus);
+    const mapping = {}; // fullProductSku → lineSkuUsedInOrder
+
+    // For each product, check if its full SKU starts with any line SKU (or vice versa)
+    products.forEach(p => {
+      const fullSku = (p.sku || '').toLowerCase();
+      if (!fullSku) return;
+      // Direct match — already in set, no mapping needed
+      if (set.has(fullSku)) return;
+      // Check prefix: does the full product SKU start with any abbreviated line SKU?
+      for (const lineSku of lineSkus) {
+        if (fullSku.startsWith(lineSku) || lineSku.startsWith(fullSku)) {
+          mapping[fullSku] = lineSku;
+          break;
+        }
+      }
+    });
+
+    return { orderSkuSet: set, productSkuToLineSku: mapping };
+  }, [allPackItems, products]);
 
   // ── Refs to avoid stale closures in HID keydown handler ──
   const allProductLookupRef = useRef(allProductLookup);
   const orderSkuSetRef = useRef(orderSkuSet);
+  const productSkuToLineSkuRef = useRef(productSkuToLineSku);
   const allPackItemsRef = useRef(allPackItems);
   const skuNameMapRef = useRef(skuNameMap);
   const scannedMapRef = useRef(scannedMap);
@@ -256,6 +283,7 @@ export default function FloorPack() {
 
   useEffect(() => { allProductLookupRef.current = allProductLookup; }, [allProductLookup]);
   useEffect(() => { orderSkuSetRef.current = orderSkuSet; }, [orderSkuSet]);
+  useEffect(() => { productSkuToLineSkuRef.current = productSkuToLineSku; }, [productSkuToLineSku]);
   useEffect(() => { allPackItemsRef.current = allPackItems; }, [allPackItems]);
   useEffect(() => { skuNameMapRef.current = skuNameMap; }, [skuNameMap]);
   useEffect(() => { scannedMapRef.current = scannedMap; }, [scannedMap]);
@@ -292,23 +320,26 @@ export default function FloorPack() {
       triggerFeedback('error');
       return;
     }
-    if (!skuSet.has(resolvedSku)) {
+    // Check direct match first, then check prefix mapping for abbreviated PackBom SKUs
+    const skuMapping = productSkuToLineSkuRef.current;
+    const matchedSku = skuSet.has(resolvedSku) ? resolvedSku : (skuMapping[resolvedSku] || null);
+    if (!matchedSku) {
       const wrongName = nameMap[resolvedSku] || resolvedSku;
       setLastScanResult({ type: 'error', message: `Wrong item — "${wrongName}" is not in this order` });
       triggerFeedback('error');
       return;
     }
 
-    const item = items.find(i => i.skuLower === resolvedSku);
-    const currentCount = scanned[resolvedSku] || 0;
+    const item = items.find(i => i.skuLower === matchedSku);
+    const currentCount = scanned[matchedSku] || 0;
     if (item && currentCount >= item.qty) {
       setLastScanResult({ type: 'error', message: `Already scanned all ${item.qty} of ${item.name}` });
       triggerFeedback('error');
       return;
     }
 
-    setScannedMap(prev => ({ ...prev, [resolvedSku]: (prev[resolvedSku] || 0) + 1 }));
-    setLastScanResult({ type: 'success', message: `✓ ${item?.name || resolvedSku} (${currentCount + 1}/${item?.qty || '?'})` });
+    setScannedMap(prev => ({ ...prev, [matchedSku]: (prev[matchedSku] || 0) + 1 }));
+    setLastScanResult({ type: 'success', message: `✓ ${item?.name || matchedSku} (${currentCount + 1}/${item?.qty || '?'})` });
     triggerFeedback('success');
   };
 
