@@ -124,9 +124,10 @@ Deno.serve(async (req) => {
           product_name: mat.name || '',
           qty: deductQty,
           uom: 'pcs',
-          reason: 'sale_fulfillment',
+          reason: 'packing_material',
           ref_type: 'sales_order',
           ref_id: orderId,
+          ref_number: data.order_number || `Order ${orderId}`,
           reference_key: `packing_material:${orderId}:${rule.id}:${mat.product_id}`,
           notes: `Auto-deduct: ${rule.name} — ${mat.name} (${deductQty} units)`,
         });
