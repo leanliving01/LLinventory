@@ -13,7 +13,7 @@ const PRESETS = [
 ];
 
 export default function DateRangePicker({ from, to, onChange }) {
-  const [active, setActive] = React.useState('30d');
+  const [active, setActive] = React.useState('7d');
   const [showCustom, setShowCustom] = React.useState(false);
 
   const handlePreset = (key) => {

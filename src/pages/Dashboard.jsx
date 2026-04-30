@@ -1,21 +1,25 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { format, subDays, isWithinInterval, startOfDay } from 'date-fns';
+import { format, subDays, isWithinInterval, startOfDay, isToday, isTomorrow, differenceInDays } from 'date-fns';
 import { Clock } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 import DateRangePicker from '@/components/dashboard/DateRangePicker';
-import KPICards from '@/components/dashboard/KPICards';
-import RevenueChart from '@/components/dashboard/RevenueChart';
-import PackageBreakdownChart from '@/components/dashboard/PackageBreakdownChart';
+import OperationalKPISection from '@/components/dashboard/OperationalKPISection';
+import ProductionGapChart from '@/components/dashboard/ProductionGapChart';
 import ProductionChart from '@/components/dashboard/ProductionChart';
 import WastageChart from '@/components/dashboard/WastageChart';
-import RecentRunsList from '@/components/dashboard/RecentRunsList';
+import ActiveRunsProgress from '@/components/dashboard/ActiveRunsProgress';
+import OrdersDueList from '@/components/dashboard/OrdersDueList';
+import StockCoverTable from '@/components/dashboard/StockCoverTable';
+import PackagingStockTable from '@/components/dashboard/PackagingStockTable';
+import OverduePOsTable from '@/components/dashboard/OverduePOsTable';
 import POAgingTable from '@/components/dashboard/POAgingTable';
 import ShortageTable from '@/components/dashboard/ShortageTable';
+import RecentRunsList from '@/components/dashboard/RecentRunsList';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -23,12 +27,12 @@ export default function Dashboard() {
   const perms = getUserPermissions(user || {}, customRoles);
 
   const now = new Date();
-  const [from, setFrom] = useState(subDays(now, 30));
+  const [from, setFrom] = useState(subDays(now, 7));
   const [to, setTo] = useState(now);
+  const [activeCard, setActiveCard] = useState(null);
 
   const handleDateChange = (newFrom, newTo) => { setFrom(newFrom); setTo(newTo); };
 
-  // Helper: is a record within the date range?
   const inRange = (dateStr) => {
     if (!dateStr) return false;
     const d = new Date(dateStr);
@@ -37,12 +41,6 @@ export default function Dashboard() {
 
   // ── Data fetching ──
   const queryOpts = { staleTime: 60000, retry: 2, retryDelay: 3000 };
-
-  const { data: salesOrders = [] } = useQuery({
-    queryKey: ['dash-sales'],
-    queryFn: () => base44.entities.SalesOrder.list('-order_date', 200),
-    ...queryOpts,
-  });
 
   const { data: shopifyOrders = [] } = useQuery({
     queryKey: ['dash-shopify-orders'],
@@ -62,6 +60,12 @@ export default function Dashboard() {
     ...queryOpts,
   });
 
+  const { data: productionTasks = [] } = useQuery({
+    queryKey: ['dash-tasks'],
+    queryFn: () => base44.entities.ProductionTask.filter({ archived: false }, '-created_date', 500),
+    ...queryOpts,
+  });
+
   const { data: wastageLogs = [] } = useQuery({
     queryKey: ['dash-wastage'],
     queryFn: () => base44.entities.WastageLog.list('-wastage_date', 50),
@@ -70,7 +74,7 @@ export default function Dashboard() {
 
   const { data: products = [] } = useQuery({
     queryKey: ['dash-products'],
-    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 200),
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
     ...queryOpts,
   });
 
@@ -81,73 +85,135 @@ export default function Dashboard() {
   });
 
   // ── Filter to date range ──
-  const rangedSales = useMemo(() => salesOrders.filter(o => inRange(o.order_date)), [salesOrders, from, to]);
-  const rangedShopify = useMemo(() => shopifyOrders.filter(o => inRange(o.order_date)), [shopifyOrders, from, to]);
-  const rangedPOs = useMemo(() => purchaseOrders.filter(o => inRange(o.order_date)), [purchaseOrders, from, to]);
   const rangedRuns = useMemo(() => productionRuns.filter(r => inRange(r.run_date)), [productionRuns, from, to]);
+  const rangedShopify = useMemo(() => shopifyOrders.filter(o => inRange(o.order_date)), [shopifyOrders, from, to]);
   const rangedWastage = useMemo(() => wastageLogs.filter(w => inRange(w.wastage_date)), [wastageLogs, from, to]);
 
   // ── KPI calculations ──
   const kpiData = useMemo(() => {
-    const revenue = rangedSales.reduce((s, o) => s + (o.total_amount || 0), 0);
-    const pendingOrders = salesOrders.filter(o => o.fulfillment_status === 'unfulfilled' && o.payment_status === 'paid').length;
-    const poSpend = rangedPOs
-      .filter(po => !['draft', 'cancelled'].includes(po.status))
-      .reduce((s, po) => s + (po.total || 0), 0);
-    const poOutstanding = purchaseOrders
-      .filter(po => ['confirmed', 'partially_received', 'received', 'invoiced'].includes(po.status) && po.payment_status !== 'paid')
-      .reduce((s, po) => s + (po.total || 0), 0);
-    const wastageValue = rangedWastage.reduce((s, w) => s + (w.total_rand_value || 0), 0);
-    const completedRuns = rangedRuns.filter(r => r.status === 'completed' || r.status === 'in_progress');
-    const productionUnits = completedRuns.reduce((s, r) => s + (r.total_units || 0), 0);
+    // Production gap
+    const totalProduced = rangedRuns
+      .filter(r => r.status === 'completed' || r.status === 'in_progress')
+      .reduce((s, r) => s + (r.total_units || 0), 0);
+    const totalOrdered = rangedShopify.reduce((s, o) => s + (o.total_meals || 0), 0);
+    const productionGap = Math.max(0, totalOrdered - totalProduced);
 
-    // Low stock: products with reorder point where on-hand < reorder point
+    // Orders due
+    const pendingOrders = shopifyOrders.filter(
+      o => o.paid_status === 'paid' && o.fulfilment_status === 'unfulfilled'
+    ).length;
+    const ordersDueToday = shopifyOrders.filter(
+      o => o.paid_status === 'paid' && o.fulfilment_status === 'unfulfilled' && o.order_date && isToday(new Date(o.order_date))
+    ).length;
+    const ordersDueTomorrow = shopifyOrders.filter(
+      o => o.paid_status === 'paid' && o.fulfilment_status === 'unfulfilled' && o.order_date && isTomorrow(new Date(o.order_date))
+    ).length;
+
+    // Active runs
+    const activeRuns = productionRuns.filter(r => r.status === 'in_progress' || r.status === 'scheduled');
+    const activeRunCount = activeRuns.length;
+    const productionUnits = activeRuns.reduce((s, r) => s + (r.total_units || 0), 0);
+
+    // Low stock & stock cover
     let lowStockCount = 0;
+    let criticalStockCount = 0;
     products.forEach(p => {
       if (p.min_before_reorder > 0) {
         const soh = stockRecords.filter(s => s.product_id === p.id).reduce((sum, s) => sum + (s.qty_on_hand || 0), 0);
-        if (soh < p.min_before_reorder) lowStockCount++;
+        if (soh < p.min_before_reorder) {
+          lowStockCount++;
+          const dailyUse = (p.lead_time_days > 0 && p.reorder_qty > 0) ? p.reorder_qty / p.lead_time_days : 0;
+          const daysCover = dailyUse > 0 ? soh / dailyUse : soh > 0 ? 999 : 0;
+          if (daysCover <= 1) criticalStockCount++;
+        }
       }
     });
 
-    return {
-      revenue,
-      pendingOrders,
-      poSpend,
-      poOutstanding,
-      wastageValue,
-      productionRuns: rangedRuns.length,
-      productionUnits,
-      lowStockCount,
-      activeProducts: products.length,
-    };
-  }, [rangedSales, rangedPOs, rangedRuns, rangedWastage, salesOrders, purchaseOrders, products, stockRecords]);
+    // Packaging
+    const packagingProducts = products.filter(p => p.type === 'packaging');
+    const packagingTotal = packagingProducts.length;
+    const packagingLowCount = packagingProducts.filter(p => {
+      if (p.min_before_reorder <= 0) return false;
+      const soh = stockRecords.filter(s => s.product_id === p.id).reduce((sum, s) => sum + (s.qty_on_hand || 0), 0);
+      return soh < p.min_before_reorder;
+    }).length;
 
-  // ── Shortage table (same as before but from products/stock) ──
+    // Wastage
+    const wastageValue = rangedWastage.reduce((s, w) => s + (w.total_rand_value || 0), 0);
+    const wastageLogCount = rangedWastage.length;
+
+    // Overdue POs
+    const overduePOs = purchaseOrders.filter(po => {
+      if (['received', 'paid', 'cancelled'].includes(po.status)) return false;
+      if (!po.expected_date) return false;
+      return new Date(po.expected_date) < now;
+    });
+    const overduePOCount = overduePOs.length;
+    const overduePOValue = overduePOs.reduce((s, po) => s + (po.total || 0), 0);
+
+    // Open POs
+    const openPOs = purchaseOrders.filter(
+      po => ['confirmed', 'partially_received', 'invoiced'].includes(po.status) && po.payment_status !== 'paid'
+    );
+    const openPOCount = openPOs.length;
+    const poOutstanding = openPOs.reduce((s, po) => s + (po.total || 0), 0);
+
+    return {
+      totalProduced, totalOrdered, productionGap,
+      pendingOrders, ordersDueToday, ordersDueTomorrow,
+      activeRunCount, productionUnits,
+      lowStockCount, criticalStockCount,
+      packagingTotal, packagingLowCount,
+      wastageValue, wastageLogCount,
+      overduePOCount, overduePOValue,
+      openPOCount, poOutstanding,
+    };
+  }, [rangedRuns, rangedShopify, rangedWastage, shopifyOrders, purchaseOrders, products, stockRecords]);
+
+  // ── Shortage table ──
   const shortages = useMemo(() => {
     const list = [];
     products.forEach(p => {
       if (p.min_before_reorder > 0) {
         const soh = stockRecords.filter(s => s.product_id === p.id).reduce((sum, s) => sum + (s.qty_on_hand || 0), 0);
         if (soh < p.min_before_reorder) {
-          list.push({
-            meal_name: p.name,
-            package_type: p.type,
-            shortage: p.min_before_reorder - soh,
-            sku_code: p.sku,
-          });
+          list.push({ meal_name: p.name, package_type: p.type, shortage: p.min_before_reorder - soh, sku_code: p.sku });
         }
       }
     });
     return list.sort((a, b) => b.shortage - a.shortage);
   }, [products, stockRecords]);
 
+  // ── Map active card to detail panel ──
+  const renderDetailPanel = () => {
+    switch (activeCard) {
+      case 'production_gap':
+        return <ProductionGapChart runs={rangedRuns} runLines={[]} orders={rangedShopify} from={from} to={to} />;
+      case 'orders_due':
+        return <OrdersDueList orders={shopifyOrders} />;
+      case 'active_runs':
+        return <ActiveRunsProgress runs={productionRuns} tasks={productionTasks} />;
+      case 'low_stock':
+        return <StockCoverTable products={products} stockRecords={stockRecords} />;
+      case 'packaging_stock':
+        return <PackagingStockTable products={products} stockRecords={stockRecords} />;
+      case 'wastage':
+        return <WastageChart wastageLogs={rangedWastage} />;
+      case 'overdue_pos':
+        return <OverduePOsTable purchaseOrders={purchaseOrders} />;
+      case 'po_open':
+        return <POAgingTable purchaseOrders={purchaseOrders} />;
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
+          <h1 className="text-xl font-semibold text-foreground">Operations Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {format(new Date(), 'EEEE, d MMMM yyyy')}
           </p>
@@ -161,26 +227,24 @@ export default function Dashboard() {
       {/* Date Range */}
       <DateRangePicker from={from} to={to} onChange={handleDateChange} />
 
-      {/* KPI Cards */}
-      {perms.dashboard_kpis && <KPICards data={kpiData} />}
+      {/* Interactive KPI Cards */}
+      {perms.dashboard_kpis && (
+        <OperationalKPISection
+          data={kpiData}
+          perms={perms}
+          activeCard={activeCard}
+          onCardSelect={setActiveCard}
+        />
+      )}
 
-      {/* Charts Row 1: Revenue + Package Breakdown */}
-      {perms.dashboard_revenue && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <RevenueChart orders={rangedSales} from={from} to={to} />
-          <PackageBreakdownChart orders={rangedShopify} />
+      {/* Detail panel — appears below KPIs when a card is clicked */}
+      {activeCard && (
+        <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+          {renderDetailPanel()}
         </div>
       )}
 
-      {/* Charts Row 2: Production + Wastage */}
-      {perms.dashboard_production && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ProductionChart runs={rangedRuns} />
-          <WastageChart wastageLogs={rangedWastage} />
-        </div>
-      )}
-
-      {/* Bottom Row: Recent Runs + PO Aging + Shortages */}
+      {/* Always-visible bottom panels */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {perms.dashboard_production && <RecentRunsList runs={rangedRuns} />}
         {perms.dashboard_costs && <POAgingTable purchaseOrders={purchaseOrders} />}
