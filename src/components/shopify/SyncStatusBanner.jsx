@@ -15,11 +15,7 @@ function SyncRow({ syncKey, syncState, onTrigger, triggering }) {
   const config = SYNC_CONFIGS[syncKey];
   const isRunning = syncState?.sync_status === 'running';
   const isError = syncState?.sync_status === 'error';
-  const hasResumeCursor = !!syncState?.last_cursor;
   const lastSync = syncState?.last_sync_at;
-  const progress = syncState?.error_message || '';
-
-  const buttonLabel = isRunning ? 'Running' : hasResumeCursor ? 'Resume' : 'Sync';
 
   return (
     <div className="flex items-center gap-3 py-2">
@@ -28,8 +24,6 @@ function SyncRow({ syncKey, syncState, onTrigger, triggering }) {
           <Loader2 className="w-4 h-4 text-primary animate-spin" />
         ) : isError ? (
           <AlertCircle className="w-4 h-4 text-destructive" />
-        ) : hasResumeCursor ? (
-          <AlertCircle className="w-4 h-4 text-amber-500" />
         ) : (
           <CheckCircle2 className="w-4 h-4 text-green-500" />
         )}
@@ -38,18 +32,12 @@ function SyncRow({ syncKey, syncState, onTrigger, triggering }) {
 
       <div className="flex-1 min-w-0">
         {isRunning ? (
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground truncate">
-              Syncing... {syncState.records_synced || 0} processed
-              {syncState.records_failed > 0 && ` (${syncState.records_failed} failed)`}
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground truncate">
+            Syncing... {syncState.records_synced || 0} processed
+            {syncState.records_failed > 0 && ` (${syncState.records_failed} failed)`}
+          </p>
         ) : isError ? (
           <p className="text-xs text-destructive truncate">{syncState.error_message}</p>
-        ) : hasResumeCursor ? (
-          <p className="text-xs text-amber-600">
-            Paused at {syncState.records_synced || 0} records — press Resume to continue
-          </p>
         ) : (
           <p className="text-xs text-muted-foreground">
             {lastSync ? `Last: ${new Date(lastSync).toLocaleString('en-ZA')}` : 'Never synced'}
@@ -66,7 +54,7 @@ function SyncRow({ syncKey, syncState, onTrigger, triggering }) {
         className="shrink-0"
       >
         <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isRunning ? 'animate-spin' : ''}`} />
-        {buttonLabel}
+        {isRunning ? 'Running' : 'Sync'}
       </Button>
     </div>
   );

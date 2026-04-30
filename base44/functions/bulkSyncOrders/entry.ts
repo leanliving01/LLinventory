@@ -1,19 +1,15 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 /**
- * Bulk sync orders: runs continuously through ALL Shopify pages until done.
- * Updates SyncState entity with live progress so frontend can poll/subscribe.
- * Returns immediately with {status: 'started'} — progress is tracked via SyncState.
+ * Bulk sync orders from Shopify.
+ * Optimised: uses bulkCreate for lines, minimal sleeps, no pause/resume.
  */
 
 const SYNC_KEY = 'shopify_orders';
 const PAGE_SIZE = 250;
-const THROTTLE_MS = 200;
-const MAX_RUNTIME_MS = 55000; // 55s — Deno timeout is 60s, leave 5s for cleanup
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// Retry wrapper for Base44 SDK calls that may hit rate limits
 async function withRetry(fn, maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -30,7 +26,7 @@ async function withRetry(fn, maxRetries = 3) {
   }
 }
 
-// ─── Lifecycle derivation (same as webhook §6) ───
+// ─── Lifecycle derivation ───
 function deriveLifecycle(order) {
   if (order.cancelled_at) return 'cancelled';
   const fin = (order.financial_status || '').toLowerCase();
@@ -53,8 +49,6 @@ function mapFulfillmentStatus(ful) {
   return 'unfulfilled';
 }
 
-// Only exclude items that are NOT physical inventory (shipping supplies, delivery fees, promos).
-// Supplements, sauces, snacks, solo serves ARE real inventory and MUST commit/deduct stock.
 function isExcluded(li) {
   const t = (li.title || '').toLowerCase();
   const s = (li.sku || '').toLowerCase();
@@ -143,12 +137,11 @@ function decomposeLines(order, packBomIndex) {
       parentLine.is_package_parent = true;
       parentLine.portion_weight_g = pb.portion_weight_g;
       parentLines.push(parentLine);
-      // Respect disabled_skus and sku_overrides for substitutions
       const disabledSet = new Set(pb.disabled_skus || []);
       let skuOverrides = {};
       try { skuOverrides = JSON.parse(pb.sku_overrides || '{}'); } catch {}
       for (const compSku of pb.component_skus) {
-        if (disabledSet.has(compSku)) continue; // Skip disabled meals
+        if (disabledSet.has(compSku)) continue;
         const skuMult = skuOverrides[compSku] || pb.multiplier;
         componentLines.push({
           external_id: `${lineExternalId}_${compSku}`, sku: compSku, name: compSku,
@@ -174,33 +167,14 @@ function decomposeLines(order, packBomIndex) {
   return { parentLines, componentLines, hasUnresolved, decompositionStatus };
 }
 
-function computeOrderHash(order) {
-  const key = [
-    order.id, order.financial_status, order.fulfillment_status,
-    order.cancelled_at || '', order.updated_at || '',
-    (order.line_items || []).map(li => `${li.id}:${li.quantity}:${li.sku}:${li.price}:${li.variant_title || ''}`).join('|'),
-  ].join('::');
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0;
-  }
-  return String(hash);
-}
-
-async function processOrder(base44, order, packBomIndex) {
+async function processOrder(base44, order, packBomIndex, forceRedecompose) {
   const orderId = String(order.id);
-  const dataHash = computeOrderHash(order);
 
   const existingOrders = await withRetry(() =>
     base44.asServiceRole.entities.SalesOrder.filter({ external_id: orderId })
   );
-  if (existingOrders.length > 0 && existingOrders[0].data_hash === dataHash) {
-    // Skip entirely — no write needed for unchanged orders
-    return 'unchanged';
-  }
 
   const soData = buildSalesOrder(order);
-  soData.data_hash = dataHash;
   const { parentLines, componentLines, hasUnresolved, decompositionStatus } = decomposeLines(order, packBomIndex);
   soData.has_unresolved_skus = hasUnresolved;
   soData.decomposition_status = decompositionStatus;
@@ -223,30 +197,42 @@ async function processOrder(base44, order, packBomIndex) {
     action = 'created';
   }
 
-  // Delete + recreate lines
+  // Delete existing lines in parallel (no sleeps)
   const existingLines = await withRetry(() =>
     base44.asServiceRole.entities.SalesOrderLine.filter({ sales_order_id: salesOrderId })
   );
-  for (const el of existingLines) {
-    await withRetry(() => base44.asServiceRole.entities.SalesOrderLine.delete(el.id));
-    await sleep(100);
+  if (existingLines.length > 0) {
+    // Delete in batches of 10 concurrently
+    for (let i = 0; i < existingLines.length; i += 10) {
+      const batch = existingLines.slice(i, i + 10);
+      await Promise.all(batch.map(el =>
+        withRetry(() => base44.asServiceRole.entities.SalesOrderLine.delete(el.id))
+      ));
+    }
   }
 
+  // Create parent lines — need IDs for linking, so do sequentially but no sleeps
   const parentIdMap = {};
   for (const pl of parentLines) {
     const created = await withRetry(() =>
       base44.asServiceRole.entities.SalesOrderLine.create({ ...pl, sales_order_id: salesOrderId })
     );
     parentIdMap[pl.external_id] = created.id;
-    await sleep(100);
   }
-  for (const cl of componentLines) {
-    const parentB44Id = parentIdMap[cl.parent_line_external_id] || '';
-    const { parent_line_external_id, ...lineData } = cl;
-    await withRetry(() =>
-      base44.asServiceRole.entities.SalesOrderLine.create({ ...lineData, sales_order_id: salesOrderId, parent_line_id: parentB44Id })
-    );
-    await sleep(100);
+
+  // Create component lines in bulk batches
+  if (componentLines.length > 0) {
+    const BULK_SIZE = 25;
+    for (let i = 0; i < componentLines.length; i += BULK_SIZE) {
+      const batch = componentLines.slice(i, i + BULK_SIZE).map(cl => {
+        const parentB44Id = parentIdMap[cl.parent_line_external_id] || '';
+        const { parent_line_external_id, ...lineData } = cl;
+        return { ...lineData, sales_order_id: salesOrderId, parent_line_id: parentB44Id };
+      });
+      await withRetry(() =>
+        base44.asServiceRole.entities.SalesOrderLine.bulkCreate(batch)
+      );
+    }
   }
 
   return action;
@@ -275,7 +261,6 @@ async function fetchShopifyPage(url, accessToken) {
   throw new Error('Shopify rate limit exceeded after retries');
 }
 
-// ─── Helper: get or create SyncState ───
 async function getSyncState(base44) {
   const existing = await base44.asServiceRole.entities.SyncState.filter({ source_key: SYNC_KEY });
   if (existing.length > 0) return existing[0];
@@ -297,6 +282,9 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'Shopify credentials not set' }, { status: 500 });
   }
 
+  const body = await req.json().catch(() => ({}));
+  const forceRedecompose = body.force_redecompose === true;
+
   const syncState = await getSyncState(base44);
 
   // If stuck in running for > 3 minutes, force reset
@@ -309,9 +297,9 @@ Deno.serve(async (req) => {
     console.log(`[BulkSync] Stale running state (${Math.round(minutesStale)}m), resetting`);
   }
 
-  // Mark running
+  // Always start fresh — clear any stale cursor
   await base44.asServiceRole.entities.SyncState.update(syncState.id, {
-    sync_status: 'running', records_synced: 0, records_failed: 0, error_message: '',
+    sync_status: 'running', records_synced: 0, records_failed: 0, error_message: '', last_cursor: null,
   });
 
   // Load PackBom index
@@ -319,67 +307,42 @@ Deno.serve(async (req) => {
   const packBomIndex = {};
   for (const pb of packBoms) packBomIndex[pb.package_sku] = pb;
 
-  // Resume from cursor if previous run was paused, otherwise start fresh
-  // Only sync paid+unfulfilled orders (the ones that matter for committed stock)
-  // Plus recently updated orders to catch status changes
-  const startUrl = syncState.last_cursor
-    ? syncState.last_cursor
-    : `https://${storeDomain}/admin/api/2024-01/orders.json?status=open&limit=${PAGE_SIZE}`;
+  const startUrl = `https://${storeDomain}/admin/api/2024-01/orders.json?status=open&limit=${PAGE_SIZE}`;
   let currentUrl = startUrl;
-  let created = 0, updated = 0, unchanged = 0, failed = 0, totalProcessed = 0, pageNum = 0;
-  const runStart = Date.now();
+  let created = 0, updated = 0, failed = 0, totalProcessed = 0, pageNum = 0;
 
   try {
     while (currentUrl) {
-      // ── Time guard: if we're running out of time, save cursor and stop gracefully ──
-      if (Date.now() - runStart > MAX_RUNTIME_MS) {
-        console.log(`[BulkSync] Time limit reached at ${totalProcessed} records, saving cursor for next run`);
-        await withRetry(() => base44.asServiceRole.entities.SyncState.update(syncState.id, {
-          sync_status: 'idle',
-          records_synced: totalProcessed,
-          records_failed: failed,
-          last_cursor: currentUrl,
-          error_message: `Paused at ${totalProcessed} records — will resume next run`,
-          last_sync_at: new Date().toISOString(),
-        }));
-        return Response.json({ ok: true, status: 'paused', created, updated, unchanged, failed, total: totalProcessed });
-      }
-
       pageNum++;
       const { items: orders, nextUrl } = await fetchShopifyPage(currentUrl, accessToken);
 
       for (const order of orders) {
         try {
-          const action = await processOrder(base44, order, packBomIndex);
+          const action = await processOrder(base44, order, packBomIndex, forceRedecompose);
           if (action === 'created') created++;
-          else if (action === 'updated') updated++;
-          else unchanged++;
+          else updated++;
         } catch (err) {
           console.error(`[BulkSync] Error on ${order.name || order.id}: ${err.message}`);
           failed++;
         }
         totalProcessed++;
-        await sleep(THROTTLE_MS);
-
-        // Inner time guard
-        if (Date.now() - runStart > MAX_RUNTIME_MS) break;
       }
 
       // Update progress after each page
       await withRetry(() => base44.asServiceRole.entities.SyncState.update(syncState.id, {
         records_synced: totalProcessed,
         records_failed: failed,
-        error_message: `Page ${pageNum}: ${created}c ${updated}u ${unchanged}s ${failed}e`,
+        error_message: `Page ${pageNum}: ${created}c ${updated}u ${failed}e`,
         last_sync_at: new Date().toISOString(),
       }));
 
-      console.log(`[BulkSync] Page ${pageNum}: ${orders.length} orders. Total: ${totalProcessed} (${created}c ${updated}u ${unchanged}s ${failed}e)`);
+      console.log(`[BulkSync] Page ${pageNum}: ${orders.length} orders. Total: ${totalProcessed} (${created}c ${updated}u ${failed}e)`);
 
       currentUrl = nextUrl || '';
       if (currentUrl) await sleep(300);
     }
 
-    // Done — mark idle, clear cursor
+    // Done — mark complete
     await withRetry(() => base44.asServiceRole.entities.SyncState.update(syncState.id, {
       sync_status: 'idle',
       records_synced: totalProcessed,
@@ -389,19 +352,18 @@ Deno.serve(async (req) => {
       last_sync_at: new Date().toISOString(),
     }));
 
-    console.log(`[BulkSync] Complete: ${totalProcessed} processed (${created}c ${updated}u ${unchanged}s ${failed}e)`);
+    console.log(`[BulkSync] Complete: ${totalProcessed} processed (${created}c ${updated}u ${failed}e)`);
 
     await base44.asServiceRole.entities.AuditLog.create({
       action: 'sync', entity_type: 'SalesOrder',
-      description: `Bulk sync: ${created} new, ${updated} updated, ${unchanged} unchanged, ${failed} failed (${totalProcessed} total)`,
+      description: `Bulk sync: ${created} new, ${updated} updated, ${failed} failed (${totalProcessed} total)`,
     }).catch(() => {});
 
     // ── Auto-reconcile after successful sync ──
-    // Checks paid_unfulfilled orders against Shopify to catch fulfilled/cancelled/archived orders
     console.log('[BulkSync] Triggering auto-reconciliation...');
     let totalReconciled = 0, totalChecked = 0, remaining = 999, skip = 0;
     const RECON_BATCH = 80;
-    while (remaining > 0 && (Date.now() - runStart) < MAX_RUNTIME_MS - 5000) {
+    while (remaining > 0) {
       try {
         const reconRes = await base44.functions.invoke('reconcileOrders', { batch_size: RECON_BATCH, skip });
         const rd = reconRes.data || {};
@@ -419,11 +381,10 @@ Deno.serve(async (req) => {
       console.log(`[BulkSync] Reconciliation: ${totalReconciled} updated out of ${totalChecked} checked`);
     }
 
-    return Response.json({ ok: true, status: 'completed', created, updated, unchanged, failed, total: totalProcessed, reconciled: totalReconciled });
+    return Response.json({ ok: true, status: 'completed', created, updated, failed, total: totalProcessed, reconciled: totalReconciled });
 
   } catch (err) {
     console.error(`[BulkSync FATAL] ${err.message}`);
-    // ALWAYS reset to idle on error so next scheduled run can proceed
     await base44.asServiceRole.entities.SyncState.update(syncState.id, {
       sync_status: 'idle',
       error_message: `Error: ${err.message}`,
