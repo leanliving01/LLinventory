@@ -74,8 +74,9 @@ export default function FloorPack() {
 
   const bufferRef = useRef('');
   const timerRef = useRef(null);
+  const saveDebounceRef = useRef(null);
 
-  // ── Restore timer state when re-entering a picking order ──
+  // ── Restore timer state AND scan progress when re-entering a picking order ──
   useEffect(() => {
     if (selectedOrder && selectedOrder.status === 'picking' && selectedOrder.picking_started_at) {
       setPackingStartedAt(selectedOrder.picking_started_at);
@@ -90,6 +91,13 @@ export default function FloorPack() {
       }
       if (selectedOrder.packed_by_name && !packer) {
         setPacker({ name: selectedOrder.packed_by_name, id: selectedOrder.packed_by_member_id });
+      }
+      // Restore scanned progress
+      if (selectedOrder.packing_scanned_map) {
+        try {
+          const saved = JSON.parse(selectedOrder.packing_scanned_map);
+          if (saved && typeof saved === 'object') setScannedMap(saved);
+        } catch { /* ignore bad JSON */ }
       }
     }
   }, [selectedOrder?.id]);
@@ -287,6 +295,21 @@ export default function FloorPack() {
   useEffect(() => { allPackItemsRef.current = allPackItems; }, [allPackItems]);
   useEffect(() => { skuNameMapRef.current = skuNameMap; }, [skuNameMap]);
   useEffect(() => { scannedMapRef.current = scannedMap; }, [scannedMap]);
+
+  // ── Auto-save scan progress after each scan (debounced 2s) ──
+  useEffect(() => {
+    if (!selectedOrder?.id || !packingStartedAt) return;
+    // Don't save empty maps (initial load)
+    const hasScans = Object.keys(scannedMap).length > 0;
+    if (!hasScans) return;
+    clearTimeout(saveDebounceRef.current);
+    saveDebounceRef.current = setTimeout(() => {
+      base44.entities.SalesOrder.update(selectedOrder.id, {
+        packing_scanned_map: JSON.stringify(scannedMap),
+      }).catch(() => {}); // silent — best-effort background save
+    }, 2000);
+    return () => clearTimeout(saveDebounceRef.current);
+  }, [scannedMap, selectedOrder?.id, packingStartedAt]);
   useEffect(() => { packingStartedAtRef.current = packingStartedAt; }, [packingStartedAt]);
   useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
 
@@ -389,12 +412,14 @@ export default function FloorPack() {
     setPackingStartedAt(now);
     setIsPaused(false);
     setAccumulatedSeconds(0);
+    setScannedMap({});
     segmentStartRef.current = Date.now();
     await base44.entities.SalesOrder.update(selectedOrder.id, {
       status: 'picking',
       picking_started_at: now,
       packing_paused: false,
       packing_duration_seconds: 0,
+      packing_scanned_map: '{}',
       packed_by_name: packer?.name || '',
       packed_by_member_id: packer?.id || '',
     });
@@ -410,6 +435,7 @@ export default function FloorPack() {
     await base44.entities.SalesOrder.update(selectedOrder.id, {
       packing_paused: true,
       packing_duration_seconds: newTotal,
+      packing_scanned_map: JSON.stringify(scannedMap),
     });
     toast('Packing paused');
   };
@@ -437,6 +463,7 @@ export default function FloorPack() {
       packed_at: now,
       packing_paused: false,
       packing_duration_seconds: totalSec,
+      packing_scanned_map: '',
     });
     queryClient.invalidateQueries({ queryKey: ['floor-pack-orders'] });
     toast.success(`Order ${selectedOrder.order_number || selectedOrder.shopify_order_id} packed in ${Math.floor(totalSec / 60)}m ${totalSec % 60}s!`);
@@ -470,6 +497,7 @@ export default function FloorPack() {
       await base44.entities.SalesOrder.update(selectedOrder.id, {
         packing_paused: true,
         packing_duration_seconds: totalSoFar,
+        packing_scanned_map: JSON.stringify(scannedMap),
       });
       queryClient.invalidateQueries({ queryKey: ['floor-pack-orders'] });
     }

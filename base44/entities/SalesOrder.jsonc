@@ -154,6 +154,10 @@
       "default": 0,
       "description": "Total active packing time in seconds (excludes paused time) \u2014 persisted on pause/back"
     },
+    "packing_scanned_map": {
+      "type": "string",
+      "description": "JSON object mapping lowercase SKU to scanned count e.g. {\"beetri\":2,\"chicut\":1} \u2014 persisted on pause/back so packing progress survives page exit"
+    },
     "shipped_at": {
       "type": "string",
       "format": "date-time"
