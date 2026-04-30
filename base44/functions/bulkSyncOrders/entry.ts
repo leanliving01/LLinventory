@@ -10,15 +10,16 @@ const PAGE_SIZE = 250;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function withRetry(fn, maxRetries = 3) {
+async function withRetry(fn, maxRetries = 5) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err) {
       const msg = (err.message || '').toLowerCase();
       if (msg.includes('rate limit') && attempt < maxRetries) {
-        console.log(`[BulkSync] Rate limited, retry ${attempt}/${maxRetries}`);
-        await sleep(2000 * attempt);
+        const backoff = Math.min(3000 * attempt, 15000);
+        console.log(`[BulkSync] Rate limited, retry ${attempt}/${maxRetries} (waiting ${backoff}ms)`);
+        await sleep(backoff);
         continue;
       }
       throw err;
@@ -197,32 +198,34 @@ async function processOrder(base44, order, packBomIndex, forceRedecompose) {
     action = 'created';
   }
 
-  // Delete existing lines in parallel (no sleeps)
+  // Delete existing lines sequentially with throttle
   const existingLines = await withRetry(() =>
     base44.asServiceRole.entities.SalesOrderLine.filter({ sales_order_id: salesOrderId })
   );
   if (existingLines.length > 0) {
-    // Delete in batches of 10 concurrently
-    for (let i = 0; i < existingLines.length; i += 10) {
-      const batch = existingLines.slice(i, i + 10);
+    for (let i = 0; i < existingLines.length; i += 5) {
+      const batch = existingLines.slice(i, i + 5);
       await Promise.all(batch.map(el =>
         withRetry(() => base44.asServiceRole.entities.SalesOrderLine.delete(el.id))
       ));
+      if (i + 5 < existingLines.length) await sleep(200);
     }
   }
 
-  // Create parent lines — need IDs for linking, so do sequentially but no sleeps
+  // Create parent lines with throttle
   const parentIdMap = {};
-  for (const pl of parentLines) {
+  for (let i = 0; i < parentLines.length; i++) {
+    const pl = parentLines[i];
     const created = await withRetry(() =>
       base44.asServiceRole.entities.SalesOrderLine.create({ ...pl, sales_order_id: salesOrderId })
     );
     parentIdMap[pl.external_id] = created.id;
+    if ((i + 1) % 3 === 0) await sleep(150);
   }
 
-  // Create component lines in bulk batches
+  // Create component lines in small bulk batches with throttle
   if (componentLines.length > 0) {
-    const BULK_SIZE = 25;
+    const BULK_SIZE = 10;
     for (let i = 0; i < componentLines.length; i += BULK_SIZE) {
       const batch = componentLines.slice(i, i + BULK_SIZE).map(cl => {
         const parentB44Id = parentIdMap[cl.parent_line_external_id] || '';
@@ -232,6 +235,7 @@ async function processOrder(base44, order, packBomIndex, forceRedecompose) {
       await withRetry(() =>
         base44.asServiceRole.entities.SalesOrderLine.bulkCreate(batch)
       );
+      if (i + BULK_SIZE < componentLines.length) await sleep(200);
     }
   }
 
@@ -316,7 +320,8 @@ Deno.serve(async (req) => {
       pageNum++;
       const { items: orders, nextUrl } = await fetchShopifyPage(currentUrl, accessToken);
 
-      for (const order of orders) {
+      for (let oi = 0; oi < orders.length; oi++) {
+        const order = orders[oi];
         try {
           const action = await processOrder(base44, order, packBomIndex, forceRedecompose);
           if (action === 'created') created++;
@@ -326,6 +331,8 @@ Deno.serve(async (req) => {
           failed++;
         }
         totalProcessed++;
+        // Throttle between orders to avoid Base44 rate limits
+        if ((oi + 1) % 5 === 0) await sleep(500);
       }
 
       // Update progress after each page
