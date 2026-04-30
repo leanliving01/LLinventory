@@ -2,57 +2,61 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 /**
  * Deletes StockMovement records older than 3 months.
- * Only affects StockMovement — all other data is retained forever.
- * Runs as a scheduled automation.
+ * Only StockMovement data is purged — all other data is kept forever.
+ * Designed to run on a weekly schedule.
  */
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
+
   if (user?.role !== 'admin') {
     return Response.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
   }
 
   const threeMonthsAgo = new Date();
   threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-  const cutoffISO = threeMonthsAgo.toISOString();
+  const cutoff = threeMonthsAgo.toISOString();
 
-  console.log(`[CleanupMovements] Deleting StockMovement records older than ${cutoffISO}`);
+  console.log(`[CleanupMovements] Deleting StockMovement records older than ${cutoff}`);
 
   let totalDeleted = 0;
   let hasMore = true;
 
   while (hasMore) {
-    // Fetch a batch of old movements
+    // Fetch old movements in batches
     const oldMovements = await base44.asServiceRole.entities.StockMovement.filter(
-      { created_date: { $lt: cutoffISO } },
+      {},
       'created_date',
-      100
+      50
     );
 
-    if (oldMovements.length === 0) {
+    // Filter to only records older than cutoff
+    const toDelete = oldMovements.filter(m => m.created_date < cutoff);
+
+    if (toDelete.length === 0) {
       hasMore = false;
       break;
     }
 
-    for (const movement of oldMovements) {
-      await base44.asServiceRole.entities.StockMovement.delete(movement.id);
+    for (const m of toDelete) {
+      await base44.asServiceRole.entities.StockMovement.delete(m.id);
       totalDeleted++;
     }
 
-    // Safety: stop after 5000 deletions per run to avoid timeouts
-    if (totalDeleted >= 5000) {
-      console.log(`[CleanupMovements] Reached 5000 limit, will continue next run`);
-      break;
-    }
+    // Small delay to avoid rate limits
+    await new Promise(r => setTimeout(r, 200));
+
+    // Safety: if we fetched fewer than batch size and none were old, stop
+    if (oldMovements.length < 50) hasMore = false;
   }
 
-  console.log(`[CleanupMovements] Deleted ${totalDeleted} old StockMovement records`);
+  console.log(`[CleanupMovements] Deleted ${totalDeleted} records older than 3 months`);
 
   await base44.asServiceRole.entities.AuditLog.create({
-    action: 'cleanup',
+    action: 'delete',
     entity_type: 'StockMovement',
-    description: `Cleaned up ${totalDeleted} StockMovement records older than 3 months`,
+    description: `Cleanup: deleted ${totalDeleted} movement records older than 3 months`,
   }).catch(() => {});
 
-  return Response.json({ ok: true, deleted: totalDeleted, cutoff: cutoffISO });
+  return Response.json({ ok: true, deleted: totalDeleted, cutoff });
 });

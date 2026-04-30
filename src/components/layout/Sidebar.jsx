@@ -21,6 +21,7 @@ import {
   PlayCircle,
   Trash2,
   ArrowLeftRight,
+  ArrowRightLeft,
   PackageCheck,
   Users,
   Receipt,
@@ -59,6 +60,7 @@ const PATH_PERMISSION_MAP = {
   '/stock/stock-take': 'stocktake_view',
   '/stock/wastage': 'wastage',
   '/stock/par-levels': 'par_levels',
+  '/stock/movements': 'movements_view',
   '/shopify': 'shopify_sync',
   '/reports': 'reports_view',
   '/reports/team': 'reports_team',
@@ -95,6 +97,7 @@ const navItems = [
   { 
     label: 'Inventory', icon: Warehouse,
     children: [
+      { label: 'Stock Movements', path: '/stock/movements', icon: ArrowRightLeft },
       { label: 'Wastage', path: '/stock/wastage', icon: Trash2 },
       { label: 'Par Levels', path: '/stock/par-levels', icon: Gauge },
     ]

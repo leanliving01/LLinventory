@@ -45,6 +45,7 @@ const ROUTE_PERMISSIONS = {
   '/floor/receive':        'receiving',
   '/floor/scan':           'catalog_view',
   '/floor/shortages':      'yield_tracker',
+  '/stock/movements':      'movements_view',
 };
 
 function getRequiredPermission(pathname) {

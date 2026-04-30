@@ -28,6 +28,7 @@ import Suppliers from '@/pages/Suppliers';
 import StockTransfer from '@/pages/StockTransfer';
 import Receiving from '@/pages/Receiving';
 import StockTakeNew from '@/pages/StockTakeNew';
+import StockMovements from '@/pages/StockMovements';
 import PickList from '@/pages/PickList';
 import Kanban from '@/pages/Kanban';
 import Kitchen from '@/pages/Kitchen';
@@ -126,6 +127,7 @@ const AuthenticatedApp = () => {
         <Route path="/stock/new-production" element={<Navigate to="/production/runs" replace />} />
         <Route path="/stock/wastage" element={<Wastage />} />
         <Route path="/stock/stock-take" element={<StockTakeNew />} />
+        <Route path="/stock/movements" element={<StockMovements />} />
         <Route path="/stock/stock-take-legacy" element={<StockTake />} />
         <Route path="/stock/transfer" element={<StockTransfer />} />
         <Route path="/stock/receive" element={<Receiving />} />

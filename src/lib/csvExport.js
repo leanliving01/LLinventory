@@ -23,3 +23,12 @@ export function downloadCSV(filename, rows, columns) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Export stock movements as CSV.
+ * @param {Object[]} rows  Pre-formatted movement rows
+ * @param {string} filename
+ */
+export function exportMovementsCSV(rows, filename) {
+  downloadCSV(filename, rows, ['Date', 'SKU', 'Product', 'Reason', 'Qty', 'UoM', 'Reference', 'Notes']);
+}
