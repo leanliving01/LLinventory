@@ -13,7 +13,8 @@ export default function OverduePOsTable({ purchaseOrders }) {
     const now = new Date();
     return purchaseOrders
       .filter(po => {
-        if (['received', 'paid', 'cancelled'].includes(po.status)) return false;
+        // Only delivery-awaiting statuses — invoiced POs are already received
+        if (!['confirmed', 'partially_received'].includes(po.status)) return false;
         if (!po.expected_date) return false;
         return new Date(po.expected_date) < now;
       })

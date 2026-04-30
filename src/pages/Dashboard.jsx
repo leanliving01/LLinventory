@@ -91,22 +91,27 @@ export default function Dashboard() {
 
   // ── KPI calculations ──
   const kpiData = useMemo(() => {
-    // Production gap
+    // Only count orders that actually have meals (exclude supplement-only / zero-meal orders)
+    const mealOrders = (list) => list.filter(o => (o.total_meals || 0) > 0);
+
+    // Production gap — compare production output vs. meal demand in the date range
     const totalProduced = rangedRuns
       .filter(r => r.status === 'completed' || r.status === 'in_progress')
       .reduce((s, r) => s + (r.total_units || 0), 0);
-    const totalOrdered = rangedShopify.reduce((s, o) => s + (o.total_meals || 0), 0);
+    const totalOrdered = mealOrders(rangedShopify).reduce((s, o) => s + (o.total_meals || 0), 0);
     const productionGap = Math.max(0, totalOrdered - totalProduced);
 
-    // Orders due
-    const pendingOrders = shopifyOrders.filter(
-      o => o.paid_status === 'paid' && o.fulfilment_status === 'unfulfilled'
+    // Pending fulfilment — paid + unfulfilled orders with actual meals
+    const pendingFulfilment = shopifyOrders.filter(
+      o => o.paid_status === 'paid' && o.fulfilment_status === 'unfulfilled' && (o.total_meals || 0) > 0
+    );
+    const pendingOrders = pendingFulfilment.length;
+    const pendingMeals = pendingFulfilment.reduce((s, o) => s + (o.total_meals || 0), 0);
+    const ordersDueToday = pendingFulfilment.filter(
+      o => o.order_date && isToday(new Date(o.order_date))
     ).length;
-    const ordersDueToday = shopifyOrders.filter(
-      o => o.paid_status === 'paid' && o.fulfilment_status === 'unfulfilled' && o.order_date && isToday(new Date(o.order_date))
-    ).length;
-    const ordersDueTomorrow = shopifyOrders.filter(
-      o => o.paid_status === 'paid' && o.fulfilment_status === 'unfulfilled' && o.order_date && isTomorrow(new Date(o.order_date))
+    const ordersDueTomorrow = pendingFulfilment.filter(
+      o => o.order_date && isTomorrow(new Date(o.order_date))
     ).length;
 
     // Active runs
@@ -142,31 +147,40 @@ export default function Dashboard() {
     const wastageValue = rangedWastage.reduce((s, w) => s + (w.total_rand_value || 0), 0);
     const wastageLogCount = rangedWastage.length;
 
-    // Overdue POs
+    // Overdue POs — only delivery-awaiting statuses (confirmed, partially_received)
+    // "invoiced" means the bill exists but goods were received — that's accounts-payable, not overdue delivery
     const overduePOs = purchaseOrders.filter(po => {
-      if (['received', 'paid', 'cancelled'].includes(po.status)) return false;
+      if (!['confirmed', 'partially_received'].includes(po.status)) return false;
       if (!po.expected_date) return false;
       return new Date(po.expected_date) < now;
     });
     const overduePOCount = overduePOs.length;
     const overduePOValue = overduePOs.reduce((s, po) => s + (po.total || 0), 0);
 
-    // Open POs
+    // Open POs — awaiting delivery only (not invoiced/payment items)
     const openPOs = purchaseOrders.filter(
-      po => ['confirmed', 'partially_received', 'invoiced'].includes(po.status) && po.payment_status !== 'paid'
+      po => ['draft', 'confirmed', 'partially_received'].includes(po.status)
     );
     const openPOCount = openPOs.length;
     const poOutstanding = openPOs.reduce((s, po) => s + (po.total || 0), 0);
 
+    // Unpaid invoices — invoiced but not paid (accounts-payable, not procurement)
+    const unpaidInvoices = purchaseOrders.filter(
+      po => po.status === 'invoiced' && po.payment_status !== 'paid'
+    );
+    const unpaidInvoiceCount = unpaidInvoices.length;
+    const unpaidInvoiceValue = unpaidInvoices.reduce((s, po) => s + (po.total || 0), 0);
+
     return {
       totalProduced, totalOrdered, productionGap,
-      pendingOrders, ordersDueToday, ordersDueTomorrow,
+      pendingOrders, pendingMeals, ordersDueToday, ordersDueTomorrow,
       activeRunCount, productionUnits,
       lowStockCount, criticalStockCount,
       packagingTotal, packagingLowCount,
       wastageValue, wastageLogCount,
       overduePOCount, overduePOValue,
       openPOCount, poOutstanding,
+      unpaidInvoiceCount, unpaidInvoiceValue,
     };
   }, [rangedRuns, rangedShopify, rangedWastage, shopifyOrders, purchaseOrders, products, stockRecords]);
 

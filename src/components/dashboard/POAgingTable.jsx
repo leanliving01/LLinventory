@@ -8,7 +8,7 @@ import getKpiStatus, { STATUS_COLORS } from '@/lib/getKpiStatus';
 export default function POAgingTable({ purchaseOrders }) {
   const openPOs = useMemo(() => {
     return purchaseOrders
-      .filter(po => ['confirmed', 'partially_received', 'received', 'invoiced'].includes(po.status) && po.payment_status !== 'paid')
+      .filter(po => ['draft', 'confirmed', 'partially_received'].includes(po.status))
       .map(po => {
         const age = po.order_date ? differenceInDays(new Date(), new Date(po.order_date)) : 0;
         const ageStatus = age > 30 ? 'bad' : age > 14 ? 'warn' : 'good';

@@ -26,17 +26,17 @@ export default function OperationalKPISection({ data, perms, activeCard, onCardS
       value: data.productionGap,
       icon: Factory,
       status: data.productionGap <= 0 ? 'good' : data.productionGap > 50 ? 'bad' : 'warn',
-      trendLabel: `${data.totalProduced} produced / ${data.totalOrdered} ordered`,
+      trendLabel: `${data.totalProduced} produced / ${data.totalOrdered} meal orders`,
       trendDirection: data.productionGap <= 0 ? 'good' : 'bad',
     });
     cards.push({
       key: 'orders_due',
-      title: 'Orders Due',
+      title: 'Pending Fulfilment',
       value: data.pendingOrders,
       icon: ShoppingCart,
-      status: getKpiStatus(data.pendingOrders, 'pendingOrders'),
-      trendLabel: `${data.ordersDueToday} today · ${data.ordersDueTomorrow} tomorrow`,
-      trendDirection: data.ordersDueToday > 0 ? 'bad' : 'good',
+      status: data.pendingOrders > 20 ? 'bad' : data.pendingOrders > 5 ? 'warn' : 'good',
+      trendLabel: `${data.pendingMeals || 0} meals · ${data.ordersDueToday} today · ${data.ordersDueTomorrow} tomorrow`,
+      trendDirection: data.pendingOrders > 5 ? 'bad' : 'good',
     });
     cards.push({
       key: 'active_runs',
@@ -85,22 +85,22 @@ export default function OperationalKPISection({ data, perms, activeCard, onCardS
   if (perms.dashboard_costs) {
     cards.push({
       key: 'overdue_pos',
-      title: 'Overdue POs',
+      title: 'Overdue Deliveries',
       value: data.overduePOCount,
       icon: Truck,
       status: data.overduePOCount > 0 ? 'bad' : 'good',
       trendLabel: data.overduePOCount > 0
-        ? `${fmtZAR(data.overduePOValue)} outstanding`
-        : 'All POs on track',
+        ? `${fmtZAR(data.overduePOValue)} awaiting delivery`
+        : 'All deliveries on track',
       trendDirection: data.overduePOCount > 0 ? 'bad' : 'good',
     });
     cards.push({
       key: 'po_open',
       title: 'Open POs',
-      value: fmtZAR(data.poOutstanding),
+      value: data.openPOCount,
       icon: Package,
-      status: getKpiStatus(data.poOutstanding, 'poOutstanding'),
-      trendLabel: `${data.openPOCount} orders pending`,
+      status: data.openPOCount > 0 ? 'info' : 'good',
+      trendLabel: `${fmtZAR(data.poOutstanding)} awaiting delivery`,
     });
   }
 
