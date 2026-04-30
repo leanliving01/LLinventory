@@ -201,25 +201,84 @@ Deno.serve(async (req) => {
   }
 
   // ─── STEP 2: Frontend calls with action='batch' to process a chunk ───
-  const ordersToProcess = body.orders || [];
-  let created = 0, updated = 0;
+  if (action === 'batch') {
+    const ordersToProcess = body.orders || [];
+    let created = 0, updated = 0;
 
-  const toCreate = ordersToProcess.filter(o => !o._existingId);
-  const toUpdate = ordersToProcess.filter(o => o._existingId);
+    const toCreate = ordersToProcess.filter(o => !o._existingId);
+    const toUpdate = ordersToProcess.filter(o => o._existingId);
 
-  if (toCreate.length > 0) {
-    const createData = toCreate.map(({ _existingId, ...rest }) => rest);
-    await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.bulkCreate(createData));
-    created = toCreate.length;
-    await delay(1000);
+    if (toCreate.length > 0) {
+      const createData = toCreate.map(({ _existingId, ...rest }) => rest);
+      await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.bulkCreate(createData));
+      created = toCreate.length;
+      await delay(1000);
+    }
+
+    for (let i = 0; i < toUpdate.length; i++) {
+      const { _existingId, shopify_order_id, order_number, order_date, ...updateData } = toUpdate[i];
+      await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.update(_existingId, updateData));
+      updated++;
+      if ((i + 1) % 5 === 0) await delay(1500);
+    }
+
+    return Response.json({ created, updated, processed: ordersToProcess.length });
   }
 
-  for (let i = 0; i < toUpdate.length; i++) {
-    const { _existingId, shopify_order_id, order_number, order_date, ...updateData } = toUpdate[i];
-    await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.update(_existingId, updateData));
-    updated++;
-    if ((i + 1) % 5 === 0) await delay(1500);
+  // ─── STEP 3: action='reconcile' — mark locally-unfulfilled orders that Shopify has fulfilled ───
+  if (action === 'reconcile') {
+    // Get all local ShopifyOrder records that are still unfulfilled
+    const localUnfulfilled = await base44.asServiceRole.entities.ShopifyOrder.filter(
+      { paid_status: 'paid', fulfilment_status: 'unfulfilled' }, '-order_date', 500
+    );
+    if (localUnfulfilled.length === 0) {
+      return Response.json({ reconciled: 0, message: 'No unfulfilled orders to reconcile' });
+    }
+
+    // Build a set of Shopify order IDs that are CURRENTLY open+unfulfilled on Shopify
+    // (we already fetched these in 'fetch' — caller passes them)
+    const openShopifyIds = new Set((body.open_shopify_ids || []).map(String));
+
+    let reconciled = 0;
+    for (const local of localUnfulfilled) {
+      const sid = local.shopify_order_id;
+      if (!sid) continue;
+      // If this order is NOT in the open list from Shopify, it's been fulfilled/cancelled/refunded
+      if (!openShopifyIds.has(sid)) {
+        // Query Shopify for the actual current status
+        const orderUrl = `https://${storeDomain}/admin/api/2024-01/orders/${sid}.json?fields=id,financial_status,fulfillment_status,cancelled_at`;
+        const res = await fetch(orderUrl, {
+          headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+        });
+        if (res.ok) {
+          const { order: shopOrder } = await res.json();
+          const fs = shopOrder?.fulfillment_status || '';
+          const fin = (shopOrder?.financial_status || '').toLowerCase();
+          const cancelled = !!shopOrder?.cancelled_at;
+
+          let newFulfilment = 'unfulfilled';
+          let newPaid = local.paid_status;
+          if (cancelled) { newPaid = 'refunded'; newFulfilment = 'restocked'; }
+          else if (fin === 'refunded') { newPaid = 'refunded'; }
+          else if (fs === 'fulfilled') { newFulfilment = 'fulfilled'; }
+          else if (fs === 'partial') { newFulfilment = 'partial'; }
+
+          if (newFulfilment !== 'unfulfilled' || newPaid !== local.paid_status) {
+            await withRetry(() => base44.asServiceRole.entities.ShopifyOrder.update(local.id, {
+              fulfilment_status: newFulfilment,
+              paid_status: newPaid,
+              synced_at: new Date().toISOString(),
+            }));
+            reconciled++;
+          }
+        }
+        // Rate-limit Shopify API calls
+        if (reconciled % 3 === 0) await delay(1000);
+      }
+    }
+
+    return Response.json({ reconciled, checked: localUnfulfilled.length });
   }
 
-  return Response.json({ created, updated, processed: ordersToProcess.length });
+  return Response.json({ error: 'Unknown action. Use fetch, batch, or reconcile.' }, { status: 400 });
 });

@@ -8,7 +8,7 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 const SYNC_KEY = 'shopify_orders';
 const PAGE_SIZE = 250;
-const THROTTLE_MS = 100;
+const THROTTLE_MS = 200;
 const MAX_RUNTIME_MS = 55000; // 55s — Deno timeout is 60s, leave 5s for cleanup
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
