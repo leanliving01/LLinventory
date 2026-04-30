@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Search, X, Package } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import InventoryCSVExport from '@/components/inventory/InventoryCSVExport';
+import InventoryCSVImport from '@/components/inventory/InventoryCSVImport';
 
 const TYPE_LABELS = {
   raw: 'Raw Material',
@@ -42,6 +44,7 @@ export default function InventoryOverview() {
   const [stockFilter, setStockFilter] = useState('all'); // all, in_stock, low, out
   const [page, setPage] = useState(0);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: products = [], isLoading: loadingProducts } = useQuery({
     queryKey: ['inv-overview-products'],
@@ -99,11 +102,24 @@ export default function InventoryOverview() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Inventory Overview</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          {filtered.length} of {products.length} tracked products
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Inventory Overview</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {filtered.length} of {products.length} tracked products
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <InventoryCSVExport products={filtered} stockByProduct={stockByProduct} />
+          <InventoryCSVImport
+            products={products}
+            stockByProduct={stockByProduct}
+            onImportComplete={() => {
+              queryClient.invalidateQueries({ queryKey: ['inv-overview-products'] });
+              queryClient.invalidateQueries({ queryKey: ['inv-overview-soh'] });
+            }}
+          />
+        </div>
       </div>
 
       {/* Type chips */}
