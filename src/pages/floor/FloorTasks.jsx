@@ -383,11 +383,13 @@ export default function FloorTasks() {
         <FloorTaskList
           tasks={stationTasks}
           allTasks={tasks}
+          taskLogs={taskLogs}
           allBoms={allBoms}
-          allBomComponents={allBomComponents}
-          pickConfirmed={selectedRun?.pick_list_confirmed}
+          bomComponentsMap={bomComponentsMap}
+          pickListConfirmed={selectedRun?.pick_list_confirmed}
           onStatusChange={handleStatusChange}
-          onTaskTap={setActiveDetailTaskId}
+          onOpenDetail={setActiveDetailTaskId}
+          loading={loading}
         />
       )}
 
