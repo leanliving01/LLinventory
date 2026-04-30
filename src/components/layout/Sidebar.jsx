@@ -92,8 +92,13 @@ const navItems = [
     ]
   },
   { label: 'Sales', path: '/sales', icon: ShoppingCart },
-  { label: 'Production Plan', path: '/production', icon: Factory },
-  { label: 'Production Runs', path: '/production/runs', icon: PlayCircle },
+  { 
+    label: 'Production', icon: Factory,
+    children: [
+      { label: 'Production Plan', path: '/production', icon: Factory },
+      { label: 'Production Runs', path: '/production/runs', icon: PlayCircle },
+    ]
+  },
   { 
     label: 'Inventory', icon: Warehouse,
     children: [
