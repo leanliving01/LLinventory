@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, TrendingUp, CheckCircle2, Flame, Utensils } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { AlertTriangle, TrendingUp, CheckCircle2, Flame, Utensils, PackagePlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -8,7 +9,7 @@ import { cn } from '@/lib/utils';
  * Shortages (actual < planned) are highlighted so staff can react early.
  * Surplus (actual > planned) shown in green for end-of-day plating.
  */
-export default function ShortageList({ tasks, runLines, boms, components, products }) {
+export default function ShortageList({ tasks, runLines, boms, components, products, onPickShortage }) {
   const productMap = useMemo(() => {
     const m = {};
     products.forEach(p => { m[p.id] = p; });
@@ -129,7 +130,7 @@ export default function ShortageList({ tasks, runLines, boms, components, produc
         <div className="space-y-2">
           <p className="text-xs font-semibold text-red-600 uppercase tracking-wider">⚠ Shortages — Action Needed</p>
           {shortages.map(row => (
-            <VarianceCard key={row.product_id} row={row} type="shortage" />
+            <VarianceCard key={row.product_id} row={row} type="shortage" onPickShortage={onPickShortage} />
           ))}
         </div>
       )}
@@ -173,7 +174,7 @@ export default function ShortageList({ tasks, runLines, boms, components, produc
   );
 }
 
-function VarianceCard({ row, type }) {
+function VarianceCard({ row, type, onPickShortage }) {
   const StationIcon = row.station === 'cook' ? Flame : Utensils;
   const borderClass = {
     shortage: 'border-red-300 dark:border-red-800 bg-red-50/50 dark:bg-red-950/30',
@@ -240,12 +241,23 @@ function VarianceCard({ row, type }) {
         </div>
       </div>
 
-      {/* Action hint for shortages */}
+      {/* Action for shortages */}
       {type === 'shortage' && (
-        <div className="bg-red-100 dark:bg-red-900/40 rounded-lg px-3 py-2">
-          <p className="text-xs font-medium text-red-700 dark:text-red-300">
-            Need {Math.abs(row.variance)} {row.uom} more. Cook extra or reduce plate count.
-          </p>
+        <div className="flex items-center gap-2">
+          <div className="flex-1 bg-red-100 dark:bg-red-900/40 rounded-lg px-3 py-2">
+            <p className="text-xs font-medium text-red-700 dark:text-red-300">
+              Need {Math.abs(row.variance)} {row.uom} more
+            </p>
+          </div>
+          {onPickShortage && (
+            <Button
+              size="sm"
+              className="h-10 gap-1.5 bg-red-600 hover:bg-red-700 text-white shrink-0 rounded-lg"
+              onClick={() => onPickShortage(row)}
+            >
+              <PackagePlus className="w-4 h-4" /> Pick
+            </Button>
+          )}
         </div>
       )}
     </div>

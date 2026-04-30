@@ -80,18 +80,38 @@ export default function FloorRunPicker({ runs, loading, onSelect }) {
           <button
             key={run.id}
             onClick={() => onSelect(run.id)}
-            className="w-full bg-card border-2 border-border rounded-2xl p-5 flex items-center gap-4 active:scale-[0.98] transition-transform text-left hover:border-primary/50"
+            className={cn(
+              "w-full bg-card border-2 rounded-2xl p-5 flex items-center gap-4 active:scale-[0.98] transition-transform text-left",
+              run.type === 'shortage'
+                ? "border-red-300 dark:border-red-800 hover:border-red-400"
+                : "border-border hover:border-primary/50"
+            )}
           >
-            <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-              <Factory className="w-6 h-6 text-amber-600" />
+            <div className={cn(
+              "w-12 h-12 rounded-xl flex items-center justify-center shrink-0",
+              run.type === 'shortage'
+                ? "bg-red-100 dark:bg-red-900/30"
+                : "bg-amber-100 dark:bg-amber-900/30"
+            )}>
+              <Factory className={cn("w-6 h-6", run.type === 'shortage' ? "text-red-600" : "text-amber-600")} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-bold text-base">{run.run_number}</p>
+              <div className="flex items-center gap-2">
+                <p className="font-bold text-base">{run.run_number}</p>
+                {run.type === 'shortage' && (
+                  <Badge className="bg-red-600 text-white border-0 text-[10px]">Shortage</Badge>
+                )}
+              </div>
               <p className="text-sm text-muted-foreground">
                 {run.run_date ? format(new Date(run.run_date), 'dd MMM yyyy') : '—'} · {run.total_lines || 0} meals · {run.total_units || 0} units
               </p>
             </div>
-            <Badge className="bg-amber-100 text-amber-700 text-xs shrink-0">Active</Badge>
+            <Badge className={cn(
+              "text-xs shrink-0",
+              run.type === 'shortage'
+                ? "bg-red-100 text-red-700"
+                : "bg-amber-100 text-amber-700"
+            )}>Active</Badge>
           </button>
         ))}
       </div>

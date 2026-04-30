@@ -23,6 +23,19 @@
       "default": "draft",
       "description": "Run lifecycle status"
     },
+    "type": {
+      "type": "string",
+      "enum": [
+        "regular",
+        "shortage"
+      ],
+      "default": "regular",
+      "description": "Regular production or shortage recovery run"
+    },
+    "parent_run_id": {
+      "type": "string",
+      "description": "FK to the original ProductionRun that spawned this shortage run"
+    },
     "pick_list_confirmed": {
       "type": "boolean",
       "default": false,
