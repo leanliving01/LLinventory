@@ -340,7 +340,57 @@ export default function FloorTasks() {
 
   return (
     <div className="space-y-3">
-...
+      {/* Run header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold">{selectedRun?.run_number || 'Production Run'}</h2>
+          <p className="text-xs text-muted-foreground">{selectedRun?.run_date}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setSelectedRunId(null)}>
+          Change Run
+        </Button>
+      </div>
+
+      {/* Station pills */}
+      <FloorStationPills
+        tasks={tasks}
+        selectedStation={selectedStation}
+        onSelect={setSelectedStation}
+      />
+
+      {/* Progress bar */}
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <span>{progress.done}/{progress.total} done</span>
+        {progress.active > 0 && <Badge className="bg-amber-100 text-amber-700 text-[10px]">{progress.active} active</Badge>}
+        <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+          <div
+            className={cn("h-full rounded-full transition-all", currentStation?.color || 'bg-primary')}
+            style={{ width: `${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Task list */}
+      {loadingTasks ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : stationTasks.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground text-sm">
+          No {selectedStation} tasks for this run
+        </div>
+      ) : (
+        <FloorTaskList
+          tasks={stationTasks}
+          allTasks={tasks}
+          allBoms={allBoms}
+          allBomComponents={allBomComponents}
+          pickConfirmed={selectedRun?.pick_list_confirmed}
+          onStatusChange={handleStatusChange}
+          onTaskTap={setActiveDetailTaskId}
+        />
+      )}
+
       {/* Modals */}
       {blockMessage && <DependencyBlockModal message={blockMessage} onClose={() => setBlockMessage(null)} />}
       {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => { setPendingDone(null); }} cachedBoms={allBoms} cachedComponents={allBomComponents} cachedProducts={allProducts} />}
