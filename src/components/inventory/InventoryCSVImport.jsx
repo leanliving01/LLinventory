@@ -160,8 +160,15 @@ export default function InventoryCSVImport({ products, stockByProduct, onImportC
         const currentStock = stockByProduct[product.id] || { on_hand: 0, committed: 0, available: 0 };
         const currentReorder = product.min_before_reorder || 0;
 
-        const csvOnHand = onHandIdx !== -1 ? parseNumber(cols[onHandIdx]) : NaN;
-        const csvReorder = reorderIdx !== -1 ? parseNumber(cols[reorderIdx]) : NaN;
+        const rawOnHand = onHandIdx !== -1 ? cols[onHandIdx] : undefined;
+        const rawReorder = reorderIdx !== -1 ? cols[reorderIdx] : undefined;
+        const csvOnHand = rawOnHand !== undefined ? parseNumber(rawOnHand) : NaN;
+        const csvReorder = rawReorder !== undefined ? parseNumber(rawReorder) : NaN;
+
+        // Debug logging for troubleshooting import mismatches
+        if (sku.toLowerCase() === 'ssbas' || sku.toLowerCase() === 'acur') {
+          console.log(`[CSV Import Debug] SKU=${sku} | raw on_hand="${rawOnHand}" parsed=${csvOnHand} current=${currentStock.on_hand} | raw reorder="${rawReorder}" parsed=${csvReorder} current=${currentReorder} | cols=[${cols.map(c => `"${c}"`).join(', ')}]`);
+        }
 
         const rowChanges = {};
         if (!isNaN(csvOnHand) && Math.abs(csvOnHand - currentStock.on_hand) > 0.001) {
