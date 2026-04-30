@@ -391,6 +391,7 @@ export default function ProductionRunDetail() {
         reason: 'production_yield',
         ref_type: 'production_run',
         ref_id: runId,
+        ref_number: run?.run_number || '',
         notes: `Run ${run?.run_number}: produced ${actuals[l.id]} of ${l.product_sku}`,
       }));
 
@@ -492,6 +493,7 @@ export default function ProductionRunDetail() {
           reason: 'wastage_usable',
           ref_type: 'production_run',
           ref_id: runId,
+          ref_number: run?.run_number || '',
           notes: `Surplus waste from run ${run?.run_number}: ${line.surplus} units of ${line.product_sku}`,
         });
       }

@@ -62,6 +62,8 @@ export default function StockTransfer() {
         qty: Number(line.qty),
         uom: product?.stock_uom || 'pcs',
         reason: 'transfer',
+        ref_type: 'transfer',
+        ref_number: `${fromLoc?.name} → ${toLoc?.name}`,
         notes: line.notes || `Transfer ${fromLoc?.name} → ${toLoc?.name}`,
       };
     });

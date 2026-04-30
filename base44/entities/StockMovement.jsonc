@@ -42,17 +42,31 @@
         "wastage_unusable",
         "stocktake_adjustment",
         "return",
-        "write_off"
+        "write_off",
+        "packing_material"
       ],
       "description": "Movement reason"
     },
     "ref_type": {
       "type": "string",
-      "description": "Reference entity type (e.g. production_run, purchase_order, sales_order)"
+      "enum": [
+        "sales_order",
+        "purchase_order",
+        "production_run",
+        "wastage_log",
+        "stock_take",
+        "transfer",
+        "manual"
+      ],
+      "description": "Reference entity type"
     },
     "ref_id": {
       "type": "string",
       "description": "Reference entity ID"
+    },
+    "ref_number": {
+      "type": "string",
+      "description": "Human-readable reference number e.g. #28461, PO-2025-0012, RUN-2025-0045"
     },
     "reference_key": {
       "type": "string",

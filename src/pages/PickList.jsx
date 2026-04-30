@@ -308,8 +308,25 @@ export default function PickList() {
         reason: 'production_consume',
         ref_type: 'production_run',
         ref_id: runId,
+        ref_number: run?.run_number || '',
         notes: `Pick list confirmed for run ${run?.run_number}`,
       });
+    }
+
+    // Decrement StockOnHand for consumed ingredients
+    const sohRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
+    for (const item of pickItems) {
+      const state = pickedState[item.product.id];
+      const qty = Number(state?.qty) || item.totalQty;
+      const existing = sohRecords.find(s => s.product_id === item.product.id);
+      if (existing) {
+        const newOnHand = Math.max(0, (existing.qty_on_hand || 0) - qty);
+        await base44.entities.StockOnHand.update(existing.id, {
+          qty_on_hand: newOnHand,
+          qty_available: newOnHand - (existing.qty_committed || 0),
+          last_updated_at: new Date().toISOString(),
+        });
+      }
     }
 
     // Mark the run as pick list confirmed with finished timestamp

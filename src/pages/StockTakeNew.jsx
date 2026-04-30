@@ -106,6 +106,8 @@ export default function StockTakeNew() {
           qty: Math.abs(variance),
           uom: product?.stock_uom || 'pcs',
           reason: 'stocktake_adjustment',
+          ref_type: 'stock_take',
+          ref_number: `Count ${format(new Date(), 'dd MMM yyyy')}`,
           to_location_id: variance > 0 ? (locationId || undefined) : undefined,
           from_location_id: variance < 0 ? (locationId || undefined) : undefined,
           notes: `Stock take: system ${systemQty}, counted ${counted}, adj ${variance > 0 ? '+' : ''}${variance}`,

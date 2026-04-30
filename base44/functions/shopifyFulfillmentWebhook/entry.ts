@@ -196,9 +196,10 @@ Deno.serve(async (req) => {
         reason: 'sale_fulfillment',
         ref_type: 'sales_order',
         ref_id: salesOrder.id,
+        ref_number: salesOrder.order_number || '',
         reference_key: referenceKey,
         unit_cost_at_movement: product.cost_avg || 0,
-        notes: `Fulfillment ${fulfillmentId} for order ${salesOrder.order_number}`,
+        notes: `Fulfillment for order ${salesOrder.order_number}`,
       });
       movementsCreated++;
     }

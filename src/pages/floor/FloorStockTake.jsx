@@ -160,6 +160,8 @@ export default function FloorStockTake() {
           qty: Math.abs(variance),
           uom: product?.stock_uom || 'pcs',
           reason: 'stocktake_adjustment',
+          ref_type: 'stock_take',
+          ref_number: `Count ${format(new Date(), 'dd MMM')} — ${zone.name}`,
           to_location_id: variance > 0 ? zone.id : undefined,
           from_location_id: variance < 0 ? zone.id : undefined,
           notes: `Floor stock take: system ${systemQty}, counted ${counted}, adj ${variance > 0 ? '+' : ''}${variance}`,

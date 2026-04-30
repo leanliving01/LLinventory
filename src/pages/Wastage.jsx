@@ -73,6 +73,8 @@ export default function Wastage() {
         qty: convertedQty,
         uom: stockUom,
         reason,
+        ref_type: 'wastage_log',
+        ref_number: `Wastage ${today}`,
         notes: entry.notes || `End-of-day wastage ${today}` + (entryUom !== stockUom ? ` (entered as ${entry.qty} ${entryUom})` : ''),
       };
     });

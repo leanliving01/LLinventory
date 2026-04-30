@@ -60,6 +60,7 @@ export default function Receiving() {
     const loc = locations.find(l => l.id === locationId);
 
     // 1. Create receipt stock movements
+    const supplierName = supplierId ? suppliers.find(s => s.id === supplierId)?.name || '' : '';
     const movements = validLines.map(line => {
       const product = products.find(p => p.id === line.product_id);
       return {
@@ -70,8 +71,10 @@ export default function Receiving() {
         qty: Number(line.qty),
         uom: product?.stock_uom || 'pcs',
         reason: 'receipt',
+        ref_type: 'manual',
+        ref_number: supplierName ? `Receipt from ${supplierName}` : `Receipt to ${loc?.name}`,
         unit_cost_at_movement: Number(line.unit_cost) || product?.cost_avg || 0,
-        notes: `Receipt to ${loc?.name}${supplierId ? ` from ${suppliers.find(s => s.id === supplierId)?.name || ''}` : ''}`,
+        notes: `Receipt to ${loc?.name}${supplierName ? ` from ${supplierName}` : ''}`,
       };
     });
 

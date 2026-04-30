@@ -127,8 +127,9 @@ export default function FloorReceive() {
       uom: line.product.stock_uom || 'pcs',
       reason: 'receipt',
       unit_cost_at_movement: Number(line.unit_cost) || 0,
-      ref_type: selectedPO ? 'purchase_order' : undefined,
-      ref_id: selectedPO?.id,
+      ref_type: selectedPO && selectedPO.id !== '_adhoc' ? 'purchase_order' : 'manual',
+      ref_id: selectedPO && selectedPO.id !== '_adhoc' ? selectedPO.id : undefined,
+      ref_number: selectedPO ? `PO ${selectedPO.po_number}` : `Receipt to ${zone.name}`,
       notes: `Floor receive into ${zone.name}${selectedPO ? ` (PO ${selectedPO.po_number})` : ''}`,
     }));
     await base44.entities.StockMovement.bulkCreate(movements);

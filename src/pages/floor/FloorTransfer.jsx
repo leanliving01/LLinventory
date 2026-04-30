@@ -66,6 +66,8 @@ export default function FloorTransfer() {
       qty: Number(line.qty),
       uom: line.product.stock_uom || 'pcs',
       reason: 'transfer',
+      ref_type: 'transfer',
+      ref_number: `${fromZone.name} → ${toZone.name}`,
       notes: `Floor transfer: ${fromZone.name} → ${toZone.name}`,
     }));
     await base44.entities.StockMovement.bulkCreate(movements);
