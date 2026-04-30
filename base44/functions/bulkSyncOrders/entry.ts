@@ -143,10 +143,16 @@ function decomposeLines(order, packBomIndex) {
       parentLine.is_package_parent = true;
       parentLine.portion_weight_g = pb.portion_weight_g;
       parentLines.push(parentLine);
+      // Respect disabled_skus and sku_overrides for substitutions
+      const disabledSet = new Set(pb.disabled_skus || []);
+      let skuOverrides = {};
+      try { skuOverrides = JSON.parse(pb.sku_overrides || '{}'); } catch {}
       for (const compSku of pb.component_skus) {
+        if (disabledSet.has(compSku)) continue; // Skip disabled meals
+        const skuMult = skuOverrides[compSku] || pb.multiplier;
         componentLines.push({
           external_id: `${lineExternalId}_${compSku}`, sku: compSku, name: compSku,
-          qty: pb.multiplier * qty, unit_price: 0, line_total: 0, line_type: 'standalone',
+          qty: skuMult * qty, unit_price: 0, line_total: 0, line_type: 'standalone',
           is_package_parent: false, is_package_component: true,
           parent_line_external_id: lineExternalId,
           portion_weight_g: pb.portion_weight_g, status: 'active',

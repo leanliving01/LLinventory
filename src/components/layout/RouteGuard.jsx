@@ -19,6 +19,7 @@ const ROUTE_PERMISSIONS = {
   '/purchasing/orders':    'po_view',
   '/purchasing/reorder':   'po_view',
   '/purchasing/settings':  'po_create',
+  '/purchasing/pack-bom':  'recipes_edit',
   '/sales':                'sales_view',
   '/production':           'planning_view',
   '/production/plan-review': 'planning_view',

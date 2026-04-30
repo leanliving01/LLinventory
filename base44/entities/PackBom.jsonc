@@ -22,14 +22,27 @@
     },
     "multiplier": {
       "type": "number",
-      "description": "How many of each component SKU per pack (1, 2, 3, 4, 6, 12)"
+      "description": "Default: how many of each component SKU per pack (1, 2, 3, 4, 6, 12)"
     },
     "component_skus": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "List of meal/product SKUs in this pack"
+      "description": "Full list of meal/product SKUs in this pack (master list \u2014 includes disabled)"
+    },
+    "disabled_skus": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "SKUs temporarily removed from the pack (e.g. out of spinach). Decomposition skips these."
+    },
+    "sku_overrides": {
+      "type": "string",
+      "default": "{}",
+      "description": "JSON object: { \"SKU\": multiplier } \u2014 per-SKU qty override. If a SKU is listed here, its multiplier replaces the default. Used when redistributing after disabling meals."
     },
     "pack_color_theme": {
       "type": "string",

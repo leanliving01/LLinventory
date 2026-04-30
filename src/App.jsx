@@ -36,6 +36,8 @@ import TeamPerformance from '@/pages/TeamPerformance';
 import PurchaseOrders from '@/pages/PurchaseOrders';
 import POSettings from '@/pages/POSettings';
 import ReorderReport from '@/pages/ReorderReport';
+import PackBomManager from '@/pages/PackBomManager';
+import PackBomDetail from '@/pages/PackBomDetail';
 import XeroCallback from '@/pages/XeroCallback';
 import Sales from '@/pages/Sales';
 import Customers from '@/pages/Customers';
@@ -109,6 +111,8 @@ const AuthenticatedApp = () => {
         <Route path="/purchasing/orders" element={<PurchaseOrders />} />
         <Route path="/purchasing/settings" element={<POSettings />} />
         <Route path="/purchasing/reorder" element={<ReorderReport />} />
+        <Route path="/purchasing/pack-bom" element={<PackBomManager />} />
+        <Route path="/purchasing/pack-bom/:packBomId" element={<PackBomDetail />} />
         <Route path="/sales" element={<Sales />} />
         <Route path="/customers" element={<Customers />} />
         <Route path="/equipment" element={<EquipmentManager />} />

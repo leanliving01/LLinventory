@@ -49,6 +49,7 @@ const PATH_PERMISSION_MAP = {
   '/purchasing/orders': 'po_view',
   '/purchasing/reorder': 'po_view',
   '/purchasing/settings': 'po_create',
+  '/purchasing/pack-bom': 'recipes_edit',
   '/sales': 'sales_view',
   '/production': 'planning_view',
   '/production/runs': 'runs_view',
@@ -85,6 +86,7 @@ const navItems = [
       { label: 'Suppliers', path: '/suppliers', icon: Truck },
       { label: 'Purchase Orders', path: '/purchasing/orders', icon: Receipt },
       { label: 'Reorder Report', path: '/purchasing/reorder', icon: AlertTriangle },
+      { label: 'Pack Compositions', path: '/purchasing/pack-bom', icon: Box },
     ]
   },
   { label: 'Sales', path: '/sales', icon: ShoppingCart },
