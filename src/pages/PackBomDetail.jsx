@@ -122,28 +122,40 @@ export default function PackBomDetail() {
     for (const [sku, val] of Object.entries(overrides)) {
       if (val !== defaultMultiplier && !disabledSkus.has(sku)) overridesClean[sku] = val;
     }
-    await base44.entities.PackBom.update(packBomId, {
-      disabled_skus: disabledArr,
-      sku_overrides: JSON.stringify(overridesClean),
-    });
-    queryClient.invalidateQueries({ queryKey: ['pack-bom', packBomId] });
-    queryClient.invalidateQueries({ queryKey: ['pack-boms'] });
-    // Reset local state so it re-inits from fresh data
-    setDisabledSkus(null);
-    setOverrides(null);
-    toast.success('Pack composition saved — new orders will use this composition');
-    setSaving(false);
+    try {
+      await base44.entities.PackBom.update(packBomId, {
+        disabled_skus: disabledArr,
+        sku_overrides: JSON.stringify(overridesClean),
+      });
+      toast.success('Pack composition saved — new orders will use this composition');
+      // Wait for fresh data before resetting local state
+      await queryClient.invalidateQueries({ queryKey: ['pack-bom', packBomId] });
+      await queryClient.invalidateQueries({ queryKey: ['pack-boms'] });
+      setDisabledSkus(null);
+      setOverrides(null);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const hasChanges = useMemo(() => {
     if (!packBom || !disabledSkus || !overrides) return false;
     const origDisabled = new Set(packBom.disabled_skus || []);
     const origOverrides = parseOverrides(packBom.sku_overrides);
+    // Compare disabled sets
     if (disabledSkus.size !== origDisabled.size) return true;
     for (const s of disabledSkus) { if (!origDisabled.has(s)) return true; }
+    // Compare overrides (order-independent)
     const cleanOverrides = {};
     for (const [k, v] of Object.entries(overrides)) { if (!disabledSkus.has(k) && v !== defaultMultiplier) cleanOverrides[k] = v; }
-    if (JSON.stringify(cleanOverrides) !== JSON.stringify(origOverrides)) return true;
+    const cleanKeys = Object.keys(cleanOverrides).sort();
+    const origKeys = Object.keys(origOverrides).sort();
+    if (cleanKeys.length !== origKeys.length) return true;
+    for (const k of cleanKeys) {
+      if (cleanOverrides[k] !== origOverrides[k]) return true;
+    }
     return false;
   }, [packBom, disabledSkus, overrides, defaultMultiplier]);
 
