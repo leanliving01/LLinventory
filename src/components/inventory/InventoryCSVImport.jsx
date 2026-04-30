@@ -165,9 +165,11 @@ export default function InventoryCSVImport({ products, stockByProduct, onImportC
         const csvOnHand = rawOnHand !== undefined ? parseNumber(rawOnHand) : NaN;
         const csvReorder = rawReorder !== undefined ? parseNumber(rawReorder) : NaN;
 
-        // Debug logging for troubleshooting import mismatches
-        if (sku.toLowerCase() === 'ssbas' || sku.toLowerCase() === 'acur') {
-          console.log(`[CSV Import Debug] SKU=${sku} | raw on_hand="${rawOnHand}" parsed=${csvOnHand} current=${currentStock.on_hand} | raw reorder="${rawReorder}" parsed=${csvReorder} current=${currentReorder} | cols=[${cols.map(c => `"${c}"`).join(', ')}]`);
+        // Debug: log every row where CSV value differs from 0 for on_hand or reorder
+        const debugOnHandDiff = !isNaN(csvOnHand) && csvOnHand !== 0;
+        const debugReorderDiff = !isNaN(csvReorder) && csvReorder !== 0;
+        if (debugOnHandDiff || debugReorderDiff || sku.toLowerCase() === 'ssbas' || sku.toLowerCase() === 'acur') {
+          console.warn(`[CSV Debug] row=${i+1} SKU="${sku}" | onHand: raw="${rawOnHand}" → ${csvOnHand} (sys=${currentStock.on_hand}) | reorder: raw="${rawReorder}" → ${csvReorder} (sys=${currentReorder}) | #cols=${cols.length}`);
         }
 
         const rowChanges = {};
@@ -188,7 +190,12 @@ export default function InventoryCSVImport({ products, stockByProduct, onImportC
       }
 
       // Add summary as first info line
-      const summary = `Parsed ${lines.length - 1} data rows · Matched ${matchedCount} SKUs · ${diffs.length} with changes · Delimiter: "${delimiter === '\t' ? 'TAB' : delimiter}"`;
+      const summary = `Parsed ${lines.length - 1} data rows · Matched ${matchedCount} SKUs · ${diffs.length} with changes · Delimiter: "${delimiter === '\t' ? 'TAB' : delimiter}" · onHandIdx=${onHandIdx} reorderIdx=${reorderIdx}`;
+      console.warn(`[CSV Import Summary] ${summary}`);
+      // Also log first 3 raw data lines for debugging
+      console.warn(`[CSV Import] Header: ${lines[0]}`);
+      if (lines[1]) console.warn(`[CSV Import] Row1: ${lines[1]}`);
+      if (lines[2]) console.warn(`[CSV Import] Row2: ${lines[2]}`);
       setParseErrors([summary, ...errors]);
       setChanges(diffs);
     };
