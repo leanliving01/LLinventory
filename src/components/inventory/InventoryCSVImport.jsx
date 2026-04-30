@@ -42,30 +42,69 @@ function parseCSVLine(line) {
   return result;
 }
 
+/**
+ * Robustly parse a numeric string — strips locale thousand separators,
+ * spaces, currency symbols, and handles both comma and period decimals.
+ */
+function parseNumber(raw) {
+  if (raw == null) return NaN;
+  // Strip BOM, whitespace, currency symbols, spaces used as thousands sep
+  let cleaned = String(raw).replace(/[\u00A0\u200B\uFEFF]/g, '').trim();
+  // Remove anything that isn't digit, minus, period, or comma
+  cleaned = cleaned.replace(/[^0-9.\-,]/g, '');
+  if (!cleaned) return NaN;
+  // If comma is used as decimal (e.g. "1.234,56"), convert to period decimal
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    // "1.234,56" → "1234.56" or "1,234.56" → "1234.56"
+    if (cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')) {
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    } else {
+      cleaned = cleaned.replace(/,/g, '');
+    }
+  } else if (cleaned.includes(',')) {
+    // Could be "1,234" (thousands) or "1,5" (decimal) — check position
+    const parts = cleaned.split(',');
+    if (parts.length === 2 && parts[1].length === 3) {
+      // Likely thousands separator: "1,234"
+      cleaned = cleaned.replace(/,/g, '');
+    } else {
+      // Likely decimal: "1,5"
+      cleaned = cleaned.replace(',', '.');
+    }
+  }
+  return parseFloat(cleaned);
+}
+
 export default function InventoryCSVImport({ products, stockByProduct, onImportComplete }) {
   const [changes, setChanges] = useState(null);
   const [parseErrors, setParseErrors] = useState([]);
   const fileRef = useRef(null);
 
-  const skuToProduct = {};
-  products.forEach(p => {
-    if (p.sku) skuToProduct[p.sku.toLowerCase()] = p;
-  });
-
   const handleFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Build SKU lookup fresh each time (captures latest products prop)
+    const skuToProduct = {};
+    products.forEach(p => {
+      if (p.sku) skuToProduct[p.sku.trim().toLowerCase()] = p;
+    });
+
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const text = evt.target.result;
+      // Strip BOM if present
+      let text = evt.target.result;
+      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
       const lines = text.split(/\r?\n/).filter(l => l.trim());
       if (lines.length < 2) {
         setParseErrors(['CSV file is empty or has no data rows.']);
         return;
       }
 
-      const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/\s+/g, '_'));
+      const headers = parseCSVLine(lines[0]).map(h =>
+        h.toLowerCase().replace(/[\u00A0\u200B\uFEFF]/g, '').replace(/\s+/g, '_')
+      );
 
       // Validate required headers
       const skuIdx = headers.indexOf('sku');
@@ -82,7 +121,7 @@ export default function InventoryCSVImport({ products, stockByProduct, onImportC
 
       for (let i = 1; i < lines.length; i++) {
         const cols = parseCSVLine(lines[i]);
-        const sku = (cols[skuIdx] || '').trim();
+        const sku = (cols[skuIdx] || '').replace(/[\u00A0\u200B\uFEFF]/g, '').trim();
         if (!sku) continue;
 
         const product = skuToProduct[sku.toLowerCase()];
@@ -94,22 +133,22 @@ export default function InventoryCSVImport({ products, stockByProduct, onImportC
         const currentStock = stockByProduct[product.id] || { on_hand: 0, committed: 0, available: 0 };
         const currentReorder = product.min_before_reorder || 0;
 
-        const csvOnHand = onHandIdx !== -1 ? parseFloat(cols[onHandIdx]) : null;
-        const csvReorder = reorderIdx !== -1 ? parseFloat(cols[reorderIdx]) : null;
+        const csvOnHand = onHandIdx !== -1 ? parseNumber(cols[onHandIdx]) : NaN;
+        const csvReorder = reorderIdx !== -1 ? parseNumber(cols[reorderIdx]) : NaN;
 
-        const changes = {};
-        if (csvOnHand !== null && !isNaN(csvOnHand) && Math.abs(csvOnHand - currentStock.on_hand) > 0.001) {
-          changes.on_hand = { from: currentStock.on_hand, to: csvOnHand };
+        const rowChanges = {};
+        if (!isNaN(csvOnHand) && Math.abs(csvOnHand - currentStock.on_hand) > 0.001) {
+          rowChanges.on_hand = { from: currentStock.on_hand, to: csvOnHand };
         }
-        if (csvReorder !== null && !isNaN(csvReorder) && Math.abs(csvReorder - currentReorder) > 0.001) {
-          changes.reorder_point = { from: currentReorder, to: csvReorder };
+        if (!isNaN(csvReorder) && Math.abs(csvReorder - currentReorder) > 0.001) {
+          rowChanges.reorder_point = { from: currentReorder, to: csvReorder };
         }
 
-        if (Object.keys(changes).length > 0) {
+        if (Object.keys(rowChanges).length > 0) {
           diffs.push({
             product,
             currentStock,
-            changes,
+            changes: rowChanges,
           });
         }
       }
