@@ -1,0 +1,40 @@
+{
+  "name": "ProductPurchaseUom",
+  "type": "object",
+  "properties": {
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product"
+    },
+    "label": {
+      "type": "string",
+      "description": "Human-friendly name e.g. 'Each', '6-Pack', 'Case of 24', 'Box of 10kg'"
+    },
+    "purchase_to_stock_factor": {
+      "type": "number",
+      "description": "How many stock UoM units per 1 purchase unit (e.g. 6 if 1 six-pack = 6 pcs, 10 if 1 box = 10 kg)"
+    },
+    "supplier_id": {
+      "type": "string",
+      "description": "Optional FK to Supplier \u2014 if this UoM is specific to one supplier"
+    },
+    "supplier_name": {
+      "type": "string",
+      "description": "Denormalized supplier name"
+    },
+    "is_default": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this is the default purchase UoM for new PO lines"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional notes"
+    }
+  },
+  "required": [
+    "product_id",
+    "label",
+    "purchase_to_stock_factor"
+  ]
+}

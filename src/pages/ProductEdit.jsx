@@ -149,6 +149,7 @@ export default function ProductEdit() {
             locations={locations}
             suppliers={suppliers}
             categories={categories}
+            productId={productId}
           />
         </>
       )}

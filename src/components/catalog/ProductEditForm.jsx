@@ -6,6 +6,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import UomSelect from '@/components/shared/UomSelect';
 import useXeroChartData from '@/lib/useXeroChartData';
+import ProductPurchaseUomEditor from '@/components/catalog/ProductPurchaseUomEditor';
 
 const PRODUCT_TYPES = [
   { value: 'raw', label: 'Raw Material' },
@@ -45,7 +46,7 @@ function FormField({ label, children, hint }) {
   );
 }
 
-export default function ProductEditForm({ formData, onChange, locations, suppliers, categories = [] }) {
+export default function ProductEditForm({ formData, onChange, locations, suppliers, categories = [], productId }) {
   const set = (field, value) => onChange({ ...formData, [field]: value });
   const { accounts: xeroAccounts, taxRates: xeroTaxRates, isLoading: xeroLoading } = useXeroChartData();
 
@@ -145,6 +146,15 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
         <FormField label="Recipe UoM" hint="Unit used in recipes (e.g. g when stock is kg)">
           <Input value={formData.recipe_uom || ''} onChange={e => set('recipe_uom', e.target.value)} className="max-w-xs" />
         </FormField>
+
+        {/* Multiple purchase UoMs */}
+        {productId && (
+          <ProductPurchaseUomEditor
+            productId={productId}
+            stockUom={formData.stock_uom}
+            suppliers={suppliers}
+          />
+        )}
       </Section>
 
       {/* ── Pricing ── */}
