@@ -12,8 +12,14 @@ import SettingsAlertsTab from '@/components/settings/SettingsAlertsTab';
 import SettingsUomTab from '@/components/settings/SettingsUomTab';
 import SettingsDispatchTab from '@/components/settings/SettingsDispatchTab';
 import SettingsPackingMaterialsTab from '@/components/settings/SettingsPackingMaterialsTab';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 export default function SettingsPage() {
+  const { user } = useAuth();
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
   return (
     <div className="space-y-6">
       <div>
@@ -23,7 +29,7 @@ export default function SettingsPage() {
       <Tabs defaultValue="org">
         <TabsList>
           <TabsTrigger value="org" className="gap-1.5"><Building2 className="w-3.5 h-3.5" />Organisation</TabsTrigger>
-          <TabsTrigger value="users" className="gap-1.5"><Users className="w-3.5 h-3.5" />Users</TabsTrigger>
+          {perms.user_management && <TabsTrigger value="users" className="gap-1.5"><Users className="w-3.5 h-3.5" />Users</TabsTrigger>}
           <TabsTrigger value="cin7" className="gap-1.5"><Database className="w-3.5 h-3.5" />Cin7 Import</TabsTrigger>
           <TabsTrigger value="production" className="gap-1.5"><ChefHat className="w-3.5 h-3.5" />Production</TabsTrigger>
           <TabsTrigger value="logs" className="gap-1.5"><Download className="w-3.5 h-3.5" />Import Log</TabsTrigger>
@@ -33,7 +39,7 @@ export default function SettingsPage() {
           <TabsTrigger value="packing" className="gap-1.5"><Package className="w-3.5 h-3.5" />Packing Materials</TabsTrigger>
         </TabsList>
         <TabsContent value="org" className="mt-4"><SettingsOrgTab /></TabsContent>
-        <TabsContent value="users" className="mt-4"><SettingsUsersTab /></TabsContent>
+        {perms.user_management && <TabsContent value="users" className="mt-4"><SettingsUsersTab /></TabsContent>}
         <TabsContent value="production" className="mt-4"><SettingsProductionTab /></TabsContent>
         <TabsContent value="cin7" className="mt-4"><SettingsCin7Tab /></TabsContent>
         <TabsContent value="logs" className="mt-4"><SettingsImportLogTab /></TabsContent>

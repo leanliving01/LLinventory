@@ -8,6 +8,9 @@ import { Badge } from '@/components/ui/badge';
 import { Search, Package, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 const TYPE_LABELS = {
   raw: 'Raw Material',
@@ -43,6 +46,9 @@ export default function Catalog() {
   const [purchasableFilter, setPurchasableFilter] = useState('all');
   const [inventoryFilter, setInventoryFilter] = useState('all');
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 15;
 

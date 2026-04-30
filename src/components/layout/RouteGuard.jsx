@@ -42,7 +42,7 @@ const ROUTE_PERMISSIONS = {
   '/floor/stock-take':     'stocktake_view',
   '/floor/transfer':       'stock_transfers',
   '/floor/receive':        'receiving',
-  '/floor/scan':           'pick_lists',
+  '/floor/scan':           'catalog_view',
   '/floor/shortages':      'yield_tracker',
 };
 

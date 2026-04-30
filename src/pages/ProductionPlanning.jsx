@@ -11,10 +11,16 @@ import { useNavigate } from 'react-router-dom';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import { groupMealsForProduction, VARIANT_CODES } from '@/lib/productionGrouping';
 import { writeAuditLog } from '@/lib/auditLog';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 export default function ProductionPlanning() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
   const [search, setSearch] = useState('');
   const [overrides, setOverrides] = useState({});
   const [generating, setGenerating] = useState(false);
@@ -241,18 +247,20 @@ export default function ProductionPlanning() {
         </div>
         <div className="flex items-center gap-2">
         <HelpDrawer pageKey="production-plan" />
-        <Button
-          onClick={handleOpenConfirm}
-          disabled={generating || totalToProduce === 0}
-          size="lg"
-          className="gap-2 h-12 px-6 text-base"
-        >
-          <Factory className="w-5 h-5" />
-          {totalToProduce > maxPerRun
-            ? `Plan ${Math.ceil(totalToProduce / maxPerRun)} Runs (${totalToProduce.toLocaleString()})`
-            : `Confirm Run (${totalToProduce.toLocaleString()})`
-          }
-        </Button>
+        {perms.planning_create && (
+          <Button
+            onClick={handleOpenConfirm}
+            disabled={generating || totalToProduce === 0}
+            size="lg"
+            className="gap-2 h-12 px-6 text-base"
+          >
+            <Factory className="w-5 h-5" />
+            {totalToProduce > maxPerRun
+              ? `Plan ${Math.ceil(totalToProduce / maxPerRun)} Runs (${totalToProduce.toLocaleString()})`
+              : `Confirm Run (${totalToProduce.toLocaleString()})`
+            }
+          </Button>
+        )}
         </div>
       </div>
 

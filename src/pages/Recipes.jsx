@@ -9,6 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Search, X, ChevronRight, Plus, ChevronDown, FolderOpen } from 'lucide-react';
 import CreateBomModal from '@/components/recipes/CreateBomModal';
 import { getSubcategories } from '@/lib/bomSubcategories';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack', prep: 'Prep' };
 const LAYER_COLORS = {
@@ -21,6 +24,9 @@ const LAYER_COLORS = {
 export default function Recipes() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
   const [page, setPage] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [createDefaults, setCreateDefaults] = useState(null);
@@ -105,9 +111,11 @@ export default function Recipes() {
             {filtered.length} of {boms.length} BOMs — 4-layer model: Prep → Cook → Portion → Pack
           </p>
         </div>
-        <Button className="gap-2" onClick={() => setShowCreate(true)}>
-          <Plus className="w-4 h-4" /> Create BOM
-        </Button>
+        {perms.recipes_edit && (
+          <Button className="gap-2" onClick={() => setShowCreate(true)}>
+            <Plus className="w-4 h-4" /> Create BOM
+          </Button>
+        )}
       </div>
 
       {/* Layer chips */}

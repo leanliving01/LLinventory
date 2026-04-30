@@ -8,6 +8,9 @@ import { Factory, ChevronRight, Plus } from 'lucide-react';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 const STATUS_STYLES = {
   draft: 'bg-muted text-muted-foreground',
@@ -26,6 +29,10 @@ const STATUS_LABELS = {
 };
 
 export default function ProductionRuns() {
+  const { user } = useAuth();
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
+
   const { data: runs = [], isLoading } = useQuery({
     queryKey: ['production-runs'],
     queryFn: () => base44.entities.ProductionRun.list('-created_date', 50),
@@ -43,11 +50,13 @@ export default function ProductionRuns() {
         </div>
         <div className="flex items-center gap-2">
           <HelpDrawer pageKey="production-runs" />
-          <Link to="/production">
-            <Button className="gap-2">
-              <Plus className="w-4 h-4" /> New Run
-            </Button>
-          </Link>
+          {perms.runs_create && (
+            <Link to="/production">
+              <Button className="gap-2">
+                <Plus className="w-4 h-4" /> New Run
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
 

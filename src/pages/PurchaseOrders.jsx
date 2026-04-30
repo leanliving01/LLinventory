@@ -11,6 +11,9 @@ import CreatePOModal from '@/components/purchasing/CreatePOModal';
 import PODetailDrawer from '@/components/purchasing/PODetailDrawer';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 const STATUS_COLORS = {
   draft: 'bg-gray-100 text-gray-600',
@@ -34,6 +37,9 @@ const STATUS_LABELS = {
 
 export default function PurchaseOrders() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
   const [statusFilter, setStatusFilter] = useState('open');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
@@ -177,18 +183,24 @@ export default function PurchaseOrders() {
           <p className="text-sm text-muted-foreground mt-0.5">{filtered.length} of {pos.length} orders</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleXeroSync} disabled={syncing} className="gap-2">
-            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            {syncing ? 'Syncing Xero...' : 'Sync from Xero'}
-          </Button>
-          <Link to="/purchasing/settings">
-            <Button variant="outline" className="gap-2">
-              <Settings className="w-4 h-4" /> Settings
+          {perms.po_create && (
+            <Button variant="outline" onClick={handleXeroSync} disabled={syncing} className="gap-2">
+              {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {syncing ? 'Syncing Xero...' : 'Sync from Xero'}
             </Button>
-          </Link>
-          <Button onClick={() => setShowCreate(true)} className="gap-2">
-            <Plus className="w-4 h-4" /> New PO
-          </Button>
+          )}
+          {perms.po_create && (
+            <Link to="/purchasing/settings">
+              <Button variant="outline" className="gap-2">
+                <Settings className="w-4 h-4" /> Settings
+              </Button>
+            </Link>
+          )}
+          {perms.po_create && (
+            <Button onClick={() => setShowCreate(true)} className="gap-2">
+              <Plus className="w-4 h-4" /> New PO
+            </Button>
+          )}
         </div>
       </div>
 

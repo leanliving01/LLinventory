@@ -10,6 +10,9 @@ import ProductStockTab from '@/components/catalog/ProductStockTab';
 import ProductMovementsTab from '@/components/catalog/ProductMovementsTab';
 import ProductCookBomCard from '@/components/catalog/ProductCookBomCard';
 import ProductEquipmentTab from '@/components/catalog/ProductEquipmentTab';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 const TABS = [
   { key: 'details', label: 'Details', icon: Settings2 },
@@ -22,6 +25,10 @@ export default function ProductEdit() {
   const { productId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
+  const canEdit = !!perms.catalog_edit;
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState(null);
   const [activeTab, setActiveTab] = useState('details');
@@ -98,10 +105,12 @@ export default function ProductEdit() {
             <p className="text-sm text-muted-foreground font-mono">{product.sku}</p>
           </div>
         </div>
-        <Button onClick={handleSave} disabled={saving} className="gap-2">
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Save Changes
-        </Button>
+        {canEdit && (
+          <Button onClick={handleSave} disabled={saving} className="gap-2">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save Changes
+          </Button>
+        )}
       </div>
 
       {/* Tabs */}

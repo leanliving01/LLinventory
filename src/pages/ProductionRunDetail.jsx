@@ -17,6 +17,9 @@ import VarianceReport from '@/components/production/VarianceReport';
 import RecalculateRunModal from '@/components/production/RecalculateRunModal';
 import { writeAuditLog } from '@/lib/auditLog';
 import { splitTasksByEquipment } from '@/lib/equipmentSplitter';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 const STATUS_STYLES = {
   draft: 'bg-muted text-muted-foreground',
@@ -30,6 +33,9 @@ export default function ProductionRunDetail() {
   const urlParams = new URLSearchParams(window.location.search);
   const runId = window.location.pathname.split('/').pop();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
   const [actuals, setActuals] = useState({});
   const [reasons, setReasons] = useState({});
   const [completing, setCompleting] = useState(false);
@@ -678,23 +684,23 @@ export default function ProductionRunDetail() {
               </Button>
             </Link>
           )}
-          {isScheduled && (
+          {isScheduled && perms.runs_start_complete && (
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowRecalculate(true)}>
               <RefreshCw className="w-4 h-4" /> Recalculate
             </Button>
           )}
-          {canStart && (
+          {canStart && perms.runs_start_complete && (
             <Button onClick={handleStartRun} disabled={starting} className="gap-2 bg-amber-600 hover:bg-amber-700">
               <Play className="w-4 h-4" />
               {starting ? 'Checking stock...' : 'Start Run'}
             </Button>
           )}
-          {isEditable && (
+          {isEditable && perms.runs_start_complete && (
             <Button variant="outline" onClick={handleFillPlanned} size="sm">
               Fill Planned
             </Button>
           )}
-          {canComplete && (
+          {canComplete && perms.runs_start_complete && (
             <Button
               onClick={handleCompleteRun}
               disabled={completing || filledCount === 0}

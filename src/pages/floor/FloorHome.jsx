@@ -76,7 +76,7 @@ const MODULES = [
     label: 'Quick Scan',
     description: 'Scan barcode to look up item',
     icon: ScanBarcode,
-    permission: null,
+    permission: 'catalog_view',
     color: 'bg-slate-600',
   },
 ];
