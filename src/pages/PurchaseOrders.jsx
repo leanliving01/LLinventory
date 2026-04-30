@@ -56,17 +56,24 @@ export default function PurchaseOrders() {
 
   const handleXeroSync = async () => {
     setSyncing(true);
-    const res = await base44.functions.invoke('syncXeroPurchaseOrders', {});
-    setSyncing(false);
-    const s = res.data?.summary;
-    if (res.data?.error) {
-      toast.error(res.data.error);
-      return;
+    try {
+      const res = await base44.functions.invoke('syncXeroPurchaseOrders', {});
+      const s = res.data?.summary;
+      if (res.data?.error) {
+        toast.error(res.data.error);
+        return;
+      }
+      const poCount = (s?.purchase_orders?.created || 0) + (s?.bills?.created || 0);
+      const updCount = (s?.purchase_orders?.updated || 0) + (s?.bills?.updated || 0);
+      const linesCount = s?.lines_created || 0;
+      toast.success(`Xero sync done — ${poCount} new, ${updCount} updated, ${linesCount} lines, ${s?.suppliers_matched || 0} suppliers matched`);
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['po-lines-all'] });
+    } catch (err) {
+      toast.error(`Xero sync failed: ${err.message}`);
+    } finally {
+      setSyncing(false);
     }
-    const poCount = (s.purchase_orders?.created || 0) + (s.bills?.created || 0);
-    const updCount = (s.purchase_orders?.updated || 0) + (s.bills?.updated || 0);
-    toast.success(`Xero sync done — ${poCount} new, ${updCount} updated, ${s.suppliers_matched} suppliers matched`);
-    queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
   };
 
   const [needsAttentionOnly, setNeedsAttentionOnly] = useState(false);
