@@ -3,7 +3,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Save, Loader2, RotateCcw } from 'lucide-react';
-import { PERMISSION_KEYS, ROLE_DEFAULTS } from '@/lib/permissions';
+import { PERMISSION_GROUPS, PERMISSION_KEYS, ROLE_DEFAULTS } from '@/lib/permissions';
 
 const BUILT_IN_ROLES = [
   { value: 'admin', label: 'Admin' },
@@ -19,36 +19,46 @@ const BUILT_IN_ROLES = [
 export default function UserPermissionsEditor({ role, permissions, onSave, saving, customRoles = [] }) {
   const [currentRole, setCurrentRole] = useState(role || 'viewer');
   const [perms, setPerms] = useState(() => {
-    const defaults = ROLE_DEFAULTS[role || 'viewer'] || ROLE_DEFAULTS.viewer;
+    const defaults = getDefaults(role || 'viewer', customRoles);
     if (permissions) {
       try { return { ...defaults, ...JSON.parse(permissions) }; } catch {}
     }
     return { ...defaults };
   });
 
-  const getDefaultsForRole = (roleKey) => {
+  function getDefaults(roleKey, cRoles) {
     if (ROLE_DEFAULTS[roleKey]) return ROLE_DEFAULTS[roleKey];
-    const custom = customRoles.find(r => r.key === roleKey);
+    const custom = (cRoles || customRoles).find(r => r.key === roleKey);
     if (custom?.permissions) return custom.permissions;
     return ROLE_DEFAULTS.viewer;
-  };
+  }
 
   const handleRoleChange = (newRole) => {
     setCurrentRole(newRole);
-    setPerms({ ...getDefaultsForRole(newRole) });
+    setPerms({ ...getDefaults(newRole) });
   };
 
   const togglePerm = (key) => {
     setPerms(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const toggleGroup = (group) => {
+    const keys = group.keys.map(k => k.key);
+    const allOn = keys.every(k => perms[k]);
+    const val = !allOn;
+    setPerms(prev => {
+      const next = { ...prev };
+      keys.forEach(k => { next[k] = val; });
+      return next;
+    });
+  };
+
   const resetToDefaults = () => {
-    setPerms({ ...getDefaultsForRole(currentRole) });
+    setPerms({ ...getDefaults(currentRole) });
   };
 
   const handleSave = () => {
-    // Only store overrides that differ from role defaults
-    const defaults = getDefaultsForRole(currentRole);
+    const defaults = getDefaults(currentRole);
     const overrides = {};
     for (const pk of PERMISSION_KEYS) {
       if (perms[pk.key] !== defaults[pk.key]) {
@@ -86,21 +96,36 @@ export default function UserPermissionsEditor({ role, permissions, onSave, savin
 
       <p className="text-xs text-muted-foreground">
         Changing the role loads its default permissions. Toggle individual areas below to customise.
+        Click a group header to toggle all permissions in that group.
       </p>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-        {PERMISSION_KEYS.map(pk => (
-          <label
-            key={pk.key}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border hover:bg-muted/30 transition-colors cursor-pointer"
-          >
-            <Checkbox
-              checked={!!perms[pk.key]}
-              onCheckedChange={() => togglePerm(pk.key)}
-            />
-            <span className="text-sm">{pk.label}</span>
-          </label>
-        ))}
+      <div className="space-y-4">
+        {PERMISSION_GROUPS.map(group => {
+          const keys = group.keys.map(k => k.key);
+          const onCount = keys.filter(k => perms[k]).length;
+          return (
+            <div key={group.group} className="border border-border rounded-xl overflow-hidden">
+              <button
+                onClick={() => toggleGroup(group)}
+                className="w-full flex items-center justify-between px-4 py-2.5 bg-muted/30 hover:bg-muted/50 transition-colors"
+              >
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{group.group}</span>
+                <span className="text-[10px] text-muted-foreground">{onCount}/{keys.length}</span>
+              </button>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-0">
+                {group.keys.map(pk => (
+                  <label
+                    key={pk.key}
+                    className="flex items-center gap-2.5 px-4 py-2.5 border-t border-border hover:bg-muted/20 transition-colors cursor-pointer"
+                  >
+                    <Checkbox checked={!!perms[pk.key]} onCheckedChange={() => togglePerm(pk.key)} />
+                    <span className="text-sm">{pk.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <div className="flex justify-end">

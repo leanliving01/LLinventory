@@ -2,8 +2,10 @@ import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { format, subDays, isWithinInterval, startOfDay } from 'date-fns';
-import { Clock, RefreshCw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Clock } from 'lucide-react';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 import DateRangePicker from '@/components/dashboard/DateRangePicker';
 import KPICards from '@/components/dashboard/KPICards';
@@ -16,6 +18,10 @@ import POAgingTable from '@/components/dashboard/POAgingTable';
 import ShortageTable from '@/components/dashboard/ShortageTable';
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
+
   const now = new Date();
   const [from, setFrom] = useState(subDays(now, 30));
   const [to, setTo] = useState(now);
@@ -156,25 +162,29 @@ export default function Dashboard() {
       <DateRangePicker from={from} to={to} onChange={handleDateChange} />
 
       {/* KPI Cards */}
-      <KPICards data={kpiData} />
+      {perms.dashboard_kpis && <KPICards data={kpiData} />}
 
       {/* Charts Row 1: Revenue + Package Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <RevenueChart orders={rangedSales} from={from} to={to} />
-        <PackageBreakdownChart orders={rangedShopify} />
-      </div>
+      {perms.dashboard_revenue && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <RevenueChart orders={rangedSales} from={from} to={to} />
+          <PackageBreakdownChart orders={rangedShopify} />
+        </div>
+      )}
 
       {/* Charts Row 2: Production + Wastage */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ProductionChart runs={rangedRuns} />
-        <WastageChart wastageLogs={rangedWastage} />
-      </div>
+      {perms.dashboard_production && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <ProductionChart runs={rangedRuns} />
+          <WastageChart wastageLogs={rangedWastage} />
+        </div>
+      )}
 
       {/* Bottom Row: Recent Runs + PO Aging + Shortages */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <RecentRunsList runs={rangedRuns} />
-        <POAgingTable purchaseOrders={purchaseOrders} />
-        <ShortageTable items={shortages} />
+        {perms.dashboard_production && <RecentRunsList runs={rangedRuns} />}
+        {perms.dashboard_costs && <POAgingTable purchaseOrders={purchaseOrders} />}
+        {perms.dashboard_shortages && <ShortageTable items={shortages} />}
       </div>
     </div>
   );

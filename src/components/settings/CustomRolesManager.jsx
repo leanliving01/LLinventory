@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Save, Trash2, Loader2, Tag, X, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
-import { PERMISSION_KEYS, ROLE_DEFAULTS } from '@/lib/permissions';
+import { PERMISSION_KEYS, PERMISSION_GROUPS, ROLE_DEFAULTS } from '@/lib/permissions';
 
 /**
  * Manages custom roles stored as Setting records (group=org, key=custom_role_<slug>).
@@ -157,19 +157,26 @@ export default function CustomRolesManager() {
             />
           </div>
 
-          <div>
-            <p className="text-xs text-muted-foreground mb-2">Permissions for this role:</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {PERMISSION_KEYS.map(pk => (
-                <label
-                  key={pk.key}
-                  className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border hover:bg-muted/30 transition-colors cursor-pointer"
-                >
-                  <Checkbox checked={!!perms[pk.key]} onCheckedChange={() => togglePerm(pk.key)} />
-                  <span className="text-sm">{pk.label}</span>
-                </label>
-              ))}
-            </div>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">Permissions for this role:</p>
+            {PERMISSION_GROUPS.map(group => (
+              <div key={group.group} className="border border-border rounded-lg overflow-hidden">
+                <div className="px-3 py-2 bg-muted/30">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{group.group}</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-0">
+                  {group.keys.map(pk => (
+                    <label
+                      key={pk.key}
+                      className="flex items-center gap-2.5 px-3 py-2 border-t border-border hover:bg-muted/20 transition-colors cursor-pointer"
+                    >
+                      <Checkbox checked={!!perms[pk.key]} onCheckedChange={() => togglePerm(pk.key)} />
+                      <span className="text-sm">{pk.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="flex justify-end">

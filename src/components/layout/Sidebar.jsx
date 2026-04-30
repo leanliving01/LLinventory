@@ -34,38 +34,40 @@ import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 /**
  * Maps each nav path to the permission key that controls access.
  * Paths not listed here are visible to everyone (e.g. /bugs).
  */
 const PATH_PERMISSION_MAP = {
-  '/': 'dashboard',
+  '/': 'dashboard_view',
   '/catalog': 'catalog_view',
   '/customers': 'customers',
   '/recipes': 'recipes_view',
-  '/suppliers': 'purchase_orders',
-  '/purchasing/orders': 'purchase_orders',
-  '/purchasing/reorder': 'purchase_orders',
-  '/purchasing/settings': 'purchase_orders',
-  '/sales': 'sales_orders',
-  '/production': 'production_planning',
-  '/production/runs': 'production_runs',
-  '/production/plan-review': 'production_planning',
+  '/suppliers': 'suppliers',
+  '/purchasing/orders': 'po_view',
+  '/purchasing/reorder': 'po_view',
+  '/purchasing/settings': 'po_create',
+  '/sales': 'sales_view',
+  '/production': 'planning_view',
+  '/production/runs': 'runs_view',
+  '/production/plan-review': 'planning_view',
   '/stock/receive': 'receiving',
   '/stock/transfer': 'stock_transfers',
-  '/stock/stock-take': 'stock_take',
+  '/stock/stock-take': 'stocktake_view',
   '/stock/wastage': 'wastage',
-  '/stock/par-levels': 'dashboard',
-  '/shopify': 'settings',
-  '/reports': 'reports',
-  '/reports/team': 'reports',
-  '/reports/forecasting': 'reports',
-  '/equipment': 'settings',
+  '/stock/par-levels': 'par_levels',
+  '/shopify': 'shopify_sync',
+  '/reports': 'reports_view',
+  '/reports/team': 'reports_team',
+  '/reports/forecasting': 'forecasting',
+  '/equipment': 'equipment',
   '/floor/pick': 'pick_lists',
   '/floor/pack': 'pick_lists',
   '/floor/tasks': 'kitchen_tablet',
-  '/floor/stock-take': 'stock_take',
+  '/floor/shortages': 'yield_tracker',
+  '/floor/stock-take': 'stocktake_view',
   '/floor/transfer': 'stock_transfers',
   '/floor/receive': 'receiving',
   '/floor/scan': 'pick_lists',
@@ -125,7 +127,8 @@ const navItems = [
 export default function Sidebar({ collapsed, onToggle }) {
   const { user } = useAuth();
   const location = useLocation();
-  const perms = getUserPermissions(user || {});
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
   const isAdmin = user?.role === 'admin';
 
   /** Check if a nav path is allowed for the current user */

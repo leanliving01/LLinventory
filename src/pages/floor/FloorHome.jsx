@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import {
   UtensilsCrossed,
   PackageCheck,
@@ -43,7 +44,7 @@ const MODULES = [
     label: 'Yield Tracker',
     description: 'Shortages & surplus plating',
     icon: AlertTriangle,
-    permission: 'kitchen_tablet',
+    permission: 'yield_tracker',
     color: 'bg-red-500',
   },
   {
@@ -51,7 +52,7 @@ const MODULES = [
     label: 'Stock Count',
     description: 'Count stock by zone',
     icon: ClipboardCheck,
-    permission: 'stock_take',
+    permission: 'stocktake_view',
     color: 'bg-green-500',
   },
   {
@@ -82,7 +83,8 @@ const MODULES = [
 
 export default function FloorHome() {
   const { user } = useAuth();
-  const perms = getUserPermissions(user || {});
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
   const isAdmin = ['admin', 'ops_manager'].includes(user?.role);
 
   const visibleModules = MODULES.filter(m => {

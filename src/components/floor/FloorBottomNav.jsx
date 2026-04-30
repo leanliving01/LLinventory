@@ -4,14 +4,15 @@ import { Home, UtensilsCrossed, PackageCheck, ClipboardCheck, ArrowLeftRight, Tr
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 const NAV_ITEMS = [
   { path: '/floor', icon: Home, label: 'Home', permission: null },
   { path: '/floor/tasks', icon: UtensilsCrossed, label: 'Tasks', permission: 'kitchen_tablet' },
   { path: '/floor/pick', icon: PackageCheck, label: 'Pick', permission: 'pick_lists' },
   { path: '/floor/pack', icon: Box, label: 'Pack', permission: 'pick_lists' },
-  { path: '/floor/shortages', icon: AlertTriangle, label: 'Yields', permission: 'kitchen_tablet' },
-  { path: '/floor/stock-take', icon: ClipboardCheck, label: 'Stock Take', permission: 'stock_take' },
+  { path: '/floor/shortages', icon: AlertTriangle, label: 'Yields', permission: 'yield_tracker' },
+  { path: '/floor/stock-take', icon: ClipboardCheck, label: 'Stock Take', permission: 'stocktake_view' },
   { path: '/floor/transfer', icon: ArrowLeftRight, label: 'Transfer Stock', permission: 'stock_transfers' },
   { path: '/floor/receive', icon: Truck, label: 'Receive Stock', permission: 'receiving' },
 ];
@@ -19,7 +20,8 @@ const NAV_ITEMS = [
 export default function FloorBottomNav() {
   const location = useLocation();
   const { user } = useAuth();
-  const perms = getUserPermissions(user || {});
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
   const isAdmin = ['admin', 'ops_manager'].includes(user?.role);
 
   const visibleItems = NAV_ITEMS.filter(item => {
