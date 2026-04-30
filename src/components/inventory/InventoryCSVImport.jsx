@@ -179,26 +179,24 @@ export default function InventoryCSVImport({ products, onImportComplete }) {
         const csvAvailable = rawAvailable !== undefined ? parseNumber(rawAvailable) : NaN;
         const csvReorder = rawReorder !== undefined ? parseNumber(rawReorder) : NaN;
 
+        // Use a tolerance that absorbs floating-point noise
+        const TOL = 0.01;
+
         // If user edited the "available" column but NOT on_hand, derive on_hand from it:
         // new on_hand = new available + committed
-        if (isNaN(csvOnHand) || Math.abs(csvOnHand - currentStock.on_hand) < 0.001) {
-          if (!isNaN(csvAvailable) && Math.abs(csvAvailable - currentStock.available) > 0.001) {
-            csvOnHand = csvAvailable + (currentStock.committed || 0);
-          }
-        }
-
-        // Debug: log every row where CSV value differs from 0 for on_hand or reorder
-        const debugOnHandDiff = !isNaN(csvOnHand) && csvOnHand !== 0;
-        const debugReorderDiff = !isNaN(csvReorder) && csvReorder !== 0;
-        if (debugOnHandDiff || debugReorderDiff || sku.toLowerCase() === 'ssbas' || sku.toLowerCase() === 'acur') {
-          console.warn(`[CSV Debug] row=${i+1} SKU="${sku}" | onHand: raw="${rawOnHand}" → ${csvOnHand} (sys=${currentStock.on_hand}) | reorder: raw="${rawReorder}" → ${csvReorder} (sys=${currentReorder}) | #cols=${cols.length}`);
+        // Only trigger this if on_hand is truly absent or exactly matches system,
+        // AND available differs by more than tolerance.
+        const onHandUnchanged = isNaN(csvOnHand) || Math.abs(csvOnHand - currentStock.on_hand) < TOL;
+        const availableChanged = !isNaN(csvAvailable) && Math.abs(csvAvailable - currentStock.available) > TOL;
+        if (onHandUnchanged && availableChanged) {
+          csvOnHand = csvAvailable + (currentStock.committed || 0);
         }
 
         const rowChanges = {};
-        if (!isNaN(csvOnHand) && Math.abs(csvOnHand - currentStock.on_hand) > 0.001) {
+        if (!isNaN(csvOnHand) && Math.abs(csvOnHand - currentStock.on_hand) > TOL) {
           rowChanges.on_hand = { from: currentStock.on_hand, to: csvOnHand };
         }
-        if (!isNaN(csvReorder) && Math.abs(csvReorder - currentReorder) > 0.001) {
+        if (!isNaN(csvReorder) && Math.abs(csvReorder - currentReorder) > TOL) {
           rowChanges.reorder_point = { from: currentReorder, to: csvReorder };
         }
 
@@ -212,12 +210,7 @@ export default function InventoryCSVImport({ products, onImportComplete }) {
       }
 
       // Add summary as first info line
-      const summary = `Parsed ${lines.length - 1} data rows · Matched ${matchedCount} SKUs · ${diffs.length} with changes · Delimiter: "${delimiter === '\t' ? 'TAB' : delimiter}" · onHandIdx=${onHandIdx} reorderIdx=${reorderIdx}`;
-      console.warn(`[CSV Import Summary] ${summary}`);
-      // Also log first 3 raw data lines for debugging
-      console.warn(`[CSV Import] Header: ${lines[0]}`);
-      if (lines[1]) console.warn(`[CSV Import] Row1: ${lines[1]}`);
-      if (lines[2]) console.warn(`[CSV Import] Row2: ${lines[2]}`);
+      const summary = `Parsed ${lines.length - 1} data rows · Matched ${matchedCount} SKUs · ${diffs.length} with changes`;
       setParseErrors([summary, ...errors]);
       setChanges(diffs);
     };
