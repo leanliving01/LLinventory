@@ -49,8 +49,8 @@ const MWL_SKU_TO_MEAL = {
  */
 export function detectVariant(sku) {
   if (!sku) return null;
-  // Check numbered variants: MLM, WLM, WWL
-  for (const code of ['MLM', 'WLM', 'WWL']) {
+  // Check numbered variants: MLM, MWL, WLM, WWL
+  for (const code of ['MLM', 'MWL', 'WLM', 'WWL']) {
     if (sku.startsWith(code) && /^\d+$/.test(sku.slice(code.length))) {
       return code;
     }
@@ -69,7 +69,7 @@ export function extractMealNumber(sku) {
   // Check MWL map first
   if (MWL_SKU_TO_MEAL[sku] !== undefined) return MWL_SKU_TO_MEAL[sku];
   // Check numbered variants
-  for (const code of ['MLM', 'WLM', 'WWL']) {
+  for (const code of ['MLM', 'MWL', 'WLM', 'WWL']) {
     if (sku.startsWith(code) && /^\d+$/.test(sku.slice(code.length))) {
       return parseInt(sku.slice(code.length), 10);
     }
