@@ -46,6 +46,15 @@ export const PERMISSION_GROUPS = [
       { key: 'kitchen_tablet',        label: 'Kitchen / Floor Tasks' },
       { key: 'pick_lists',            label: 'Pick Lists & Packing' },
       { key: 'yield_tracker',         label: 'Yield Tracker / Shortages' },
+      { key: 'cooking_runs_view',     label: 'View Cooking Runs' },
+      { key: 'cooking_runs_create',   label: 'Create / Execute Cooking Runs' },
+      { key: 'wip_view',              label: 'View Bulk Cooked Inventory' },
+      { key: 'wip_manage',            label: 'Quality Checks & Write-offs' },
+      { key: 'yield_review',          label: 'Review & Approve Yield Records' },
+      { key: 'supplier_yield_view',   label: 'View Supplier Yield Data' },
+      { key: 'portioning_view',       label: 'View Portioning Runs' },
+      { key: 'portioning_create',     label: 'Create / Execute Portioning' },
+      { key: 'wip_planning',          label: 'WIP-Aware Production Planning' },
     ],
   },
   {
@@ -122,6 +131,7 @@ export const ROLE_DEFAULTS = {
     'dashboard_view', 'dashboard_kpis', 'dashboard_revenue', 'dashboard_production', 'dashboard_costs', 'dashboard_shortages',
     'catalog_view', 'catalog_edit', 'recipes_view', 'recipes_edit',
     'planning_view', 'planning_create', 'runs_view', 'runs_create', 'runs_start_complete', 'kitchen_tablet', 'pick_lists', 'yield_tracker',
+    'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'wip_manage', 'yield_review', 'supplier_yield_view', 'portioning_view', 'portioning_create', 'wip_planning',
     'stocktake_view', 'stocktake_create', 'stock_transfers', 'receiving', 'wastage', 'par_levels', 'movements_view', 'inventory_overview', 'inventory_recalc_committed',
     'po_view', 'po_create', 'po_approve', 'po_receive', 'suppliers',
     'sales_view', 'sales_fulfill', 'customers',
@@ -133,6 +143,7 @@ export const ROLE_DEFAULTS = {
     'dashboard_view', 'dashboard_kpis', 'dashboard_production', 'dashboard_shortages',
     'catalog_view', 'recipes_view', 'recipes_edit',
     'planning_view', 'planning_create', 'runs_view', 'runs_create', 'runs_start_complete', 'kitchen_tablet', 'pick_lists', 'yield_tracker',
+    'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'wip_manage', 'yield_review', 'supplier_yield_view', 'portioning_view', 'portioning_create', 'wip_planning',
     'wastage', 'par_levels', 'inventory_overview',
     'reports_view', 'reports_team',
   ),
@@ -140,6 +151,7 @@ export const ROLE_DEFAULTS = {
   kitchen: p(
     'recipes_view',
     'runs_view', 'kitchen_tablet', 'yield_tracker',
+    'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'portioning_view', 'portioning_create',
     'wastage',
   ),
 
@@ -161,6 +173,7 @@ export const ROLE_DEFAULTS = {
   floor_operator: p(
     'recipes_view',
     'runs_view', 'kitchen_tablet', 'pick_lists', 'yield_tracker',
+    'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'portioning_view', 'portioning_create',
     'stocktake_view', 'stocktake_create', 'stock_transfers', 'receiving',
     'wastage', 'inventory_overview',
   ),

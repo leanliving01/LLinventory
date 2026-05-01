@@ -1,0 +1,86 @@
+{
+  "name": "WipWriteOff",
+  "type": "object",
+  "properties": {
+    "wip_batch_id": {
+      "type": "string",
+      "description": "FK to WipBatch"
+    },
+    "bulk_product_id": {
+      "type": "string",
+      "description": "FK to Product (denormalized for reporting)"
+    },
+    "bulk_product_name": {
+      "type": "string"
+    },
+    "qty_kg": {
+      "type": "number",
+      "description": "Quantity written off"
+    },
+    "carrying_cost_per_kg": {
+      "type": "number",
+      "description": "WIP carrying cost at time of write-off"
+    },
+    "total_value": {
+      "type": "number",
+      "description": "qty_kg \u00d7 carrying_cost_per_kg"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "quality_deterioration",
+        "shelf_life_exceeded",
+        "contamination",
+        "other"
+      ],
+      "description": "Write-off reason"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "approved_by_id": {
+      "type": "string",
+      "description": "FK to TeamMember (PM)"
+    },
+    "approved_by_name": {
+      "type": "string"
+    },
+    "triggered_by": {
+      "type": "string",
+      "enum": [
+        "quality_check",
+        "manual",
+        "expiry"
+      ],
+      "description": "What triggered this write-off"
+    },
+    "shortfall_alert_shown": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether a shortfall alert was triggered by this write-off"
+    },
+    "shortfall_kg": {
+      "type": "number",
+      "default": 0,
+      "description": "Shortfall in kg created by this write-off (if any)"
+    },
+    "shortfall_action": {
+      "type": "string",
+      "enum": [
+        "top_up_created",
+        "accepted",
+        "dismissed"
+      ],
+      "description": "Action taken on shortfall alert"
+    },
+    "shortfall_reason": {
+      "type": "string",
+      "description": "Reason for accepting/dismissing shortfall"
+    }
+  },
+  "required": [
+    "wip_batch_id",
+    "qty_kg",
+    "reason"
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "name": "WipQualityCheck",
+  "type": "object",
+  "properties": {
+    "wip_batch_id": {
+      "type": "string",
+      "description": "FK to WipBatch"
+    },
+    "check_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "check_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "checked_by_id": {
+      "type": "string",
+      "description": "FK to TeamMember"
+    },
+    "checked_by_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "result": {
+      "type": "string",
+      "enum": [
+        "approved_full",
+        "approved_use_today",
+        "quarantine",
+        "write_off"
+      ],
+      "description": "QC result"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Required if quarantine or write_off"
+    }
+  },
+  "required": [
+    "wip_batch_id",
+    "check_date",
+    "result"
+  ]
+}

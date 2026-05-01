@@ -1,0 +1,79 @@
+{
+  "name": "ProductionWastageEvent",
+  "type": "object",
+  "properties": {
+    "cooking_run_id": {
+      "type": "string",
+      "description": "FK to CookingRun"
+    },
+    "qty_kg": {
+      "type": "number",
+      "description": "Quantity scrapped in kg"
+    },
+    "reason_code": {
+      "type": "string",
+      "enum": [
+        "burned_overcooked",
+        "undercooked_food_safety",
+        "contaminated",
+        "equipment_failure",
+        "handling_dropping",
+        "other"
+      ],
+      "description": "Wastage reason code"
+    },
+    "description": {
+      "type": "string",
+      "description": "Notes / written reason (required if reason_code=other)"
+    },
+    "recorded_by_id": {
+      "type": "string",
+      "description": "FK to TeamMember"
+    },
+    "recorded_by_name": {
+      "type": "string",
+      "description": "Denormalized staff name"
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "raw_cost_at_event": {
+      "type": "number",
+      "default": 0,
+      "description": "Snapshot raw cost per kg at time of event \u2014 for costing the write-off"
+    },
+    "total_cost": {
+      "type": "number",
+      "default": 0,
+      "description": "qty_kg \u00d7 raw_cost_at_event"
+    },
+    "review_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "flagged"
+      ],
+      "default": "pending",
+      "description": "PM review status"
+    },
+    "reviewed_by": {
+      "type": "string",
+      "description": "PM who reviewed"
+    },
+    "reviewed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "review_notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "cooking_run_id",
+    "qty_kg",
+    "reason_code"
+  ]
+}

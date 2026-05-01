@@ -1,0 +1,90 @@
+{
+  "name": "WipBatch",
+  "type": "object",
+  "properties": {
+    "batch_number": {
+      "type": "string",
+      "description": "Auto: WIP-YYYY-NNNN"
+    },
+    "bulk_product_id": {
+      "type": "string",
+      "description": "FK to Product (type=wip_bulk)"
+    },
+    "bulk_product_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "bulk_product_sku": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "qty_kg": {
+      "type": "number",
+      "description": "Current remaining quantity in kg"
+    },
+    "original_qty_kg": {
+      "type": "number",
+      "description": "Original quantity when created from cooking run"
+    },
+    "produced_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of production"
+    },
+    "cooking_run_id": {
+      "type": "string",
+      "description": "FK to CookingRun that produced this batch"
+    },
+    "supplier_sku": {
+      "type": "string",
+      "description": "Supplier SKU used in production"
+    },
+    "supplier_name": {
+      "type": "string",
+      "description": "Denormalized supplier name"
+    },
+    "carrying_cost_per_kg": {
+      "type": "number",
+      "default": 0,
+      "description": "Actual production cost per usable cooked kg \u2014 locked at production completion"
+    },
+    "total_carrying_value": {
+      "type": "number",
+      "default": 0,
+      "description": "qty_kg \u00d7 carrying_cost_per_kg"
+    },
+    "quality_status": {
+      "type": "string",
+      "enum": [
+        "fresh",
+        "use_today",
+        "quarantine",
+        "written_off"
+      ],
+      "default": "fresh",
+      "description": "Current quality status"
+    },
+    "last_qc_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "last_qc_by": {
+      "type": "string",
+      "description": "Name of person who did last QC"
+    },
+    "expiry_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Auto-set based on product shelf life rules"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bulk_product_id",
+    "qty_kg",
+    "produced_date",
+    "cooking_run_id"
+  ]
+}

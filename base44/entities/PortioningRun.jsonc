@@ -1,0 +1,54 @@
+{
+  "name": "PortioningRun",
+  "type": "object",
+  "properties": {
+    "run_number": {
+      "type": "string",
+      "description": "Auto: PORT-YYYY-NNNN"
+    },
+    "run_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "production_run_id": {
+      "type": "string",
+      "description": "FK to ProductionRun (meal-level plan)"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "in_progress",
+        "completed"
+      ],
+      "default": "draft"
+    },
+    "staff_assigned_ids": {
+      "type": "string",
+      "description": "JSON array of TeamMember IDs"
+    },
+    "staff_assigned_names": {
+      "type": "string",
+      "description": "Comma-separated names"
+    },
+    "total_meals_portioned": {
+      "type": "number",
+      "default": 0
+    },
+    "notes": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "run_date",
+    "status"
+  ]
+}

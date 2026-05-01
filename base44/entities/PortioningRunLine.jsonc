@@ -1,0 +1,91 @@
+{
+  "name": "PortioningRunLine",
+  "type": "object",
+  "properties": {
+    "portioning_run_id": {
+      "type": "string",
+      "description": "FK to PortioningRun"
+    },
+    "bulk_product_id": {
+      "type": "string",
+      "description": "FK to Product (wip_bulk)"
+    },
+    "bulk_product_name": {
+      "type": "string"
+    },
+    "bulk_product_sku": {
+      "type": "string"
+    },
+    "wip_batch_ids": {
+      "type": "string",
+      "description": "JSON array of WipBatch IDs allocated (FIFO default)"
+    },
+    "fifo_override_reason": {
+      "type": "string",
+      "description": "Reason if FIFO order was overridden"
+    },
+    "planned_qty_kg": {
+      "type": "number",
+      "description": "Auto-calculated: meals \u00d7 portion weight from recipe"
+    },
+    "opening_qty_kg": {
+      "type": "number",
+      "description": "Total WIP available from allocated batches at start"
+    },
+    "actual_used_kg": {
+      "type": "number",
+      "description": "Actual quantity used in portioning"
+    },
+    "closing_qty_kg": {
+      "type": "number",
+      "description": "Remaining WIP after portioning"
+    },
+    "variance_kg": {
+      "type": "number",
+      "description": "planned_qty_kg \u2212 actual_used_kg"
+    },
+    "variance_pct": {
+      "type": "number",
+      "description": "variance as % of planned"
+    },
+    "recording_method": {
+      "type": "string",
+      "enum": [
+        "closing_count",
+        "direct_used"
+      ],
+      "description": "How actual usage was recorded"
+    },
+    "qc_override_reason": {
+      "type": "string",
+      "description": "Reason for using WIP batch without current-day QC (soft warning override)"
+    },
+    "review_status": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "variance_flagged",
+        "reviewed",
+        "rejected"
+      ],
+      "default": "ok"
+    },
+    "review_notes": {
+      "type": "string"
+    },
+    "meals_portioned": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of meals portioned from this bulk product"
+    },
+    "portion_weight_g": {
+      "type": "number",
+      "description": "Standard portion weight in grams from recipe"
+    }
+  },
+  "required": [
+    "portioning_run_id",
+    "bulk_product_id",
+    "planned_qty_kg"
+  ]
+}

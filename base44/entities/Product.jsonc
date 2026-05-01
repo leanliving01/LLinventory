@@ -222,6 +222,28 @@
     "sale_tax_rule": {
       "type": "string",
       "description": "Tax rule for sales (for sellable items)"
+    },
+    "yield_tracking_enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether supplier yield tracking is enabled for this bulk product"
+    },
+    "primary_yield_ingredient_id": {
+      "type": "string",
+      "description": "FK to Product (raw) \u2014 the single raw ingredient used for yield calculation"
+    },
+    "primary_yield_ingredient_name": {
+      "type": "string",
+      "description": "Denormalized name of the primary yield ingredient"
+    },
+    "shelf_life_hours": {
+      "type": "number",
+      "description": "WIP shelf life in hours \u2014 used to auto-set expiry on WIP batches"
+    },
+    "yield_variance_threshold_pct": {
+      "type": "number",
+      "default": 8,
+      "description": "Per-product yield variance threshold % \u2014 flags significant variance on yield records"
     }
   },
   "required": [

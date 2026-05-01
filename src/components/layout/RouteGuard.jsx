@@ -47,6 +47,12 @@ const ROUTE_PERMISSIONS = {
   '/floor/shortages':      'yield_tracker',
   '/stock/movements':      'movements_view',
   '/stock/overview':       'inventory_overview',
+  '/production/cooking':   'cooking_runs_view',
+  '/production/wip':       'wip_view',
+  '/production/portioning':'portioning_view',
+  '/production/yield-review':'yield_review',
+  '/production/supplier-yield':'supplier_yield_view',
+  '/production/wip-planning':'wip_planning',
 };
 
 function getRequiredPermission(pathname) {

@@ -56,6 +56,12 @@ import FloorTransfer from '@/pages/floor/FloorTransfer';
 import FloorReceive from '@/pages/floor/FloorReceive';
 import FloorPack from '@/pages/floor/FloorPack';
 import FloorShortages from '@/pages/floor/FloorShortages';
+import CookingRuns from '@/pages/CookingRuns';
+import WipInventory from '@/pages/WipInventory';
+import WipPlanning from '@/pages/WipPlanning';
+import PortioningRuns from '@/pages/PortioningRuns';
+import YieldReview from '@/pages/YieldReview';
+import SupplierYieldDashboard from '@/pages/SupplierYieldDashboard';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -125,6 +131,12 @@ const AuthenticatedApp = () => {
         <Route path="/production/run/:runId" element={<ProductionRunDetail />} />
         <Route path="/production/run/:runId/pick-list" element={<PickList />} />
         <Route path="/production/run/:runId/kanban" element={<Kanban />} />
+        <Route path="/production/cooking" element={<CookingRuns />} />
+        <Route path="/production/wip" element={<WipInventory />} />
+        <Route path="/production/wip-planning" element={<WipPlanning />} />
+        <Route path="/production/portioning" element={<PortioningRuns />} />
+        <Route path="/production/yield-review" element={<YieldReview />} />
+        <Route path="/production/supplier-yield" element={<SupplierYieldDashboard />} />
         <Route path="/stock/new-production" element={<Navigate to="/production/runs" replace />} />
         <Route path="/stock/wastage" element={<Wastage />} />
         <Route path="/stock/stock-take" element={<StockTakeNew />} />

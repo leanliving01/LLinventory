@@ -1,0 +1,164 @@
+{
+  "name": "CookingRun",
+  "type": "object",
+  "properties": {
+    "run_number": {
+      "type": "string",
+      "description": "Auto: COOK-YYYY-NNNN"
+    },
+    "run_type": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "top_up"
+      ],
+      "default": "standard",
+      "description": "Standard or Top-Up (linked to parent)"
+    },
+    "parent_run_id": {
+      "type": "string",
+      "description": "FK to parent CookingRun (required for top_up runs)"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "in_progress",
+        "pending_review",
+        "completed",
+        "cancelled"
+      ],
+      "default": "draft",
+      "description": "Run lifecycle status"
+    },
+    "run_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Scheduled production date"
+    },
+    "bulk_product_id": {
+      "type": "string",
+      "description": "FK to Product (type=wip_bulk) \u2014 the target bulk cooked product"
+    },
+    "bulk_product_name": {
+      "type": "string",
+      "description": "Denormalized bulk product name"
+    },
+    "bulk_product_sku": {
+      "type": "string",
+      "description": "Denormalized bulk product SKU"
+    },
+    "cook_bom_id": {
+      "type": "string",
+      "description": "FK to Bom (bom_type=cook) used for this run"
+    },
+    "target_output_kg": {
+      "type": "number",
+      "description": "Target usable cooked output in kg"
+    },
+    "planned_raw_kg": {
+      "type": "number",
+      "description": "Auto-calculated: target_output_kg \u00d7 BOM raw ratio"
+    },
+    "bom_expected_yield_pct": {
+      "type": "number",
+      "description": "BOM expected yield % \u2014 snapshot at run creation"
+    },
+    "supplier_id": {
+      "type": "string",
+      "description": "FK to Supplier \u2014 selected at run start"
+    },
+    "supplier_name": {
+      "type": "string",
+      "description": "Denormalized supplier name"
+    },
+    "supplier_sku": {
+      "type": "string",
+      "description": "Supplier product SKU used"
+    },
+    "raw_product_id": {
+      "type": "string",
+      "description": "FK to Product (raw material) \u2014 the primary yield ingredient"
+    },
+    "raw_product_name": {
+      "type": "string",
+      "description": "Denormalized raw material name"
+    },
+    "raw_cost_per_kg": {
+      "type": "number",
+      "default": 0,
+      "description": "Snapshot of raw material cost_avg at run start (ZAR/kg)"
+    },
+    "actual_raw_issued_kg": {
+      "type": "number",
+      "description": "Actual raw material pulled from stock"
+    },
+    "actual_cooked_output_kg": {
+      "type": "number",
+      "description": "Actual usable cooked output weighed"
+    },
+    "total_wastage_kg": {
+      "type": "number",
+      "default": 0,
+      "description": "Sum of all ProductionWastageEvent qty for this run"
+    },
+    "effective_raw_for_yield_kg": {
+      "type": "number",
+      "description": "Calculated: actual_raw_issued_kg \u2212 total_wastage_kg"
+    },
+    "actual_yield_pct": {
+      "type": "number",
+      "description": "Calculated: (actual_cooked_output_kg / effective_raw_for_yield_kg) \u00d7 100"
+    },
+    "yield_variance_pct": {
+      "type": "number",
+      "description": "Calculated: actual_yield_pct \u2212 bom_expected_yield_pct"
+    },
+    "actual_cost_per_cooked_kg": {
+      "type": "number",
+      "description": "Calculated: (effective_raw_for_yield_kg \u00d7 raw_cost_per_kg) / actual_cooked_output_kg"
+    },
+    "bom_expected_cost_per_cooked_kg": {
+      "type": "number",
+      "description": "From BOM: raw_cost / expected_yield"
+    },
+    "assigned_staff_id": {
+      "type": "string",
+      "description": "FK to TeamMember \u2014 kitchen staff assigned"
+    },
+    "assigned_staff_name": {
+      "type": "string",
+      "description": "Denormalized staff name"
+    },
+    "production_manager_id": {
+      "type": "string",
+      "description": "FK to TeamMember \u2014 production manager"
+    },
+    "production_manager_name": {
+      "type": "string",
+      "description": "Denormalized PM name"
+    },
+    "production_run_id": {
+      "type": "string",
+      "description": "FK to ProductionRun \u2014 the meal-level plan that drove this cooking run"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Production notes"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "run_date",
+    "status",
+    "bulk_product_id",
+    "target_output_kg"
+  ]
+}

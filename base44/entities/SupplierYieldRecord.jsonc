@@ -1,0 +1,95 @@
+{
+  "name": "SupplierYieldRecord",
+  "type": "object",
+  "properties": {
+    "supplier_id": {
+      "type": "string",
+      "description": "FK to Supplier"
+    },
+    "supplier_name": {
+      "type": "string"
+    },
+    "supplier_sku": {
+      "type": "string"
+    },
+    "bulk_product_id": {
+      "type": "string",
+      "description": "FK to Product (wip_bulk)"
+    },
+    "bulk_product_name": {
+      "type": "string"
+    },
+    "primary_yield_ingredient_id": {
+      "type": "string",
+      "description": "FK to Product (raw)"
+    },
+    "primary_yield_ingredient_name": {
+      "type": "string"
+    },
+    "bom_expected_yield_pct": {
+      "type": "number",
+      "description": "From current BOM"
+    },
+    "latest_approved_yield_pct": {
+      "type": "number",
+      "description": "From most recently approved production run"
+    },
+    "rolling_avg_yield_pct": {
+      "type": "number",
+      "description": "Cumulative rolling average across approved runs since last reset"
+    },
+    "approved_run_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of approved runs since last reset"
+    },
+    "rejected_run_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of rejected / do-not-update records"
+    },
+    "latest_cost_per_cooked_kg": {
+      "type": "number"
+    },
+    "rolling_avg_cost_per_cooked_kg": {
+      "type": "number"
+    },
+    "bom_expected_cost_per_cooked_kg": {
+      "type": "number"
+    },
+    "cost_variance_per_cooked_kg": {
+      "type": "number",
+      "description": "rolling avg \u2212 bom expected"
+    },
+    "last_production_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "last_purchase_price_per_kg": {
+      "type": "number"
+    },
+    "avg_purchase_price_per_kg": {
+      "type": "number"
+    },
+    "last_reset_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "last_reset_reason": {
+      "type": "string"
+    },
+    "last_reset_by": {
+      "type": "string"
+    },
+    "auto_reset_due_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Next automatic 3-month reset date"
+    }
+  },
+  "required": [
+    "supplier_id",
+    "supplier_sku",
+    "bulk_product_id"
+  ]
+}

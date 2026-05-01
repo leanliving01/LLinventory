@@ -71,6 +71,12 @@ const PATH_PERMISSION_MAP = {
   '/floor/pack': 'pick_lists',
   '/floor/tasks': 'kitchen_tablet',
   '/floor/shortages': 'yield_tracker',
+  '/production/cooking': 'cooking_runs_view',
+  '/production/wip': 'wip_view',
+  '/production/wip-planning': 'wip_planning',
+  '/production/portioning': 'portioning_view',
+  '/production/yield-review': 'yield_review',
+  '/production/supplier-yield': 'supplier_yield_view',
   '/floor/stock-take': 'stocktake_view',
   '/floor/transfer': 'stock_transfers',
   '/floor/receive': 'receiving',
@@ -97,6 +103,12 @@ const navItems = [
     children: [
       { label: 'Production Plan', path: '/production', icon: Factory },
       { label: 'Production Runs', path: '/production/runs', icon: PlayCircle },
+      { label: 'Cooking Runs', path: '/production/cooking', icon: CookingPot },
+      { label: 'Bulk Cooked (WIP)', path: '/production/wip', icon: Package },
+      { label: 'WIP Planning', path: '/production/wip-planning', icon: ClipboardCheck },
+      { label: 'Portioning', path: '/production/portioning', icon: UtensilsCrossed },
+      { label: 'Yield Review', path: '/production/yield-review', icon: Gauge },
+      { label: 'Supplier Yield', path: '/production/supplier-yield', icon: TrendingUp },
     ]
   },
   { 
