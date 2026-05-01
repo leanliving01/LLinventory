@@ -24,6 +24,7 @@ const ROUTE_PERMISSIONS = {
   '/purchasing/shortages': 'shortages_view',
   '/purchasing/returns':   'returns_view',
   '/purchasing/invoices':  'xero_invoice_sync',
+  '/purchasing/review-queue': 'product_review',
   '/purchasing/pack-bom':  'recipes_edit',
   '/sales':                'sales_view',
   '/production':           'planning_view',

@@ -55,6 +55,7 @@ const PATH_PERMISSION_MAP = {
   '/purchasing/shortages': 'shortages_view',
   '/purchasing/returns': 'returns_view',
   '/purchasing/invoices': 'xero_invoice_sync',
+  '/purchasing/review-queue': 'product_review',
   '/purchasing/pack-bom': 'recipes_edit',
   '/stock/overview': 'inventory_overview',
   '/sales': 'sales_view',
@@ -105,6 +106,7 @@ const navItems = [
       { label: 'Shortages', path: '/purchasing/shortages', icon: AlertTriangle },
       { label: 'Returns', path: '/purchasing/returns', icon: ArrowLeftRight },
       { label: 'Invoices (Xero)', path: '/purchasing/invoices', icon: FileText },
+      { label: 'Review Queue', path: '/purchasing/review-queue', icon: ClipboardCheck },
     ]
   },
   { label: 'Sales', path: '/sales', icon: ShoppingCart },
