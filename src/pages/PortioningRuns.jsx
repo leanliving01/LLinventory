@@ -11,6 +11,15 @@ import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import PortioningRunDrawer from '@/components/portioning/PortioningRunDrawer';
+import PageHelp from '@/components/help/PageHelp';
+
+const HELP_ITEMS = [
+  { title: 'Create a portioning run', text: 'Click "New Portioning Run" to start a session where bulk cooked WIP is portioned into individual meals.' },
+  { title: 'Add portioning lines', text: 'Inside a run, click "Add Line" to select which bulk cooked product to portion. The system shows available WIP kg.' },
+  { title: 'Quality check warning', text: 'If any WIP batch for the selected product has NOT been quality checked today, you will see a warning. You must enter a reason to proceed — this is logged for the Production Manager.' },
+  { title: 'Record actual usage', text: 'While the run is active, enter the actual kg used and number of meals portioned for each line. The system calculates variance automatically.' },
+  { title: 'Complete the run', text: 'Click "Complete Portioning Run" when done. The total meals portioned is saved and the run is marked as completed.' },
+];
 
 const STATUS_STYLES = {
   draft: 'bg-gray-100 text-gray-600',
@@ -78,6 +87,8 @@ export default function PortioningRuns() {
           </Button>
         )}
       </div>
+
+      <PageHelp items={HELP_ITEMS} />
 
       {/* Status tabs */}
       <div className="flex gap-2 flex-wrap">

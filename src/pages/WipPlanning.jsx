@@ -3,6 +3,15 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { ClipboardCheck, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import PageHelp from '@/components/help/PageHelp';
+
+const HELP_ITEMS = [
+  { title: 'WIP vs meal demand', text: 'This page compares your available approved WIP (Fresh + Use Today batches) against the meal-driven requirement calculated from portion recipes and par levels.' },
+  { title: 'Net production requirement', text: 'The "Net" column shows Available minus Required. A negative number (red) means you need to cook more of that bulk product.' },
+  { title: 'Shortfall alerts', text: 'Rows highlighted red with a "Cook X kg" badge indicate a shortfall. Use this to decide which Cooking Runs to create.' },
+  { title: 'How the requirement is calculated', text: 'For each finished meal below par, the system looks up its portion recipe to find which bulk cooked products are needed and how many kg per meal.' },
+  { title: 'Important note', text: 'This page is read-only and does not modify any data. It is a planning view to help you decide what to cook next.' },
+];
 
 export default function WipPlanning() {
   // WIP batches (active only)
@@ -137,6 +146,8 @@ export default function WipPlanning() {
           Available approved WIP, today's meal-driven requirement, and net production need
         </p>
       </div>
+
+      <PageHelp items={HELP_ITEMS} />
 
       {/* Summary strip */}
       <div className="flex items-center gap-6 bg-card border border-border rounded-xl px-6 py-4 flex-wrap">

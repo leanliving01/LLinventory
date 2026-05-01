@@ -11,6 +11,15 @@ import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import WipBatchDrawer from '@/components/wip/WipBatchDrawer';
+import PageHelp from '@/components/help/PageHelp';
+
+const HELP_ITEMS = [
+  { title: 'View bulk cooked stock', text: 'See all WIP batches across your bulk cooked products. The summary strip shows total on-hand kg and carrying value.' },
+  { title: 'Quality checks', text: 'Click any batch to open it, then record a quality check. Options: "Approved — Full Quality" (keeps as Fresh), "Approved — Use Today Only", "Quarantine", or "Write Off".' },
+  { title: 'Write off stock', text: 'In the batch drawer, use "Write Off Stock" to remove some or all of a batch. Enter the quantity (kg), reason, and notes. The carrying value is automatically deducted.' },
+  { title: 'Filter batches', text: 'Use the status tabs (Active, Fresh, Use Today, Quarantine, Written Off) and search bar to filter the batch list.' },
+  { title: 'Product summary cards', text: 'The top cards show aggregate stock per bulk product — total kg and number of active batches.' },
+];
 
 const QS_STYLES = {
   fresh: 'bg-green-100 text-green-700',
@@ -82,6 +91,8 @@ export default function WipInventory() {
           </p>
         </div>
       </div>
+
+      <PageHelp items={HELP_ITEMS} />
 
       {/* Summary strip */}
       <div className="flex items-center gap-6 bg-card border border-border rounded-xl px-6 py-4 flex-wrap">

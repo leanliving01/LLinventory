@@ -10,6 +10,16 @@ import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import CookingRunCard from '@/components/cooking/CookingRunCard';
 import CreateCookingRunModal from '@/components/cooking/CreateCookingRunModal';
 import CookingRunDrawer from '@/components/cooking/CookingRunDrawer';
+import PageHelp from '@/components/help/PageHelp';
+
+const HELP_ITEMS = [
+  { title: 'Create a new cooking run', text: 'Click "New Cooking Run" to start a bulk cooking session. Select the bulk cooked product (e.g. Bulk Chicken Breast) and set your target output in kg.' },
+  { title: 'Start the run', text: 'Open a draft run and click "Start Cooking Run". Select your supplier before starting — this links the yield data to the right supplier for performance tracking.' },
+  { title: 'Log wastage during cooking', text: 'While a run is active, click "Log Wastage" to record any product lost during cooking (burned, contaminated, etc.). Each event is tracked separately.' },
+  { title: 'Weigh and complete', text: 'Enter the raw material issued (kg) and the final cooked output (kg). The system auto-calculates yield %, cost per kg, and variance. Click "Complete & Submit for Review".' },
+  { title: 'What happens on completion', text: 'A WIP batch is created with the cooked output. A yield record is generated for the Production Manager to review. The run moves to "Pending Review" status.' },
+  { title: 'Filter and search', text: 'Use the status tabs (Active, Draft, Pending Review, Completed) and search bar to find specific runs.' },
+];
 
 const STATUS_TABS = [
   { key: 'active', label: 'Active' },
@@ -85,6 +95,8 @@ export default function CookingRuns() {
           </Button>
         )}
       </div>
+
+      <PageHelp items={HELP_ITEMS} />
 
       {/* Status tabs */}
       <div className="flex gap-2 flex-wrap">

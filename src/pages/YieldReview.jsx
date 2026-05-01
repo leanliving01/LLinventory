@@ -10,6 +10,15 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
+import PageHelp from '@/components/help/PageHelp';
+
+const HELP_ITEMS = [
+  { title: 'Review yield records', text: 'When a cooking run is completed, a yield record is created here with status "Pending Review". Click to expand the details.' },
+  { title: 'Approve or reject', text: 'Choose an action: "Record Only" (just log it), "Update Rolling Average" (updates supplier yield data), "Do Not Update" (approve but skip average), "Reject", or "Flag as Unusual".' },
+  { title: 'Significant variance flag', text: 'Records where the yield variance exceeds the configured threshold (default 8%) are auto-flagged with an amber badge.' },
+  { title: 'Review details', text: 'The expanded view shows raw issued, wastage, effective raw, cooked output, expected vs actual yield, and cost per kg comparison.' },
+  { title: 'Filter by status', text: 'Use the status tabs to see pending, approved, rejected, or flagged records.' },
+];
 
 const STATUS_STYLES = {
   pending_review: 'bg-amber-100 text-amber-700',
@@ -93,6 +102,8 @@ export default function YieldReview() {
           Review and approve cooking run yield records
         </p>
       </div>
+
+      <PageHelp items={HELP_ITEMS} />
 
       {/* Status tabs */}
       <div className="flex gap-2 flex-wrap">

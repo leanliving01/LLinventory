@@ -3,6 +3,15 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import PageHelp from '@/components/help/PageHelp';
+
+const HELP_ITEMS = [
+  { title: 'Supplier yield overview', text: 'This page aggregates yield data from approved cooking run records, grouped by supplier and bulk product. Use it to compare supplier performance over time.' },
+  { title: 'Rolling averages', text: 'The "Avg Yield" column shows the rolling average yield % across all approved runs for each supplier-product combination.' },
+  { title: 'Variance from recipe', text: 'The "Variance" column compares the rolling average yield against the expected yield from the cook recipe. Green = better than expected, red = below.' },
+  { title: 'Cost tracking', text: '"Avg Cost/kg" shows the average actual cost per kg of cooked output. Compare this against recipe expected cost to identify cost overruns.' },
+  { title: 'Data source', text: 'Only yield records with status "Approved (Record)" or "Approved (Update Avg)" are included. Rejected or flagged records are excluded from averages.' },
+];
 
 export default function SupplierYieldDashboard() {
   const { data: yieldRecords = [], isLoading } = useQuery({
@@ -60,6 +69,8 @@ export default function SupplierYieldDashboard() {
           Rolling averages and supplier comparison from approved yield records
         </p>
       </div>
+
+      <PageHelp items={HELP_ITEMS} />
 
       {isLoading ? (
         <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>
