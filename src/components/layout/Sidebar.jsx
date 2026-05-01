@@ -52,6 +52,8 @@ const PATH_PERMISSION_MAP = {
   '/purchasing/settings': 'po_create',
   '/purchasing/supplier-products': 'supplier_product_edit',
   '/purchasing/grn': 'grn_create',
+  '/purchasing/shortages': 'shortages_view',
+  '/purchasing/returns': 'returns_view',
   '/purchasing/pack-bom': 'recipes_edit',
   '/stock/overview': 'inventory_overview',
   '/sales': 'sales_view',
@@ -99,6 +101,8 @@ const navItems = [
       { label: 'Reorder Report', path: '/purchasing/reorder', icon: AlertTriangle },
       { label: 'Supplier Products', path: '/purchasing/supplier-products', icon: ArrowRightLeft },
       { label: 'Goods Received', path: '/purchasing/grn', icon: PackageCheck },
+      { label: 'Shortages', path: '/purchasing/shortages', icon: AlertTriangle },
+      { label: 'Returns', path: '/purchasing/returns', icon: ArrowLeftRight },
     ]
   },
   { label: 'Sales', path: '/sales', icon: ShoppingCart },

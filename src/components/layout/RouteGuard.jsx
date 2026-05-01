@@ -21,6 +21,8 @@ const ROUTE_PERMISSIONS = {
   '/purchasing/settings':  'po_create',
   '/purchasing/supplier-products': 'supplier_product_edit',
   '/purchasing/grn': 'grn_create',
+  '/purchasing/shortages': 'shortages_view',
+  '/purchasing/returns':   'returns_view',
   '/purchasing/pack-bom':  'recipes_edit',
   '/sales':                'sales_view',
   '/production':           'planning_view',

@@ -64,6 +64,8 @@ import YieldReview from '@/pages/YieldReview';
 import SupplierYieldDashboard from '@/pages/SupplierYieldDashboard';
 import SupplierProductCatalog from '@/pages/SupplierProductCatalog';
 import GoodsReceivedNotes from '@/pages/GoodsReceivedNotes';
+import SupplierShortages from '@/pages/SupplierShortages';
+import SupplierReturns from '@/pages/SupplierReturns';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -123,6 +125,8 @@ const AuthenticatedApp = () => {
         <Route path="/purchasing/reorder" element={<ReorderReport />} />
         <Route path="/purchasing/supplier-products" element={<SupplierProductCatalog />} />
         <Route path="/purchasing/grn" element={<GoodsReceivedNotes />} />
+        <Route path="/purchasing/shortages" element={<SupplierShortages />} />
+        <Route path="/purchasing/returns" element={<SupplierReturns />} />
         <Route path="/purchasing/pack-bom" element={<PackBomManager />} />
         <Route path="/purchasing/pack-bom/:packBomId" element={<PackBomDetail />} />
         <Route path="/sales" element={<Sales />} />
