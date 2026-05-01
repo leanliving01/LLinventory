@@ -59,6 +59,7 @@ const PATH_PERMISSION_MAP = {
   '/purchasing/review-queue': 'product_review',
   '/purchasing/price-variance': 'price_variance_view',
   '/purchasing/three-way-match': 'three_way_match_view',
+  '/purchasing/dashboard': 'purchasing_dashboard',
   '/purchasing/pack-bom': 'recipes_edit',
   '/stock/overview': 'inventory_overview',
   '/sales': 'sales_view',
@@ -101,6 +102,7 @@ const navItems = [
   { 
     label: 'Purchasing', icon: Truck,
     children: [
+      { label: 'Dashboard', path: '/purchasing/dashboard', icon: Gauge },
       { label: 'Suppliers', path: '/suppliers', icon: Truck },
       { label: 'Purchase Orders', path: '/purchasing/orders', icon: Receipt },
       { label: 'Reorder Report', path: '/purchasing/reorder', icon: AlertTriangle },
