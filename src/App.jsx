@@ -71,6 +71,7 @@ import ProductReviewQueue from '@/pages/ProductReviewQueue';
 import PriceVarianceDashboard from '@/pages/PriceVarianceDashboard';
 import ThreeWayMatch from '@/pages/ThreeWayMatch';
 import PurchasingDashboard from '@/pages/PurchasingDashboard';
+import FoodCostDashboard from '@/pages/FoodCostDashboard';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -168,6 +169,7 @@ const AuthenticatedApp = () => {
         <Route path="/reports" element={<Reports />} />
         <Route path="/reports/team" element={<TeamPerformance />} />
         <Route path="/reports/forecasting" element={<TrendForecasting />} />
+        <Route path="/reports/food-cost" element={<FoodCostDashboard />} />
         <Route path="/settings" element={<SettingsPage />} />
         {/* Redirects for old routes */}
         <Route path="/stock" element={<Navigate to="/stock/receive" replace />} />

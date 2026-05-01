@@ -30,7 +30,8 @@ import {
   Wrench,
   TrendingUp,
   Search,
-  Bug
+  Bug,
+  DollarSign
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
@@ -76,6 +77,7 @@ const PATH_PERMISSION_MAP = {
   '/reports': 'reports_view',
   '/reports/team': 'reports_team',
   '/reports/forecasting': 'forecasting',
+  '/reports/food-cost': 'food_cost_view',
   '/equipment': 'equipment',
   '/floor/pick': 'pick_lists',
   '/floor/pack': 'pick_lists',
@@ -148,6 +150,7 @@ const navItems = [
       { label: 'Audit & Runs', path: '/reports', icon: FileText },
       { label: 'Team Performance', path: '/reports/team', icon: Users },
       { label: 'Trend Forecasting', path: '/reports/forecasting', icon: TrendingUp },
+      { label: 'Food Cost', path: '/reports/food-cost', icon: DollarSign },
     ]
   },
   { label: 'Equipment', path: '/equipment', icon: Wrench },

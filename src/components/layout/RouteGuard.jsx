@@ -43,6 +43,7 @@ const ROUTE_PERMISSIONS = {
   '/reports':              'reports_view',
   '/reports/team':         'reports_team',
   '/reports/forecasting':  'forecasting',
+  '/reports/food-cost':    'food_cost_view',
   '/equipment':            'equipment',
   '/settings':             'settings',
   '/kitchen':              'kitchen_tablet',

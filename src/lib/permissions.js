@@ -107,6 +107,8 @@ export const PERMISSION_GROUPS = [
       { key: 'reports_costs', label: 'See Cost Data in Reports' },
       { key: 'reports_team',  label: 'Team Performance' },
       { key: 'forecasting',   label: 'Trend Forecasting' },
+      { key: 'food_cost_view', label: 'View Food Cost Dashboard' },
+      { key: 'food_cost_run',  label: 'Run Cost Rollup' },
     ],
   },
   {
@@ -146,7 +148,7 @@ export const ROLE_DEFAULTS = {
     'stocktake_view', 'stocktake_create', 'stock_transfers', 'receiving', 'wastage', 'par_levels', 'movements_view', 'inventory_overview', 'inventory_recalc_committed',
     'po_view', 'po_create', 'po_approve', 'grn_create', 'blind_receipt_create', 'product_review', 'product_create_from_queue', 'returns_process', 'supplier_product_edit', 'xero_invoice_sync', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'price_variance_view', 'three_way_match_view',
     'sales_view', 'sales_fulfill', 'customers',
-    'reports_view', 'reports_costs', 'reports_team', 'forecasting',
+    'reports_view', 'reports_costs', 'reports_team', 'forecasting', 'food_cost_view', 'food_cost_run',
     'equipment', 'shopify_sync',
   ),
 
@@ -157,7 +159,7 @@ export const ROLE_DEFAULTS = {
     'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'wip_manage', 'yield_review', 'supplier_yield_view', 'portioning_view', 'portioning_create', 'wip_planning',
     'wastage', 'par_levels', 'inventory_overview',
     'po_view', 'grn_create', 'purchasing_dashboard',
-    'reports_view', 'reports_team',
+    'reports_view', 'reports_team', 'food_cost_view',
   ),
 
   kitchen: p(
@@ -173,7 +175,7 @@ export const ROLE_DEFAULTS = {
     'runs_view', 'pick_lists',
     'stocktake_view', 'stocktake_create', 'stock_transfers', 'receiving', 'movements_view', 'inventory_overview', 'inventory_recalc_committed',
     'po_view', 'po_create', 'grn_create', 'blind_receipt_create', 'product_review', 'returns_process', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'price_variance_view', 'three_way_match_view',
-    'reports_view',
+    'reports_view', 'food_cost_view',
     'par_levels',
   ),
 
@@ -197,7 +199,7 @@ export const ROLE_DEFAULTS = {
     'stocktake_view', 'inventory_overview',
     'po_view', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'three_way_match_view',
     'sales_view', 'customers',
-    'reports_view',
+    'reports_view', 'food_cost_view',
     'par_levels',
   ),
 };
