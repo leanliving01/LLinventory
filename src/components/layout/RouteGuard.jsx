@@ -28,6 +28,7 @@ const ROUTE_PERMISSIONS = {
   '/purchasing/price-variance': 'price_variance_view',
   '/purchasing/three-way-match': 'three_way_match_view',
   '/purchasing/dashboard': 'purchasing_dashboard',
+  '/purchasing/scorecard': 'supplier_scorecard',
   '/purchasing/pack-bom':  'recipes_edit',
   '/sales':                'sales_view',
   '/production':           'planning_view',

@@ -88,6 +88,7 @@ export const PERMISSION_GROUPS = [
       { key: 'shortages_view',         label: 'View Open Shortages' },
       { key: 'returns_view',           label: 'View Pending Returns' },
       { key: 'suppliers',              label: 'Manage Suppliers' },
+      { key: 'supplier_scorecard',    label: 'Supplier Scorecard' },
       { key: 'price_variance_view',   label: 'View Price Variance Dashboard' },
       { key: 'three_way_match_view', label: 'Three-Way Matching (PO/GRN/Invoice)' },
     ],
@@ -149,7 +150,7 @@ export const ROLE_DEFAULTS = {
     'po_view', 'po_create', 'po_approve', 'grn_create', 'blind_receipt_create', 'product_review', 'product_create_from_queue', 'returns_process', 'supplier_product_edit', 'xero_invoice_sync', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'price_variance_view', 'three_way_match_view',
     'sales_view', 'sales_fulfill', 'customers',
     'reports_view', 'reports_costs', 'reports_team', 'forecasting', 'food_cost_view', 'food_cost_run',
-    'equipment', 'shopify_sync',
+    'equipment', 'shopify_sync', 'supplier_scorecard',
   ),
 
   kitchen_manager: p(
@@ -174,7 +175,7 @@ export const ROLE_DEFAULTS = {
     'catalog_view',
     'runs_view', 'pick_lists',
     'stocktake_view', 'stocktake_create', 'stock_transfers', 'receiving', 'movements_view', 'inventory_overview', 'inventory_recalc_committed',
-    'po_view', 'po_create', 'grn_create', 'blind_receipt_create', 'product_review', 'returns_process', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'price_variance_view', 'three_way_match_view',
+    'po_view', 'po_create', 'grn_create', 'blind_receipt_create', 'product_review', 'returns_process', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'price_variance_view', 'three_way_match_view', 'supplier_scorecard',
     'reports_view', 'food_cost_view',
     'par_levels',
   ),

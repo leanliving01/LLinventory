@@ -31,7 +31,8 @@ import {
   TrendingUp,
   Search,
   Bug,
-  DollarSign
+  DollarSign,
+  Award
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
@@ -61,6 +62,7 @@ const PATH_PERMISSION_MAP = {
   '/purchasing/price-variance': 'price_variance_view',
   '/purchasing/three-way-match': 'three_way_match_view',
   '/purchasing/dashboard': 'purchasing_dashboard',
+  '/purchasing/scorecard': 'supplier_scorecard',
   '/purchasing/pack-bom': 'recipes_edit',
   '/stock/overview': 'inventory_overview',
   '/sales': 'sales_view',
@@ -116,6 +118,7 @@ const navItems = [
       { label: 'Review Queue', path: '/purchasing/review-queue', icon: ClipboardCheck },
       { label: 'Price Variance', path: '/purchasing/price-variance', icon: TrendingUp },
       { label: '3-Way Match', path: '/purchasing/three-way-match', icon: CheckCircle2 },
+      { label: 'Supplier Scorecard', path: '/purchasing/scorecard', icon: Award },
     ]
   },
   { label: 'Sales', path: '/sales', icon: ShoppingCart },
