@@ -17,20 +17,39 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+async function withRetry(fn, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const msg = (err.message || '').toLowerCase();
+      if ((msg.includes('rate limit') || err.status === 429) && attempt < maxRetries) {
+        const backoff = 2000 * attempt;
+        console.log(`[RecalcFast] Rate limited, backoff ${backoff}ms (attempt ${attempt})`);
+        await sleep(backoff);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 async function fetchAllPaginated(entity, filterObj, sortField, pageSize = 500) {
   const all = [];
   let skip = 0;
   while (true) {
-    let batch;
-    if (filterObj && Object.keys(filterObj).length > 0) {
-      batch = await entity.filter(filterObj, sortField || 'id', pageSize, skip);
-    } else {
-      batch = await entity.list(sortField || 'id', pageSize, skip);
-    }
+    const batch = await withRetry(() => {
+      if (filterObj && Object.keys(filterObj).length > 0) {
+        return entity.filter(filterObj, sortField || 'id', pageSize, skip);
+      } else {
+        return entity.list(sortField || 'id', pageSize, skip);
+      }
+    });
     if (!batch || batch.length === 0) break;
     all.push(...batch);
     if (batch.length < pageSize) break;
     skip += pageSize;
+    await sleep(100);
   }
   return all;
 }
@@ -38,9 +57,13 @@ async function fetchAllPaginated(entity, filterObj, sortField, pageSize = 500) {
 Deno.serve(async (req) => {
   const startTime = Date.now();
   const base44 = createClientFromRequest(req);
-  const user = await base44.auth.me();
+  // Auth: allow admin users OR scheduled automation (no user context)
+  let user = null;
+  try {
+    user = await base44.auth.me();
+  } catch { /* scheduled automation — no user */ }
 
-  if (!user || user.role !== 'admin') {
+  if (user && user.role !== 'admin') {
     return Response.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
   }
 
@@ -92,60 +115,57 @@ Deno.serve(async (req) => {
   let standaloneLinesProcessed = 0;
   const warnings = [];
 
-  // Process orders in batches to manage rate limits
-  const ORDER_BATCH = 25;
-  for (let i = 0; i < paidUnfulfilledOrders.length; i += ORDER_BATCH) {
-    const batch = paidUnfulfilledOrders.slice(i, i + ORDER_BATCH);
+  // Process orders sequentially — one line-fetch at a time to stay under rate limits
+  for (let i = 0; i < paidUnfulfilledOrders.length; i++) {
+    const order = paidUnfulfilledOrders[i];
 
-    // Fetch lines for all orders in this batch concurrently
-    const linePromises = batch.map(order =>
+    const lines = await withRetry(() =>
       base44.asServiceRole.entities.SalesOrderLine.filter(
-        { sales_order_id: order.id },
-        'id',
-        500
-      ).then(lines => ({ order, lines }))
+        { sales_order_id: order.id }, 'id', 500
+      )
     );
 
-    const results = await Promise.all(linePromises);
+    for (const line of lines) {
+      // Skip existing component lines — we recompute from PackBom
+      if (line.is_package_component === true) continue;
 
-    for (const { order, lines } of results) {
-      for (const line of lines) {
-        // Skip existing component lines — we recompute from PackBom
-        if (line.is_package_component === true) continue;
+      const lineQty = line.qty || 0;
+      const fulfilledQty = line.fulfilled_qty || 0;
+      const remainingQty = Math.max(0, lineQty - fulfilledQty);
 
-        const lineQty = line.qty || 0;
-        const fulfilledQty = line.fulfilled_qty || 0;
-        const remainingQty = Math.max(0, lineQty - fulfilledQty);
+      if (remainingQty <= 0) continue;
 
-        if (remainingQty <= 0) continue;
-
-        if (line.is_package_parent === true) {
-          // PACKAGE LINE: decompose using current PackBom
-          const bom = bomMap[line.sku];
-          if (bom) {
-            for (const componentSku of bom.component_skus) {
-              const skuMult = bom.sku_overrides[componentSku] || bom.multiplier;
-              const componentQty = remainingQty * skuMult;
-              committedMap[componentSku] = (committedMap[componentSku] || 0) + componentQty;
-            }
-            packageLinesDecomposed++;
-          } else {
-            warnings.push(`No active PackBom for package SKU "${line.sku}" on order ${order.order_number || order.id}`);
+      if (line.is_package_parent === true) {
+        // PACKAGE LINE: decompose using current PackBom
+        const bom = bomMap[line.sku];
+        if (bom) {
+          for (const componentSku of bom.component_skus) {
+            const skuMult = bom.sku_overrides[componentSku] || bom.multiplier;
+            const componentQty = remainingQty * skuMult;
+            committedMap[componentSku] = (committedMap[componentSku] || 0) + componentQty;
           }
+          packageLinesDecomposed++;
         } else {
-          // STANDALONE LINE: commit the SKU directly
-          committedMap[line.sku] = (committedMap[line.sku] || 0) + remainingQty;
-          standaloneLinesProcessed++;
+          warnings.push(`No active PackBom for package SKU "${line.sku}" on order ${order.order_number || order.id}`);
         }
-
-        linesProcessed++;
+      } else {
+        // STANDALONE LINE: commit the SKU directly
+        committedMap[line.sku] = (committedMap[line.sku] || 0) + remainingQty;
+        standaloneLinesProcessed++;
       }
-      ordersProcessed++;
+
+      linesProcessed++;
+    }
+    ordersProcessed++;
+
+    // Log progress every 50 orders
+    if (ordersProcessed % 50 === 0) {
+      console.log(`[RecalcFast] Processed ${ordersProcessed}/${paidUnfulfilledOrders.length} orders...`);
     }
 
-    // Small delay between batches to be kind to rate limits
-    if (i + ORDER_BATCH < paidUnfulfilledOrders.length) {
-      await sleep(200);
+    // Delay every 2 orders to avoid rate limits
+    if (i % 2 === 1) {
+      await sleep(350);
     }
   }
 
@@ -230,7 +250,7 @@ Deno.serve(async (req) => {
   const productsWithCommitted = new Set();
 
   // 7a: Update SKUs that HAVE committed stock
-  const UPDATE_BATCH = 10;
+  const UPDATE_BATCH = 5;
   const committedEntries = Object.entries(committedMap);
 
   for (let i = 0; i < committedEntries.length; i += UPDATE_BATCH) {
@@ -250,11 +270,11 @@ Deno.serve(async (req) => {
         // Update the first SOH record (primary location — typically dispatch)
         const primary = sohRecords[0];
         try {
-          await base44.asServiceRole.entities.StockOnHand.update(primary.id, {
+          await withRetry(() => base44.asServiceRole.entities.StockOnHand.update(primary.id, {
             qty_committed: committedQty,
             qty_available: (primary.qty_on_hand || 0) - committedQty,
             last_updated_at: now,
-          });
+          }));
           updatedCount++;
         } catch (err) {
           errors.push(`Update SOH failed for SKU ${sku}: ${err.message}`);
@@ -264,18 +284,18 @@ Deno.serve(async (req) => {
         for (let j = 1; j < sohRecords.length; j++) {
           if (sohRecords[j].qty_committed > 0) {
             try {
-              await base44.asServiceRole.entities.StockOnHand.update(sohRecords[j].id, {
+              await withRetry(() => base44.asServiceRole.entities.StockOnHand.update(sohRecords[j].id, {
                 qty_committed: 0,
                 qty_available: sohRecords[j].qty_on_hand || 0,
                 last_updated_at: now,
-              });
+              }));
             } catch { /* best effort */ }
           }
         }
       } else {
         // No SOH record exists — create one with qty_on_hand = 0
         try {
-          await base44.asServiceRole.entities.StockOnHand.create({
+          await withRetry(() => base44.asServiceRole.entities.StockOnHand.create({
             product_id: productId,
             product_sku: sku,
             product_name: allProducts.find(p => p.id === productId)?.name || sku,
@@ -285,7 +305,7 @@ Deno.serve(async (req) => {
             qty_committed: committedQty,
             qty_available: 0 - committedQty,
             last_updated_at: now,
-          });
+          }));
           updatedCount++;
         } catch (err) {
           errors.push(`Create SOH failed for SKU ${sku}: ${err.message}`);
@@ -296,7 +316,7 @@ Deno.serve(async (req) => {
     await Promise.all(updatePromises);
 
     if (i + UPDATE_BATCH < committedEntries.length) {
-      await sleep(150);
+      await sleep(400);
     }
   }
 
@@ -316,11 +336,11 @@ Deno.serve(async (req) => {
     const batch = zeroUpdates.slice(i, i + UPDATE_BATCH);
     const promises = batch.map(async (soh) => {
       try {
-        await base44.asServiceRole.entities.StockOnHand.update(soh.id, {
+        await withRetry(() => base44.asServiceRole.entities.StockOnHand.update(soh.id, {
           qty_committed: 0,
           qty_available: soh.qty_on_hand || 0,
           last_updated_at: now,
-        });
+        }));
         zeroedCount++;
       } catch (err) {
         errors.push(`Zero SOH failed for product ${soh.product_sku || soh.product_id}: ${err.message}`);
@@ -328,7 +348,7 @@ Deno.serve(async (req) => {
     });
     await Promise.all(promises);
     if (i + UPDATE_BATCH < zeroUpdates.length) {
-      await sleep(150);
+      await sleep(400);
     }
   }
 
