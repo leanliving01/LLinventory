@@ -56,6 +56,7 @@ const PATH_PERMISSION_MAP = {
   '/purchasing/returns': 'returns_view',
   '/purchasing/invoices': 'xero_invoice_sync',
   '/purchasing/review-queue': 'product_review',
+  '/purchasing/price-variance': 'price_variance_view',
   '/purchasing/pack-bom': 'recipes_edit',
   '/stock/overview': 'inventory_overview',
   '/sales': 'sales_view',
@@ -107,6 +108,7 @@ const navItems = [
       { label: 'Returns', path: '/purchasing/returns', icon: ArrowLeftRight },
       { label: 'Invoices (Xero)', path: '/purchasing/invoices', icon: FileText },
       { label: 'Review Queue', path: '/purchasing/review-queue', icon: ClipboardCheck },
+      { label: 'Price Variance', path: '/purchasing/price-variance', icon: TrendingUp },
     ]
   },
   { label: 'Sales', path: '/sales', icon: ShoppingCart },

@@ -68,6 +68,7 @@ import SupplierShortages from '@/pages/SupplierShortages';
 import SupplierReturns from '@/pages/SupplierReturns';
 import PurchaseInvoices from '@/pages/PurchaseInvoices';
 import ProductReviewQueue from '@/pages/ProductReviewQueue';
+import PriceVarianceDashboard from '@/pages/PriceVarianceDashboard';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -131,6 +132,7 @@ const AuthenticatedApp = () => {
         <Route path="/purchasing/returns" element={<SupplierReturns />} />
         <Route path="/purchasing/invoices" element={<PurchaseInvoices />} />
         <Route path="/purchasing/review-queue" element={<ProductReviewQueue />} />
+        <Route path="/purchasing/price-variance" element={<PriceVarianceDashboard />} />
         <Route path="/purchasing/pack-bom" element={<PackBomManager />} />
         <Route path="/purchasing/pack-bom/:packBomId" element={<PackBomDetail />} />
         <Route path="/sales" element={<Sales />} />
