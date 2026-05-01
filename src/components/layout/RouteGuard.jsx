@@ -26,6 +26,7 @@ const ROUTE_PERMISSIONS = {
   '/purchasing/invoices':  'xero_invoice_sync',
   '/purchasing/review-queue': 'product_review',
   '/purchasing/price-variance': 'price_variance_view',
+  '/purchasing/three-way-match': 'three_way_match_view',
   '/purchasing/pack-bom':  'recipes_edit',
   '/sales':                'sales_view',
   '/production':           'planning_view',

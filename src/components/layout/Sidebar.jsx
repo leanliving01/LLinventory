@@ -12,6 +12,7 @@ import {
   ChevronRight,
   ChevronDown,
   ClipboardCheck,
+  CheckCircle2,
   UtensilsCrossed,
   Barcode,
   Gauge,
@@ -57,6 +58,7 @@ const PATH_PERMISSION_MAP = {
   '/purchasing/invoices': 'xero_invoice_sync',
   '/purchasing/review-queue': 'product_review',
   '/purchasing/price-variance': 'price_variance_view',
+  '/purchasing/three-way-match': 'three_way_match_view',
   '/purchasing/pack-bom': 'recipes_edit',
   '/stock/overview': 'inventory_overview',
   '/sales': 'sales_view',
@@ -109,6 +111,7 @@ const navItems = [
       { label: 'Invoices (Xero)', path: '/purchasing/invoices', icon: FileText },
       { label: 'Review Queue', path: '/purchasing/review-queue', icon: ClipboardCheck },
       { label: 'Price Variance', path: '/purchasing/price-variance', icon: TrendingUp },
+      { label: '3-Way Match', path: '/purchasing/three-way-match', icon: CheckCircle2 },
     ]
   },
   { label: 'Sales', path: '/sales', icon: ShoppingCart },

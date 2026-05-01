@@ -130,6 +130,51 @@ export async function confirmGRN(grn, lines, userName) {
     });
   }
 
+  // 4b. Price variance tracking — write SupplierPriceHistory and flag lines
+  for (const line of persistedLines) {
+    if (!line.supplier_product_id) continue;
+    const unitCost = parseFloat(line.unit_cost) || 0;
+    if (unitCost <= 0) continue;
+
+    // Fetch the supplier product to get last_purchase_price and threshold
+    let sp;
+    try {
+      const spList = await base44.entities.SupplierProduct.filter({ id: line.supplier_product_id });
+      sp = spList[0];
+    } catch { /* skip */ }
+    if (!sp) continue;
+
+    const prevPrice = sp.last_purchase_price || 0;
+    const changePct = prevPrice > 0 ? ((unitCost - prevPrice) / prevPrice) * 100 : 0;
+    const threshold = sp.price_variance_threshold || 0.10; // decimal e.g. 0.10 = 10%
+    const isFlagged = prevPrice > 0 && Math.abs(changePct) > threshold * 100;
+
+    // Write price history record
+    await base44.entities.SupplierPriceHistory.create({
+      supplier_product_id: line.supplier_product_id,
+      supplier_name: grn.supplier_name,
+      product_name: line.product_name,
+      product_sku: line.product_sku,
+      price: unitCost,
+      previous_price: prevPrice,
+      change_pct: Math.round(changePct * 10) / 10,
+      effective_date: grn.received_date || new Date().toISOString().split('T')[0],
+      source: 'grn',
+      source_ref: grn.grn_number,
+      purchase_uom: line.purchase_uom || sp.purchase_uom || '',
+    });
+
+    // Update supplier product last_purchase_price
+    await base44.entities.SupplierProduct.update(sp.id, {
+      last_purchase_price: unitCost,
+    });
+
+    // Flag the GRN line
+    if (isFlagged && line.id) {
+      await base44.entities.GRNLine.update(line.id, { price_variance_flagged: true });
+    }
+  }
+
   // 5. Create SupplierShortage records for short lines
   for (const line of persistedLines) {
     if (line.expected_qty == null) continue;
