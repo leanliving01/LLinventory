@@ -58,13 +58,6 @@ export default function SupplierScorecard() {
     ...qOpts,
   });
 
-  // Build GRN lookup by ID
-  const grnMap = useMemo(() => {
-    const m = {};
-    grns.forEach(g => { m[g.id] = g; });
-    return m;
-  }, [grns]);
-
   // Compute scorecards
   const scorecards = useMemo(() => {
     return suppliers.map(supplier => {

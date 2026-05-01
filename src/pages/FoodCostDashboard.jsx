@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { DollarSign, RefreshCw, Loader2, Search, X, Layers, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { DollarSign, RefreshCw, Loader2, Search, X, Layers } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHelp from '@/components/help/PageHelp';
 import { useAuth } from '@/lib/AuthContext';

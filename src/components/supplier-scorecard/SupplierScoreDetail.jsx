@@ -6,7 +6,7 @@ function MetricRow({ icon: Icon, label, score, color, stats }) {
   return (
     <div className="flex items-start gap-3 py-3 border-b border-border last:border-0">
       <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${color}`}>
-        <Icon className="w-4.5 h-4.5" />
+        <Icon className="w-4 h-4" />
       </div>
       <div className="flex-1">
         <div className="flex items-center justify-between">

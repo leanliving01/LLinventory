@@ -59,7 +59,7 @@ export default function PurchasingDashboard() {
   const kpis = useMemo(() => {
     const now = new Date();
 
-    const openPOs = pos.filter(po => ['draft', 'confirmed', 'partially_received'].includes(po.status));
+    const openPOs = pos.filter(po => ['draft', 'awaiting_approval', 'approved', 'partially_received'].includes(po.status));
     const openPOValue = openPOs.reduce((s, po) => s + (po.total || 0), 0);
 
     const overduePOs = openPOs.filter(po => po.expected_date && new Date(po.expected_date) < now);
@@ -107,7 +107,7 @@ export default function PurchasingDashboard() {
   const agingData = useMemo(() => {
     const now = new Date();
     const buckets = { '0-7d': 0, '8-14d': 0, '15-30d': 0, '31-60d': 0, '60d+': 0 };
-    pos.filter(po => ['confirmed', 'partially_received'].includes(po.status)).forEach(po => {
+    pos.filter(po => ['approved', 'partially_received'].includes(po.status)).forEach(po => {
       const days = differenceInDays(now, new Date(po.order_date || po.created_date));
       if (days <= 7) buckets['0-7d']++;
       else if (days <= 14) buckets['8-14d']++;

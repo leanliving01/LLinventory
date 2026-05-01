@@ -220,7 +220,7 @@ export async function confirmGRN(grn, lines, userName) {
   });
 
   writeAuditLog({
-    action: 'confirm',
+    action: 'finalize',
     entity_type: 'GoodsReceivedNote',
     entity_id: grn.id,
     description: `Confirmed GRN ${grn.grn_number}: ${persistedLines.length} lines, R ${totalValue.toFixed(2)} total`,

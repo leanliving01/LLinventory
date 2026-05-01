@@ -1,4 +1,5 @@
 import React from 'react';
+import { format, parseISO } from 'date-fns';
 
 export default function PurchasingActivityFeed({ events }) {
   if (events.length === 0) {
@@ -29,7 +30,9 @@ export default function PurchasingActivityFeed({ events }) {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs leading-relaxed">{ev.text}</p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">{ev.date}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {ev.date ? (() => { try { return format(parseISO(ev.date), 'd MMM yyyy'); } catch { return ev.date; } })() : '—'}
+                </p>
               </div>
             </div>
           );
