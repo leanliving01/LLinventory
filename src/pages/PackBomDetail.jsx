@@ -4,9 +4,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Save, Loader2, AlertTriangle, RotateCcw, Package } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, AlertTriangle, RotateCcw, Package, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import PackBomMealRow from '@/components/pack-bom/PackBomMealRow';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 function parseOverrides(str) {
   if (!str) return {};
@@ -18,6 +23,8 @@ export default function PackBomDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
+  const [showRecalcPrompt, setShowRecalcPrompt] = useState(false);
+  const [recalcRunning, setRecalcRunning] = useState(false);
 
   const { data: packBom, isLoading } = useQuery({
     queryKey: ['pack-bom', packBomId],
@@ -133,6 +140,8 @@ export default function PackBomDetail() {
       await queryClient.invalidateQueries({ queryKey: ['pack-boms'] });
       setDisabledSkus(null);
       setOverrides(null);
+      // Prompt user to recalculate committed stock
+      setShowRecalcPrompt(true);
     } catch (err) {
       toast.error('Save failed: ' + (err.message || 'Unknown error'));
     } finally {
@@ -243,6 +252,42 @@ export default function PackBomDetail() {
           </tbody>
         </table>
       </div>
+
+      {/* Recalc Prompt after PackBom save */}
+      <AlertDialog open={showRecalcPrompt} onOpenChange={setShowRecalcPrompt}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Recalculate Committed Stock?</AlertDialogTitle>
+            <AlertDialogDescription>
+              PackBom updated. Recalculate committed stock now so inventory numbers reflect the new composition? 
+              This takes about 1-2 minutes and does not modify any order data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={recalcRunning}>Later</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={recalcRunning}
+              onClick={async (e) => {
+                e.preventDefault();
+                setRecalcRunning(true);
+                try {
+                  const res = await base44.functions.invoke('recalcCommittedStockFast', { dry_run: false });
+                  const d = res.data;
+                  toast.success(`Committed stock recalculated — ${d.orders_processed} orders, ${d.unique_skus} SKUs in ${d.elapsed_seconds}s`);
+                  setShowRecalcPrompt(false);
+                } catch (err) {
+                  toast.error('Recalculation failed: ' + (err.message || 'Unknown error'));
+                } finally {
+                  setRecalcRunning(false);
+                }
+              }}
+            >
+              {recalcRunning ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+              {recalcRunning ? 'Recalculating…' : 'Recalculate Now'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Sticky save bar */}
       {hasChanges && (

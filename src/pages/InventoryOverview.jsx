@@ -9,6 +9,9 @@ import { Search, X, Package } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import InventoryCSVExport from '@/components/inventory/InventoryCSVExport';
 import InventoryCSVImport from '@/components/inventory/InventoryCSVImport';
+import RecalcCommittedStock from '@/components/inventory/RecalcCommittedStock';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
 
 const TYPE_LABELS = {
   raw: 'Raw Material',
@@ -45,6 +48,8 @@ export default function InventoryOverview() {
   const [page, setPage] = useState(0);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const perms = user ? getUserPermissions(user) : {};
 
   const { data: products = [], isLoading: loadingProducts } = useQuery({
     queryKey: ['inv-overview-products'],
@@ -109,7 +114,7 @@ export default function InventoryOverview() {
             {filtered.length} of {products.length} tracked products
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <InventoryCSVExport products={filtered} stockByProduct={stockByProduct} />
           <InventoryCSVImport
             products={products}
@@ -120,6 +125,11 @@ export default function InventoryOverview() {
           />
         </div>
       </div>
+
+      {/* Recalculate Committed Stock */}
+      {(user?.role === 'admin' || perms.inventory_recalc_committed) && (
+        <RecalcCommittedStock />
+      )}
 
       {/* Type chips */}
       <div className="flex flex-wrap gap-2">
