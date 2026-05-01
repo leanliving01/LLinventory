@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, Receipt, Truck, MapPin, Calendar, FileText, CheckCircle2, Loader2, Ban, Package, Pencil, Save, Plus, Trash2, Check } from 'lucide-react';
+import { X, Receipt, Truck, MapPin, Calendar, FileText, CheckCircle2, Loader2, Ban, Package, Pencil, Save, Plus, Trash2, Check, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
 
@@ -97,6 +97,16 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
 
   const allReceived = lines.length > 0 && lines.every(l => (l.received_qty || 0) >= l.ordered_qty);
   const canEdit = ['draft', 'confirmed'].includes(po.status);
+
+  // Lines needing attention: qty looks like a placeholder (≤1 but total > R50)
+  const flaggedLines = useMemo(() => {
+    const set = new Set();
+    lines.forEach(l => {
+      if (l.ordered_qty <= 1 && (l.line_total || 0) > 50) set.add(l.id);
+    });
+    return set;
+  }, [lines]);
+  const hasFlaggedLines = flaggedLines.size > 0;
 
   const startEditing = () => {
     setEditLines(lines.map(l => ({
@@ -318,6 +328,21 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
             </div>
           )}
 
+          {/* Attention banner */}
+          {hasFlaggedLines && !editing && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-amber-800">
+                  {flaggedLines.size} line{flaggedLines.size !== 1 ? 's' : ''} may need quantity adjustment
+                </p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  These lines were synced from Xero with a quantity of 1 but a high total — this usually means the quantity was imported as a lump sum instead of individual units (e.g. "1 × R2,400" should be "10kg × R240/kg"). Check the flagged lines below and correct the quantity and unit cost.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Line items */}
           <div>
             <h3 className="text-sm font-semibold flex items-center gap-2 mb-2">
@@ -425,11 +450,22 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                       const cost = Number(getLineValue(l, 'unit_cost'));
                       const lineTotal = qty * cost;
                       const pct = l.ordered_qty > 0 ? Math.round((l.received_qty || 0) / l.ordered_qty * 100) : 0;
+                      const isFlagged = flaggedLines.has(l.id);
                       return (
-                        <tr key={l.id}>
+                        <tr key={l.id} className={isFlagged ? 'bg-amber-50/60' : ''}>
                           <td className="px-3 py-2">
-                            <p className="text-xs font-medium">{l.product_name}</p>
-                            {l.product_sku && <p className="text-[10px] font-mono text-muted-foreground">{l.product_sku}</p>}
+                            <div className="flex items-start gap-1.5">
+                              {isFlagged && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />}
+                              <div>
+                                <p className="text-xs font-medium">{l.product_name}</p>
+                                {l.product_sku && <p className="text-[10px] font-mono text-muted-foreground">{l.product_sku}</p>}
+                                {isFlagged && (
+                                  <p className="text-[10px] text-amber-600 font-medium mt-0.5">
+                                    Qty is {l.ordered_qty} but total is R{(l.line_total || 0).toFixed(2)} — check if qty/cost need splitting
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           </td>
                           <td className="px-1 py-1">
                             <Select value={getLineValue(l, 'uom') || 'pcs'} onValueChange={v => setLineValue(l.id, 'uom', v)}>
