@@ -63,6 +63,7 @@ import PortioningRuns from '@/pages/PortioningRuns';
 import YieldReview from '@/pages/YieldReview';
 import SupplierYieldDashboard from '@/pages/SupplierYieldDashboard';
 import SupplierProductCatalog from '@/pages/SupplierProductCatalog';
+import GoodsReceivedNotes from '@/pages/GoodsReceivedNotes';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -121,6 +122,7 @@ const AuthenticatedApp = () => {
         <Route path="/purchasing/settings" element={<POSettings />} />
         <Route path="/purchasing/reorder" element={<ReorderReport />} />
         <Route path="/purchasing/supplier-products" element={<SupplierProductCatalog />} />
+        <Route path="/purchasing/grn" element={<GoodsReceivedNotes />} />
         <Route path="/purchasing/pack-bom" element={<PackBomManager />} />
         <Route path="/purchasing/pack-bom/:packBomId" element={<PackBomDetail />} />
         <Route path="/sales" element={<Sales />} />
