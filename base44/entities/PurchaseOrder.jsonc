@@ -4,7 +4,7 @@
   "properties": {
     "po_number": {
       "type": "string",
-      "description": "Auto: PO-YYYY-NNNN or Xero PO number"
+      "description": "Auto: PO-YYYYMMDD-NNN"
     },
     "supplier_id": {
       "type": "string",
@@ -14,23 +14,29 @@
       "type": "string",
       "description": "Denormalized"
     },
-    "location_id": {
+    "type": {
       "type": "string",
-      "description": "Delivery location FK"
+      "enum": [
+        "formal_po",
+        "blind_receipt"
+      ],
+      "default": "formal_po",
+      "description": "PO type \u2014 formal_po or blind_receipt (invoice-first)"
     },
     "status": {
       "type": "string",
       "enum": [
         "draft",
-        "confirmed",
+        "awaiting_approval",
+        "approved",
         "partially_received",
         "received",
         "invoiced",
-        "paid",
+        "closed",
         "cancelled"
       ],
       "default": "draft",
-      "description": "PO status"
+      "description": "PO lifecycle status"
     },
     "order_date": {
       "type": "string",
@@ -40,20 +46,49 @@
       "type": "string",
       "format": "date"
     },
+    "location_id": {
+      "type": "string",
+      "description": "Delivery location FK"
+    },
+    "location_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "requires_approval": {
+      "type": "boolean",
+      "default": false,
+      "description": "Auto-set: true if total > threshold or supplier is new"
+    },
+    "approved_by_name": {
+      "type": "string",
+      "description": "Name of user who approved"
+    },
+    "approved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "supplier_invoice_number": {
-      "type": "string"
+      "type": "string",
+      "description": "Linked invoice number"
     },
     "subtotal": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Excl. VAT"
     },
-    "tax": {
+    "tax_rate": {
+      "type": "number",
+      "default": 0.15,
+      "description": "SA VAT rate"
+    },
+    "tax_amount": {
       "type": "number",
       "default": 0
     },
     "total": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Incl. VAT"
     },
     "currency": {
       "type": "string",
@@ -64,7 +99,8 @@
       "enum": [
         "unpaid",
         "paid",
-        "overdue"
+        "overdue",
+        "partially_paid"
       ],
       "default": "unpaid"
     },
@@ -75,14 +111,29 @@
       "type": "string",
       "description": "Xero PurchaseOrder ID \u2014 prevents duplicates on re-sync"
     },
+    "xero_bill_id": {
+      "type": "string",
+      "description": "Xero Bill ID if linked to an invoice"
+    },
     "source": {
       "type": "string",
       "enum": [
         "manual",
-        "xero"
+        "xero",
+        "blind_receipt"
       ],
       "default": "manual",
-      "description": "Whether this PO was created locally or synced from Xero"
+      "description": "Origin of this PO"
+    },
+    "grn_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of GRNs linked to this PO"
+    },
+    "invoice_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of invoices linked to this PO"
     }
   },
   "required": [

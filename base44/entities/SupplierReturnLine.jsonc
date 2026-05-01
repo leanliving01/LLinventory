@@ -1,0 +1,58 @@
+{
+  "name": "SupplierReturnLine",
+  "type": "object",
+  "properties": {
+    "return_id": {
+      "type": "string",
+      "description": "FK to SupplierReturn"
+    },
+    "grn_line_id": {
+      "type": "string",
+      "description": "FK to GRNLine"
+    },
+    "supplier_product_id": {
+      "type": "string",
+      "description": "FK to SupplierProduct"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product"
+    },
+    "product_name": {
+      "type": "string"
+    },
+    "product_sku": {
+      "type": "string"
+    },
+    "return_qty": {
+      "type": "number",
+      "description": "In purchase UoM"
+    },
+    "return_value": {
+      "type": "number"
+    },
+    "internal_qty_returned": {
+      "type": "number",
+      "description": "Converted to internal UoM for stock movement"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "damaged",
+        "wrong_item",
+        "quality_issue",
+        "expired",
+        "other"
+      ]
+    },
+    "reason_detail": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "return_id",
+    "product_id",
+    "return_qty",
+    "reason"
+  ]
+}

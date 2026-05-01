@@ -1,0 +1,121 @@
+{
+  "name": "SupplierProduct",
+  "type": "object",
+  "properties": {
+    "supplier_id": {
+      "type": "string",
+      "description": "FK to Supplier"
+    },
+    "supplier_name": {
+      "type": "string",
+      "description": "Denormalized supplier name"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product (internal raw material)"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Denormalized product name"
+    },
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized product SKU"
+    },
+    "supplier_sku": {
+      "type": "string",
+      "description": "Supplier's own code for this item"
+    },
+    "supplier_description": {
+      "type": "string",
+      "description": "How the supplier names it on their invoice"
+    },
+    "xero_item_code": {
+      "type": "string",
+      "description": "How this item appears in Xero \u2014 primary auto-match key"
+    },
+    "purchase_uom": {
+      "type": "string",
+      "enum": [
+        "case",
+        "bag",
+        "drum",
+        "pallet",
+        "box",
+        "each",
+        "kg",
+        "L"
+      ],
+      "description": "Purchase unit of measure"
+    },
+    "purchase_uom_qty": {
+      "type": "number",
+      "default": 1,
+      "description": "e.g. 6 for case of 6, 10 for 10kg bag"
+    },
+    "purchase_uom_label": {
+      "type": "string",
+      "description": "Human-friendly label e.g. 'Case of 6 x 1kg', 'Box of 10kg'"
+    },
+    "conversion_uom": {
+      "type": "string",
+      "description": "Must match Product's stock_uom (e.g. kg, g, pcs)"
+    },
+    "conversion_factor": {
+      "type": "number",
+      "default": 1,
+      "description": "1 purchase unit = X internal units (e.g. 1 case of 6\u00d71kg = 6 kg)"
+    },
+    "yield_factor": {
+      "type": "number",
+      "default": 1.0,
+      "description": "0.0\u20131.0. E.g. 0.92 means 8% loss on receipt (trim, thaw, etc.)"
+    },
+    "effective_internal_qty": {
+      "type": "number",
+      "description": "Computed: conversion_factor \u00d7 yield_factor \u2014 what actually hits stock per purchase unit"
+    },
+    "last_purchase_price": {
+      "type": "number",
+      "default": 0,
+      "description": "Price per purchase UoM, excl. VAT (ZAR)"
+    },
+    "price_variance_threshold": {
+      "type": "number",
+      "default": 0.1,
+      "description": "Decimal fraction, default 0.10 = 10%. Alert if price differs by more than this %"
+    },
+    "currency": {
+      "type": "string",
+      "default": "ZAR"
+    },
+    "is_default_supplier": {
+      "type": "boolean",
+      "default": false,
+      "description": "When reorder fires for this product, this supplier is suggested first"
+    },
+    "lead_time_days": {
+      "type": "number",
+      "default": 1,
+      "description": "Supplier lead time in days"
+    },
+    "min_order_qty": {
+      "type": "number",
+      "default": 0,
+      "description": "Supplier's minimum order in purchase UoM"
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "supplier_id",
+    "product_id",
+    "purchase_uom",
+    "conversion_factor"
+  ]
+}

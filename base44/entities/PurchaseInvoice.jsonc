@@ -1,0 +1,99 @@
+{
+  "name": "PurchaseInvoice",
+  "type": "object",
+  "properties": {
+    "invoice_number": {
+      "type": "string",
+      "description": "Supplier's invoice number \u2014 UNIQUE per supplier"
+    },
+    "supplier_id": {
+      "type": "string",
+      "description": "FK to Supplier"
+    },
+    "supplier_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "purchase_order_id": {
+      "type": "string",
+      "description": "FK to PurchaseOrder (nullable \u2014 matched after creation)"
+    },
+    "grn_id": {
+      "type": "string",
+      "description": "FK to GoodsReceivedNote (nullable)"
+    },
+    "xero_bill_id": {
+      "type": "string",
+      "description": "Xero internal ID for this bill \u2014 dedup key"
+    },
+    "xero_contact_id": {
+      "type": "string",
+      "description": "Xero Contact ID for supplier matching"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "xero_sync"
+      ],
+      "default": "manual"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending_match",
+        "matched",
+        "approved",
+        "disputed",
+        "on_hold"
+      ],
+      "default": "pending_match"
+    },
+    "invoice_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "due_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "subtotal": {
+      "type": "number",
+      "default": 0
+    },
+    "tax_amount": {
+      "type": "number",
+      "default": 0
+    },
+    "total": {
+      "type": "number",
+      "default": 0
+    },
+    "currency": {
+      "type": "string",
+      "default": "ZAR"
+    },
+    "payment_status": {
+      "type": "string",
+      "enum": [
+        "unpaid",
+        "partially_paid",
+        "paid"
+      ],
+      "default": "unpaid"
+    },
+    "unmatched_line_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Count of lines not yet matched to a SupplierProduct"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "invoice_number",
+    "supplier_id",
+    "status"
+  ]
+}

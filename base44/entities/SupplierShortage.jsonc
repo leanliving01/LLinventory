@@ -1,0 +1,84 @@
+{
+  "name": "SupplierShortage",
+  "type": "object",
+  "properties": {
+    "grn_id": {
+      "type": "string",
+      "description": "FK to GoodsReceivedNote"
+    },
+    "grn_line_id": {
+      "type": "string",
+      "description": "FK to GRNLine"
+    },
+    "supplier_id": {
+      "type": "string",
+      "description": "FK to Supplier"
+    },
+    "supplier_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "supplier_product_id": {
+      "type": "string",
+      "description": "FK to SupplierProduct"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "shortage_qty": {
+      "type": "number",
+      "description": "In purchase UoM"
+    },
+    "shortage_value": {
+      "type": "number",
+      "description": "shortage_qty \u00d7 unit_cost"
+    },
+    "purchase_uom": {
+      "type": "string"
+    },
+    "unit_cost": {
+      "type": "number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "follow_up_delivery",
+        "credit_received",
+        "written_off"
+      ],
+      "default": "open"
+    },
+    "resolution_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "resolution_notes": {
+      "type": "string"
+    },
+    "credit_note_number": {
+      "type": "string",
+      "description": "Supplier credit note reference"
+    },
+    "follow_up_grn_id": {
+      "type": "string",
+      "description": "FK to follow-up GRN if follow_up_delivery"
+    }
+  },
+  "required": [
+    "grn_id",
+    "supplier_id",
+    "product_id",
+    "shortage_qty",
+    "status"
+  ]
+}

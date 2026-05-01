@@ -42,6 +42,7 @@
         "wastage_unusable",
         "stocktake_adjustment",
         "return",
+        "supplier_return",
         "write_off",
         "packing_material"
       ],
@@ -56,6 +57,8 @@
         "wastage_log",
         "stock_take",
         "transfer",
+        "grn",
+        "supplier_return",
         "manual"
       ],
       "description": "Reference entity type"
@@ -66,7 +69,7 @@
     },
     "ref_number": {
       "type": "string",
-      "description": "Human-readable reference number e.g. #28461, PO-2025-0012, RUN-2025-0045"
+      "description": "Human-readable reference number e.g. #28461, PO-2025-0012, GRN-20250501-001"
     },
     "reference_key": {
       "type": "string",

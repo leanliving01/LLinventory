@@ -1,0 +1,69 @@
+{
+  "name": "PurchaseInvoiceLine",
+  "type": "object",
+  "properties": {
+    "invoice_id": {
+      "type": "string",
+      "description": "FK to PurchaseInvoice"
+    },
+    "xero_line_item_id": {
+      "type": "string",
+      "description": "Xero line ID (nullable)"
+    },
+    "xero_item_code": {
+      "type": "string",
+      "description": "From Xero (nullable)"
+    },
+    "xero_description": {
+      "type": "string",
+      "description": "Raw description from Xero"
+    },
+    "supplier_product_id": {
+      "type": "string",
+      "description": "FK to SupplierProduct (null if not yet matched)"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product (null if not yet matched)"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Denormalized (null if unmatched)"
+    },
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized (null if unmatched)"
+    },
+    "qty": {
+      "type": "number"
+    },
+    "unit_cost": {
+      "type": "number"
+    },
+    "tax_rule": {
+      "type": "string"
+    },
+    "line_total": {
+      "type": "number"
+    },
+    "match_status": {
+      "type": "string",
+      "enum": [
+        "auto_matched",
+        "manually_matched",
+        "unmatched",
+        "non_stock_item"
+      ],
+      "default": "unmatched"
+    },
+    "account_code": {
+      "type": "string",
+      "description": "Xero account code"
+    }
+  },
+  "required": [
+    "invoice_id",
+    "qty",
+    "unit_cost"
+  ]
+}

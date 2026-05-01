@@ -1,0 +1,109 @@
+{
+  "name": "GRNLine",
+  "type": "object",
+  "properties": {
+    "grn_id": {
+      "type": "string",
+      "description": "FK to GoodsReceivedNote"
+    },
+    "po_line_id": {
+      "type": "string",
+      "description": "FK to PurchaseOrderLine (nullable)"
+    },
+    "supplier_product_id": {
+      "type": "string",
+      "description": "FK to SupplierProduct"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "expected_qty": {
+      "type": "number",
+      "description": "From PO line or invoice line \u2014 in purchase UoM"
+    },
+    "received_qty": {
+      "type": "number",
+      "description": "Actual received \u2014 in purchase UoM"
+    },
+    "variance_qty": {
+      "type": "number",
+      "description": "received_qty - expected_qty (negative = short, positive = over)"
+    },
+    "internal_qty_received": {
+      "type": "number",
+      "description": "received_qty \u00d7 conversion_factor \u00d7 yield_factor \u2014 what hits stock"
+    },
+    "purchase_uom": {
+      "type": "string",
+      "description": "Snapshot of purchase UoM at time of receipt"
+    },
+    "conversion_factor": {
+      "type": "number",
+      "description": "Snapshot of conversion factor"
+    },
+    "yield_factor": {
+      "type": "number",
+      "default": 1.0,
+      "description": "Snapshot of yield factor"
+    },
+    "unit_cost": {
+      "type": "number",
+      "description": "Price per purchase UoM excl VAT"
+    },
+    "line_total": {
+      "type": "number",
+      "description": "received_qty \u00d7 unit_cost"
+    },
+    "batch_number": {
+      "type": "string",
+      "description": "Traceability batch number (nullable)"
+    },
+    "expiry_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Product expiry date (nullable)"
+    },
+    "condition": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "damaged",
+        "rejected"
+      ],
+      "default": "accepted"
+    },
+    "rejection_reason": {
+      "type": "string",
+      "description": "Reason if damaged or rejected"
+    },
+    "rejection_qty": {
+      "type": "number",
+      "description": "How many units rejected/returned (in purchase UoM)"
+    },
+    "item_type": {
+      "type": "string",
+      "enum": [
+        "stock",
+        "non_stock",
+        "expense",
+        "service"
+      ],
+      "default": "stock",
+      "description": "Snapshot from Product.item_type \u2014 only 'stock' creates stock movements"
+    }
+  },
+  "required": [
+    "grn_id",
+    "product_id",
+    "received_qty"
+  ]
+}

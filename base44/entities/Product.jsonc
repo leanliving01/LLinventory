@@ -30,6 +30,17 @@
       ],
       "description": "Product type"
     },
+    "item_type": {
+      "type": "string",
+      "enum": [
+        "stock",
+        "non_stock",
+        "expense",
+        "service"
+      ],
+      "default": "stock",
+      "description": "stock = normal inventory, non_stock = tracked but no stock movements, expense = pure expense, service = service charge"
+    },
     "inventory_tracked": {
       "type": "boolean",
       "default": true,
@@ -87,11 +98,11 @@
     },
     "purchase_uom": {
       "type": "string",
-      "description": "Purchase unit (e.g. Box of 10kg)"
+      "description": "LEGACY \u2014 purchase UoM now on SupplierProduct. Kept for backward compat display."
     },
     "purchase_to_stock_factor": {
       "type": "number",
-      "description": "Conversion factor purchase UoM \u2192 stock UoM"
+      "description": "LEGACY \u2014 conversion now on SupplierProduct"
     },
     "recipe_uom": {
       "type": "string",
@@ -104,7 +115,7 @@
     "cost_avg": {
       "type": "number",
       "default": 0,
-      "description": "Weighted average cost (ZAR) \u2014 updated on each PO receipt"
+      "description": "Weighted average cost (ZAR) \u2014 updated on each GRN receipt"
     },
     "cost_current": {
       "type": "number",
@@ -138,11 +149,11 @@
     },
     "supplier_id": {
       "type": "string",
-      "description": "FK to Supplier"
+      "description": "LEGACY \u2014 primary supplier now via SupplierProduct.is_default_supplier"
     },
     "supplier_sku": {
       "type": "string",
-      "description": "Supplier SKU code"
+      "description": "LEGACY \u2014 supplier SKU now on SupplierProduct"
     },
     "shopify_product_id": {
       "type": "string",

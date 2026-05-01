@@ -1,0 +1,63 @@
+{
+  "name": "SupplierPriceHistory",
+  "type": "object",
+  "properties": {
+    "supplier_product_id": {
+      "type": "string",
+      "description": "FK to SupplierProduct"
+    },
+    "supplier_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "price": {
+      "type": "number",
+      "description": "Per purchase UoM (ZAR)"
+    },
+    "previous_price": {
+      "type": "number",
+      "description": "Previous price before this change"
+    },
+    "change_pct": {
+      "type": "number",
+      "description": "Percentage change from previous price"
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of the invoice/PO"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "purchase_order",
+        "invoice",
+        "grn",
+        "manual_update"
+      ],
+      "description": "What triggered this price record"
+    },
+    "source_ref": {
+      "type": "string",
+      "description": "PO number, invoice number, or GRN number"
+    },
+    "purchase_uom": {
+      "type": "string",
+      "description": "Snapshot of purchase UoM"
+    }
+  },
+  "required": [
+    "supplier_product_id",
+    "price",
+    "effective_date",
+    "source"
+  ]
+}

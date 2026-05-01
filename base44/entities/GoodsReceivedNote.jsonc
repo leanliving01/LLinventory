@@ -1,0 +1,79 @@
+{
+  "name": "GoodsReceivedNote",
+  "type": "object",
+  "properties": {
+    "grn_number": {
+      "type": "string",
+      "description": "Auto-generated: GRN-YYYYMMDD-NNN"
+    },
+    "purchase_order_id": {
+      "type": "string",
+      "description": "FK to PurchaseOrder (nullable \u2014 can exist without PO for blind receipts)"
+    },
+    "invoice_id": {
+      "type": "string",
+      "description": "FK to PurchaseInvoice (nullable \u2014 can receive before invoice exists)"
+    },
+    "supplier_id": {
+      "type": "string",
+      "description": "FK to Supplier"
+    },
+    "supplier_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "received_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "received_by_name": {
+      "type": "string",
+      "description": "Name of user who received"
+    },
+    "location_id": {
+      "type": "string",
+      "description": "FK to Location"
+    },
+    "location_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "confirmed",
+        "disputed"
+      ],
+      "default": "draft"
+    },
+    "total_lines": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of lines"
+    },
+    "total_received_value": {
+      "type": "number",
+      "default": 0,
+      "description": "Sum of received_qty \u00d7 unit_cost across lines"
+    },
+    "has_shortages": {
+      "type": "boolean",
+      "default": false
+    },
+    "has_rejections": {
+      "type": "boolean",
+      "default": false
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "grn_number",
+    "supplier_id",
+    "received_date",
+    "location_id",
+    "status"
+  ]
+}

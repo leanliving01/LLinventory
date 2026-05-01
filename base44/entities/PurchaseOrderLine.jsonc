@@ -6,9 +6,13 @@
       "type": "string",
       "description": "FK to PurchaseOrder"
     },
+    "supplier_product_id": {
+      "type": "string",
+      "description": "FK to SupplierProduct"
+    },
     "product_id": {
       "type": "string",
-      "description": "FK to Product"
+      "description": "FK to Product (denormalized for fast display)"
     },
     "product_name": {
       "type": "string"
@@ -16,25 +20,56 @@
     "product_sku": {
       "type": "string"
     },
+    "description": {
+      "type": "string",
+      "description": "Defaults from SupplierProduct.supplier_description"
+    },
     "ordered_qty": {
-      "type": "number"
+      "type": "number",
+      "description": "In purchase UoM"
     },
     "received_qty": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Total received across all GRNs"
+    },
+    "purchase_uom": {
+      "type": "string",
+      "description": "Snapshot from SupplierProduct at time of order"
     },
     "unit_cost": {
-      "type": "number"
+      "type": "number",
+      "description": "Per purchase UoM, excl VAT"
+    },
+    "expected_unit_cost": {
+      "type": "number",
+      "description": "From SupplierProduct.last_purchase_price at time of order"
+    },
+    "price_variance_pct": {
+      "type": "number",
+      "description": "abs(unit_cost - expected_unit_cost) / expected_unit_cost"
+    },
+    "price_variance_flagged": {
+      "type": "boolean",
+      "default": false,
+      "description": "True if price_variance_pct > threshold"
     },
     "tax_rule": {
-      "type": "string"
-    },
-    "uom": {
-      "type": "string"
+      "type": "string",
+      "default": "VAT 15%"
     },
     "line_total": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "ordered_qty \u00d7 unit_cost"
+    },
+    "uom": {
+      "type": "string",
+      "description": "LEGACY \u2014 kept for backward compat. Use purchase_uom instead."
+    },
+    "account_code": {
+      "type": "string",
+      "description": "Xero account code for categorization"
     }
   },
   "required": [

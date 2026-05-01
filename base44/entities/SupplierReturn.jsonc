@@ -1,0 +1,53 @@
+{
+  "name": "SupplierReturn",
+  "type": "object",
+  "properties": {
+    "return_number": {
+      "type": "string",
+      "description": "Auto-generated: RET-YYYYMMDD-NNN"
+    },
+    "grn_id": {
+      "type": "string",
+      "description": "FK to GoodsReceivedNote"
+    },
+    "supplier_id": {
+      "type": "string",
+      "description": "FK to Supplier"
+    },
+    "supplier_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "return_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending_return",
+        "returned",
+        "credit_received",
+        "disputed"
+      ],
+      "default": "pending_return"
+    },
+    "total_return_value": {
+      "type": "number",
+      "default": 0
+    },
+    "credit_note_number": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "return_number",
+    "grn_id",
+    "supplier_id",
+    "return_date",
+    "status"
+  ]
+}
