@@ -295,6 +295,83 @@ Deno.serve(async (req) => {
     const supplierByContactId = {};
     matchedContacts.forEach(m => { supplierByContactId[m.xeroContact.ContactID] = m.ourSupplier; });
 
+    // Load SupplierProducts for line matching at import time
+    let allSPs = [];
+    let spOffset = 0;
+    while (true) {
+      const batch = await base44.asServiceRole.entities.SupplierProduct.filter({ active: true }, 'product_name', 500, spOffset);
+      allSPs = allSPs.concat(batch);
+      if (batch.length < 500) break;
+      spOffset += 500;
+    }
+    // Index SPs by supplier_id
+    const spBySupplier = {};
+    for (const sp of allSPs) {
+      if (!spBySupplier[sp.supplier_id]) spBySupplier[sp.supplier_id] = [];
+      spBySupplier[sp.supplier_id].push(sp);
+    }
+
+    // Load products for resolving SP → product details
+    let allProducts = [];
+    let prodOffset = 0;
+    while (true) {
+      const batch = await base44.asServiceRole.entities.Product.filter({ status: 'active' }, 'sku', 500, prodOffset);
+      allProducts = allProducts.concat(batch);
+      if (batch.length < 500) break;
+      prodOffset += 500;
+    }
+    const productById = {};
+    allProducts.forEach(p => { productById[p.id] = p; });
+
+    // Match a Xero line to a SupplierProduct for a given supplier
+    function matchLineToSP(supplierId, itemCode, description) {
+      const sps = spBySupplier[supplierId] || [];
+      if (sps.length === 0) return null;
+
+      // A) Exact item code match
+      if (itemCode) {
+        const ic = itemCode.toLowerCase().trim();
+        for (const sp of sps) {
+          if (sp.xero_item_code && sp.xero_item_code.toLowerCase().trim() === ic) {
+            const product = productById[sp.product_id];
+            if (product) return { sp, product };
+          }
+          if (sp.supplier_sku && sp.supplier_sku.toLowerCase().trim() === ic) {
+            const product = productById[sp.product_id];
+            if (product) return { sp, product };
+          }
+          if (sp.product_sku && sp.product_sku.toLowerCase().trim() === ic) {
+            const product = productById[sp.product_id];
+            if (product) return { sp, product };
+          }
+        }
+      }
+
+      // B) Fuzzy description match against SP product names
+      if (description) {
+        const descNorm = (description || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        let bestSP = null, bestScore = 0;
+        for (const sp of sps) {
+          const candidates = [sp.supplier_description, sp.product_name].filter(Boolean);
+          for (const c of candidates) {
+            const cNorm = (c || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+            if (descNorm === cNorm) { bestSP = sp; bestScore = 1; break; }
+            if (descNorm.includes(cNorm) || cNorm.includes(descNorm)) {
+              const score = 0.8;
+              if (score > bestScore) { bestScore = score; bestSP = sp; }
+            }
+          }
+          if (bestScore === 1) break;
+        }
+        if (bestSP && bestScore >= 0.6) {
+          const product = productById[bestSP.product_id];
+          if (product) return { sp: bestSP, product };
+        }
+      }
+
+      return null;
+    }
+
     // Load existing POs for dedup
     const existingPOs = await base44.asServiceRole.entities.PurchaseOrder.filter({}, '-created_date', 2000);
     const existingByXeroId = {};
@@ -303,6 +380,7 @@ Deno.serve(async (req) => {
     let posCreated = 0;
     let posUpdated = 0;
     let linesCreated = 0;
+    let linesMatched = 0;
 
     // 6. Fetch Xero POs (paginated)
     let page = 1;
@@ -357,18 +435,30 @@ Deno.serve(async (req) => {
         posCreated++;
         const xLines = xpo.LineItems || [];
         if (xLines.length > 0) {
-          const batch = xLines.map(xl => ({
-            purchase_order_id: newPO.id,
-            product_id: 'unmatched',
-            product_name: xl.Description || xl.ItemCode || 'Unknown',
-            product_sku: xl.ItemCode || '',
-            ordered_qty: xl.Quantity || 0,
-            received_qty: 0,
-            unit_cost: xl.UnitAmount || 0,
-            uom: xl.UnitOfMeasure || parseUomFromDescription(xl.Description) || 'pcs',
-            line_total: xl.LineAmount || 0,
-            tax_rule: xl.TaxType || '',
-          }));
+          const batch = xLines.map(xl => {
+            const lineData = {
+              purchase_order_id: newPO.id,
+              product_id: 'unmatched',
+              product_name: xl.Description || xl.ItemCode || 'Unknown',
+              product_sku: xl.ItemCode || '',
+              ordered_qty: xl.Quantity || 0,
+              received_qty: 0,
+              unit_cost: xl.UnitAmount || 0,
+              uom: xl.UnitOfMeasure || parseUomFromDescription(xl.Description) || 'pcs',
+              line_total: xl.LineAmount || 0,
+              tax_rule: xl.TaxType || '',
+            };
+            // Try matching via SupplierProduct
+            const spMatch = matchLineToSP(supplier.id, xl.ItemCode, xl.Description);
+            if (spMatch) {
+              lineData.product_id = spMatch.product.id;
+              lineData.product_sku = spMatch.product.sku;
+              lineData.supplier_product_id = spMatch.sp.id;
+              lineData.purchase_uom = spMatch.sp.purchase_uom || lineData.uom;
+              linesMatched++;
+            }
+            return lineData;
+          });
           for (let i = 0; i < batch.length; i += 25) {
             await base44.asServiceRole.entities.PurchaseOrderLine.bulkCreate(batch.slice(i, i + 25));
           }
@@ -468,18 +558,33 @@ Deno.serve(async (req) => {
           );
           const inv = invRes.Invoices?.[0];
           if (inv?.LineItems?.length > 0) {
-            const lineRecords = inv.LineItems.map(xl => ({
-              purchase_order_id: newPO.id,
-              product_id: 'unmatched',
-              product_name: xl.Description || xl.ItemCode || 'Unknown',
-              product_sku: xl.ItemCode || '',
-              ordered_qty: xl.Quantity ?? 1,
-              received_qty: 0,
-              unit_cost: xl.UnitAmount || 0,
-              uom: xl.UnitOfMeasure || parseUomFromDescription(xl.Description) || 'pcs',
-              line_total: xl.LineAmount || 0,
-              tax_rule: xl.TaxType || '',
-            }));
+            const billSupplier = supplierByContactId[inv.Contact?.ContactID];
+            const lineRecords = inv.LineItems.map(xl => {
+              const lineData = {
+                purchase_order_id: newPO.id,
+                product_id: 'unmatched',
+                product_name: xl.Description || xl.ItemCode || 'Unknown',
+                product_sku: xl.ItemCode || '',
+                ordered_qty: xl.Quantity ?? 1,
+                received_qty: 0,
+                unit_cost: xl.UnitAmount || 0,
+                uom: xl.UnitOfMeasure || parseUomFromDescription(xl.Description) || 'pcs',
+                line_total: xl.LineAmount || 0,
+                tax_rule: xl.TaxType || '',
+              };
+              // Try matching via SupplierProduct
+              if (billSupplier) {
+                const spMatch = matchLineToSP(billSupplier.id, xl.ItemCode, xl.Description);
+                if (spMatch) {
+                  lineData.product_id = spMatch.product.id;
+                  lineData.product_sku = spMatch.product.sku;
+                  lineData.supplier_product_id = spMatch.sp.id;
+                  lineData.purchase_uom = spMatch.sp.purchase_uom || lineData.uom;
+                  linesMatched++;
+                }
+              }
+              return lineData;
+            });
             await base44.asServiceRole.entities.PurchaseOrderLine.bulkCreate(lineRecords);
             billLinesCreated += lineRecords.length;
           }
@@ -501,6 +606,7 @@ Deno.serve(async (req) => {
         purchase_orders: { total: allXeroPOs.length, relevant: relevantPOs.length, created: posCreated, updated: posUpdated },
         bills: { total: allBills.length, relevant: relevantBills.length, created: billsCreated, updated: billsUpdated },
         lines_created: linesCreated + billLinesCreated,
+        lines_auto_matched: linesMatched,
       },
     });
   } catch (error) {
