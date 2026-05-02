@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Search, Package, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
+import TablePagination from '@/components/shared/TablePagination';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -50,7 +51,7 @@ export default function Catalog() {
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
   const [page, setPage] = useState(0);
-  const PAGE_SIZE = 15;
+  const [pageSize, setPageSize] = useState(15);
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['catalog-products'],
@@ -86,8 +87,7 @@ export default function Catalog() {
     });
   }, [products, search, typeFilter, statusFilter, sellableFilter, purchasableFilter, inventoryFilter]);
 
-  const pageProducts = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const pageProducts = filtered.slice(page * pageSize, (page + 1) * pageSize);
 
   // Count by type
   const typeCounts = useMemo(() => {
@@ -233,18 +233,13 @@ export default function Catalog() {
             </tbody>
           </table>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/30">
-              <span className="text-xs text-muted-foreground">
-                Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
-              </span>
-              <div className="flex gap-1">
-                <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Prev</Button>
-                <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next</Button>
-              </div>
-            </div>
-          )}
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={filtered.length}
+            onPageChange={setPage}
+            onPageSizeChange={v => { setPageSize(v); setPage(0); }}
+          />
         </div>
       )}
 

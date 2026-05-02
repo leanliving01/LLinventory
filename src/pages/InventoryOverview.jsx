@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Search, X, Package } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import InventoryCSVExport from '@/components/inventory/InventoryCSVExport';
+import TablePagination from '@/components/shared/TablePagination';
 import InventoryCSVImport from '@/components/inventory/InventoryCSVImport';
 import RecalcCommittedStock from '@/components/inventory/RecalcCommittedStock';
 import { useAuth } from '@/lib/AuthContext';
@@ -39,13 +40,12 @@ const TYPE_COLORS = {
   service: 'bg-slate-100 text-slate-700',
 };
 
-const PAGE_SIZE = 15;
-
 export default function InventoryOverview() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [stockFilter, setStockFilter] = useState('all'); // all, in_stock, low, out
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(15);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -94,8 +94,7 @@ export default function InventoryOverview() {
     });
   }, [products, search, typeFilter, stockFilter, stockByProduct]);
 
-  const pageProducts = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const pageProducts = filtered.slice(page * pageSize, (page + 1) * pageSize);
 
   const typeCounts = useMemo(() => {
     const counts = {};
@@ -237,17 +236,13 @@ export default function InventoryOverview() {
             </tbody>
           </table>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/30">
-              <span className="text-xs text-muted-foreground">
-                Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
-              </span>
-              <div className="flex gap-1">
-                <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Prev</Button>
-                <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next</Button>
-              </div>
-            </div>
-          )}
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={filtered.length}
+            onPageChange={setPage}
+            onPageSizeChange={v => { setPageSize(v); setPage(0); }}
+          />
         </div>
       )}
     </div>

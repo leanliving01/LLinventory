@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, X, ChevronRight, Plus, ChevronDown, FolderOpen } from 'lucide-react';
 import CreateBomModal from '@/components/recipes/CreateBomModal';
+import TablePagination from '@/components/shared/TablePagination';
 import { getSubcategories } from '@/lib/bomSubcategories';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
@@ -28,11 +29,11 @@ export default function Recipes() {
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(15);
   const [showCreate, setShowCreate] = useState(false);
   const [createDefaults, setCreateDefaults] = useState(null);
   const [subcategoryFilter, setSubcategoryFilter] = useState('all');
   const [activeFilter, setActiveFilter] = useState('all');
-  const PAGE_SIZE = 15;
 
   // Support URL params: ?search=X&layer=cook or ?create=cook&productId=ID
   const urlParams = new URLSearchParams(window.location.search);
@@ -93,8 +94,7 @@ export default function Recipes() {
     return allSubs.map(s => ({ label: s, count: counts[s] || 0 }));
   }, [boms, layerFilter]);
 
-  const pageBoms = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const pageBoms = filtered.slice(page * pageSize, (page + 1) * pageSize);
 
   const layerCounts = useMemo(() => {
     const counts = {};
@@ -246,17 +246,13 @@ export default function Recipes() {
             </tbody>
           </table>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/30">
-              <span className="text-xs text-muted-foreground">
-                Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
-              </span>
-              <div className="flex gap-1">
-                <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Prev</Button>
-                <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next</Button>
-              </div>
-            </div>
-          )}
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={filtered.length}
+            onPageChange={setPage}
+            onPageSizeChange={v => { setPageSize(v); setPage(0); }}
+          />
         </div>
       )}
 

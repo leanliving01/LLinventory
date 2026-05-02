@@ -6,11 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Users, Search, X, Mail, Phone, MapPin } from 'lucide-react';
 import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
+import TablePagination from '@/components/shared/TablePagination';
 
 export default function Customers() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
-  const PAGE_SIZE = 15;
+  const [pageSize, setPageSize] = useState(15);
 
   const { data: customers = [], isLoading } = useQuery({
     queryKey: ['customers'],
@@ -29,8 +30,7 @@ export default function Customers() {
     );
   }, [customers, search]);
 
-  const pageItems = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const pageItems = filtered.slice(page * pageSize, (page + 1) * pageSize);
 
   return (
     <div className="space-y-4">
@@ -134,17 +134,13 @@ export default function Customers() {
             </tbody>
           </table>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/30">
-              <span className="text-xs text-muted-foreground">
-                Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
-              </span>
-              <div className="flex gap-1">
-                <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Prev</Button>
-                <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next</Button>
-              </div>
-            </div>
-          )}
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={filtered.length}
+            onPageChange={setPage}
+            onPageSizeChange={v => { setPageSize(v); setPage(0); }}
+          />
         </div>
       )}
     </div>

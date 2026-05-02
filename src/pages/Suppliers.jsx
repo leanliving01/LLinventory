@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Search, X, ChevronRight, Truck, Plus, RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import SupplierDetailDrawer from '@/components/suppliers/SupplierDetailDrawer';
+import TablePagination from '@/components/shared/TablePagination';
 import CreateSupplierModal from '@/components/suppliers/CreateSupplierModal';
 
 export default function Suppliers() {
@@ -16,6 +17,8 @@ export default function Suppliers() {
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(15);
 
   const handleXeroSync = async () => {
     setSyncing(true);
@@ -95,7 +98,7 @@ export default function Suppliers() {
       {/* Status chips */}
       <div className="flex gap-2">
         <button
-          onClick={() => setStatusFilter(statusFilter === 'active' ? 'all' : 'active')}
+          onClick={() => { setStatusFilter(statusFilter === 'active' ? 'all' : 'active'); setPage(0); }}
           className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
             statusFilter === 'active'
               ? 'bg-green-100 text-green-700 ring-2 ring-primary/30'
@@ -106,7 +109,7 @@ export default function Suppliers() {
         </button>
         {inactiveCount > 0 && (
           <button
-            onClick={() => setStatusFilter(statusFilter === 'inactive' ? 'all' : 'inactive')}
+            onClick={() => { setStatusFilter(statusFilter === 'inactive' ? 'all' : 'inactive'); setPage(0); }}
             className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
               statusFilter === 'inactive'
                 ? 'bg-gray-100 text-gray-700 ring-2 ring-primary/30'
@@ -125,7 +128,7 @@ export default function Suppliers() {
           <Input
             placeholder="Search by name, contact, or email..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setPage(0); }}
             className="pl-9"
           />
         </div>
@@ -157,7 +160,7 @@ export default function Suppliers() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.map(s => (
+              {filtered.slice(page * pageSize, (page + 1) * pageSize).map(s => (
                 <tr
                   key={s.id}
                   className="hover:bg-muted/30 transition-colors cursor-pointer"
@@ -217,6 +220,13 @@ export default function Suppliers() {
               )}
             </tbody>
           </table>
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={filtered.length}
+            onPageChange={setPage}
+            onPageSizeChange={v => { setPageSize(v); setPage(0); }}
+          />
         </div>
       )}
 

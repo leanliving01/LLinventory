@@ -5,7 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ScrollText, Search, ChevronLeft, ChevronRight, Clock, User, Database, ArrowRight } from 'lucide-react';
+import { ScrollText, Search, Clock, User, Database, ArrowRight } from 'lucide-react';
+import TablePagination from '@/components/shared/TablePagination';
 import { cn } from '@/lib/utils';
 import ActivityLogRow from '@/components/activity-log/ActivityLogRow';
 
@@ -19,13 +20,12 @@ const ACTION_STYLES = {
   export: 'bg-teal-100 text-teal-700',
 };
 
-const PAGE_SIZE = 25;
-
 export default function ActivityLog() {
   const [search, setSearch] = useState('');
   const [actionFilter, setActionFilter] = useState('all');
   const [entityFilter, setEntityFilter] = useState('all');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
 
   const { data: logs = [], isLoading } = useQuery({
     queryKey: ['audit-logs'],
@@ -63,8 +63,7 @@ export default function ActivityLog() {
     });
   }, [logs, actionFilter, entityFilter, userFilter, search]);
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const paged = filtered.slice(page * pageSize, (page + 1) * pageSize);
 
   return (
     <div className="space-y-4">
@@ -133,22 +132,13 @@ export default function ActivityLog() {
         )}
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">
-            Page {page + 1} of {totalPages}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setPage(p => p - 1)} disabled={page === 0}>
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1}>
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <TablePagination
+        page={page}
+        pageSize={pageSize}
+        totalItems={filtered.length}
+        onPageChange={setPage}
+        onPageSizeChange={v => { setPageSize(v); setPage(0); }}
+      />
     </div>
   );
 }

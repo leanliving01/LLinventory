@@ -7,11 +7,14 @@ import SalesKPICards from '@/components/sales/SalesKPICards';
 import SalesFilters from '@/components/sales/SalesFilters';
 import SalesOrderRow from '@/components/sales/SalesOrderRow';
 import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
+import TablePagination from '@/components/shared/TablePagination';
 
 export default function Sales() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('paid_unfulfilled');
   const [packFilter, setPackFilter] = useState('all');
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(15);
   const queryClient = useQueryClient();
 
   const { data: orders = [], isLoading, error: queryError } = useQuery({
@@ -39,6 +42,7 @@ export default function Sales() {
         (o.shopify_order_id || '').toLowerCase().includes(q)
       );
     }
+    setPage(0);
     return list;
   }, [orders, statusFilter, packFilter, search]);
 
@@ -88,9 +92,18 @@ export default function Sales() {
             No orders found
           </div>
         ) : (
-          filtered.map(order => (
-            <SalesOrderRow key={order.id} order={order} />
-          ))
+          <>
+            {filtered.slice(page * pageSize, (page + 1) * pageSize).map(order => (
+              <SalesOrderRow key={order.id} order={order} />
+            ))}
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={filtered.length}
+              onPageChange={setPage}
+              onPageSizeChange={v => { setPageSize(v); setPage(0); }}
+            />
+          </>
         )}
       </div>
     </div>

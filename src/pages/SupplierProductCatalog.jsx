@@ -11,6 +11,7 @@ import SupplierProductRow from '@/components/purchasing/SupplierProductRow';
 import SupplierProductDrawer from '@/components/purchasing/SupplierProductDrawer';
 import CreateSupplierProductModal from '@/components/purchasing/CreateSupplierProductModal';
 import PageHelp from '@/components/help/PageHelp';
+import TablePagination from '@/components/shared/TablePagination';
 
 const HELP_ITEMS = [
   { title: 'What is this page?', text: 'The Supplier Product Catalog links internal products to their suppliers with buy UoM, conversion factors, yield deductions, and pricing. This replaces the legacy Product.supplier_id field.' },
@@ -31,6 +32,8 @@ export default function SupplierProductCatalog() {
   const [sourceFilter, setSourceFilter] = useState('all'); // 'all' | 'ai' | 'mismatch'
   const [showCreate, setShowCreate] = useState(false);
   const [selectedSP, setSelectedSP] = useState(null);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(15);
 
   const { data: allSPs = [], isLoading } = useQuery({
     queryKey: ['supplier-product-catalog'],
@@ -121,7 +124,7 @@ export default function SupplierProductCatalog() {
         ].map(tab => (
           <button
             key={tab.key}
-            onClick={() => { setStatusFilter(tab.key); setSourceFilter('all'); }}
+            onClick={() => { setStatusFilter(tab.key); setSourceFilter('all'); setPage(0); }}
             className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
               statusFilter === tab.key && sourceFilter === 'all'
                 ? 'bg-primary/10 text-primary ring-2 ring-primary/30'
@@ -133,7 +136,7 @@ export default function SupplierProductCatalog() {
         ))}
         <span className="w-px bg-border mx-1" />
         <button
-          onClick={() => { setSourceFilter(sourceFilter === 'ai' ? 'all' : 'ai'); setStatusFilter('all'); }}
+          onClick={() => { setSourceFilter(sourceFilter === 'ai' ? 'all' : 'ai'); setStatusFilter('all'); setPage(0); }}
           className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all flex items-center gap-1.5 ${
             sourceFilter === 'ai'
               ? 'bg-violet-100 text-violet-700 ring-2 ring-violet-300'
@@ -144,7 +147,7 @@ export default function SupplierProductCatalog() {
         </button>
         {mismatchCount > 0 && (
           <button
-            onClick={() => { setSourceFilter(sourceFilter === 'mismatch' ? 'all' : 'mismatch'); setStatusFilter('all'); }}
+            onClick={() => { setSourceFilter(sourceFilter === 'mismatch' ? 'all' : 'mismatch'); setStatusFilter('all'); setPage(0); }}
             className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all flex items-center gap-1.5 ${
               sourceFilter === 'mismatch'
                 ? 'bg-orange-100 text-orange-700 ring-2 ring-orange-300'
@@ -163,7 +166,7 @@ export default function SupplierProductCatalog() {
           <Input
             placeholder="Search product, supplier, SKU, Xero code..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setPage(0); }}
             className="pl-9"
           />
         </div>
@@ -198,18 +201,18 @@ export default function SupplierProductCatalog() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.slice(0, 15).map(sp => (
+              {filtered.slice(page * pageSize, (page + 1) * pageSize).map(sp => (
                 <SupplierProductRow key={sp.id} sp={sp} onClick={setSelectedSP} mismatch={hasMismatch(sp)} aiEnriched={isAiEnriched(sp)} />
               ))}
             </tbody>
           </table>
-          {filtered.length > 15 && (
-            <div className="px-4 py-2 bg-muted/30 border-t border-border text-center">
-              <p className="text-xs text-muted-foreground">
-                Showing 15 of {filtered.length} — use search to narrow results
-              </p>
-            </div>
-          )}
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={filtered.length}
+            onPageChange={setPage}
+            onPageSizeChange={v => { setPageSize(v); setPage(0); }}
+          />
         </div>
       )}
 
