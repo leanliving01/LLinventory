@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, X, Plus, Link2 } from 'lucide-react';
+import { Search, X, Plus, Link2, AlertTriangle, Sparkles } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -28,6 +28,7 @@ export default function SupplierProductCatalog() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
+  const [sourceFilter, setSourceFilter] = useState('all'); // 'all' | 'ai' | 'mismatch'
   const [showCreate, setShowCreate] = useState(false);
   const [selectedSP, setSelectedSP] = useState(null);
 
@@ -36,10 +37,35 @@ export default function SupplierProductCatalog() {
     queryFn: () => base44.entities.SupplierProduct.list('product_name', 500),
   });
 
+  // Load products to cross-check stock_uom for mismatch detection
+  const { data: products = [] } = useQuery({
+    queryKey: ['products-for-sp-check'],
+    queryFn: () => base44.entities.Product.list('sku', 1000),
+    enabled: allSPs.length > 0,
+  });
+  const productMap = useMemo(() => {
+    const m = {};
+    for (const p of products) m[p.id] = p;
+    return m;
+  }, [products]);
+
+  // Detect UoM mismatches — conversion_uom should match the product's stock_uom
+  const VALID_UOMS = new Set(['g', 'kg', 'ml', 'L', 'pcs', 'box']);
+  const hasMismatch = (sp) => {
+    if (!VALID_UOMS.has(sp.conversion_uom)) return true; // non-standard conversion_uom like "case of 6"
+    const product = productMap[sp.product_id];
+    if (product && product.stock_uom && sp.conversion_uom !== product.stock_uom) return true; // conversion_uom ≠ stock_uom
+    return false;
+  };
+
+  const isAiEnriched = (sp) => (sp.notes || '').startsWith('AI-enriched');
+
   const filtered = useMemo(() => {
     return allSPs.filter(sp => {
       if (statusFilter === 'active' && sp.active === false) return false;
       if (statusFilter === 'inactive' && sp.active !== false) return false;
+      if (sourceFilter === 'ai' && !isAiEnriched(sp)) return false;
+      if (sourceFilter === 'mismatch' && !hasMismatch(sp)) return false;
       if (search) {
         const q = search.toLowerCase();
         return (sp.product_name || '').toLowerCase().includes(q) ||
@@ -50,10 +76,12 @@ export default function SupplierProductCatalog() {
       }
       return true;
     });
-  }, [allSPs, search, statusFilter]);
+  }, [allSPs, search, statusFilter, sourceFilter, productMap]);
 
   const activeCount = allSPs.filter(sp => sp.active !== false).length;
   const inactiveCount = allSPs.length - activeCount;
+  const aiCount = allSPs.filter(isAiEnriched).length;
+  const mismatchCount = allSPs.filter(hasMismatch).length;
 
   const handleUpdated = () => {
     queryClient.invalidateQueries({ queryKey: ['supplier-product-catalog'] });
@@ -85,7 +113,7 @@ export default function SupplierProductCatalog() {
       <PageHelp items={HELP_ITEMS} />
 
       {/* Status chips */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         {[
           { key: 'active', label: 'Active', count: activeCount },
           { key: 'inactive', label: 'Inactive', count: inactiveCount },
@@ -93,9 +121,9 @@ export default function SupplierProductCatalog() {
         ].map(tab => (
           <button
             key={tab.key}
-            onClick={() => setStatusFilter(tab.key)}
+            onClick={() => { setStatusFilter(tab.key); setSourceFilter('all'); }}
             className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
-              statusFilter === tab.key
+              statusFilter === tab.key && sourceFilter === 'all'
                 ? 'bg-primary/10 text-primary ring-2 ring-primary/30'
                 : 'bg-muted text-muted-foreground hover:bg-muted/80'
             }`}
@@ -103,6 +131,29 @@ export default function SupplierProductCatalog() {
             {tab.label} ({tab.count})
           </button>
         ))}
+        <span className="w-px bg-border mx-1" />
+        <button
+          onClick={() => { setSourceFilter(sourceFilter === 'ai' ? 'all' : 'ai'); setStatusFilter('all'); }}
+          className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all flex items-center gap-1.5 ${
+            sourceFilter === 'ai'
+              ? 'bg-violet-100 text-violet-700 ring-2 ring-violet-300'
+              : 'bg-muted text-muted-foreground hover:bg-muted/80'
+          }`}
+        >
+          <Sparkles className="w-3 h-3" /> AI Enriched ({aiCount})
+        </button>
+        {mismatchCount > 0 && (
+          <button
+            onClick={() => { setSourceFilter(sourceFilter === 'mismatch' ? 'all' : 'mismatch'); setStatusFilter('all'); }}
+            className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all flex items-center gap-1.5 ${
+              sourceFilter === 'mismatch'
+                ? 'bg-orange-100 text-orange-700 ring-2 ring-orange-300'
+                : 'bg-orange-50 text-orange-600 hover:bg-orange-100'
+            }`}
+          >
+            <AlertTriangle className="w-3 h-3" /> UoM Mismatch ({mismatchCount})
+          </button>
+        )}
       </div>
 
       {/* Search */}
@@ -148,7 +199,7 @@ export default function SupplierProductCatalog() {
             </thead>
             <tbody className="divide-y divide-border">
               {filtered.slice(0, 15).map(sp => (
-                <SupplierProductRow key={sp.id} sp={sp} onClick={setSelectedSP} />
+                <SupplierProductRow key={sp.id} sp={sp} onClick={setSelectedSP} mismatch={hasMismatch(sp)} aiEnriched={isAiEnriched(sp)} />
               ))}
             </tbody>
           </table>
