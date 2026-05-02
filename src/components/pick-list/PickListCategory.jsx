@@ -7,7 +7,7 @@ import { CheckCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
-export default function PickListCategory({ category, items, pickedState, stockMap, onTogglePicked, onQtyChange, onMarkAll, disabled = false }) {
+export default function PickListCategory({ category, items, pickedState, stockMap, onTogglePicked, onQtyChange, onMarkAll, disabled = false, isConfirmed = false }) {
   const allPicked = items.every(i => {
     const s = pickedState[i.product.id];
     return s?.picked && s?.qty && Number(s.qty) > 0;
@@ -95,7 +95,9 @@ export default function PickListCategory({ category, items, pickedState, stockMa
                     {inStock !== null ? inStock.toLocaleString() : '—'}
                   </td>
                   <td className="px-4 py-2 text-center print:hidden">
-                    {state.picked && !disabled ? (
+                    {isConfirmed && state.picked ? (
+                      <span className="font-bold tabular-nums text-green-700">{state.qty || item.totalQty}</span>
+                    ) : state.picked && !disabled ? (
                       <div className="space-y-1">
                         <Input
                           type="number"

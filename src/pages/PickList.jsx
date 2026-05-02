@@ -65,6 +65,18 @@ export default function PickList() {
   const [confirmingPick, setConfirmingPick] = useState(false);
   const queryClient = useQueryClient();
 
+  // After confirmation, populate pickedState from the pick items so the UI shows green checks + qty
+  const isConfirmed = !!run?.pick_list_confirmed;
+  const effectivePickedState = useMemo(() => {
+    if (!isConfirmed) return pickedState;
+    // Show all items as picked with their required qty (confirmation only succeeds when all are met)
+    const state = {};
+    pickItems.forEach(item => {
+      state[item.product.id] = { picked: true, qty: String(item.totalQty) };
+    });
+    return state;
+  }, [isConfirmed, pickedState, pickItems]);
+
   // Inline barcode scanner state
   const [scanInput, setScanInput] = useState('');
   const [lastScanned, setLastScanned] = useState(null);
@@ -170,7 +182,7 @@ export default function PickList() {
   }, [lines, boms, bomComponents, products]);
 
   const pickedCount = pickItems.filter(i => {
-    const s = pickedState[i.product.id];
+    const s = effectivePickedState[i.product.id];
     return s?.picked && s?.qty && Number(s.qty) > 0;
   }).length;
 
@@ -314,18 +326,25 @@ export default function PickList() {
     }
 
     // Decrement StockOnHand for consumed ingredients
+    // Pick from the location with the MOST stock first, then deduct remainder from next
     const sohRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
     for (const item of pickItems) {
       const state = pickedState[item.product.id];
-      const qty = Number(state?.qty) || item.totalQty;
-      const existing = sohRecords.find(s => s.product_id === item.product.id);
-      if (existing) {
-        const newOnHand = Math.max(0, (existing.qty_on_hand || 0) - qty);
-        await base44.entities.StockOnHand.update(existing.id, {
+      let remaining = Number(state?.qty) || item.totalQty;
+      // Get all SOH records for this product, sorted by qty_on_hand descending
+      const productSoh = sohRecords
+        .filter(s => s.product_id === item.product.id && (s.qty_on_hand || 0) > 0)
+        .sort((a, b) => (b.qty_on_hand || 0) - (a.qty_on_hand || 0));
+      for (const soh of productSoh) {
+        if (remaining <= 0) break;
+        const deduct = Math.min(remaining, soh.qty_on_hand || 0);
+        const newOnHand = Math.max(0, (soh.qty_on_hand || 0) - deduct);
+        await base44.entities.StockOnHand.update(soh.id, {
           qty_on_hand: newOnHand,
-          qty_available: newOnHand - (existing.qty_committed || 0),
+          qty_available: newOnHand - (soh.qty_committed || 0),
           last_updated_at: new Date().toISOString(),
         });
+        remaining -= deduct;
       }
     }
 
@@ -461,12 +480,13 @@ export default function PickList() {
           key={cat}
           category={cat}
           items={pickItems.filter(i => i.pickCategory === cat)}
-          pickedState={pickedState}
+          pickedState={effectivePickedState}
           stockMap={stockMap}
           onTogglePicked={handleTogglePicked}
           onQtyChange={handleQtyChange}
           onMarkAll={handleMarkAll}
           disabled={!run.picking_started_at || run.pick_list_confirmed}
+          isConfirmed={isConfirmed}
         />
       ))}
 
