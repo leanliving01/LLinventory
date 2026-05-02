@@ -119,6 +119,7 @@ export const PERMISSION_GROUPS = [
       { key: 'shopify_sync',    label: 'Shopify Sync' },
       { key: 'settings',        label: 'Settings' },
       { key: 'user_management', label: 'User Management' },
+      { key: 'activity_log_view', label: 'View Activity Log' },
     ],
   },
 ];
@@ -150,7 +151,7 @@ export const ROLE_DEFAULTS = {
     'po_view', 'po_create', 'po_approve', 'grn_create', 'blind_receipt_create', 'product_review', 'product_create_from_queue', 'returns_process', 'supplier_product_edit', 'xero_invoice_sync', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'price_variance_view', 'three_way_match_view',
     'sales_view', 'sales_fulfill', 'customers',
     'reports_view', 'reports_costs', 'reports_team', 'forecasting', 'food_cost_view', 'food_cost_run',
-    'equipment', 'shopify_sync', 'supplier_scorecard',
+    'equipment', 'shopify_sync', 'supplier_scorecard', 'activity_log_view',
   ),
 
   kitchen_manager: p(

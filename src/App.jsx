@@ -73,6 +73,7 @@ import ThreeWayMatch from '@/pages/ThreeWayMatch';
 import PurchasingDashboard from '@/pages/PurchasingDashboard';
 import FoodCostDashboard from '@/pages/FoodCostDashboard';
 import SupplierScorecard from '@/pages/SupplierScorecard';
+import ActivityLog from '@/pages/ActivityLog';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -173,6 +174,7 @@ const AuthenticatedApp = () => {
         <Route path="/reports/forecasting" element={<TrendForecasting />} />
         <Route path="/reports/food-cost" element={<FoodCostDashboard />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/activity-log" element={<ActivityLog />} />
         {/* Redirects for old routes */}
         <Route path="/stock" element={<Navigate to="/stock/receive" replace />} />
         <Route path="/master-data" element={<Navigate to="/catalog" replace />} />

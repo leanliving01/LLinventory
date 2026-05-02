@@ -32,7 +32,8 @@ import {
   Search,
   Bug,
   DollarSign,
-  Award
+  Award,
+  ScrollText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
@@ -96,6 +97,7 @@ const PATH_PERMISSION_MAP = {
   '/floor/receive': 'receiving',
   '/floor/scan': 'catalog_view',
   '/settings': 'settings',
+  '/activity-log': 'activity_log_view',
 };
 
 const navItems = [
@@ -169,6 +171,7 @@ const navItems = [
       { label: 'Quick Scan', path: '/floor/scan', icon: Barcode },
     ]
   },
+  { label: 'Activity Log', path: '/activity-log', icon: ScrollText },
   { label: 'Bugs', path: '/bugs', icon: Bug },
   { label: 'Settings', path: '/settings', icon: Settings },
 ];

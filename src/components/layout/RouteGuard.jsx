@@ -64,6 +64,7 @@ const ROUTE_PERMISSIONS = {
   '/production/yield-review':'yield_review',
   '/production/supplier-yield':'supplier_yield_view',
   '/production/wip-planning':'wip_planning',
+  '/activity-log':          'activity_log_view',
 };
 
 function getRequiredPermission(pathname) {
