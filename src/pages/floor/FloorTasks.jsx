@@ -16,6 +16,7 @@ import FloorTaskDetail from '@/pages/floor/FloorTaskDetail';
 import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
 import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
 import DependencyBlockModal from '@/components/kitchen/DependencyBlockModal';
+import RunCompleteBanner from '@/components/floor/RunCompleteBanner';
 
 const STATIONS = [
   { id: 'prep', label: 'Prep', icon: Utensils, color: 'bg-blue-500' },
@@ -338,8 +339,16 @@ export default function FloorTasks() {
 
   const currentStation = STATIONS.find(s => s.id === selectedStation);
 
+  // Check if ALL tasks across all stations are done
+  const allTasksDone = tasks.length > 0 && tasks.every(t => t.status === 'done');
+
   return (
     <div className="space-y-3">
+      {/* All tasks complete banner */}
+      {allTasksDone && (
+        <RunCompleteBanner runId={selectedRunId} runNumber={selectedRun?.run_number} />
+      )}
+
       {/* Run header */}
       <div className="flex items-center justify-between">
         <div>
