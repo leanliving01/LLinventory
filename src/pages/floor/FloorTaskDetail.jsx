@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -28,8 +28,23 @@ const TABS = [
  */
 export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack, onDone, loading }) {
   const [activeTab, setActiveTab] = useState('consume');
+  const [flushing, setFlushing] = useState(false);
+  const consumeRef = useRef(null);
   const isActive = task.status === 'in_progress';
   const isPaused = task.status === 'paused';
+
+  // Callback to receive ConsumeTab's methods via onRef
+  const handleConsumeRef = useCallback((ref) => { consumeRef.current = ref; }, []);
+
+  // Flush pending saves before opening Done modal
+  const handleDone = async (t) => {
+    if (consumeRef.current?.flushPendingSaves) {
+      setFlushing(true);
+      await consumeRef.current.flushPendingSaves();
+      setFlushing(false);
+    }
+    onDone(t);
+  };
 
   // Fetch BOM for this product + station.
   // Prep and cook tasks both belong to the Cook BOM layer. Portion tasks use their own Portion BOM.
@@ -142,7 +157,7 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
 
       {/* Tab content */}
       <div className="min-h-[200px]">
-        {activeTab === 'consume' && <ConsumeTab task={task} bom={bom} components={components} />}
+        {activeTab === 'consume' && <ConsumeTab task={task} bom={bom} components={components} onRef={handleConsumeRef} />}
         {activeTab === 'resources' && <ResourcesTab task={task} operations={operations} />}
         {activeTab === 'notes' && <NotesTab task={task} bom={bom} operations={operations} />}
         {activeTab === 'files' && <FilesTab bom={bom} />}
@@ -158,9 +173,9 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
               className="h-14 flex-1 gap-2 text-lg font-bold rounded-xl">
               <Pause className="w-6 h-6" /> Pause
             </Button>
-            <Button disabled={loading} onClick={() => onDone(task)}
+            <Button disabled={loading || flushing} onClick={() => handleDone(task)}
               className="h-14 flex-1 gap-2 text-lg font-bold bg-green-600 hover:bg-green-700 rounded-xl text-white">
-              <CheckCircle2 className="w-6 h-6" /> Done
+              {flushing ? <><span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Saving...</> : <><CheckCircle2 className="w-6 h-6" /> Done</>}
             </Button>
           </>
         )}

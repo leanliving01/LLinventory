@@ -9,10 +9,12 @@ import { toast } from 'sonner';
 
 /**
  * "To Consume" tab — shows BOM components with Required / Consumed / Wastage fields.
- * Auto-saves each row individually on field change (debounced 800ms).
+ * Auto-saves each row individually on field change (debounced 300ms).
  * Data persists across navigation — no manual Save button needed.
+ *
+ * Exposes `flushPendingSaves()` via ref so parent can force-save before task completion.
  */
-export default function ConsumeTab({ task, bom, components }) {
+export default function ConsumeTab({ task, bom, components, onRef }) {
   const queryClient = useQueryClient();
   const scale = bom?.yield_qty ? (task.qty || 1) / bom.yield_qty : 1;
 
@@ -90,7 +92,31 @@ export default function ConsumeTab({ task, bom, components }) {
     }, 2000);
   }, [task.id, task.run_id]);
 
-  // Field change — schedule 800ms backup save (cancelled if blur fires first)
+  // Flush all pending debounced saves immediately — call before unmount or task completion
+  const flushPendingSaves = useCallback(async () => {
+    const pending = Object.keys(debounceTimers.current);
+    const promises = [];
+    for (const compId of pending) {
+      clearTimeout(debounceTimers.current[compId]);
+      delete debounceTimers.current[compId];
+      const comp = scaledComponents.find(c => c.id === compId);
+      if (comp && valuesRef.current[compId]) {
+        promises.push(saveRow(comp, valuesRef.current[compId]));
+      }
+    }
+    if (promises.length > 0) await Promise.all(promises);
+  }, [scaledComponents, saveRow]);
+
+  // Keep a ref to current values so flush can read latest without stale closure
+  const valuesRef = useRef(values);
+  useEffect(() => { valuesRef.current = values; }, [values]);
+
+  // Expose flushPendingSaves to parent via onRef callback
+  useEffect(() => {
+    if (onRef) onRef({ flushPendingSaves });
+  }, [onRef, flushPendingSaves]);
+
+  // Field change — schedule 300ms backup save (cancelled if blur fires first)
   const updateField = (compId, field, val) => {
     setValues(prev => {
       const next = {
@@ -103,7 +129,7 @@ export default function ConsumeTab({ task, bom, components }) {
         debounceTimers.current[compId] = setTimeout(() => {
           const comp = scaledComponents.find(c => c.id === compId);
           if (comp) saveRow(comp, next[compId]);
-        }, 800);
+        }, 300);
       }
       return next;
     });
@@ -133,12 +159,22 @@ export default function ConsumeTab({ task, bom, components }) {
     toast.success('All set to required and saved');
   };
 
-  // Cleanup timers on unmount
+  // Flush pending saves on unmount (so nothing is lost when navigating away)
   useEffect(() => {
     return () => {
-      Object.values(debounceTimers.current).forEach(clearTimeout);
+      // Fire all pending saves before cleanup
+      const pending = Object.keys(debounceTimers.current);
+      for (const compId of pending) {
+        clearTimeout(debounceTimers.current[compId]);
+        const comp = scaledComponents.find(c => c.id === compId);
+        if (comp && valuesRef.current[compId]) {
+          // Fire-and-forget on unmount
+          saveRow(comp, valuesRef.current[compId]);
+        }
+      }
+      debounceTimers.current = {};
     };
-  }, []);
+  }, [scaledComponents, saveRow]);
 
   if (scaledComponents.length === 0) {
     return (
