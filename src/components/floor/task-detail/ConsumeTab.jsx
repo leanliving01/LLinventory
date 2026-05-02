@@ -90,14 +90,14 @@ export default function ConsumeTab({ task, bom, components }) {
     }, 2000);
   }, [task.id, task.run_id]);
 
-  // Debounced field change — triggers auto-save for that row
+  // Field change — schedule 800ms backup save (cancelled if blur fires first)
   const updateField = (compId, field, val) => {
     setValues(prev => {
       const next = {
         ...prev,
         [compId]: { ...prev[compId], [field]: val },
       };
-      // Schedule debounced save
+      // Schedule debounced backup save
       if (seeded.current) {
         clearTimeout(debounceTimers.current[compId]);
         debounceTimers.current[compId] = setTimeout(() => {
@@ -107,6 +107,15 @@ export default function ConsumeTab({ task, bom, components }) {
       }
       return next;
     });
+  };
+
+  // Primary save trigger: blur (user taps out of the field)
+  const handleBlur = (compId) => {
+    if (!seeded.current) return;
+    // Cancel any pending debounce — blur takes priority
+    clearTimeout(debounceTimers.current[compId]);
+    const comp = scaledComponents.find(c => c.id === compId);
+    if (comp) saveRow(comp, values[compId]);
   };
 
   // Auto-consume: set all consumed = required and save all immediately
@@ -180,6 +189,7 @@ export default function ConsumeTab({ task, bom, components }) {
                 inputMode="decimal"
                 value={v.consumed}
                 onChange={(e) => updateField(c.id, 'consumed', e.target.value)}
+                onBlur={() => handleBlur(c.id)}
                 className="h-10 w-28 text-right tabular-nums font-semibold"
                 placeholder="0"
               />
@@ -192,6 +202,7 @@ export default function ConsumeTab({ task, bom, components }) {
                 inputMode="decimal"
                 value={v.wastage}
                 onChange={(e) => updateField(c.id, 'wastage', e.target.value)}
+                onBlur={() => handleBlur(c.id)}
                 className="h-10 w-28 text-right tabular-nums font-semibold"
                 placeholder="0"
               />
