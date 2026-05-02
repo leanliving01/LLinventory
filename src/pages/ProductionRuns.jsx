@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Factory, ChevronRight, Plus } from 'lucide-react';
 import HelpDrawer from '@/components/help/HelpDrawer';
-import { format } from 'date-fns';
+import { formatDateSAST } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
@@ -111,7 +111,7 @@ function RunSection({ title, runs, defaultCollapsed = false }) {
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {run.run_date ? format(new Date(run.run_date), 'dd MMM yyyy') : '—'} · {run.total_lines || 0} meals · {run.total_units || 0} units
+                  {run.run_date ? formatDateSAST(run.run_date) : '—'} · {run.total_lines || 0} meals · {run.total_units || 0} units
                 </p>
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />

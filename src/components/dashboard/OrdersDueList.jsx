@@ -1,6 +1,7 @@
 import React from 'react';
 import { ShoppingCart } from 'lucide-react';
-import { format, isToday, isTomorrow } from 'date-fns';
+import { isToday, isTomorrow } from 'date-fns';
+import { formatDateSAST } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 
@@ -55,7 +56,7 @@ export default function OrdersDueList({ orders }) {
             <div className="text-right shrink-0 ml-2">
               <p className="text-sm font-semibold tabular-nums">{o.total_meals || 0} meals</p>
               <p className="text-[10px] text-muted-foreground">
-                {o.orderDate ? format(o.orderDate, 'dd MMM') : '—'}
+                {o.orderDate ? formatDateSAST(o.orderDate) : '—'}
               </p>
             </div>
           </div>

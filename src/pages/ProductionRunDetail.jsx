@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3, RefreshCw, Trash2 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatDateSAST, formatTimeSAST } from '@/lib/dateUtils';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import RunLineTable from '@/components/production/RunLineTable';
@@ -656,21 +656,21 @@ export default function ProductionRunDetail() {
             <Badge className={cn(STATUS_STYLES[run.status])}>{run.status?.replace('_', ' ')}</Badge>
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
-            <span className="text-sm text-muted-foreground">{run.run_date ? format(new Date(run.run_date), 'dd MMM yyyy') : '—'}</span>
+            <span className="text-sm text-muted-foreground">{run.run_date ? formatDateSAST(run.run_date) : '—'}</span>
             <span className="text-sm text-muted-foreground">·</span>
             <span className="text-sm text-muted-foreground">{lines.length} meals · {run.total_units} planned units</span>
             {run.started_at && (
               <>
                 <span className="text-sm text-muted-foreground">·</span>
                 <Badge variant="outline" className="text-xs font-mono gap-1">
-                  Started {format(new Date(run.started_at), 'HH:mm')}
+                  Started {formatTimeSAST(run.started_at)}
                 </Badge>
               </>
             )}
             {run.completed_at && (
               <>
                 <Badge variant="outline" className="text-xs font-mono gap-1 bg-green-50 text-green-700 border-green-200">
-                  Finished {format(new Date(run.completed_at), 'HH:mm')}
+                  Finished {formatTimeSAST(run.completed_at)}
                 </Badge>
                 <Badge variant="outline" className="text-xs font-mono gap-1">
                   Duration: {(() => {

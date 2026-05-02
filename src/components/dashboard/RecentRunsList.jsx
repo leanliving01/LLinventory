@@ -1,7 +1,7 @@
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Factory } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatDateSAST } from '@/lib/dateUtils';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { STATUS_COLORS } from '@/lib/getKpiStatus';
@@ -47,9 +47,9 @@ export default function RecentRunsList({ runs }) {
                   <Factory className={cn("w-4 h-4", colors.icon)} strokeWidth={1.5} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{run.run_number || format(new Date(run.run_date), 'dd MMM yyyy')}</p>
+                  <p className="text-sm font-medium truncate">{run.run_number || formatDateSAST(run.run_date)}</p>
                   <p className="text-[11px] text-muted-foreground tabular-nums">
-                    {run.run_date ? format(new Date(run.run_date), 'dd MMM') : '—'} · {run.total_units || 0} units
+                    {run.run_date ? formatDateSAST(run.run_date) : '—'} · {run.total_units || 0} units
                   </p>
                 </div>
               </div>

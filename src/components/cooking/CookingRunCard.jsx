@@ -2,7 +2,7 @@ import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ChevronRight, CookingPot, Clock, Scale, User } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatDateSAST } from '@/lib/dateUtils';
 
 const STATUS_STYLES = {
   draft: 'bg-gray-100 text-gray-600',
@@ -51,7 +51,7 @@ export default function CookingRunCard({ run, onClick }) {
       <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground flex-wrap">
         <span className="flex items-center gap-1">
           <Clock className="w-3.5 h-3.5" />
-          {run.run_date ? format(new Date(run.run_date + 'T00:00'), 'dd MMM') : '—'}
+          {run.run_date ? formatDateSAST(run.run_date + 'T00:00') : '—'}
         </span>
         <span className="flex items-center gap-1">
           <Scale className="w-3.5 h-3.5" />

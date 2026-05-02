@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
-import { format } from 'date-fns';
+// date-fns format removed — using toISOString for date-only strings
 
 const QS_STYLES = {
   fresh: 'bg-green-100 text-green-700',
@@ -53,7 +53,7 @@ export default function WipBatchDrawer({ batch, onClose, onUpdated }) {
     if (!qcResult) { toast.error('Select a result'); return; }
     setSaving(true);
 
-    const today = format(new Date(), 'yyyy-MM-dd');
+    const today = new Date().toISOString().slice(0, 10);
     await base44.entities.WipQualityCheck.create({
       wip_batch_id: batch.id,
       check_date: today,

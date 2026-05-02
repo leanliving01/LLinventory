@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Package } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
-import { format } from 'date-fns';
+import { formatDateTimeSAST } from '@/lib/dateUtils';
 import PackageComponentsPopup from './PackageComponentsPopup';
 
 const lifecycleColors = {
@@ -116,7 +116,7 @@ export default function SalesOrderRow({ order }) {
         <span className="hidden md:inline font-semibold text-sm w-28 shrink-0">{order.order_number || order.shopify_order_id}</span>
         <span className="hidden md:inline text-sm w-40 truncate shrink-0">{order.customer_name || '—'}</span>
         <span className="hidden md:inline text-sm text-muted-foreground w-36 shrink-0">
-          {orderDate ? format(orderDate, 'dd MMM yyyy HH:mm') : '—'}
+          {orderDate ? formatDateTimeSAST(orderDate) : '—'}
         </span>
         <div className="hidden md:flex items-center gap-1.5 flex-1 min-w-[180px]">
           <Badge className={`text-[11px] ${getPackColor(order)}`}>

@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, Play, CheckCircle2, Loader2, Scale, AlertTriangle, Plus, Trash2, Clock } from 'lucide-react';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
 import WastageEventForm from './WastageEventForm';
 
 const STATUS_STYLES = {

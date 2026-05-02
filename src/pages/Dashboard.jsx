@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { format, subDays, isWithinInterval, startOfDay, isToday, isTomorrow, differenceInDays } from 'date-fns';
+import { subDays, isWithinInterval, startOfDay, isToday, isTomorrow } from 'date-fns';
 import { Clock } from 'lucide-react';
+import { formatDateSAST, formatTimeSAST } from '@/lib/dateUtils';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -229,12 +230,12 @@ export default function Dashboard() {
         <div>
           <h1 className="text-xl font-semibold text-foreground">Operations Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {format(new Date(), 'EEEE, d MMMM yyyy')}
+            {formatDateSAST(new Date())}
           </p>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
           <Clock className="w-3.5 h-3.5" strokeWidth={1.5} />
-          Updated {format(new Date(), 'HH:mm')}
+          Updated {formatTimeSAST(new Date())}
         </div>
       </div>
 

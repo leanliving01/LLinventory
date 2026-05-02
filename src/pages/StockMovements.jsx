@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { ArrowRightLeft, Search, ChevronLeft, ChevronRight, Download } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatDateTimeSAST, formatDateSAST } from '@/lib/dateUtils';
 import MovementRow from '@/components/movements/MovementRow';
 import { exportMovementsCSV } from '@/lib/csvExport';
 
@@ -59,7 +59,7 @@ export default function StockMovements() {
   const handleExport = () => {
     if (movements.length === 0) return;
     const rows = filtered.map(m => ({
-      Date: format(new Date(m.created_date), 'yyyy-MM-dd HH:mm'),
+      Date: formatDateTimeSAST(m.created_date),
       SKU: m.product_sku || '',
       Product: m.product_name || '',
       Reason: m.reason || '',
@@ -68,7 +68,7 @@ export default function StockMovements() {
       Reference: m.ref_number || '',
       Notes: m.notes || '',
     }));
-    exportMovementsCSV(rows, `stock-movements-${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    exportMovementsCSV(rows, `stock-movements-${new Date().toISOString().slice(0, 10)}.csv`);
   };
 
   return (

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { ArrowDownRight, ArrowUpRight, ArrowLeftRight } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatDateTimeSAST } from '@/lib/dateUtils';
 import { Link } from 'react-router-dom';
 
 const REASON_LABELS = {
@@ -59,7 +59,7 @@ export default function MovementRow({ movement: m, showProduct = false }) {
         <DirectionIcon reason={m.reason} fromLoc={m.from_location_id} />
       </td>
       <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-        {format(new Date(m.created_date), 'dd MMM yyyy HH:mm')}
+        {formatDateTimeSAST(m.created_date)}
       </td>
       {showProduct && (
         <td className="px-3 py-2.5">
