@@ -1,15 +1,16 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Package, Zap } from 'lucide-react';
+import { Zap, Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 /**
  * "To Consume" tab — shows BOM components with Required / Consumed / Wastage fields.
- * Staff can edit consumed & wastage. Auto-consume sets consumed = required for all.
+ * Auto-saves each row individually on field change (debounced 800ms).
+ * Data persists across navigation — no manual Save button needed.
  */
 export default function ConsumeTab({ task, bom, components }) {
   const queryClient = useQueryClient();
@@ -30,9 +31,13 @@ export default function ConsumeTab({ task, bom, components }) {
     enabled: !!task.id,
   });
 
-  // Local state: { [bom_component_id]: { consumed, wastage } }
+  // Local state: { [bom_component_id]: { consumed, wastage, recordId } }
   const [values, setValues] = useState({});
-  const [saving, setSaving] = useState(false);
+  // Track per-row save status: 'idle' | 'saving' | 'saved'
+  const [rowStatus, setRowStatus] = useState({});
+  const debounceTimers = useRef({});
+  // Track whether initial seed has happened (don't auto-save on seed)
+  const seeded = useRef(false);
 
   // Seed local state from existing records
   useEffect(() => {
@@ -41,56 +46,90 @@ export default function ConsumeTab({ task, bom, components }) {
     scaledComponents.forEach(c => {
       const rec = existing.find(e => e.bom_component_id === c.id);
       map[c.id] = {
-        consumed: rec ? rec.consumed_qty : 0,
-        wastage: rec ? rec.wastage_qty : 0,
+        consumed: rec ? String(rec.consumed_qty) : '',
+        wastage: rec ? String(rec.wastage_qty) : '',
         recordId: rec?.id || null,
       };
     });
+    seeded.current = false;
     setValues(map);
+    // Mark seeded after state settles
+    setTimeout(() => { seeded.current = true; }, 100);
   }, [existing, scaledComponents]);
 
+  // Save a single row to the database
+  const saveRow = useCallback(async (comp, rowValues) => {
+    const v = rowValues || { consumed: '', wastage: '', recordId: null };
+    setRowStatus(prev => ({ ...prev, [comp.id]: 'saving' }));
+    const data = {
+      task_id: task.id,
+      run_id: task.run_id,
+      bom_component_id: comp.id,
+      input_product_id: comp.input_product_id,
+      input_product_sku: comp.input_product_sku || '',
+      input_product_name: comp.input_product_name || '',
+      required_qty: comp.required,
+      consumed_qty: parseFloat(v.consumed) || 0,
+      wastage_qty: parseFloat(v.wastage) || 0,
+      uom: comp.uom,
+    };
+    if (v.recordId) {
+      await base44.entities.TaskConsumption.update(v.recordId, data);
+    } else {
+      const created = await base44.entities.TaskConsumption.create(data);
+      // Store the new record ID so subsequent saves are updates
+      setValues(prev => ({
+        ...prev,
+        [comp.id]: { ...prev[comp.id], recordId: created.id },
+      }));
+    }
+    setRowStatus(prev => ({ ...prev, [comp.id]: 'saved' }));
+    // Reset status after 2s
+    setTimeout(() => {
+      setRowStatus(prev => ({ ...prev, [comp.id]: 'idle' }));
+    }, 2000);
+  }, [task.id, task.run_id]);
+
+  // Debounced field change — triggers auto-save for that row
   const updateField = (compId, field, val) => {
-    // Keep raw string so user can type trailing zeros (e.g. 0.500)
-    setValues(prev => ({
-      ...prev,
-      [compId]: { ...prev[compId], [field]: val },
-    }));
-  };
-
-  const autoConsume = () => {
-    const map = {};
-    scaledComponents.forEach(c => {
-      map[c.id] = { ...values[c.id], consumed: c.required };
-    });
-    setValues(map);
-  };
-
-  const saveAll = async () => {
-    setSaving(true);
-    for (const comp of scaledComponents) {
-      const v = values[comp.id] || { consumed: 0, wastage: 0 };
-      const data = {
-        task_id: task.id,
-        run_id: task.run_id,
-        bom_component_id: comp.id,
-        input_product_id: comp.input_product_id,
-        input_product_sku: comp.input_product_sku || '',
-        input_product_name: comp.input_product_name || '',
-        required_qty: comp.required,
-        consumed_qty: parseFloat(v.consumed) || 0,
-        wastage_qty: parseFloat(v.wastage) || 0,
-        uom: comp.uom,
+    setValues(prev => {
+      const next = {
+        ...prev,
+        [compId]: { ...prev[compId], [field]: val },
       };
-      if (v.recordId) {
-        await base44.entities.TaskConsumption.update(v.recordId, data);
-      } else {
-        await base44.entities.TaskConsumption.create(data);
+      // Schedule debounced save
+      if (seeded.current) {
+        clearTimeout(debounceTimers.current[compId]);
+        debounceTimers.current[compId] = setTimeout(() => {
+          const comp = scaledComponents.find(c => c.id === compId);
+          if (comp) saveRow(comp, next[compId]);
+        }, 800);
       }
+      return next;
+    });
+  };
+
+  // Auto-consume: set all consumed = required and save all immediately
+  const autoConsume = async () => {
+    const next = {};
+    scaledComponents.forEach(c => {
+      next[c.id] = { ...values[c.id], consumed: String(c.required) };
+    });
+    setValues(next);
+    // Save all rows
+    for (const comp of scaledComponents) {
+      await saveRow(comp, next[comp.id]);
     }
     queryClient.invalidateQueries({ queryKey: ['task-consumption', task.id] });
-    setSaving(false);
-    toast.success('Consumption saved');
+    toast.success('All set to required and saved');
   };
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(debounceTimers.current).forEach(clearTimeout);
+    };
+  }, []);
 
   if (scaledComponents.length === 0) {
     return (
@@ -107,9 +146,14 @@ export default function ConsumeTab({ task, bom, components }) {
         <Zap className="w-4 h-4" /> Auto-consume (set all to required)
       </Button>
 
+      <p className="text-[11px] text-muted-foreground text-center">
+        Changes auto-save — no need to press a save button
+      </p>
+
       {/* Component rows */}
       {scaledComponents.map(c => {
-        const v = values[c.id] || { consumed: 0, wastage: 0 };
+        const v = values[c.id] || { consumed: '', wastage: '' };
+        const status = rowStatus[c.id] || 'idle';
         return (
           <div key={c.id} className="bg-card border rounded-2xl p-4 space-y-2">
             <div className="flex items-start justify-between gap-2">
@@ -117,9 +161,13 @@ export default function ConsumeTab({ task, bom, components }) {
                 <p className="font-semibold text-sm">{c.input_product_name}</p>
                 <p className="text-xs font-mono text-muted-foreground">{c.input_product_sku}</p>
               </div>
-              {c.is_consumable && (
-                <Badge className="bg-purple-100 text-purple-700 text-[10px] shrink-0">Consumable</Badge>
-              )}
+              <div className="flex items-center gap-1.5 shrink-0">
+                {c.is_consumable && (
+                  <Badge className="bg-purple-100 text-purple-700 text-[10px]">Consumable</Badge>
+                )}
+                {status === 'saving' && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+                {status === 'saved' && <Check className="w-4 h-4 text-green-600" />}
+              </div>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Required:</span>
@@ -130,7 +178,7 @@ export default function ConsumeTab({ task, bom, components }) {
               <Input
                 type="text"
                 inputMode="decimal"
-                value={v.consumed || ''}
+                value={v.consumed}
                 onChange={(e) => updateField(c.id, 'consumed', e.target.value)}
                 className="h-10 w-28 text-right tabular-nums font-semibold"
                 placeholder="0"
@@ -142,7 +190,7 @@ export default function ConsumeTab({ task, bom, components }) {
               <Input
                 type="text"
                 inputMode="decimal"
-                value={v.wastage || ''}
+                value={v.wastage}
                 onChange={(e) => updateField(c.id, 'wastage', e.target.value)}
                 className="h-10 w-28 text-right tabular-nums font-semibold"
                 placeholder="0"
@@ -152,11 +200,6 @@ export default function ConsumeTab({ task, bom, components }) {
           </div>
         );
       })}
-
-      {/* Save button */}
-      <Button onClick={saveAll} disabled={saving} className="w-full h-14 text-lg font-bold rounded-xl">
-        {saving ? 'Saving…' : 'Save Consumption'}
-      </Button>
     </div>
   );
 }
