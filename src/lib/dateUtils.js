@@ -14,7 +14,18 @@ const SAST_OFFSET_MS = 2 * 60 * 60 * 1000; // +2 hours in milliseconds
  */
 function toSAST(date) {
   if (!date) return null;
-  const d = typeof date === 'string' ? new Date(date) : date;
+  let input = date;
+  // Normalize ISO strings: trim microsecond precision (>3 decimals) which some
+  // JS engines can't parse, and ensure a timezone suffix is present.
+  if (typeof input === 'string') {
+    // Replace 4-6 digit fractional seconds with 3-digit milliseconds
+    input = input.replace(/(\.\d{3})\d+/, '$1');
+    // If the string has no timezone indicator, assume UTC
+    if (!/[Zz]|[+-]\d{2}:\d{2}$/.test(input)) {
+      input += 'Z';
+    }
+  }
+  const d = typeof input === 'string' ? new Date(input) : input;
   if (isNaN(d.getTime())) return null;
   return new Date(d.getTime() + SAST_OFFSET_MS);
 }
@@ -60,21 +71,9 @@ export function formatTimeSAST(date) {
 }
 
 /**
- * Legacy generic formatter — kept for backward compat but now uses manual SAST shift.
+ * Legacy generic formatter — now uses the same manual UTC+2 shift
+ * instead of relying on Intl timeZone support (inconsistent in sandbox iframes).
  */
-export function formatSAST(date, opts = {}) {
-  // If caller passes custom Intl opts, fall back to Intl with explicit timeZone
-  const d = typeof date === 'string' ? new Date(date) : date;
-  if (!d || isNaN(d.getTime())) return '—';
-  return d.toLocaleString('en-ZA', {
-    timeZone: 'Africa/Johannesburg',
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-    ...opts,
-  });
+export function formatSAST(date) {
+  return formatFullSAST(date);
 }
