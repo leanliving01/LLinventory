@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollText, Search, ChevronLeft, ChevronRight, Clock, User, Database, ArrowRight } from 'lucide-react';
-import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import ActivityLogRow from '@/components/activity-log/ActivityLogRow';
 
