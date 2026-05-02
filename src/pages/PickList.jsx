@@ -137,11 +137,10 @@ export default function PickList() {
       }
     }
 
-    // Exclude non-pickable items
-    const PICK_EXCLUDE_PATTERNS = ['sleeve', 'vacuum'];
+    // Exclude packaging materials — they're at the machines and auto-deducted on run completion
     for (const pid of Object.keys(ingredientAgg)) {
-      const name = (ingredientAgg[pid].product.name || '').toLowerCase();
-      if (PICK_EXCLUDE_PATTERNS.some(pat => name.includes(pat))) {
+      const prod = ingredientAgg[pid].product;
+      if (prod.type === 'packaging') {
         delete ingredientAgg[pid];
       }
     }

@@ -93,6 +93,14 @@ export default function ProductionRunDetail() {
   // §5.1.8 Not-Enough-Stock Guardrail — check before starting
   const handleStartRun = async () => {
     setStarting(true);
+
+    // If pick list is already confirmed, ingredients have been physically picked
+    // and stock already consumed — skip the stock guardrail entirely
+    if (run?.pick_list_confirmed) {
+      await doStartRun();
+      return;
+    }
+
     // Check stock availability
     const [stockRecords, boms, bomComponents, products] = await Promise.all([
       base44.entities.StockOnHand.list('-updated_date', 2000),
@@ -117,12 +125,16 @@ export default function ProductionRunDetail() {
     // Calculate total RAW ingredient needs — drill through Portion → Cook BOM
     // Any ingredient that has a Cook BOM is made during the run (WIP), so check its
     // raw inputs instead. This works regardless of product type.
+    // Exclude packaging materials — they're at the machines and auto-deducted on run completion
     const ingredientNeeds = {};
     for (const line of lines) {
       const portionBom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
       if (!portionBom) continue;
       const comps = compsByBom[portionBom.id] || [];
       for (const c of comps) {
+        const inputProduct = productMap[c.input_product_id];
+        if (!inputProduct || inputProduct.type === 'packaging') continue;
+
         const perUnit = c.qty / (portionBom.yield_qty || 1);
         const total = perUnit * line.planned_qty;
 
@@ -134,6 +146,8 @@ export default function ProductionRunDetail() {
           const cookYield = cookBom.yield_qty || 1;
           for (const cc of cookComps) {
             if (cc.is_consumable) continue;
+            const rawProd = productMap[cc.input_product_id];
+            if (!rawProd || rawProd.type === 'packaging') continue;
             const rawTotal = (cc.qty / cookYield) * total;
             if (!ingredientNeeds[cc.input_product_id]) ingredientNeeds[cc.input_product_id] = 0;
             ingredientNeeds[cc.input_product_id] += rawTotal;
