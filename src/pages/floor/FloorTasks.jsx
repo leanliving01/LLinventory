@@ -212,6 +212,20 @@ export default function FloorTasks() {
         }
       }
       await base44.entities.ProductionTask.update(taskId, { status: 'done', finished_at: new Date().toISOString(), notes });
+
+      // Write actual plates back to the ProductionRunLine so the Run Detail page pre-fills
+      if (task.line_id && meta.plates_produced != null) {
+        const plates = Number(meta.plates_produced) || 0;
+        // If multiple batches exist for the same line, accumulate instead of overwrite
+        if (task.total_batches > 1) {
+          const lineArr = await base44.entities.ProductionRunLine.filter({ id: task.line_id });
+          const existing = lineArr[0];
+          const prev = existing?.actual_qty || 0;
+          await base44.entities.ProductionRunLine.update(task.line_id, { actual_qty: prev + plates });
+        } else {
+          await base44.entities.ProductionRunLine.update(task.line_id, { actual_qty: plates });
+        }
+      }
     } else {
       const returns = consumption.filter(c => c.actual < c.picked);
       for (const r of returns) {
