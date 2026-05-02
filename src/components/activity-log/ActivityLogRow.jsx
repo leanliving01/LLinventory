@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ChevronDown, ChevronUp, Clock, User, Database } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatFullSAST } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
 
 export default function ActivityLogRow({ log, actionStyles }) {
@@ -30,7 +30,7 @@ export default function ActivityLogRow({ log, actionStyles }) {
             </span>
             <span className="flex items-center gap-1">
               <Clock className="w-3 h-3" />
-              {log.created_date ? format(new Date(log.created_date), 'dd MMM yyyy HH:mm:ss') : '—'}
+              {formatFullSAST(log.created_date)}
             </span>
             {log.entity_id && (
               <span className="flex items-center gap-1 font-mono">
