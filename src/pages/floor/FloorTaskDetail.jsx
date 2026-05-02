@@ -14,9 +14,16 @@ import FilesTab from '@/components/floor/task-detail/FilesTab';
 import BomTab from '@/components/floor/task-detail/BomTab';
 import AttributesTab from '@/components/floor/task-detail/AttributesTab';
 
-const TABS = [
+const PREP_COOK_TABS = [
   { id: 'consume', label: 'To Consume' },
   { id: 'resources', label: 'Resources' },
+  { id: 'notes', label: 'Notes' },
+  { id: 'files', label: 'Files' },
+  { id: 'bom', label: 'Recipe' },
+  { id: 'attributes', label: 'Attributes' },
+];
+
+const PORTION_TABS = [
   { id: 'notes', label: 'Notes' },
   { id: 'files', label: 'Files' },
   { id: 'bom', label: 'Recipe' },
@@ -27,7 +34,9 @@ const TABS = [
  * Full-page drill-down for an active production task with tabbed sections.
  */
 export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack, onDone, loading }) {
-  const [activeTab, setActiveTab] = useState('consume');
+  const isPortioning = task.station === 'portion';
+  const tabs = isPortioning ? PORTION_TABS : PREP_COOK_TABS;
+  const [activeTab, setActiveTab] = useState(isPortioning ? 'notes' : 'consume');
   const [flushing, setFlushing] = useState(false);
   const consumeRef = useRef(null);
   const isActive = task.status === 'in_progress';
@@ -36,9 +45,9 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
   // Callback to receive ConsumeTab's methods via onRef
   const handleConsumeRef = useCallback((ref) => { consumeRef.current = ref; }, []);
 
-  // Flush pending saves before opening Done modal
+  // Flush pending saves before opening Done modal (only for prep/cook)
   const handleDone = async (t) => {
-    if (consumeRef.current?.flushPendingSaves) {
+    if (!isPortioning && consumeRef.current?.flushPendingSaves) {
       setFlushing(true);
       await consumeRef.current.flushPendingSaves();
       setFlushing(false);
@@ -139,7 +148,7 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
 
       {/* Tab bar */}
       <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
-        {TABS.map(tab => (
+        {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
