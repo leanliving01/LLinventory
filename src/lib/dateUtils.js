@@ -5,17 +5,83 @@
 
 const TZ = 'Africa/Johannesburg';
 
+function toDate(date) {
+  if (!date) return null;
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return isNaN(d.getTime()) ? null : d;
+}
+
 /**
- * Format a date string/Date to a display string in SA timezone.
- * @param {string|Date} date - ISO string or Date object
- * @param {object} opts - Intl.DateTimeFormat options override
- * @returns {string} formatted date string in SAST
+ * Full precision — e.g. "02 May 2026, 18:18:45"
+ */
+export function formatFullSAST(date) {
+  const d = toDate(date);
+  if (!d) return '—';
+  return d.toLocaleString('en-ZA', {
+    timeZone: TZ,
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
+/**
+ * Short date + time without seconds — e.g. "02 May 2026, 18:18"
+ */
+export function formatDateTimeSAST(date) {
+  const d = toDate(date);
+  if (!d) return '—';
+  return d.toLocaleString('en-ZA', {
+    timeZone: TZ,
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+/**
+ * Short date only (no time) in SA timezone — e.g. "02 May 2026"
+ */
+export function formatDateSAST(date) {
+  const d = toDate(date);
+  if (!d) return '—';
+  return d.toLocaleDateString('en-ZA', {
+    timeZone: TZ,
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+  });
+}
+
+/**
+ * Time only in SA timezone — e.g. "18:18"
+ */
+export function formatTimeSAST(date) {
+  const d = toDate(date);
+  if (!d) return '—';
+  return d.toLocaleTimeString('en-ZA', {
+    timeZone: TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+/**
+ * Generic formatter with explicit options (legacy compat).
  */
 export function formatSAST(date, opts = {}) {
-  if (!date) return '—';
-  const d = typeof date === 'string' ? new Date(date) : date;
-  if (isNaN(d.getTime())) return '—';
-
+  const d = toDate(date);
+  if (!d) return '—';
+  // Filter out undefined values from opts
+  const clean = { timeZone: TZ };
   const defaults = {
     year: 'numeric',
     month: 'short',
@@ -24,41 +90,11 @@ export function formatSAST(date, opts = {}) {
     minute: '2-digit',
     second: '2-digit',
     hour12: false,
-    timeZone: TZ,
   };
-
-  return new Intl.DateTimeFormat('en-ZA', { ...defaults, ...opts }).format(d);
-}
-
-/**
- * Short date only (no time) in SA timezone — e.g. "02 May 2026"
- */
-export function formatDateSAST(date) {
-  return formatSAST(date, { hour: undefined, minute: undefined, second: undefined });
-}
-
-/**
- * Short date + time without seconds — e.g. "02 May 2026, 18:18"
- */
-export function formatDateTimeSAST(date) {
-  return formatSAST(date, { second: undefined });
-}
-
-/**
- * Full precision — e.g. "02 May 2026, 18:18:45"
- */
-export function formatFullSAST(date) {
-  return formatSAST(date);
-}
-
-/**
- * Time only in SA timezone — e.g. "18:18"
- */
-export function formatTimeSAST(date) {
-  return formatSAST(date, {
-    year: undefined,
-    month: undefined,
-    day: undefined,
-    second: undefined,
-  });
+  const merged = { ...defaults, ...opts };
+  for (const [k, v] of Object.entries(merged)) {
+    if (v !== undefined) clean[k] = v;
+  }
+  clean.timeZone = TZ; // never allow override
+  return d.toLocaleString('en-ZA', clean);
 }
