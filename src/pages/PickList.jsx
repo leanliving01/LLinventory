@@ -65,17 +65,7 @@ export default function PickList() {
   const [confirmingPick, setConfirmingPick] = useState(false);
   const queryClient = useQueryClient();
 
-  // After confirmation, populate pickedState from the pick items so the UI shows green checks + qty
   const isConfirmed = !!run?.pick_list_confirmed;
-  const effectivePickedState = useMemo(() => {
-    if (!isConfirmed) return pickedState;
-    // Show all items as picked with their required qty (confirmation only succeeds when all are met)
-    const state = {};
-    pickItems.forEach(item => {
-      state[item.product.id] = { picked: true, qty: String(item.totalQty) };
-    });
-    return state;
-  }, [isConfirmed, pickedState, pickItems]);
 
   // Inline barcode scanner state
   const [scanInput, setScanInput] = useState('');
@@ -180,6 +170,16 @@ export default function PickList() {
 
     return { pickItems: items, categories: cats };
   }, [lines, boms, bomComponents, products]);
+
+  // After confirmation, populate pickedState from the pick items so the UI shows green checks + qty
+  const effectivePickedState = useMemo(() => {
+    if (!isConfirmed) return pickedState;
+    const state = {};
+    pickItems.forEach(item => {
+      state[item.product.id] = { picked: true, qty: String(item.totalQty) };
+    });
+    return state;
+  }, [isConfirmed, pickedState, pickItems]);
 
   const pickedCount = pickItems.filter(i => {
     const s = effectivePickedState[i.product.id];
