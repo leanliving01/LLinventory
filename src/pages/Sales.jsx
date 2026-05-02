@@ -42,9 +42,13 @@ export default function Sales() {
         (o.shopify_order_id || '').toLowerCase().includes(q)
       );
     }
-    setPage(0);
     return list;
   }, [orders, statusFilter, packFilter, search]);
+
+  // Reset page when filters change
+  React.useEffect(() => {
+    setPage(0);
+  }, [statusFilter, packFilter, search]);
 
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-[1400px] mx-auto">
