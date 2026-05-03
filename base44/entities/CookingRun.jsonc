@@ -151,6 +151,10 @@
       "type": "string",
       "description": "FK to ProductionRun \u2014 the meal-level plan that drove this cooking run"
     },
+    "contributing_run_ids": {
+      "type": "string",
+      "description": "JSON array of ProductionRun IDs when this cooking run consolidates multiple production runs"
+    },
     "notes": {
       "type": "string",
       "description": "Production notes"
