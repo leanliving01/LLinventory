@@ -3,10 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Factory, Search, X, Settings2, Save, Loader2 } from 'lucide-react';
+import { Factory, Search, X, Settings2, Save, Loader2, Plus } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import RecommendationTable from '@/components/production/RecommendationTable';
+import AdHocRunModal from '@/components/production/AdHocRunModal';
 import { useNavigate } from 'react-router-dom';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import { groupMealsForProduction, VARIANT_CODES } from '@/lib/productionGrouping';
@@ -26,6 +27,7 @@ export default function ProductionPlanning() {
   const [generating, setGenerating] = useState(false);
   const [maxInput, setMaxInput] = useState('');
   const [savingMax, setSavingMax] = useState(false);
+  const [showAdHoc, setShowAdHoc] = useState(false);
 
   // Fetch max meals per run setting
   const { data: maxSetting } = useQuery({
@@ -249,6 +251,16 @@ export default function ProductionPlanning() {
         <HelpDrawer pageKey="production-plan" />
         {perms.planning_create && (
           <Button
+            variant="outline"
+            onClick={() => setShowAdHoc(true)}
+            className="gap-2 h-12 px-5 text-base"
+          >
+            <Plus className="w-5 h-5" />
+            Ad-Hoc Run
+          </Button>
+        )}
+        {perms.planning_create && (
+          <Button
             onClick={handleOpenConfirm}
             disabled={generating || totalToProduce === 0}
             size="lg"
@@ -365,6 +377,7 @@ export default function ProductionPlanning() {
       )}
 
 
+      {showAdHoc && <AdHocRunModal open={showAdHoc} onOpenChange={setShowAdHoc} />}
     </div>
   );
 }
