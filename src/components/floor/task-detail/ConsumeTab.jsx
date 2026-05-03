@@ -40,10 +40,17 @@ export default function ConsumeTab({ task, bom, components, onRef }) {
   const debounceTimers = useRef({});
   // Track whether initial seed has happened (don't auto-save on seed)
   const seeded = useRef(false);
+  // Track which task we last seeded for — prevents re-seeding on re-renders
+  const lastSeededTaskId = useRef(null);
 
-  // Seed local state from existing records
+  // Seed local state from existing records — ONLY on first load or task change.
+  // We intentionally do NOT re-seed when `existing` or `scaledComponents` get new
+  // references from React Query refetches, because that would overwrite user edits.
   useEffect(() => {
-    if (existing.length === 0 && scaledComponents.length === 0) return;
+    // Skip if we already seeded for this task
+    if (lastSeededTaskId.current === task.id) return;
+    if (scaledComponents.length === 0) return;
+
     const map = {};
     scaledComponents.forEach(c => {
       const rec = existing.find(e => e.bom_component_id === c.id);
@@ -54,10 +61,11 @@ export default function ConsumeTab({ task, bom, components, onRef }) {
       };
     });
     seeded.current = false;
+    lastSeededTaskId.current = task.id;
     setValues(map);
     // Mark seeded after state settles
     setTimeout(() => { seeded.current = true; }, 100);
-  }, [existing, scaledComponents]);
+  }, [task.id, existing, scaledComponents]);
 
   // Save a single row to the database
   const saveRow = useCallback(async (comp, rowValues) => {
@@ -85,12 +93,14 @@ export default function ConsumeTab({ task, bom, components, onRef }) {
         [comp.id]: { ...prev[comp.id], recordId: created.id },
       }));
     }
+    // Invalidate the completion modal's query so it picks up saved data
+    queryClient.invalidateQueries({ queryKey: ['task-consumption-modal', task.id] });
     setRowStatus(prev => ({ ...prev, [comp.id]: 'saved' }));
     // Reset status after 2s
     setTimeout(() => {
       setRowStatus(prev => ({ ...prev, [comp.id]: 'idle' }));
     }, 2000);
-  }, [task.id, task.run_id]);
+  }, [task.id, task.run_id, queryClient]);
 
   // Flush all pending debounced saves immediately — call before unmount or task completion
   const flushPendingSaves = useCallback(async () => {
