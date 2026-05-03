@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -21,10 +21,10 @@ const QS_STYLES = {
 };
 
 const QC_RESULT_OPTIONS = [
-  { value: 'approved_full', label: 'Approved — Full Quality' },
-  { value: 'approved_use_today', label: 'Approved — Use Today Only' },
-  { value: 'quarantine', label: 'Quarantine' },
-  { value: 'write_off', label: 'Write Off' },
+  { value: 'approved_full', label: 'Approved — Full Quality', qcResult: 'approved' },
+  { value: 'approved_use_today', label: 'Approved — Use Today Only', qcResult: 'approved' },
+  { value: 'quarantine', label: 'Quarantine', qcResult: 'declined' },
+  { value: 'write_off', label: 'Write Off', qcResult: 'declined' },
 ];
 
 export default function WipBatchDrawer({ batch, onClose, onUpdated }) {
@@ -44,22 +44,37 @@ export default function WipBatchDrawer({ batch, onClose, onUpdated }) {
     queryFn: () => base44.entities.WipQualityCheck.filter({ wip_batch_id: batch.id }, '-check_date', 20),
   });
 
-  const { data: writeOffs = [] } = useQuery({
-    queryKey: ['wip-writeoffs', batch.id],
-    queryFn: () => base44.entities.WipWriteOff.filter({ wip_batch_id: batch.id }, '-created_date', 20),
+  // Write-offs now use a bulk model with JSON lines — filter by checking lines content
+  // For backward compat, we list recent write-offs and filter client-side
+  const { data: allWriteOffs = [] } = useQuery({
+    queryKey: ['wip-writeoffs-recent'],
+    queryFn: () => base44.entities.WipWriteOff.list('-created_date', 50),
   });
+  const writeOffs = useMemo(() => {
+    return allWriteOffs.filter(wo => {
+      // Check JSON lines for this batch
+      if (wo.lines) {
+        try {
+          const lines = JSON.parse(wo.lines);
+          return lines.some(l => l.wip_batch_id === batch.id);
+        } catch { /* ignore */ }
+      }
+      return false;
+    });
+  }, [allWriteOffs, batch.id]);
 
   const handleQualityCheck = async () => {
     if (!qcResult) { toast.error('Select a result'); return; }
     setSaving(true);
 
     const today = new Date().toISOString().slice(0, 10);
+    const qcOption = QC_RESULT_OPTIONS.find(o => o.value === qcResult);
     await base44.entities.WipQualityCheck.create({
       wip_batch_id: batch.id,
       check_date: today,
       check_time: new Date().toISOString(),
       checked_by_name: user?.full_name || '',
-      result: qcResult,
+      result: qcOption?.qcResult || 'approved',
       notes: qcNotes || null,
     });
 
@@ -81,17 +96,29 @@ export default function WipBatchDrawer({ batch, onClose, onUpdated }) {
     if (qcResult === 'write_off') {
       updateData.qty_kg = 0;
       updateData.total_carrying_value = 0;
-      await base44.entities.WipWriteOff.create({
+      const woLine = {
         wip_batch_id: batch.id,
-        bulk_product_id: batch.bulk_product_id,
         bulk_product_name: batch.bulk_product_name,
         qty_kg: batch.qty_kg,
         carrying_cost_per_kg: batch.carrying_cost_per_kg || 0,
         total_value: (batch.qty_kg || 0) * (batch.carrying_cost_per_kg || 0),
+      };
+      const existingWOs = await base44.entities.WipWriteOff.list('-created_date', 1);
+      const nextWO = existingWOs.length > 0
+        ? (parseInt((existingWOs[0].write_off_number || '').replace(/\D/g, '') || '0') + 1) : 1;
+      const woNumber = `WO-${new Date().getFullYear()}-${String(nextWO).padStart(4, '0')}`;
+      await base44.entities.WipWriteOff.create({
+        write_off_number: woNumber,
+        write_off_type: 'manual',
+        status: 'confirmed',
+        write_off_date: new Date().toISOString().slice(0, 10),
+        total_qty_kg: batch.qty_kg,
+        total_value: (batch.qty_kg || 0) * (batch.carrying_cost_per_kg || 0),
         reason: 'quality_deterioration',
         notes: qcNotes || 'Written off via quality check',
         approved_by_name: user?.full_name || '',
-        triggered_by: 'quality_check',
+        confirmed_at: new Date().toISOString(),
+        lines: JSON.stringify([woLine]),
       });
     }
 
@@ -114,17 +141,30 @@ export default function WipBatchDrawer({ batch, onClose, onUpdated }) {
     const costPerKg = batch.carrying_cost_per_kg || 0;
     const value = qty * costPerKg;
 
-    await base44.entities.WipWriteOff.create({
+    const woLine = {
       wip_batch_id: batch.id,
-      bulk_product_id: batch.bulk_product_id,
       bulk_product_name: batch.bulk_product_name,
       qty_kg: qty,
       carrying_cost_per_kg: costPerKg,
       total_value: Math.round(value * 100) / 100,
+    };
+    // Generate write-off number
+    const existingWOs = await base44.entities.WipWriteOff.list('-created_date', 1);
+    const nextWO = existingWOs.length > 0
+      ? (parseInt((existingWOs[0].write_off_number || '').replace(/\D/g, '') || '0') + 1) : 1;
+    const woNumber = `WO-${new Date().getFullYear()}-${String(nextWO).padStart(4, '0')}`;
+    await base44.entities.WipWriteOff.create({
+      write_off_number: woNumber,
+      write_off_type: 'manual',
+      status: 'confirmed',
+      write_off_date: new Date().toISOString().slice(0, 10),
+      total_qty_kg: qty,
+      total_value: Math.round(value * 100) / 100,
       reason: writeOffReason,
       notes: writeOffNotes || null,
       approved_by_name: user?.full_name || '',
-      triggered_by: 'manual',
+      confirmed_at: new Date().toISOString(),
+      lines: JSON.stringify([woLine]),
     });
 
     const newQty = Math.round((batch.qty_kg - qty) * 100) / 100;
@@ -140,7 +180,7 @@ export default function WipBatchDrawer({ batch, onClose, onUpdated }) {
     setWriteOffQty('');
     setWriteOffReason('');
     setWriteOffNotes('');
-    queryClient.invalidateQueries({ queryKey: ['wip-writeoffs', batch.id] });
+    queryClient.invalidateQueries({ queryKey: ['wip-writeoffs-recent'] });
     onUpdated();
   };
 
@@ -245,7 +285,8 @@ export default function WipBatchDrawer({ batch, onClose, onUpdated }) {
               <div className="space-y-2">
                 {writeOffs.map(wo => (
                   <div key={wo.id} className="bg-red-50 dark:bg-red-950/20 rounded-lg px-3 py-2 text-sm">
-                    <span className="font-medium">{wo.qty_kg} kg</span>
+                    <span className="font-mono text-xs text-muted-foreground mr-2">{wo.write_off_number}</span>
+                    <span className="font-medium">{(wo.total_qty_kg || 0).toFixed(1)} kg</span>
                     <span className="text-muted-foreground ml-2">R {(wo.total_value || 0).toFixed(2)}</span>
                     <span className="text-muted-foreground ml-2">{wo.reason?.replace(/_/g, ' ')}</span>
                   </div>
