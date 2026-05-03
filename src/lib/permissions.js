@@ -50,11 +50,11 @@ export const PERMISSION_GROUPS = [
       { key: 'cooking_runs_create',   label: 'Create / Execute Cooking Runs' },
       { key: 'wip_view',              label: 'View Bulk Cooked Inventory' },
       { key: 'wip_manage',            label: 'Quality Checks & Write-offs' },
+      { key: 'wip_qc_override',       label: 'Override Rest Time (PIN required)' },
       { key: 'yield_review',          label: 'Review & Approve Yield Records' },
       { key: 'supplier_yield_view',   label: 'View Supplier Yield Data' },
-      { key: 'portioning_view',       label: 'View Portioning Runs' },
-      { key: 'portioning_create',     label: 'Create / Execute Portioning' },
-      { key: 'wip_planning',          label: 'WIP-Aware Production Planning' },
+      { key: 'wip_planning',          label: 'WIP Planning & Morning QC' },
+      { key: 'wastage_review',        label: 'Review Wastage Events' },
     ],
   },
   {
@@ -146,7 +146,7 @@ export const ROLE_DEFAULTS = {
     'dashboard_view', 'dashboard_kpis', 'dashboard_revenue', 'dashboard_production', 'dashboard_costs', 'dashboard_shortages',
     'catalog_view', 'catalog_edit', 'recipes_view', 'recipes_edit',
     'planning_view', 'planning_create', 'runs_view', 'runs_create', 'runs_start_complete', 'kitchen_tablet', 'pick_lists', 'yield_tracker',
-    'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'wip_manage', 'yield_review', 'supplier_yield_view', 'portioning_view', 'portioning_create', 'wip_planning',
+    'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'wip_manage', 'wip_qc_override', 'yield_review', 'supplier_yield_view', 'wip_planning', 'wastage_review',
     'stocktake_view', 'stocktake_create', 'stock_transfers', 'receiving', 'wastage', 'par_levels', 'movements_view', 'inventory_overview', 'inventory_recalc_committed',
     'po_view', 'po_create', 'po_approve', 'grn_create', 'blind_receipt_create', 'product_review', 'product_create_from_queue', 'returns_process', 'supplier_product_edit', 'xero_invoice_sync', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'price_variance_view', 'three_way_match_view',
     'sales_view', 'sales_fulfill', 'customers',
@@ -158,7 +158,7 @@ export const ROLE_DEFAULTS = {
     'dashboard_view', 'dashboard_kpis', 'dashboard_production', 'dashboard_shortages',
     'catalog_view', 'recipes_view', 'recipes_edit',
     'planning_view', 'planning_create', 'runs_view', 'runs_create', 'runs_start_complete', 'kitchen_tablet', 'pick_lists', 'yield_tracker',
-    'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'wip_manage', 'yield_review', 'supplier_yield_view', 'portioning_view', 'portioning_create', 'wip_planning',
+    'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'wip_manage', 'wip_qc_override', 'yield_review', 'supplier_yield_view', 'wip_planning', 'wastage_review',
     'wastage', 'par_levels', 'inventory_overview',
     'po_view', 'grn_create', 'purchasing_dashboard',
     'reports_view', 'reports_team', 'food_cost_view',
@@ -167,7 +167,7 @@ export const ROLE_DEFAULTS = {
   kitchen: p(
     'recipes_view',
     'runs_view', 'kitchen_tablet', 'yield_tracker',
-    'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'portioning_view', 'portioning_create',
+    'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'wip_planning',
     'wastage',
   ),
 
@@ -189,7 +189,7 @@ export const ROLE_DEFAULTS = {
   floor_operator: p(
     'recipes_view',
     'runs_view', 'kitchen_tablet', 'pick_lists', 'yield_tracker',
-    'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'portioning_view', 'portioning_create',
+    'cooking_runs_view', 'cooking_runs_create', 'wip_view', 'wip_planning',
     'stocktake_view', 'stocktake_create', 'stock_transfers', 'receiving',
     'wastage', 'inventory_overview',
   ),
@@ -227,6 +227,8 @@ const LEGACY_MAP = {
   sales_orders:         ['sales_view', 'sales_fulfill'],
   reports:              ['reports_view', 'reports_costs', 'reports_team', 'forecasting'],
   cost_data:            ['dashboard_costs', 'reports_costs'],
+  portioning_view:      ['wip_planning'],
+  portioning_create:    ['wip_planning'],
 };
 
 function migrateLegacyOverrides(overrides) {

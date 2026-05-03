@@ -14,9 +14,10 @@
       "type": "string",
       "enum": [
         "standard",
-        "top_up_merged"
+        "top_up_merged",
+        "top_up_independent"
       ],
-      "description": "Whether this is standalone or includes merged top-up data"
+      "description": "Whether this is standalone, includes merged top-up data, or is an independent top-up (different SKU)"
     },
     "bulk_product_id": {
       "type": "string",
@@ -98,14 +99,15 @@
         "approved_update_average",
         "approved_do_not_update",
         "rejected",
-        "flagged_unusual"
+        "flagged_unusual",
+        "pending_recapture"
       ],
       "default": "pending_review"
     },
     "significant_variance_flag": {
       "type": "boolean",
       "default": false,
-      "description": "Auto-set if variance exceeds configured threshold"
+      "description": "Auto-set if variance exceeds configurable threshold"
     },
     "variance_threshold_pct": {
       "type": "number",
@@ -120,6 +122,14 @@
     "pm_reviewed_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "rejection_notes": {
+      "type": "string",
+      "description": "PM notes when rejecting / returning to kitchen"
+    },
+    "recapture_history": {
+      "type": "string",
+      "description": "JSON array of previous data snapshots before re-capture"
     },
     "merged_run_ids": {
       "type": "string",

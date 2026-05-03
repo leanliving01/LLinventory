@@ -6,6 +6,14 @@
       "type": "string",
       "description": "FK to CookingRun"
     },
+    "cooking_run_number": {
+      "type": "string",
+      "description": "Denormalized run number for display"
+    },
+    "bulk_product_name": {
+      "type": "string",
+      "description": "Denormalized bulk product name"
+    },
     "qty_kg": {
       "type": "number",
       "description": "Quantity scrapped in kg"
@@ -47,6 +55,15 @@
       "type": "number",
       "default": 0,
       "description": "qty_kg \u00d7 raw_cost_at_event"
+    },
+    "shortfall_created_kg": {
+      "type": "number",
+      "default": 0,
+      "description": "Shortfall in kg created by this wastage event vs today's target"
+    },
+    "top_up_run_id": {
+      "type": "string",
+      "description": "FK to CookingRun (top-up) if one was created from this wastage"
     },
     "review_status": {
       "type": "string",

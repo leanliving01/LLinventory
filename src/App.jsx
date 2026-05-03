@@ -59,7 +59,7 @@ import FloorShortages from '@/pages/floor/FloorShortages';
 import CookingRuns from '@/pages/CookingRuns';
 import WipInventory from '@/pages/WipInventory';
 import WipPlanning from '@/pages/WipPlanning';
-import PortioningRuns from '@/pages/PortioningRuns';
+// PortioningRuns removed — portioning is handled by ProductionTasks on the Kanban
 import YieldReview from '@/pages/YieldReview';
 import SupplierYieldDashboard from '@/pages/SupplierYieldDashboard';
 import SupplierProductCatalog from '@/pages/SupplierProductCatalog';
@@ -156,7 +156,7 @@ const AuthenticatedApp = () => {
         <Route path="/production/cooking" element={<CookingRuns />} />
         <Route path="/production/wip" element={<WipInventory />} />
         <Route path="/production/wip-planning" element={<WipPlanning />} />
-        <Route path="/production/portioning" element={<PortioningRuns />} />
+        {/* Portioning removed — handled by ProductionTasks on the Kanban */}
         <Route path="/production/yield-review" element={<YieldReview />} />
         <Route path="/production/supplier-yield" element={<SupplierYieldDashboard />} />
         <Route path="/stock/new-production" element={<Navigate to="/production/runs" replace />} />

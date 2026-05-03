@@ -85,6 +85,15 @@
       "type": "string",
       "format": "date",
       "description": "Next automatic 3-month reset date"
+    },
+    "reset_history": {
+      "type": "string",
+      "description": "JSON array of reset events [{date, reason, by, avg_at_reset, run_count}]"
+    },
+    "significant_variance_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Count of significant variance events"
     }
   },
   "required": [

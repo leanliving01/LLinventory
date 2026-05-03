@@ -20,7 +20,7 @@
     },
     "qty_kg": {
       "type": "number",
-      "description": "Current remaining quantity in kg"
+      "description": "Current remaining quantity in kg \u2014 reduces as portioning consumes it"
     },
     "original_qty_kg": {
       "type": "number",
@@ -43,10 +43,14 @@
       "type": "string",
       "description": "Denormalized supplier name"
     },
+    "batch_grn": {
+      "type": "string",
+      "description": "Batch / GRN reference from the CookingRun free-text field"
+    },
     "carrying_cost_per_kg": {
       "type": "number",
       "default": 0,
-      "description": "Actual production cost per usable cooked kg \u2014 locked at production completion"
+      "description": "Actual production cost per usable cooked kg \u2014 locked at production completion, never re-costed"
     },
     "total_carrying_value": {
       "type": "number",
@@ -76,6 +80,16 @@
       "type": "string",
       "format": "date-time",
       "description": "Auto-set based on product shelf life rules"
+    },
+    "rest_time_met": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether the minimum rest time has elapsed since production. Auto-calculated."
+    },
+    "rest_ready_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when minimum rest time will be met (cooking_run completed_at + product minimum_rest_time_hours)"
     },
     "notes": {
       "type": "string"

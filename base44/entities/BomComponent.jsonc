@@ -30,6 +30,15 @@
       "type": "boolean",
       "default": false,
       "description": "Whether this is a consumable (oil, water, etc.)"
+    },
+    "make_day": {
+      "type": "string",
+      "enum": [
+        "cook_day",
+        "portion_day"
+      ],
+      "default": "cook_day",
+      "description": "cook_day = make with bulk cooking run; portion_day = make fresh on the day of portioning"
     }
   },
   "required": [

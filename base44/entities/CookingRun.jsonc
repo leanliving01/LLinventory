@@ -29,7 +29,7 @@
         "cancelled"
       ],
       "default": "draft",
-      "description": "Run lifecycle status"
+      "description": "Draft \u2192 In Progress \u2192 Pending Completion Review \u2192 Completed | Cancelled"
     },
     "run_date": {
       "type": "string",
@@ -89,6 +89,10 @@
       "default": 0,
       "description": "Snapshot of raw material cost_avg at run start (ZAR/kg)"
     },
+    "batch_grn": {
+      "type": "string",
+      "description": "Free-text field \u2014 staff enter batch / GRN reference manually"
+    },
     "actual_raw_issued_kg": {
       "type": "number",
       "description": "Actual raw material pulled from stock"
@@ -105,6 +109,10 @@
     "effective_raw_for_yield_kg": {
       "type": "number",
       "description": "Calculated: actual_raw_issued_kg \u2212 total_wastage_kg"
+    },
+    "yield_shrinkage_kg": {
+      "type": "number",
+      "description": "Calculated: effective_raw_for_yield_kg \u2212 actual_cooked_output_kg"
     },
     "actual_yield_pct": {
       "type": "number",

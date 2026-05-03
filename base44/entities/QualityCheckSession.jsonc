@@ -1,0 +1,61 @@
+{
+  "name": "QualityCheckSession",
+  "type": "object",
+  "properties": {
+    "session_date": {
+      "type": "string",
+      "format": "date",
+      "description": "The date this morning quality check session is for (one per day)"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "confirmed"
+      ],
+      "default": "pending",
+      "description": "Pending = decisions in progress, Confirmed = all done, cooking runs released"
+    },
+    "total_batches_checked": {
+      "type": "number",
+      "default": 0
+    },
+    "approved_count": {
+      "type": "number",
+      "default": 0
+    },
+    "declined_count": {
+      "type": "number",
+      "default": 0
+    },
+    "write_off_id": {
+      "type": "string",
+      "description": "FK to WipWriteOff \u2014 the bulk write-off created from declined batches"
+    },
+    "write_off_confirmed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the associated write-off has been confirmed"
+    },
+    "cooking_runs_released": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether cooking runs were auto-created and released"
+    },
+    "released_cooking_run_ids": {
+      "type": "string",
+      "description": "JSON array of CookingRun IDs that were auto-created on release"
+    },
+    "confirmed_by_name": {
+      "type": "string"
+    },
+    "confirmed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "session_date",
+    "status"
+  ]
+}

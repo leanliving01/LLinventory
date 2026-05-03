@@ -89,7 +89,7 @@ const PATH_PERMISSION_MAP = {
   '/production/cooking': 'cooking_runs_view',
   '/production/wip': 'wip_view',
   '/production/wip-planning': 'wip_planning',
-  '/production/portioning': 'portioning_view',
+  // Portioning removed — handled by ProductionTasks on the Kanban
   '/production/yield-review': 'yield_review',
   '/production/supplier-yield': 'supplier_yield_view',
   '/floor/stock-take': 'stocktake_view',
@@ -132,7 +132,7 @@ const navItems = [
       { label: 'Cooking Runs', path: '/production/cooking', icon: CookingPot },
       { label: 'Bulk Cooked (WIP)', path: '/production/wip', icon: Package },
       { label: 'WIP Planning', path: '/production/wip-planning', icon: ClipboardCheck },
-      { label: 'Portioning', path: '/production/portioning', icon: UtensilsCrossed },
+      // Portioning removed — handled by ProductionTasks on the Kanban
       { label: 'Yield Review', path: '/production/yield-review', icon: Gauge },
       { label: 'Supplier Yield', path: '/production/supplier-yield', icon: TrendingUp },
     ]

@@ -1,0 +1,47 @@
+{
+  "name": "RestTimeOverrideLog",
+  "type": "object",
+  "properties": {
+    "wip_batch_id": {
+      "type": "string",
+      "description": "FK to WipBatch"
+    },
+    "bulk_product_name": {
+      "type": "string",
+      "description": "Denormalized"
+    },
+    "batch_age_hours": {
+      "type": "number",
+      "description": "Age of batch at time of override (hours)"
+    },
+    "required_rest_hours": {
+      "type": "number",
+      "description": "Product minimum_rest_time_hours at time of override"
+    },
+    "authorising_user_name": {
+      "type": "string",
+      "description": "Name of user who authorised the override"
+    },
+    "authorising_user_role": {
+      "type": "string",
+      "description": "Role of user who authorised"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Mandatory reason for overriding minimum rest time"
+    },
+    "override_timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "qc_session_id": {
+      "type": "string",
+      "description": "FK to QualityCheckSession"
+    }
+  },
+  "required": [
+    "wip_batch_id",
+    "reason",
+    "authorising_user_name"
+  ]
+}

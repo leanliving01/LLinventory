@@ -2,28 +2,41 @@
   "name": "WipWriteOff",
   "type": "object",
   "properties": {
-    "wip_batch_id": {
+    "write_off_number": {
       "type": "string",
-      "description": "FK to WipBatch"
+      "description": "Auto: WO-YYYY-NNNN"
     },
-    "bulk_product_id": {
+    "write_off_type": {
       "type": "string",
-      "description": "FK to Product (denormalized for reporting)"
+      "enum": [
+        "bulk_qc",
+        "manual"
+      ],
+      "default": "manual",
+      "description": "Whether this was triggered by morning QC (bulk) or manual action"
     },
-    "bulk_product_name": {
-      "type": "string"
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "confirmed"
+      ],
+      "default": "draft",
+      "description": "Draft (staged) \u2192 Confirmed (posted)"
     },
-    "qty_kg": {
+    "write_off_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "total_qty_kg": {
       "type": "number",
-      "description": "Quantity written off"
-    },
-    "carrying_cost_per_kg": {
-      "type": "number",
-      "description": "WIP carrying cost at time of write-off"
+      "default": 0,
+      "description": "Total kg written off across all lines"
     },
     "total_value": {
       "type": "number",
-      "description": "qty_kg \u00d7 carrying_cost_per_kg"
+      "default": 0,
+      "description": "Total carrying value written off (ZAR)"
     },
     "reason": {
       "type": "string",
@@ -45,42 +58,29 @@
     "approved_by_name": {
       "type": "string"
     },
-    "triggered_by": {
+    "confirmed_at": {
       "type": "string",
-      "enum": [
-        "quality_check",
-        "manual",
-        "expiry"
-      ],
-      "description": "What triggered this write-off"
+      "format": "date-time"
+    },
+    "qc_session_id": {
+      "type": "string",
+      "description": "FK to QualityCheckSession \u2014 if triggered by morning QC"
+    },
+    "lines": {
+      "type": "string",
+      "description": "JSON array of write-off lines: [{wip_batch_id, bulk_product_name, qty_kg, carrying_cost_per_kg, total_value}]"
     },
     "shortfall_alert_shown": {
       "type": "boolean",
       "default": false,
       "description": "Whether a shortfall alert was triggered by this write-off"
     },
-    "shortfall_kg": {
-      "type": "number",
-      "default": 0,
-      "description": "Shortfall in kg created by this write-off (if any)"
-    },
-    "shortfall_action": {
+    "shortfall_details": {
       "type": "string",
-      "enum": [
-        "top_up_created",
-        "accepted",
-        "dismissed"
-      ],
-      "description": "Action taken on shortfall alert"
-    },
-    "shortfall_reason": {
-      "type": "string",
-      "description": "Reason for accepting/dismissing shortfall"
+      "description": "JSON: shortfall info per product [{product_id, product_name, previous_req_kg, updated_req_kg, shortfall_kg, action, reason}]"
     }
   },
   "required": [
-    "wip_batch_id",
-    "qty_kg",
     "reason"
   ]
 }

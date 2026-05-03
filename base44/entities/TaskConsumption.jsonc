@@ -44,6 +44,18 @@
       "type": "string",
       "description": "Unit of measure"
     },
+    "wip_batch_id": {
+      "type": "string",
+      "description": "FK to WipBatch \u2014 the bulk cooked batch consumed (for portioning tasks)"
+    },
+    "wip_batch_number": {
+      "type": "string",
+      "description": "Denormalized WipBatch number"
+    },
+    "fifo_override_reason": {
+      "type": "string",
+      "description": "Reason if FIFO order was overridden for WIP allocation"
+    },
     "notes": {
       "type": "string",
       "description": "Optional per-line note"

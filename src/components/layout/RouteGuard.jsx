@@ -60,7 +60,7 @@ const ROUTE_PERMISSIONS = {
   '/stock/overview':       'inventory_overview',
   '/production/cooking':   'cooking_runs_view',
   '/production/wip':       'wip_view',
-  '/production/portioning':'portioning_view',
+  // Portioning removed — handled by ProductionTasks on the Kanban
   '/production/yield-review':'yield_review',
   '/production/supplier-yield':'supplier_yield_view',
   '/production/wip-planning':'wip_planning',

@@ -6,6 +6,10 @@
       "type": "string",
       "description": "FK to WipBatch"
     },
+    "qc_session_id": {
+      "type": "string",
+      "description": "FK to QualityCheckSession \u2014 links individual checks to the morning session"
+    },
     "check_date": {
       "type": "string",
       "format": "date"
@@ -25,16 +29,23 @@
     "result": {
       "type": "string",
       "enum": [
-        "approved_full",
-        "approved_use_today",
-        "quarantine",
-        "write_off"
+        "approved",
+        "declined"
       ],
-      "description": "QC result"
+      "description": "QC result \u2014 Approved or Declined for today"
+    },
+    "rest_time_overridden": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether a rest time override was used to approve this batch"
+    },
+    "override_reason": {
+      "type": "string",
+      "description": "Reason for rest time override (if applicable)"
     },
     "notes": {
       "type": "string",
-      "description": "Required if quarantine or write_off"
+      "description": "Optional QC notes"
     }
   },
   "required": [

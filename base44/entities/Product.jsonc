@@ -255,6 +255,11 @@
       "type": "number",
       "default": 8,
       "description": "Per-product yield variance threshold % \u2014 flags significant variance on yield records"
+    },
+    "minimum_rest_time_hours": {
+      "type": "number",
+      "default": 0,
+      "description": "Minimum hours after cooking before portioning is allowed. If > 0, must be \u2265 12. Set on wip_bulk products only."
     }
   },
   "required": [
