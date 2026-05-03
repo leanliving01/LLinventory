@@ -13,8 +13,8 @@ import CookingRunDrawer from '@/components/cooking/CookingRunDrawer';
 import PageHelp from '@/components/help/PageHelp';
 
 const HELP_ITEMS = [
-  { title: 'Create a new cooking run', text: 'Click "New Cooking Run" to start a bulk cooking session. Select the bulk cooked product (e.g. Bulk Chicken Breast) and set your target output in kg.' },
-  { title: 'Start the run', text: 'Open a draft run and click "Start Cooking Run". Select your supplier before starting — this links the yield data to the right supplier for performance tracking.' },
+  { title: 'Create an ad-hoc cooking run', text: 'Click "Ad-hoc Run" to create a cooking run outside the normal planning flow. It will appear as Draft here and in WIP Planning, where it must be released before kitchen staff can start cooking.' },
+  { title: 'Start a released run', text: 'Open a released run and click "Start Cooking". Select your supplier before starting — this links the yield data to the right supplier for performance tracking.' },
   { title: 'Log wastage during cooking', text: 'While a run is active, click "Log Wastage" to record any product lost during cooking (burned, contaminated, etc.). Each event is tracked separately.' },
   { title: 'Weigh and complete', text: 'Enter the raw material issued (kg) and the final cooked output (kg). The system auto-calculates yield %, cost per kg, and variance. Click "Complete & Submit for Review".' },
   { title: 'What happens on completion', text: 'A WIP batch is created with the cooked output. A yield record is generated for the Production Manager to review. The run moves to "Pending Review" status.' },
@@ -87,7 +87,7 @@ export default function CookingRuns() {
             <CookingPot className="w-6 h-6 text-primary" /> Cooking Runs
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Execute cooking runs released from WIP Planning — record actuals and yield
+            Execute released cooking runs — record actuals and yield
           </p>
         </div>
         {perms.cooking_runs_create && (
