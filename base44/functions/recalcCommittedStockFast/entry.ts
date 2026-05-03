@@ -171,14 +171,25 @@ Deno.serve(async (req) => {
   }
   log.push(`Loaded ${allProducts.length} active products`);
 
+  // ── STEP 6b: Find DISPATCH location ──
+  const locations = await withRetry(() => base44.asServiceRole.entities.Location.filter({ code: 'DISPATCH' }));
+  const dispatchId = locations.length > 0 ? locations[0].id : '';
+  const dispatchName = locations.length > 0 ? locations[0].name : 'Dispatch';
+  log.push(`DISPATCH location: ${dispatchId || 'NOT FOUND'}`);
+
   // ── STEP 7: Load StockOnHand ──
   const allStockOnHand = await fetchAllPaginated(
     base44.asServiceRole.entities.StockOnHand, {}, 'product_sku', 500
   );
+  // Build lookup: prefer DISPATCH location SOH, fallback to first
   const sohByProductId = {};
   for (const soh of allStockOnHand) {
-    if (soh.product_id) {
-      if (!sohByProductId[soh.product_id]) sohByProductId[soh.product_id] = [];
+    if (!soh.product_id) continue;
+    if (!sohByProductId[soh.product_id]) sohByProductId[soh.product_id] = [];
+    // Put DISPATCH location records first
+    if (dispatchId && soh.location_id === dispatchId) {
+      sohByProductId[soh.product_id].unshift(soh);
+    } else {
       sohByProductId[soh.product_id].push(soh);
     }
   }

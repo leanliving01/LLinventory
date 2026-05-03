@@ -194,6 +194,23 @@ Deno.serve(async (req) => {
   const sohByProductId = {};
   for (const soh of dispatchSoh) sohByProductId[soh.product_id] = soh;
 
+  // CLEANUP: Zero out committed on non-dispatch SOH records (prevents double-counting)
+  const nonDispatchWithCommitted = existingSoh.filter(s => s.location_id !== dispatchId && (s.qty_committed || 0) > 0);
+  if (nonDispatchWithCommitted.length > 0) {
+    console.log(`[CommittedDemand] Zeroing ${nonDispatchWithCommitted.length} non-dispatch SOH records with stale committed values`);
+    for (let i = 0; i < nonDispatchWithCommitted.length; i += 10) {
+      const batch = nonDispatchWithCommitted.slice(i, i + 10);
+      await Promise.all(batch.map(soh =>
+        withRetry(() => base44.asServiceRole.entities.StockOnHand.update(soh.id, {
+          qty_committed: 0,
+          qty_available: soh.qty_on_hand || 0,
+          last_updated_at: new Date().toISOString(),
+        }))
+      ));
+      await sleep(300);
+    }
+  }
+
   // ── 6. Update StockOnHand.qty_committed (batched with throttle) ──
   const updatedProductIds = new Set();
   let sohUpdated = 0, sohCreated = 0;
