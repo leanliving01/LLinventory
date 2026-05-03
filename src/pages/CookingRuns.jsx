@@ -23,6 +23,7 @@ const HELP_ITEMS = [
 
 const STATUS_TABS = [
   { key: 'active', label: 'Active' },
+  { key: 'released', label: 'Released' },
   { key: 'draft', label: 'Draft' },
   { key: 'pending_review', label: 'Pending Review' },
   { key: 'completed', label: 'Completed' },
@@ -47,7 +48,7 @@ export default function CookingRuns() {
 
   const filtered = useMemo(() => {
     return runs.filter(r => {
-      if (statusTab === 'active' && !['draft', 'in_progress'].includes(r.status)) return false;
+      if (statusTab === 'active' && !['draft', 'released', 'in_progress'].includes(r.status)) return false;
       if (statusTab !== 'active' && statusTab !== 'all' && r.status !== statusTab) return false;
       if (search) {
         const q = search.toLowerCase();
@@ -63,7 +64,7 @@ export default function CookingRuns() {
     const c = { active: 0 };
     runs.forEach(r => {
       c[r.status] = (c[r.status] || 0) + 1;
-      if (['draft', 'in_progress'].includes(r.status)) c.active += 1;
+      if (['draft', 'released', 'in_progress'].includes(r.status)) c.active += 1;
     });
     return c;
   }, [runs]);

@@ -6,6 +6,7 @@ import { formatDateSAST } from '@/lib/dateUtils';
 
 const STATUS_STYLES = {
   draft: 'bg-gray-100 text-gray-600',
+  released: 'bg-teal-100 text-teal-700',
   in_progress: 'bg-blue-100 text-blue-700',
   pending_review: 'bg-amber-100 text-amber-700',
   completed: 'bg-green-100 text-green-700',
@@ -14,7 +15,8 @@ const STATUS_STYLES = {
 
 const STATUS_LABELS = {
   draft: 'Draft',
-  in_progress: 'In Progress',
+  released: 'Released',
+  in_progress: 'Cooking',
   pending_review: 'Pending Review',
   completed: 'Completed',
   cancelled: 'Cancelled',

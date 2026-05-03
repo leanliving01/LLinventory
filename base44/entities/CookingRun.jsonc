@@ -23,13 +23,14 @@
       "type": "string",
       "enum": [
         "draft",
+        "released",
         "in_progress",
         "pending_review",
         "completed",
         "cancelled"
       ],
       "default": "draft",
-      "description": "Draft \u2192 In Progress \u2192 Pending Completion Review \u2192 Completed | Cancelled"
+      "description": "Draft (ad-hoc) \u2192 Released (from WIP Planning) \u2192 In Progress (cooking started) \u2192 Pending Review \u2192 Completed | Cancelled"
     },
     "run_date": {
       "type": "string",

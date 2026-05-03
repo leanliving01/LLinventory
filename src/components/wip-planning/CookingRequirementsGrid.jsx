@@ -56,7 +56,7 @@ export default function CookingRequirementsGrid({ rows, wipProducts, cookBoms, t
       const run = await base44.entities.CookingRun.create({
         run_number: runNumber,
         run_date: todayStr,
-        status: 'draft',
+        status: 'released',
         run_type: 'standard',
         bulk_product_id: row.id,
         bulk_product_name: row.name,

@@ -11,10 +11,20 @@ import WastageEventForm from './WastageEventForm';
 
 const STATUS_STYLES = {
   draft: 'bg-gray-100 text-gray-600',
+  released: 'bg-teal-100 text-teal-700',
   in_progress: 'bg-blue-100 text-blue-700',
   pending_review: 'bg-amber-100 text-amber-700',
   completed: 'bg-green-100 text-green-700',
   cancelled: 'bg-red-100 text-red-600',
+};
+
+const STATUS_LABELS = {
+  draft: 'Draft',
+  released: 'Released',
+  in_progress: 'Cooking',
+  pending_review: 'Pending Review',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
 };
 
 export default function CookingRunDrawer({ run, onClose, onUpdated }) {
@@ -160,7 +170,9 @@ export default function CookingRunDrawer({ run, onClose, onUpdated }) {
   };
 
   const isDraft = run.status === 'draft';
+  const isReleased = run.status === 'released';
   const isActive = run.status === 'in_progress';
+  const canStart = isDraft || isReleased;
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-end">
@@ -169,7 +181,7 @@ export default function CookingRunDrawer({ run, onClose, onUpdated }) {
         {/* Header */}
         <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-start justify-between z-10 shrink-0">
           <div>
-            <Badge className={`text-[10px] mb-1 ${STATUS_STYLES[run.status]}`}>{run.status?.replace('_', ' ')}</Badge>
+            <Badge className={`text-[10px] mb-1 ${STATUS_STYLES[run.status]}`}>{STATUS_LABELS[run.status] || run.status?.replace('_', ' ')}</Badge>
             <h2 className="text-lg font-bold font-mono">{run.run_number}</h2>
             <p className="text-sm text-muted-foreground">{run.bulk_product_name}</p>
           </div>
@@ -186,8 +198,8 @@ export default function CookingRunDrawer({ run, onClose, onUpdated }) {
             <div><span className="text-muted-foreground text-xs uppercase font-semibold">Expected Yield</span><p>{run.bom_expected_yield_pct ? `${run.bom_expected_yield_pct}%` : 'N/A'}</p></div>
           </div>
 
-          {/* Supplier selection (draft/active) */}
-          {(isDraft || isActive) && (
+          {/* Supplier selection (pre-start or active) */}
+          {(canStart || isActive) && (
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase">Supplier</label>
               <Select value={supplierId} onValueChange={setSupplierId}>
@@ -295,12 +307,12 @@ export default function CookingRunDrawer({ run, onClose, onUpdated }) {
 
         {/* Footer actions */}
         <div className="sticky bottom-0 bg-card border-t border-border px-6 py-4 shrink-0 flex gap-3 relative z-10">
-          {isDraft && (
+          {canStart && (
             <>
               <div className="flex-1" />
               <Button onClick={handleStart} disabled={updating} className="gap-2 h-11 px-6 bg-blue-600 hover:bg-blue-700">
                 {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                Start Cooking Run
+                Start Cooking
               </Button>
             </>
           )}
