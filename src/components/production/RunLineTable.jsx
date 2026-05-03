@@ -47,7 +47,9 @@ function groupLines(lines) {
   return { sorted, groups, groupKeys };
 }
 
-export default function RunLineTable({ lines, actuals, reasons, onActualChange, onReasonChange, isEditable, isScheduled, onPlannedQtyChange, onSavePlannedChanges, onDeleteLine, savingPlanned }) {
+export default function RunLineTable({ lines, actuals, reasons, onActualChange, onReasonChange, isEditable, isScheduled, isDraft, onPlannedQtyChange, onSavePlannedChanges, onDeleteLine, savingPlanned }) {
+  // Draft and scheduled share the same editing UX (planned qty + delete)
+  const isPlanningMode = isScheduled || isDraft;
   if (lines.length === 0) {
     return <div className="text-center py-8 text-sm text-muted-foreground">No lines in this run</div>;
   }
@@ -86,15 +88,15 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
               <th className="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase w-20">SOH</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase w-20">COM</th>
               <th className="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase w-20">PAR</th>
-              <th className={cn("px-3 py-3 text-xs font-semibold text-muted-foreground uppercase w-24", isScheduled ? "text-center" : "text-right")}>Planned</th>
-              {!isScheduled && (
+              <th className={cn("px-3 py-3 text-xs font-semibold text-muted-foreground uppercase w-24", isPlanningMode ? "text-center" : "text-right")}>Planned</th>
+              {!isPlanningMode && (
                 <>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-muted-foreground uppercase w-24">Actual</th>
                   <th className="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase w-16">+/-</th>
                   <th className={cn("text-left px-3 py-3 text-xs font-semibold text-muted-foreground uppercase", isEditable ? "min-w-[180px]" : "")}>Reason</th>
                 </>
               )}
-              {isScheduled && <th className="text-center px-2 py-3 text-xs font-semibold text-muted-foreground uppercase w-12"></th>}
+              {isPlanningMode && <th className="text-center px-2 py-3 text-xs font-semibold text-muted-foreground uppercase w-12"></th>}
             </tr>
           </thead>
           <tbody>
@@ -118,9 +120,9 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
                   <td className="px-3 py-2.5 text-right text-xs tabular-nums text-amber-600">{line.committed_at_plan || '—'}</td>
                   <td className="px-3 py-2.5 text-right text-xs tabular-nums">{line.par_at_plan || '—'}</td>
 
-                  {/* Planned qty — inline editable for scheduled runs */}
-                  <td className={cn("px-3 py-2.5", isScheduled ? "text-center" : "text-right text-sm font-semibold tabular-nums")}>
-                    {isScheduled ? (
+                  {/* Planned qty — inline editable for scheduled/draft runs */}
+                  <td className={cn("px-3 py-2.5", isPlanningMode ? "text-center" : "text-right text-sm font-semibold tabular-nums")}>
+                    {isPlanningMode ? (
                       <Input
                         type="number"
                         min="0"
@@ -133,8 +135,8 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
                     )}
                   </td>
 
-                  {/* Actual / Variance / Reason — only shown for non-scheduled */}
-                  {!isScheduled && (
+                  {/* Actual / Variance / Reason — only shown when not in planning mode */}
+                  {!isPlanningMode && (
                     <>
                       <td className="px-3 py-2.5 text-center">
                         {isEditable ? (
@@ -180,8 +182,8 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
                     </>
                   )}
 
-                  {/* Delete for scheduled */}
-                  {isScheduled && (
+                  {/* Delete for planning mode */}
+                  {isPlanningMode && (
                     <td className="px-2 py-2.5 text-center">
                       <Button
                         variant="ghost"
@@ -200,13 +202,13 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
           <tfoot>
             <tr className="bg-muted/30 border-t border-border">
               <td colSpan={5} className="px-4 py-3 text-sm font-bold">Totals</td>
-              <td className={cn("px-3 py-3 text-sm font-bold tabular-nums", isScheduled ? "text-center" : "text-right")}>
-                {isScheduled
+              <td className={cn("px-3 py-3 text-sm font-bold tabular-nums", isPlanningMode ? "text-center" : "text-right")}>
+                {isPlanningMode
                   ? lines.reduce((s, l) => s + Number(l._editedQty ?? l.planned_qty), 0).toLocaleString()
                   : lines.reduce((s, l) => s + l.planned_qty, 0).toLocaleString()
                 }
               </td>
-              {!isScheduled && (
+              {!isPlanningMode && (
                 <>
                   <td className="px-3 py-3 text-center text-sm font-bold tabular-nums">
                     {lines.reduce((s, l) => s + (Number(actuals[l.id]) || 0), 0)}
@@ -228,14 +230,14 @@ export default function RunLineTable({ lines, actuals, reasons, onActualChange, 
                   <td />
                 </>
               )}
-              {isScheduled && <td />}
+              {isPlanningMode && <td />}
             </tr>
           </tfoot>
         </table>
       </div>
 
       {/* Save button for scheduled runs with changes */}
-      {isScheduled && onSavePlannedChanges && (
+      {isPlanningMode && onSavePlannedChanges && (
         <div className="px-6 py-3 border-t border-border flex justify-end">
           <Button onClick={onSavePlannedChanges} disabled={savingPlanned} className="gap-2">
             {savingPlanned ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

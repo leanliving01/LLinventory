@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3, RefreshCw, Trash2, XCircle, RotateCcw } from 'lucide-react';
 import { formatDateSAST, formatTimeSAST } from '@/lib/dateUtils';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,7 @@ import ProductionSummaryModal from '@/components/production/ProductionSummaryMod
 import HelpDrawer from '@/components/help/HelpDrawer';
 import VarianceReport from '@/components/production/VarianceReport';
 import RecalculateRunModal from '@/components/production/RecalculateRunModal';
+import RunActionDialog from '@/components/production/RunActionDialog';
 import { writeAuditLog } from '@/lib/auditLog';
 import { splitTasksByEquipment } from '@/lib/equipmentSplitter';
 import { useAuth } from '@/lib/AuthContext';
@@ -49,6 +50,8 @@ export default function ProductionRunDetail() {
   const [showRecalculate, setShowRecalculate] = useState(false);
   const [plannedEdits, setPlannedEdits] = useState({});
   const [savingPlanned, setSavingPlanned] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [showRevertDialog, setShowRevertDialog] = useState(false);
 
   const { data: run, isLoading: loadingRun } = useQuery({
     queryKey: ['production-run', runId],
@@ -519,6 +522,41 @@ export default function ProductionRunDetail() {
     toast.success('Surplus dispositions recorded');
   };
 
+  // ── Cancel Run ──
+  const handleCancelRun = async (reason) => {
+    // Archive all tasks for this run
+    const runTasks = await base44.entities.ProductionTask.filter({ run_id: runId }, 'step_no', 500);
+    for (let i = 0; i < runTasks.length; i++) {
+      await base44.entities.ProductionTask.update(runTasks[i].id, { archived: true });
+    }
+    await base44.entities.ProductionRun.update(runId, {
+      status: 'cancelled',
+      notes: `${run?.notes ? run.notes + '\n' : ''}CANCELLED: ${reason}`,
+    });
+    writeAuditLog({
+      action: 'cancel', entity_type: 'ProductionRun', entity_id: runId,
+      description: `Cancelled run ${run?.run_number} — ${reason}`,
+    });
+    queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
+    queryClient.invalidateQueries({ queryKey: ['production-runs'] });
+    toast.success(`Run ${run?.run_number} cancelled`);
+  };
+
+  // ── Revert to Draft ──
+  const handleRevertToDraft = async (reason) => {
+    await base44.entities.ProductionRun.update(runId, {
+      status: 'draft',
+      notes: `${run?.notes ? run.notes + '\n' : ''}REVERTED TO DRAFT: ${reason || 'Plan change'}`,
+    });
+    writeAuditLog({
+      action: 'update', entity_type: 'ProductionRun', entity_id: runId,
+      description: `Reverted run ${run?.run_number} to draft — ${reason || 'Plan change'}`,
+    });
+    queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
+    queryClient.invalidateQueries({ queryKey: ['production-runs'] });
+    toast.success(`Run ${run?.run_number} reverted to draft — you can now edit and re-schedule`);
+  };
+
   if (loadingRun || loadingLines) {
     return <div className="text-center py-12 text-sm text-muted-foreground">Loading run...</div>;
   }
@@ -532,10 +570,14 @@ export default function ProductionRunDetail() {
     );
   }
 
-  const isEditable = run.status === 'scheduled' || run.status === 'in_progress';
-  const canComplete = run.status === 'in_progress';
-  const canStart = run.status === 'scheduled';
+  const isDraft = run.status === 'draft';
   const isScheduled = run.status === 'scheduled';
+  const isInProgress = run.status === 'in_progress';
+  const isEditable = isScheduled || isInProgress || isDraft;
+  const canComplete = isInProgress;
+  const canStart = isScheduled;
+  const canCancel = isScheduled || isInProgress;
+  const canRevertToDraft = isScheduled;
   const filledCount = lines.filter(l => actuals[l.id] !== undefined && actuals[l.id] !== '').length;
 
   // Recalculate handler — updates existing lines AND creates new ones
@@ -686,7 +728,17 @@ export default function ProductionRunDetail() {
         </div>
         <div className="flex items-center gap-2">
           <HelpDrawer pageKey="production-run-detail" />
-          {(run.status === 'scheduled' || run.status === 'in_progress' || run.status === 'completed') && (
+          {canRevertToDraft && perms.runs_create && (
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowRevertDialog(true)}>
+              <RotateCcw className="w-4 h-4" /> Revert to Draft
+            </Button>
+          )}
+          {canCancel && perms.runs_start_complete && (
+            <Button variant="outline" size="sm" className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10" onClick={() => setShowCancelDialog(true)}>
+              <XCircle className="w-4 h-4" /> Cancel Run
+            </Button>
+          )}
+          {(isScheduled || isInProgress || run.status === 'completed') && (
             <Link to={`/production/run/${runId}/pick-list`}>
               <Button variant="outline" size="sm" className="gap-1.5">
                 <ClipboardList className="w-4 h-4" /> Pick List
@@ -700,9 +752,23 @@ export default function ProductionRunDetail() {
               </Button>
             </Link>
           )}
-          {isScheduled && perms.runs_start_complete && (
+          {(isScheduled || isDraft) && perms.runs_start_complete && (
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowRecalculate(true)}>
               <RefreshCw className="w-4 h-4" /> Recalculate
+            </Button>
+          )}
+          {isDraft && perms.runs_start_complete && (
+            <Button
+              onClick={async () => {
+                await base44.entities.ProductionRun.update(runId, { status: 'scheduled' });
+                writeAuditLog({ action: 'update', entity_type: 'ProductionRun', entity_id: runId, description: `Scheduled run ${run?.run_number}` });
+                queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
+                queryClient.invalidateQueries({ queryKey: ['production-runs'] });
+                toast.success(`Run ${run?.run_number} scheduled`);
+              }}
+              className="gap-2 bg-blue-600 hover:bg-blue-700"
+            >
+              <Play className="w-4 h-4" /> Schedule Run
             </Button>
           )}
           {canStart && perms.runs_start_complete && (
@@ -711,7 +777,7 @@ export default function ProductionRunDetail() {
               {starting ? 'Checking stock...' : 'Start Run'}
             </Button>
           )}
-          {isEditable && perms.runs_start_complete && (
+          {isInProgress && perms.runs_start_complete && (
             <Button variant="outline" onClick={handleFillPlanned} size="sm">
               Fill Planned
             </Button>
@@ -773,6 +839,20 @@ export default function ProductionRunDetail() {
         </div>
       )}
 
+      {run.status === 'cancelled' && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+          <XCircle className="w-4 h-4 shrink-0" />
+          This run has been cancelled. No stock movements were recorded.
+        </div>
+      )}
+
+      {isDraft && (
+        <div className="bg-muted border border-border rounded-lg px-4 py-3 text-sm text-muted-foreground flex items-center gap-2">
+          <RotateCcw className="w-4 h-4 shrink-0" />
+          This run is in draft. Edit meal lines and quantities, then schedule it when ready.
+        </div>
+      )}
+
       {/* Lines table */}
       <RunLineTable
         lines={lines.map(l => ({ ...l, _editedQty: plannedEdits[l.id] }))}
@@ -782,8 +862,9 @@ export default function ProductionRunDetail() {
         onReasonChange={handleReasonChange}
         isEditable={isEditable}
         isScheduled={isScheduled}
-        onPlannedQtyChange={isScheduled ? handlePlannedQtyChange : undefined}
-        onSavePlannedChanges={isScheduled && Object.keys(plannedEdits).length > 0 ? handleSavePlannedChanges : undefined}
+        isDraft={isDraft}
+        onPlannedQtyChange={(isScheduled || isDraft) ? handlePlannedQtyChange : undefined}
+        onSavePlannedChanges={(isScheduled || isDraft) && Object.keys(plannedEdits).length > 0 ? handleSavePlannedChanges : undefined}
         onDeleteLine={handleDeleteLine}
         savingPlanned={savingPlanned}
       />
@@ -836,6 +917,22 @@ export default function ProductionRunDetail() {
           onClose={() => setShowVariance(false)}
         />
       )}
+
+      {/* Cancel / Revert Dialogs */}
+      <RunActionDialog
+        open={showCancelDialog}
+        onOpenChange={setShowCancelDialog}
+        action="cancel"
+        runNumber={run?.run_number}
+        onConfirm={handleCancelRun}
+      />
+      <RunActionDialog
+        open={showRevertDialog}
+        onOpenChange={setShowRevertDialog}
+        action="revert_draft"
+        runNumber={run?.run_number}
+        onConfirm={handleRevertToDraft}
+      />
     </div>
   );
 }
