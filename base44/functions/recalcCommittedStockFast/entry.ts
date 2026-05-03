@@ -181,19 +181,18 @@ Deno.serve(async (req) => {
   const allStockOnHand = await fetchAllPaginated(
     base44.asServiceRole.entities.StockOnHand, {}, 'product_sku', 500
   );
-  // Build lookup: prefer DISPATCH location SOH, fallback to first
-  const sohByProductId = {};
+  // Build lookup: ONLY use DISPATCH location SOH for committed writes
+  const dispatchSohByProductId = {};   // productId → single dispatch SOH record
+  const nonDispatchStale = [];         // non-dispatch records with stale committed
   for (const soh of allStockOnHand) {
     if (!soh.product_id) continue;
-    if (!sohByProductId[soh.product_id]) sohByProductId[soh.product_id] = [];
-    // Put DISPATCH location records first
     if (dispatchId && soh.location_id === dispatchId) {
-      sohByProductId[soh.product_id].unshift(soh);
-    } else {
-      sohByProductId[soh.product_id].push(soh);
+      dispatchSohByProductId[soh.product_id] = soh;
+    } else if ((soh.qty_committed || 0) > 0) {
+      nonDispatchStale.push(soh);
     }
   }
-  log.push(`Loaded ${allStockOnHand.length} StockOnHand records`);
+  log.push(`Loaded ${allStockOnHand.length} StockOnHand records (${Object.keys(dispatchSohByProductId).length} dispatch, ${nonDispatchStale.length} stale non-dispatch)`);
 
   // ── STEP 8: Write committed quantities ──
   let updatedCount = 0;
@@ -202,9 +201,23 @@ Deno.serve(async (req) => {
   const errors = [];
   const now = new Date().toISOString();
   const productsWithCommitted = new Set();
-
-  // 8a: Update SKUs that HAVE committed stock
   const BATCH = 5;
+
+  // 8a: Zero stale committed on non-dispatch SOH records first
+  if (nonDispatchStale.length > 0) {
+    log.push(`Zeroing ${nonDispatchStale.length} non-dispatch SOH records with stale committed`);
+    for (let i = 0; i < nonDispatchStale.length; i += BATCH) {
+      const batch = nonDispatchStale.slice(i, i + BATCH);
+      await Promise.all(batch.map(soh =>
+        withRetry(() => base44.asServiceRole.entities.StockOnHand.update(soh.id, {
+          qty_committed: 0, qty_available: soh.qty_on_hand || 0, last_updated_at: now,
+        })).catch(() => {})
+      ));
+      await sleep(600);
+    }
+  }
+
+  // 8b: Update SKUs that HAVE committed stock — ONLY on DISPATCH SOH
   const committedEntries = Object.entries(committedMap);
 
   for (let i = 0; i < committedEntries.length; i += BATCH) {
@@ -217,36 +230,26 @@ Deno.serve(async (req) => {
         return;
       }
       productsWithCommitted.add(productId);
-      const sohRecords = sohByProductId[productId];
+      const dispatchSoh = dispatchSohByProductId[productId];
 
-      if (sohRecords && sohRecords.length > 0) {
-        const primary = sohRecords[0];
+      if (dispatchSoh) {
         try {
-          await withRetry(() => base44.asServiceRole.entities.StockOnHand.update(primary.id, {
+          await withRetry(() => base44.asServiceRole.entities.StockOnHand.update(dispatchSoh.id, {
             qty_committed: committedQty,
-            qty_available: (primary.qty_on_hand || 0) - committedQty,
+            qty_available: (dispatchSoh.qty_on_hand || 0) - committedQty,
             last_updated_at: now,
           }));
           updatedCount++;
         } catch (err) {
           errors.push(`Update SOH failed for ${sku}: ${err.message}`);
         }
-        // Zero secondary locations
-        for (let j = 1; j < sohRecords.length; j++) {
-          if (sohRecords[j].qty_committed > 0) {
-            try {
-              await withRetry(() => base44.asServiceRole.entities.StockOnHand.update(sohRecords[j].id, {
-                qty_committed: 0, qty_available: sohRecords[j].qty_on_hand || 0, last_updated_at: now,
-              }));
-            } catch { /* best effort */ }
-          }
-        }
       } else {
+        // No DISPATCH SOH exists — create one
         try {
           await withRetry(() => base44.asServiceRole.entities.StockOnHand.create({
             product_id: productId, product_sku: sku,
             product_name: allProducts.find(p => p.id === productId)?.name || sku,
-            location_id: '', location_name: 'Dispatch',
+            location_id: dispatchId, location_name: dispatchName,
             qty_on_hand: 0, qty_committed: committedQty, qty_available: -committedQty,
             last_updated_at: now,
           }));
@@ -259,7 +262,7 @@ Deno.serve(async (req) => {
     if (i + BATCH < committedEntries.length) await sleep(600);
   }
 
-  // 8b: Zero out committed for products NOT in committedMap
+  // 8c: Zero out committed for dispatch SOH products NOT in committedMap
   const zeroUpdates = allStockOnHand.filter(soh =>
     soh.product_id && !productsWithCommitted.has(soh.product_id) && (soh.qty_committed || 0) > 0
   );
