@@ -86,12 +86,12 @@ export default function CookingRuns() {
             <CookingPot className="w-6 h-6 text-primary" /> Cooking Runs
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Bulk product cooking execution with yield tracking
+            Execute cooking runs released from WIP Planning — record actuals and yield
           </p>
         </div>
         {perms.cooking_runs_create && (
-          <Button onClick={() => setShowCreate(true)} className="gap-2 h-11 px-5">
-            <Plus className="w-4 h-4" /> New Cooking Run
+          <Button variant="outline" size="sm" onClick={() => setShowCreate(true)} className="gap-2 text-muted-foreground">
+            <Plus className="w-4 h-4" /> Ad-hoc Run
           </Button>
         )}
       </div>
