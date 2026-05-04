@@ -575,6 +575,7 @@ export default function Kanban() {
           cachedBoms={allBoms}
           cachedComponents={allBomComponents}
           cachedProducts={products}
+          allTasks={tasks}
         />
       )}
 

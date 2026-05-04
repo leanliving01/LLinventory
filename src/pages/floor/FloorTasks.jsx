@@ -271,16 +271,19 @@ export default function FloorTasks() {
           yieldNote = `Yield: ${actualYield} ${task.qty_uom || ''} (planned ${plannedYield})${yieldNote ? ' | ' + yieldNote : ''}`;
         }
 
-        // Cascade actual yield to the downstream task (prep→cook, cook→portion)
-        const nextStation = task.station === 'prep' ? 'cook' : task.station === 'cook' ? 'portion' : null;
-        if (nextStation) {
+        // Cascade actual yield to the downstream task (prep→cook or cook→portion via BOM)
+        if (task.station === 'prep') {
+          // Prep→Cook: same product_id
           const downstream = tasks.filter(
-            t => t.station === nextStation && t.product_id === task.product_id && !t.archived && t.status !== 'done'
+            t => t.station === 'cook' && t.product_id === task.product_id && !t.archived && t.status !== 'done'
           );
           for (const dt of downstream) {
             await base44.entities.ProductionTask.update(dt.id, { qty: actualYield });
           }
         }
+        // Cook→Portion: different product_ids — portioning reads WIP availability from WipBatch
+        // (created above in Kanban handler) and from getPreviousStepInfo lookup.
+        // No direct qty cascade needed since portion tasks track plate counts, not WIP kg.
       }
 
       await base44.entities.ProductionTask.update(taskId, { status: 'done', finished_at: new Date().toISOString(), notes: yieldNote || summary || undefined });
@@ -345,8 +348,11 @@ export default function FloorTasks() {
           onBack={() => setActiveDetailTaskId(null)}
           onDone={(task) => setPendingDone(task)}
           loading={loading}
+          allTasks={tasks}
+          allBoms={allBoms}
+          allBomComponents={allBomComponents}
         />
-        {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} cachedBoms={allBoms} cachedComponents={allBomComponents} cachedProducts={allProducts} />}
+        {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} cachedBoms={allBoms} cachedComponents={allBomComponents} cachedProducts={allProducts} allTasks={tasks} />}
       </>
     );
   }
@@ -418,7 +424,7 @@ export default function FloorTasks() {
 
       {/* Modals */}
       {blockMessage && <DependencyBlockModal message={blockMessage} onClose={() => setBlockMessage(null)} />}
-      {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => { setPendingDone(null); }} cachedBoms={allBoms} cachedComponents={allBomComponents} cachedProducts={allProducts} />}
+      {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => { setPendingDone(null); }} cachedBoms={allBoms} cachedComponents={allBomComponents} cachedProducts={allProducts} allTasks={tasks} />}
       {pendingStart && (
         <TeamMemberSelect
           members={allTeamMembers.filter(m => {

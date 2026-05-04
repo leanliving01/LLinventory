@@ -13,17 +13,11 @@ import NotesTab from '@/components/floor/task-detail/NotesTab';
 import FilesTab from '@/components/floor/task-detail/FilesTab';
 import BomTab from '@/components/floor/task-detail/BomTab';
 import AttributesTab from '@/components/floor/task-detail/AttributesTab';
+import { getPreviousStepInfo } from '@/lib/previousStepLookup';
 
-const PREP_COOK_TABS = [
+const ALL_STATION_TABS = [
   { id: 'consume', label: 'To Consume' },
   { id: 'resources', label: 'Resources' },
-  { id: 'notes', label: 'Notes' },
-  { id: 'files', label: 'Files' },
-  { id: 'bom', label: 'Recipe' },
-  { id: 'attributes', label: 'Attributes' },
-];
-
-const PORTION_TABS = [
   { id: 'notes', label: 'Notes' },
   { id: 'files', label: 'Files' },
   { id: 'bom', label: 'Recipe' },
@@ -33,10 +27,9 @@ const PORTION_TABS = [
 /**
  * Full-page drill-down for an active production task with tabbed sections.
  */
-export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack, onDone, loading }) {
-  const isPortioning = task.station === 'portion';
-  const tabs = isPortioning ? PORTION_TABS : PREP_COOK_TABS;
-  const [activeTab, setActiveTab] = useState(isPortioning ? 'notes' : 'consume');
+export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack, onDone, loading, allTasks, allBoms, allBomComponents }) {
+  const tabs = ALL_STATION_TABS;
+  const [activeTab, setActiveTab] = useState('consume');
   const [flushing, setFlushing] = useState(false);
   const consumeRef = useRef(null);
   const isActive = task.status === 'in_progress';
@@ -45,9 +38,9 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
   // Callback to receive ConsumeTab's methods via onRef
   const handleConsumeRef = useCallback((ref) => { consumeRef.current = ref; }, []);
 
-  // Flush pending saves before opening Done modal (only for prep/cook)
+  // Flush pending saves before opening Done modal
   const handleDone = async (t) => {
-    if (!isPortioning && consumeRef.current?.flushPendingSaves) {
+    if (consumeRef.current?.flushPendingSaves) {
       setFlushing(true);
       await consumeRef.current.flushPendingSaves();
       setFlushing(false);
@@ -55,19 +48,11 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
     onDone(t);
   };
 
-  // Detect cook-after-prep to show context in header
-  const isCookAfterPrep = task.station === 'cook' && (task.step_no || 0) > 1;
-  const { data: siblingPrepTasks = [] } = useQuery({
-    queryKey: ['sibling-prep-detail', task.run_id, task.product_id],
-    queryFn: () => base44.entities.ProductionTask.filter({
-      run_id: task.run_id,
-      product_id: task.product_id,
-      station: 'prep',
-    }),
-    enabled: isCookAfterPrep && !!task.run_id && !!task.product_id,
-  });
-  const donePrep = siblingPrepTasks.find(t => t.status === 'done');
-  const originalPlanned = donePrep ? donePrep.qty : null;
+  // Use shared lookup for previous step context (prep→cook or cook→portion)
+  const prevStepInfo = useMemo(() => {
+    if (!allTasks || !allBoms || !allBomComponents) return { hasPreviousStep: false, items: [] };
+    return getPreviousStepInfo(task, allTasks, allBoms, allBomComponents);
+  }, [task, allTasks, allBoms, allBomComponents]);
 
   // Fetch BOM for this product + station.
   // Prep and cook tasks both belong to the Cook BOM layer. Portion tasks use their own Portion BOM.
@@ -129,23 +114,16 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
             </div>
           </div>
           <div className="text-right shrink-0">
-            {isCookAfterPrep && originalPlanned != null ? (
-              <>
-                <div className="text-2xl font-bold tabular-nums text-blue-600 dark:text-blue-400">
-                  {Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)}
-                </div>
-                <span className="text-[10px] text-muted-foreground">available {task.qty_uom || 'kg'}</span>
-                <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
-                  Recipe: {Number.isInteger(originalPlanned) ? originalPlanned : Number(originalPlanned).toFixed(2)} {task.qty_uom || 'kg'}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="text-2xl font-bold tabular-nums">
-                  {task.qty != null ? (Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)) : '—'}
-                </div>
-                <span className="text-[10px] text-muted-foreground">{task.qty_uom || (task.station === 'portion' ? 'pcs' : 'units')}</span>
-              </>
+            <div className="text-2xl font-bold tabular-nums">
+              {task.qty != null ? (Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)) : '—'}
+            </div>
+            <span className="text-[10px] text-muted-foreground">{task.qty_uom || (task.station === 'portion' ? 'pcs' : 'units')}</span>
+            {prevStepInfo.hasPreviousStep && prevStepInfo.items.length > 0 && (
+              <div className="text-xs text-blue-600 dark:text-blue-400 tabular-nums mt-0.5">
+                From {prevStepInfo.previousStation}: {prevStepInfo.items.map(it =>
+                  `${Number.isInteger(it.availableQty) ? it.availableQty : Number(it.availableQty).toFixed(2)} ${it.uom}`
+                ).join(', ')}
+              </div>
             )}
           </div>
         </div>
@@ -201,7 +179,7 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
 
       {/* Tab content */}
       <div className="min-h-[200px]">
-        {activeTab === 'consume' && <ConsumeTab task={task} bom={bom} components={stepFilteredComponents} onRef={handleConsumeRef} />}
+        {activeTab === 'consume' && <ConsumeTab task={task} bom={bom} components={stepFilteredComponents} onRef={handleConsumeRef} allTasks={allTasks} allBoms={allBoms} allBomComponents={allBomComponents} />}
         {activeTab === 'resources' && <ResourcesTab task={task} operations={operations} />}
         {activeTab === 'notes' && <NotesTab task={task} bom={bom} operations={operations} />}
         {activeTab === 'files' && <FilesTab bom={bom} />}

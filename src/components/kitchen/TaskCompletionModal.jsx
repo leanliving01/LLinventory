@@ -6,8 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { X, CheckCircle2, Loader2, AlertTriangle, ArrowDown } from 'lucide-react';
+import { getPreviousStepInfo } from '@/lib/previousStepLookup';
+import PreviousStepCard from '@/components/floor/task-detail/PreviousStepCard';
 
-export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedBoms, cachedComponents, cachedProducts }) {
+export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedBoms, cachedComponents, cachedProducts, allTasks }) {
   const [actuals, setActuals] = useState({});
   const [wastage, setWastage] = useState({});
   const [actualYield, setActualYield] = useState('');
@@ -19,7 +21,13 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
   const isPortioning = task.station === 'portion';
   const isCookAfterPrep = task.station === 'cook' && (task.step_no || 0) > 1;
 
-  // Fetch sibling prep task to get original planned qty (before yield cascade)
+  // Shared previous-step lookup (works for cook-after-prep AND portioning)
+  const prevStepInfo = useMemo(() => {
+    if (!allTasks || !cachedBoms || !cachedComponents) return { hasPreviousStep: false, previousStation: null, items: [] };
+    return getPreviousStepInfo(task, allTasks, cachedBoms, cachedComponents);
+  }, [task, allTasks, cachedBoms, cachedComponents]);
+
+  // Legacy fallback: fetch sibling prep task if allTasks not available
   const { data: siblingPrepTasks = [] } = useQuery({
     queryKey: ['sibling-prep-modal', task.run_id, task.product_id],
     queryFn: () => base44.entities.ProductionTask.filter({
@@ -27,10 +35,21 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
       product_id: task.product_id,
       station: 'prep',
     }),
-    enabled: isCookAfterPrep && !!task.run_id && !!task.product_id,
+    enabled: isCookAfterPrep && !allTasks && !!task.run_id && !!task.product_id,
   });
-  const prepTask = siblingPrepTasks.find(t => t.status === 'done');
-  const originalRequiredQty = prepTask ? prepTask.qty : null;
+
+  // Derive originalRequiredQty from shared lookup or legacy fallback
+  const originalRequiredQty = useMemo(() => {
+    if (prevStepInfo.hasPreviousStep && prevStepInfo.items.length > 0 && (isCookAfterPrep || isPortioning)) {
+      return prevStepInfo.items[0].requiredQty;
+    }
+    if (isCookAfterPrep) {
+      const prep = siblingPrepTasks.find(t => t.status === 'done');
+      return prep ? prep.qty : null;
+    }
+    return null;
+  }, [prevStepInfo, isCookAfterPrep, isPortioning, siblingPrepTasks]);
+
   const availableFromPrep = isCookAfterPrep ? task.qty : null;
 
   // Load existing TaskConsumption records (saved from ConsumeTab)
@@ -96,6 +115,12 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
       const totalRequired = Math.round(perUnit * scaleQty * 100) / 100;
       const product = productMap[c.input_product_id];
       const isBulkWip = product?.type === 'wip_bulk';
+      // For portioning: check if we have actual availability from the cook step
+      let available = totalRequired;
+      if (isPortioning && prevStepInfo.hasPreviousStep) {
+        const prevItem = prevStepInfo.items.find(it => it.productId === c.input_product_id);
+        if (prevItem) available = prevItem.availableQty;
+      }
       return {
         id: c.id,
         input_product_id: c.input_product_id,
@@ -103,7 +128,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
         sku: c.input_product_sku || product?.sku || '',
         uom: c.uom || product?.stock_uom || '',
         required: totalRequired,
-        picked: totalRequired, // For task-level, "picked" = "required" (pick list is run-level aggregate)
+        picked: available, // For portioning with cook step: actual cook yield; otherwise = required
         perUnit,
         cost_per_unit: product?.cost_avg || 0,
         isBulkWip,
@@ -245,6 +270,11 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
           ) : isPortioning ? (
             /* ===== PORTIONING FLOW ===== */
             <>
+              {/* From Cook Step — show what's available from cooking */}
+              {prevStepInfo.hasPreviousStep && (
+                <PreviousStepCard previousStation={prevStepInfo.previousStation} items={prevStepInfo.items} compact />
+              )}
+
               {/* Step 1: Bulk leftover */}
               {bulkRows.length > 0 && (
                 <div>
@@ -387,22 +417,9 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
           ) : (
             /* ===== PREP / COOK FLOW ===== */
             <>
-              {/* Cook-after-Prep context */}
-              {isCookAfterPrep && availableFromPrep != null && (
-                <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-xl p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <ArrowDown className="w-3 h-3 text-blue-600" />
-                    <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider">From Prep Step</p>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Required (recipe):</span>
-                    <span className="font-bold tabular-nums">{originalRequiredQty != null ? (Number.isInteger(originalRequiredQty) ? originalRequiredQty : Number(originalRequiredQty).toFixed(2)) : '—'} {task.qty_uom || 'kg'}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Available from Prep:</span>
-                    <span className="font-bold tabular-nums text-blue-600">{Number.isInteger(availableFromPrep) ? availableFromPrep : Number(availableFromPrep).toFixed(2)} {task.qty_uom || 'kg'}</span>
-                  </div>
-                </div>
+              {/* From Previous Step context (cook-after-prep) */}
+              {prevStepInfo.hasPreviousStep && (
+                <PreviousStepCard previousStation={prevStepInfo.previousStation} items={prevStepInfo.items} compact />
               )}
 
               {/* Actual Yield */}
@@ -411,7 +428,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                   <div>
                     <p className="text-sm font-bold">Actual Yield</p>
                     <p className="text-xs text-muted-foreground">
-                      {isCookAfterPrep ? 'Recipe target' : 'Planned'}: {isCookAfterPrep && originalRequiredQty != null
+                      {prevStepInfo.hasPreviousStep ? 'Recipe target' : 'Planned'}: {prevStepInfo.hasPreviousStep && originalRequiredQty != null
                         ? (Number.isInteger(originalRequiredQty) ? originalRequiredQty : Number(originalRequiredQty).toFixed(2))
                         : (task.qty != null ? (Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)) : '—')} {task.qty_uom || ''}
                     </p>
