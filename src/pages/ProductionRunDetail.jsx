@@ -271,7 +271,10 @@ export default function ProductionRunDetail() {
 
         // Total qty for this WIP across all lines (in the WIP's stock_uom).
         // Use the aggregated value — NEVER fall back to line.planned_qty (that's meal count, not kg).
-        const totalWipQty = Math.round((wipQtyNeeded[inputProduct.id] || 0) * 100) / 100;
+        // Do NOT round here — rounding causes variance between pick list and cook task "Required".
+        // The pick list sums raw ingredients from the unrounded WIP qty; if we round the task qty,
+        // the ConsumeTab re-derives a different raw total. Full precision flows through instead.
+        const totalWipQty = wipQtyNeeded[inputProduct.id] || 0;
         const wipUom = inputProduct.stock_uom || cookBom.yield_uom || 'kg';
 
         if (totalWipQty <= 0) {
