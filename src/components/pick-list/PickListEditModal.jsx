@@ -1,0 +1,110 @@
+import React, { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { X, Save, Loader2 } from 'lucide-react';
+
+const EDIT_REASONS = [
+  'Counting error during picking',
+  'Wrong product picked',
+  'Stock damaged after picking',
+  'Supplier short delivery',
+  'Recipe change',
+  'Other',
+];
+
+export default function PickListEditModal({ item, currentQty, onSave, onCancel }) {
+  const [newQty, setNewQty] = useState(String(currentQty || item.totalQty));
+  const [reason, setReason] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!reason) return;
+    setSaving(true);
+    await onSave({
+      productId: item.product.id,
+      productName: item.product.name,
+      productSku: item.product.sku,
+      oldQty: currentQty || item.totalQty,
+      newQty: Number(newQty),
+      reason,
+      notes,
+      uom: item.uom,
+    });
+    setSaving(false);
+  };
+
+  const diff = Number(newQty) - (currentQty || item.totalQty);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/30" onClick={onCancel} />
+      <div className="relative bg-card rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-bold">Edit Picked Quantity</h3>
+          <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-4 h-4" /></Button>
+        </div>
+
+        <div className="bg-muted/50 rounded-lg p-3 text-sm">
+          <p className="font-medium">{item.product.name}</p>
+          <p className="text-xs font-mono text-muted-foreground">{item.product.sku}</p>
+          <div className="flex gap-4 mt-2 text-xs">
+            <span>Needed: <strong>{item.totalQty} {item.uom}</strong></span>
+            <span>Currently picked: <strong>{currentQty || item.totalQty} {item.uom}</strong></span>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-muted-foreground uppercase">New Picked Qty ({item.uom})</label>
+          <Input
+            type="number"
+            min="0"
+            step="any"
+            value={newQty}
+            onChange={e => setNewQty(e.target.value)}
+            className="mt-1"
+          />
+          {diff !== 0 && (
+            <p className={`text-xs mt-1 font-medium ${diff > 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {diff > 0 ? '+' : ''}{diff.toFixed(2)} {item.uom} {diff > 0 ? '(more picked)' : '(less picked)'}
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-muted-foreground uppercase">Reason *</label>
+          <Select value={reason} onValueChange={setReason}>
+            <SelectTrigger className="mt-1"><SelectValue placeholder="Select reason..." /></SelectTrigger>
+            <SelectContent>
+              {EDIT_REASONS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-muted-foreground uppercase">Notes (optional)</label>
+          <Textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="Additional detail..."
+            className="mt-1 h-16"
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+          <Button
+            onClick={handleSave}
+            disabled={saving || !reason || Number(newQty) === (currentQty || item.totalQty)}
+            className="gap-1.5"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save Change
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

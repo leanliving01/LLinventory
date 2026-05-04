@@ -8,6 +8,8 @@ import { ScanBarcode, Check } from 'lucide-react';
 import PickListHeader from '@/components/pick-list/PickListHeader';
 import PickListCategory from '@/components/pick-list/PickListCategory';
 import { generatePickListPdf } from '@/components/pick-list/PickListPdfExport';
+import PickListPrintView from '@/components/pick-list/PickListPrintView';
+import PickListEditModal from '@/components/pick-list/PickListEditModal';
 import LiveTimer from '@/components/kitchen/LiveTimer';
 
 /**
@@ -63,6 +65,8 @@ export default function PickList() {
   // Picked state: { [productId]: { picked: bool, qty: string } }
   const [pickedState, setPickedState] = useState({});
   const [confirmingPick, setConfirmingPick] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+  const [editLog, setEditLog] = useState([]); // Track edits for display
   const queryClient = useQueryClient();
 
   const isConfirmed = !!run?.pick_list_confirmed;
@@ -286,6 +290,77 @@ export default function PickList() {
     toast.success('PDF downloaded');
   };
 
+  // Edit a confirmed pick list item
+  const handleEditSave = async ({ productId, productName, productSku, oldQty, newQty, reason, notes, uom }) => {
+    const diff = newQty - oldQty;
+
+    // Create adjustment stock movement
+    if (diff !== 0) {
+      await base44.entities.StockMovement.create({
+        product_id: productId,
+        product_sku: productSku,
+        product_name: productName,
+        qty: Math.abs(diff),
+        uom,
+        reason: diff > 0 ? 'production_consume' : 'return',
+        ref_type: 'production_run',
+        ref_id: runId,
+        ref_number: run?.run_number || '',
+        notes: `Pick list edit: ${reason}${notes ? ' — ' + notes : ''} (${oldQty} → ${newQty} ${uom})`,
+      });
+
+      // Update StockOnHand
+      const sohRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
+      const productSoh = sohRecords
+        .filter(s => s.product_id === productId)
+        .sort((a, b) => (b.qty_on_hand || 0) - (a.qty_on_hand || 0));
+
+      if (diff > 0) {
+        // More consumed — deduct from stock
+        let remaining = diff;
+        for (const soh of productSoh) {
+          if (remaining <= 0) break;
+          const deduct = Math.min(remaining, soh.qty_on_hand || 0);
+          const newOnHand = Math.max(0, (soh.qty_on_hand || 0) - deduct);
+          await base44.entities.StockOnHand.update(soh.id, {
+            qty_on_hand: newOnHand,
+            qty_available: newOnHand - (soh.qty_committed || 0),
+            last_updated_at: new Date().toISOString(),
+          });
+          remaining -= deduct;
+        }
+      } else {
+        // Less consumed — return stock
+        const returnQty = Math.abs(diff);
+        if (productSoh.length > 0) {
+          const soh = productSoh[0];
+          const newOnHand = (soh.qty_on_hand || 0) + returnQty;
+          await base44.entities.StockOnHand.update(soh.id, {
+            qty_on_hand: newOnHand,
+            qty_available: newOnHand - (soh.qty_committed || 0),
+            last_updated_at: new Date().toISOString(),
+          });
+        }
+      }
+    }
+
+    // Update local picked state
+    setPickedState(prev => ({
+      ...prev,
+      [productId]: { picked: true, qty: String(newQty) },
+    }));
+
+    // Log the edit for display
+    setEditLog(prev => [...prev, {
+      productName, oldQty, newQty, reason, notes, uom,
+      timestamp: new Date().toISOString(),
+    }]);
+
+    queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+    toast.success(`Updated ${productName}: ${oldQty} → ${newQty} ${uom}`);
+    setEditingItem(null);
+  };
+
   const handleConfirmPickList = async () => {
     // Check for items picked below needed
     const belowNeeded = pickItems.filter(i => {
@@ -376,11 +451,14 @@ export default function PickList() {
         onExportPdf={handleExportPdf}
       />
 
-      {/* Print header */}
-      <div className="hidden print:block">
-        <h1 className="text-xl font-bold">Pick List — {run.run_number}</h1>
-        <p className="text-sm">{lines.length} meals · {pickItems.length} ingredients</p>
-      </div>
+      {/* Print view — mirrors the PDF layout */}
+      <PickListPrintView
+        run={run}
+        lines={lines}
+        pickItems={pickItems}
+        categories={categories}
+        pickedState={effectivePickedState}
+      />
 
       {/* Inline scanner — visible only while picking is active */}
       {isPicking && (
@@ -457,7 +535,7 @@ export default function PickList() {
         </div>
       )}
 
-      {/* Progress bar */}
+      {/* Progress bar — screen only */}
       {pickItems.length > 0 && (
         <div className="print:hidden">
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
@@ -473,26 +551,54 @@ export default function PickList() {
         </div>
       )}
 
-      {/* Categories */}
-      {categories.map(cat => (
-        <PickListCategory
-          key={cat}
-          category={cat}
-          items={pickItems.filter(i => i.pickCategory === cat)}
-          pickedState={effectivePickedState}
-          stockMap={stockMap}
-          onTogglePicked={handleTogglePicked}
-          onQtyChange={handleQtyChange}
-          onMarkAll={handleMarkAll}
-          disabled={!run.picking_started_at || run.pick_list_confirmed}
-          isConfirmed={isConfirmed}
-        />
-      ))}
+      {/* Categories — hidden when printing (print view handles it) */}
+      <div className="print:hidden">
+        {categories.map(cat => (
+          <PickListCategory
+            key={cat}
+            category={cat}
+            items={pickItems.filter(i => i.pickCategory === cat)}
+            pickedState={effectivePickedState}
+            stockMap={stockMap}
+            onTogglePicked={handleTogglePicked}
+            onQtyChange={handleQtyChange}
+            onMarkAll={handleMarkAll}
+            disabled={!run.picking_started_at || run.pick_list_confirmed}
+            isConfirmed={isConfirmed}
+            onEditItem={isConfirmed ? setEditingItem : null}
+          />
+        ))}
+      </div>
 
       {pickItems.length === 0 && (
-        <div className="bg-card border border-border rounded-xl px-6 py-12 text-center text-sm text-muted-foreground">
+        <div className="bg-card border border-border rounded-xl px-6 py-12 text-center text-sm text-muted-foreground print:hidden">
           No ingredients found — check that recipes (Cook + Portion BOMs) are set up for the meals in this run.
         </div>
+      )}
+
+      {/* Edit log — show after confirmed */}
+      {isConfirmed && editLog.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 print:hidden">
+          <p className="text-xs font-semibold text-amber-800 mb-2">Pick List Edits ({editLog.length})</p>
+          <div className="space-y-1">
+            {editLog.map((log, i) => (
+              <p key={i} className="text-xs text-amber-700">
+                <span className="font-medium">{log.productName}</span>: {log.oldQty} → {log.newQty} {log.uom}
+                <span className="text-amber-500 ml-2">— {log.reason}</span>
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {editingItem && (
+        <PickListEditModal
+          item={editingItem}
+          currentQty={Number(effectivePickedState[editingItem.product.id]?.qty) || editingItem.totalQty}
+          onSave={handleEditSave}
+          onCancel={() => setEditingItem(null)}
+        />
       )}
     </div>
   );

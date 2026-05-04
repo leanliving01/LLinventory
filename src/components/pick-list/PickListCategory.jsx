@@ -3,11 +3,11 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { CheckCheck } from 'lucide-react';
+import { CheckCheck, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
-export default function PickListCategory({ category, items, pickedState, stockMap, onTogglePicked, onQtyChange, onMarkAll, disabled = false, isConfirmed = false }) {
+export default function PickListCategory({ category, items, pickedState, stockMap, onTogglePicked, onQtyChange, onMarkAll, disabled = false, isConfirmed = false, onEditItem = null }) {
   const allPicked = items.every(i => {
     const s = pickedState[i.product.id];
     return s?.picked && s?.qty && Number(s.qty) > 0;
@@ -46,6 +46,7 @@ export default function PickListCategory({ category, items, pickedState, stockMa
             <col className="w-24" />
             <col className="w-28 print:hidden" />
             <col className="w-16" />
+            {onEditItem && <col className="w-12" />}
           </colgroup>
           <thead>
             <tr className="border-b border-border">
@@ -56,6 +57,7 @@ export default function PickListCategory({ category, items, pickedState, stockMa
               <th className="text-right px-4 py-2 font-medium text-muted-foreground print:hidden">In Stock</th>
               <th className="text-center px-4 py-2 font-medium text-muted-foreground print:hidden">Picked Qty</th>
               <th className="text-left px-4 py-2 font-medium text-muted-foreground">UoM</th>
+              {onEditItem && <th className="px-2 py-2 print:hidden"></th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -133,6 +135,19 @@ export default function PickListCategory({ category, items, pickedState, stockMa
                     )}
                   </td>
                   <td className="px-4 py-2 text-muted-foreground">{item.uom}</td>
+                  {onEditItem && (
+                    <td className="px-2 py-2 print:hidden">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="w-7 h-7 text-muted-foreground hover:text-primary"
+                        onClick={() => onEditItem(item)}
+                        title="Edit picked quantity"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
