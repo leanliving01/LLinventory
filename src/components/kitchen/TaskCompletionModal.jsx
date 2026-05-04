@@ -65,26 +65,6 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
     return boms[0];
   }, [boms, task.station]);
 
-  // Fetch actual picked quantities from the pick list for this run
-  const { data: pickLines = [] } = useQuery({
-    queryKey: ['pick-lines-for-task-modal', task.run_id],
-    queryFn: async () => {
-      const pls = await base44.entities.PickList.filter({ production_run_id: task.run_id }, '-created_date', 1);
-      if (pls.length === 0) return [];
-      return base44.entities.PickLine.filter({ pick_list_id: pls[0].id }, 'product_name', 500);
-    },
-    enabled: !!task.run_id,
-  });
-
-  const pickedByProduct = useMemo(() => {
-    const map = {};
-    pickLines.forEach(pl => {
-      if (!map[pl.product_id]) map[pl.product_id] = 0;
-      map[pl.product_id] += pl.actual_qty_picked || pl.required_qty || 0;
-    });
-    return map;
-  }, [pickLines]);
-
   const componentRows = useMemo(() => {
     if (!relevantBom) return [];
     let comps = allComponents.filter(c => c.bom_id === relevantBom.id);
@@ -99,8 +79,6 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
       const totalRequired = Math.round(perUnit * (task.qty || 1) * 100) / 100;
       const product = productMap[c.input_product_id];
       const isBulkWip = product?.type === 'wip_bulk';
-      // Use actual picked qty from pick list if available, otherwise fall back to BOM-required
-      const actualPicked = pickedByProduct[c.input_product_id];
       return {
         id: c.id,
         input_product_id: c.input_product_id,
@@ -108,31 +86,25 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
         sku: c.input_product_sku || product?.sku || '',
         uom: c.uom || product?.stock_uom || '',
         required: totalRequired,
-        picked: actualPicked != null ? actualPicked : totalRequired,
+        picked: totalRequired, // For task-level, "picked" = "required" (pick list is run-level aggregate)
         perUnit,
         cost_per_unit: product?.cost_avg || 0,
         isBulkWip,
         is_consumable: c.is_consumable || false,
       };
     });
-  }, [relevantBom, allComponents, task.qty, productMap, pickedByProduct]);
+  }, [relevantBom, allComponents, task.qty, productMap]);
 
   // Separate bulk WIP rows from packaging/consumable rows for portioning
   const bulkRows = useMemo(() => componentRows.filter(r => r.isBulkWip && !r.is_consumable), [componentRows]);
   const otherRows = useMemo(() => componentRows.filter(r => !r.isBulkWip || r.is_consumable), [componentRows]);
 
-  // Track whether we've done the initial seed and which pick data version we used
-  const [seededWithPickData, setSeededWithPickData] = useState(false);
-  const pickDataReady = pickLines.length > 0;
+  // Track whether we've done the initial seed
+  const [seeded, setSeeded] = useState(false);
 
-  // Pre-fill actuals from saved TaskConsumption records, falling back to actual picked values.
-  // Re-seeds once when pick list data arrives to replace BOM-fallback values.
+  // Pre-fill actuals from saved TaskConsumption records, falling back to BOM-required.
   useEffect(() => {
-    if (isPortioning || componentRows.length === 0) return;
-    // Skip if we already seeded WITH pick data
-    if (seededWithPickData && pickDataReady) return;
-    // Skip if we already seeded and pick data still hasn't arrived
-    if (Object.keys(actuals).length > 0 && !pickDataReady) return;
+    if (isPortioning || componentRows.length === 0 || seeded) return;
 
     const prefilled = {};
     const prefilledWaste = {};
@@ -142,16 +114,15 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
         prefilled[r.id] = saved.consumed_qty;
         prefilledWaste[r.id] = saved.wastage_qty || 0;
       } else {
-        // Default to what was actually picked (from pick list), not BOM-required
-        prefilled[r.id] = r.picked;
+        prefilled[r.id] = r.required;
       }
     });
     setActuals(prefilled);
     if (Object.values(prefilledWaste).some(v => v > 0)) {
       setWastage(prefilledWaste);
     }
-    if (pickDataReady) setSeededWithPickData(true);
-  }, [componentRows, isPortioning, existingConsumption, pickDataReady]);
+    setSeeded(true);
+  }, [componentRows, isPortioning, existingConsumption, seeded]);
 
   // Pre-fill portioning leftover with 0 (assume they used everything unless they say otherwise)
   useEffect(() => {
@@ -232,7 +203,6 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
   const hasComponents = componentRows.length > 0;
   const plates = Number(platesProduced) || 0;
   const portionVariance = plates - (task.qty || 0);
-  const pickDataLoading = !!task.run_id && pickLines.length === 0 && !seededWithPickData;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -250,12 +220,6 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {pickDataLoading && (
-            <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 dark:bg-blue-950/30 rounded-xl px-4 py-2.5">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Loading actual picked quantities…
-            </div>
-          )}
           {!hasComponents ? (
             <div className="text-center py-6">
               <p className="text-sm text-muted-foreground mb-2">No recipe ingredients found for this task.</p>
@@ -463,11 +427,8 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                       </div>
                       <div className="grid grid-cols-3 gap-3">
                         <div>
-                          <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Picked</label>
-                          <p className="text-sm font-bold">{row.picked}</p>
-                          {row.picked !== row.required && (
-                            <p className="text-[10px] text-muted-foreground">Req: {row.required}</p>
-                          )}
+                          <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Required</label>
+                          <p className="text-sm font-bold">{row.required}</p>
                         </div>
                         <div>
                           <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Consumed</label>
@@ -493,7 +454,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                       </div>
                       {diff !== 0 && (
                         <p className={`text-[11px] font-medium ${diff > 0 ? 'text-amber-600' : 'text-blue-600'}`}>
-                          {diff > 0 ? `+${diff.toFixed(2)} over what was picked` : `${Math.abs(diff).toFixed(2)} ${row.uom} returning to stock`}
+                          {diff > 0 ? `+${diff.toFixed(2)} over required` : `${Math.abs(diff).toFixed(2)} ${row.uom} less than required`}
                         </p>
                       )}
                       {Number(waste) > 0 && (

@@ -13,6 +13,7 @@ import KanbanPortionColumn from '@/components/production/KanbanPortionColumn';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
 import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
+import YieldShortfallModal from '@/components/kitchen/YieldShortfallModal';
 import DependencyBlockModal from '@/components/kitchen/DependencyBlockModal';
 import { logTaskEvent } from '@/lib/taskEventLog';
 import { checkTaskDependencies } from '@/lib/taskDependencyCheck';
@@ -30,6 +31,7 @@ export default function Kanban() {
   const [pendingStart, setPendingStart] = useState(null); // { taskId, newStatus, station }
   const [pendingDone, setPendingDone] = useState(null); // task object for completion modal
   const [blockMessage, setBlockMessage] = useState(null); // dependency error message
+  const [shortfallData, setShortfallData] = useState(null); // { task, actualYield, plannedYield, affectedTasks, consumption, meta }
 
   const { data: run } = useQuery({
     queryKey: ['production-run', runId],
@@ -163,9 +165,69 @@ export default function Kanban() {
     await doStatusChange(taskId, newStatus);
   };
 
+  /**
+   * Find downstream tasks that consume this WIP product.
+   * Cook tasks have product_id = WIP product. Portion tasks have product_id = finished meal.
+   * We need to trace via BOM: which portion BOMs include this WIP product as a component?
+   */
+  const findDownstreamTasks = (task, actualYield) => {
+    if (task.station === 'prep') {
+      // Prep → Cook: same product_id
+      return tasks.filter(
+        t => t.station === 'cook' && t.product_id === task.product_id && !t.archived && t.status !== 'done'
+      );
+    }
+    if (task.station === 'cook') {
+      // Cook → Portion: different product_ids. Find portion tasks whose BOM references this WIP product.
+      const wipProductId = task.product_id;
+      // Find portion BOMs that reference this WIP product as an input component
+      const portionBomIds = new Set();
+      allBomComponents.forEach(c => {
+        if (c.input_product_id === wipProductId) {
+          const bom = allBoms.find(b => b.id === c.bom_id && b.bom_type === 'portion');
+          if (bom) portionBomIds.add(bom.product_id); // product_id of the finished meal
+        }
+      });
+      // Find pending/in_progress portion tasks for those finished meals
+      return tasks.filter(
+        t => t.station === 'portion' && portionBomIds.has(t.product_id) && !t.archived && t.status !== 'done'
+      );
+    }
+    return [];
+  };
+
   const handleTaskCompleted = async (taskId, consumption, meta = {}) => {
     const task = tasks.find(t => t.id === taskId);
-    if (task) logTaskEvent(task, 'completed');
+    if (!task) return;
+
+    const isPortioningTask = consumption.length > 0 && consumption[0].is_portioning;
+    const isPrepOrCook = !isPortioningTask;
+    const actualYield = meta.actual_yield;
+    const plannedYield = task.qty || 0;
+
+    // Shortfall check for prep/cook: if yield < planned, warn before proceeding
+    if (isPrepOrCook && actualYield != null && actualYield < plannedYield) {
+      const downstream = findDownstreamTasks(task, actualYield);
+      // Show warning modal — store everything needed to proceed later
+      setShortfallData({ task, actualYield, plannedYield, affectedTasks: downstream, consumption, meta });
+      return;
+    }
+
+    // No shortfall — proceed directly
+    await executeTaskCompletion(taskId, consumption, meta);
+  };
+
+  const handleShortfallProceed = async () => {
+    if (!shortfallData) return;
+    const { task, consumption, meta } = shortfallData;
+    setShortfallData(null);
+    await executeTaskCompletion(task.id, consumption, meta);
+  };
+
+  const executeTaskCompletion = async (taskId, consumption, meta = {}) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    logTaskEvent(task, 'completed');
 
     const isPortioningTask = consumption.length > 0 && consumption[0].is_portioning;
 
@@ -185,21 +247,27 @@ export default function Kanban() {
         if (diff === 0) continue;
 
         if (item.is_bulk_wip) {
-          // Bulk WIP: return excess to stock (e.g. 3kg available, only used 2.5kg → return 0.5kg)
           if (diff < 0) {
+            // Return excess WIP to stock — also update WipBatch
             await base44.entities.StockMovement.create({
               product_id: item.input_product_id,
               product_sku: item.sku,
               product_name: item.name,
               qty: Math.abs(diff),
               uom: item.uom,
-              reason: 'return',
+              reason: 'production_return',
               ref_type: 'production_run',
               ref_id: runId,
               notes: `[task:${taskId}] Excess bulk returned (available ${item.picked}, used ${item.actual} ${item.uom})`,
             });
+            // Return leftover to WipBatch (FIFO — find newest batch for this product)
+            const batches = await base44.entities.WipBatch.filter({ bulk_product_id: item.input_product_id, quality_status: 'fresh' }, '-produced_date', 1);
+            if (batches.length > 0) {
+              await base44.entities.WipBatch.update(batches[0].id, {
+                qty_kg: (batches[0].qty_kg || 0) + Math.abs(diff),
+              });
+            }
           } else {
-            // Used more than available — extra consumption
             await base44.entities.StockMovement.create({
               product_id: item.input_product_id,
               product_sku: item.sku,
@@ -213,7 +281,7 @@ export default function Kanban() {
             });
           }
         } else {
-          // Packaging: same logic as before
+          // Packaging: return or extra consume
           if (diff < 0) {
             await base44.entities.StockMovement.create({
               product_id: item.input_product_id,
@@ -221,7 +289,7 @@ export default function Kanban() {
               product_name: item.name,
               qty: Math.abs(diff),
               uom: item.uom,
-              reason: 'return',
+              reason: 'production_return',
               ref_type: 'production_run',
               ref_id: runId,
               notes: `[task:${taskId}] Unused packaging returned (planned ${item.picked}, used ${item.actual})`,
@@ -238,6 +306,23 @@ export default function Kanban() {
               ref_id: runId,
               notes: `[task:${taskId}] Extra packaging consumed (planned ${item.picked}, used ${item.actual})`,
             });
+          }
+        }
+
+        // Deduct WipBatch for bulk WIP portioning consumption
+        if (item.is_bulk_wip && item.actual > 0) {
+          const batches = await base44.entities.WipBatch.filter(
+            { bulk_product_id: item.input_product_id, quality_status: 'fresh' },
+            'produced_date', 10 // FIFO: oldest first
+          );
+          let remaining = item.actual;
+          for (const batch of batches) {
+            if (remaining <= 0) break;
+            const deduct = Math.min(remaining, batch.qty_kg || 0);
+            await base44.entities.WipBatch.update(batch.id, {
+              qty_kg: Math.max(0, (batch.qty_kg || 0) - deduct),
+            });
+            remaining -= deduct;
           }
         }
       }
@@ -268,7 +353,7 @@ export default function Kanban() {
           product_name: r.name,
           qty: returnQty,
           uom: r.uom,
-          reason: 'return',
+          reason: 'production_return',
           ref_type: 'production_run',
           ref_id: runId,
           notes: `[task:${taskId}] Returned: picked ${r.picked}, consumed ${r.actual} ${r.uom}`,
@@ -312,15 +397,54 @@ export default function Kanban() {
           yieldNote = `Yield: ${actualYield} ${task.qty_uom || ''} (planned ${plannedYield})${yieldNote ? ' | ' + yieldNote : ''}`;
         }
 
-        // Cascade actual yield to the downstream task (prep→cook, cook→portion)
-        const nextStation = task.station === 'prep' ? 'cook' : task.station === 'cook' ? 'portion' : null;
-        if (nextStation) {
-          const downstream = tasks.filter(
-            t => t.station === nextStation && t.product_id === task.product_id && !t.archived && t.status !== 'done'
-          );
-          for (const dt of downstream) {
-            await base44.entities.ProductionTask.update(dt.id, { qty: actualYield });
+        // Create or update WipBatch for cook tasks (bulk cooked output becomes WIP inventory)
+        if (task.station === 'cook') {
+          // Generate a batch number
+          const now = new Date();
+          const year = now.getFullYear();
+          const existingBatches = await base44.entities.WipBatch.filter({ bulk_product_id: task.product_id }, '-created_date', 1);
+          const seq = existingBatches.length > 0 ? (existingBatches.length + 1) : 1;
+          const batchNumber = `WIP-${year}-${String(seq).padStart(4, '0')}`;
+
+          // Get product for shelf life
+          const product = products.find(p => p.id === task.product_id);
+          const shelfLifeHours = product?.shelf_life_hours || 72;
+          const expiryAt = new Date(now.getTime() + shelfLifeHours * 3600000).toISOString();
+          const minRestHours = product?.minimum_rest_time_hours || 0;
+          const restReadyAt = minRestHours > 0
+            ? new Date(now.getTime() + minRestHours * 3600000).toISOString()
+            : now.toISOString();
+
+          await base44.entities.WipBatch.create({
+            batch_number: batchNumber,
+            bulk_product_id: task.product_id,
+            bulk_product_name: task.meal_name || task.name || '',
+            bulk_product_sku: task.product_sku || '',
+            qty_kg: actualYield,
+            original_qty_kg: actualYield,
+            produced_date: now.toISOString().split('T')[0],
+            cooking_run_id: runId, // link to run
+            quality_status: 'fresh',
+            expiry_at: expiryAt,
+            rest_time_met: minRestHours <= 0,
+            rest_ready_at: restReadyAt,
+            notes: `Created from production task — run ${run?.run_number || runId}`,
+          });
+          toast.success(`WIP batch created: ${actualYield} ${task.qty_uom || 'kg'} of ${task.meal_name || task.name}`);
+        }
+
+        // Cascade actual yield to downstream tasks (prep→cook: same product; cook→portion: trace via BOM)
+        const downstream = findDownstreamTasks(task, actualYield);
+        if (downstream.length > 0) {
+          // For cook→portion: update the qty available. The portion task qty stays as planned (plate count),
+          // but we need to know how much WIP is available. The WipBatch handles this for portioning.
+          // For prep→cook: directly update cook task qty since it's the same WIP product.
+          if (task.station === 'prep') {
+            for (const dt of downstream) {
+              await base44.entities.ProductionTask.update(dt.id, { qty: actualYield });
+            }
           }
+          // Cook→portion: WipBatch qty is already set above, portioning reads from WipBatch via FIFO
         }
       }
 
@@ -334,6 +458,7 @@ export default function Kanban() {
     setPendingDone(null);
     queryClient.invalidateQueries({ queryKey: ['production-tasks', runId] });
     queryClient.invalidateQueries({ queryKey: ['task-logs', runId] });
+    queryClient.invalidateQueries({ queryKey: ['wip-batches'] });
   };
 
   const doStatusChange = async (taskId, newStatus) => {
@@ -352,7 +477,7 @@ export default function Kanban() {
       const movements = await base44.entities.StockMovement.filter({ ref_type: 'production_run', ref_id: runId }, '-created_date', 200);
       const taskMovements = movements.filter(m => m.notes && m.notes.includes(tag));
       for (const m of taskMovements) {
-        const reverseReason = m.reason === 'return' ? 'production_consume' : 'return';
+        const reverseReason = (m.reason === 'production_return' || m.reason === 'return') ? 'production_consume' : 'production_return';
         await base44.entities.StockMovement.create({
           product_id: m.product_id,
           product_sku: m.product_sku,
@@ -450,6 +575,18 @@ export default function Kanban() {
           cachedBoms={allBoms}
           cachedComponents={allBomComponents}
           cachedProducts={products}
+        />
+      )}
+
+      {/* Yield shortfall warning */}
+      {shortfallData && (
+        <YieldShortfallModal
+          task={shortfallData.task}
+          actualYield={shortfallData.actualYield}
+          plannedYield={shortfallData.plannedYield}
+          affectedTasks={shortfallData.affectedTasks}
+          onProceed={handleShortfallProceed}
+          onCancel={() => setShortfallData(null)}
         />
       )}
 
