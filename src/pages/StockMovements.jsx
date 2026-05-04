@@ -16,7 +16,9 @@ const REASON_OPTIONS = [
   { value: 'all', label: 'All Types' },
   { value: 'receipt', label: 'Receipt' },
   { value: 'transfer', label: 'Transfer' },
-  { value: 'production_consume', label: 'Production Use' },
+  { value: 'production_pick', label: 'Pick → Production' },
+  { value: 'production_return', label: 'Return from Production' },
+  { value: 'production_consume', label: 'Production Use (Legacy)' },
   { value: 'production_yield', label: 'Production Output' },
   { value: 'sale_fulfillment', label: 'Order Fulfilled' },
   { value: 'wastage_usable', label: 'Wastage (Usable)' },
@@ -24,6 +26,8 @@ const REASON_OPTIONS = [
   { value: 'stocktake_adjustment', label: 'Stock Count Adj.' },
   { value: 'packing_material', label: 'Packing Material' },
   { value: 'return', label: 'Return' },
+  { value: 'supplier_return', label: 'Supplier Return' },
+  { value: 'cancellation_reversal', label: 'Cancellation Reversal' },
   { value: 'write_off', label: 'Write Off' },
 ];
 
