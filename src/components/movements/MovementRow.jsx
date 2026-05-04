@@ -16,6 +16,7 @@ const REASON_LABELS = {
   return: 'Return',
   write_off: 'Write Off',
   packing_material: 'Packing Material',
+  cancellation_reversal: 'Cancellation Reversal',
 };
 
 const REASON_COLORS = {
@@ -30,6 +31,7 @@ const REASON_COLORS = {
   stocktake_adjustment: 'bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-400',
   write_off: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
   packing_material: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  cancellation_reversal: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
 };
 
 const OUT_REASONS = ['sale_fulfillment', 'production_consume', 'wastage_usable', 'wastage_unusable', 'write_off', 'packing_material'];

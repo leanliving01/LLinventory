@@ -19,7 +19,7 @@ export default function RunActionDialog({ open, onOpenChange, action, runNumber,
   const isCancel = action === 'cancel';
   const title = isCancel ? 'Cancel Production Run' : 'Revert to Draft';
   const description = isCancel
-    ? `This will cancel run ${runNumber}. Any in-progress tasks will be archived. No stock movements will be recorded. This cannot be undone.`
+    ? `This will fully void run ${runNumber}. All linked cooking runs, kitchen tasks, and task consumption records will be cancelled. If the pick list was confirmed, consumed stock will be returned. This cannot be undone.`
     : `This will revert run ${runNumber} back to draft status so you can edit meal lines and quantities, then re-schedule it.`;
 
   const handleConfirm = async () => {
@@ -48,7 +48,15 @@ export default function RunActionDialog({ open, onOpenChange, action, runNumber,
           {isCancel && (
             <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>If this run is in progress, all kitchen tasks will be archived and no stock changes will be made.</span>
+              <div className="space-y-1">
+                <span className="font-semibold">This will void everything linked to this run:</span>
+                <ul className="list-disc list-inside text-xs space-y-0.5 ml-1">
+                  <li>All kitchen tasks will be archived</li>
+                  <li>Linked cooking runs will be cancelled</li>
+                  <li>If pick list was confirmed, stock will be returned</li>
+                  <li>Task consumption records will be removed</li>
+                </ul>
+              </div>
             </div>
           )}
           <div>

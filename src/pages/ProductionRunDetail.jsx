@@ -524,22 +524,108 @@ export default function ProductionRunDetail() {
 
   // ── Cancel Run ──
   const handleCancelRun = async (reason) => {
-    // Archive all tasks for this run
+    const voidSummary = [];
+
+    // 1. Archive all production tasks for this run
     const runTasks = await base44.entities.ProductionTask.filter({ run_id: runId }, 'step_no', 500);
-    for (let i = 0; i < runTasks.length; i++) {
-      await base44.entities.ProductionTask.update(runTasks[i].id, { archived: true });
+    if (runTasks.length > 0) {
+      for (const t of runTasks) await base44.entities.ProductionTask.update(t.id, { archived: true });
+      voidSummary.push(`${runTasks.length} tasks archived`);
     }
+
+    // 2. Cancel linked cooking runs (production_run_id or contributing_run_ids containing this run)
+    const allCookingRuns = await base44.entities.CookingRun.list('-created_date', 500);
+    const linkedCookingRuns = allCookingRuns.filter(cr => {
+      if (cr.status === 'cancelled' || cr.status === 'completed') return false;
+      if (cr.production_run_id === runId) return true;
+      if (cr.contributing_run_ids) {
+        try {
+          const ids = JSON.parse(cr.contributing_run_ids);
+          return Array.isArray(ids) && ids.includes(runId);
+        } catch { return false; }
+      }
+      return false;
+    });
+    for (const cr of linkedCookingRuns) {
+      await base44.entities.CookingRun.update(cr.id, {
+        status: 'cancelled',
+        notes: `${cr.notes ? cr.notes + '\n' : ''}Auto-cancelled: production run ${run?.run_number} was voided`,
+      });
+    }
+    if (linkedCookingRuns.length > 0) {
+      voidSummary.push(`${linkedCookingRuns.length} cooking run(s) cancelled`);
+    }
+
+    // 3. Reverse pick list stock if it was confirmed (return consumed ingredients to SOH)
+    if (run?.pick_list_confirmed) {
+      const pickMovements = await base44.entities.StockMovement.filter({
+        ref_id: runId, reason: 'production_consume',
+      }, '-created_date', 500);
+
+      if (pickMovements.length > 0) {
+        const sohRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
+        const sohByProduct = {};
+        sohRecords.forEach(s => {
+          if (!sohByProduct[s.product_id]) sohByProduct[s.product_id] = [];
+          sohByProduct[s.product_id].push(s);
+        });
+
+        for (const mv of pickMovements) {
+          // Create reversal stock movement
+          await base44.entities.StockMovement.create({
+            product_id: mv.product_id,
+            product_sku: mv.product_sku,
+            product_name: mv.product_name,
+            qty: mv.qty,
+            uom: mv.uom,
+            reason: 'cancellation_reversal',
+            ref_type: 'production_run',
+            ref_id: runId,
+            ref_number: run?.run_number || '',
+            notes: `Reversal: run ${run?.run_number} cancelled — returning ${mv.qty} ${mv.uom} of ${mv.product_sku}`,
+          });
+
+          // Add qty back to the first SOH record for this product
+          const productSoh = sohByProduct[mv.product_id];
+          if (productSoh && productSoh.length > 0) {
+            const soh = productSoh[0];
+            const newOnHand = (soh.qty_on_hand || 0) + (mv.qty || 0);
+            await base44.entities.StockOnHand.update(soh.id, {
+              qty_on_hand: newOnHand,
+              qty_available: newOnHand - (soh.qty_committed || 0),
+              last_updated_at: new Date().toISOString(),
+            });
+          }
+        }
+        voidSummary.push(`${pickMovements.length} pick list items returned to stock`);
+      }
+    }
+
+    // 4. Delete TaskConsumption records for this run
+    const consumptions = await base44.entities.TaskConsumption.filter({ run_id: runId }, '-created_date', 500);
+    if (consumptions.length > 0) {
+      for (const tc of consumptions) await base44.entities.TaskConsumption.delete(tc.id);
+      voidSummary.push(`${consumptions.length} task consumption records removed`);
+    }
+
+    // 5. Mark production run as cancelled and reset picking flags
     await base44.entities.ProductionRun.update(runId, {
       status: 'cancelled',
-      notes: `${run?.notes ? run.notes + '\n' : ''}CANCELLED: ${reason}`,
+      pick_list_confirmed: false,
+      notes: `${run?.notes ? run.notes + '\n' : ''}CANCELLED: ${reason}${voidSummary.length > 0 ? '\nVoided: ' + voidSummary.join(', ') : ''}`,
     });
+
     writeAuditLog({
       action: 'cancel', entity_type: 'ProductionRun', entity_id: runId,
-      description: `Cancelled run ${run?.run_number} — ${reason}`,
+      description: `Cancelled run ${run?.run_number} — ${reason}. ${voidSummary.join('; ')}`,
     });
+
     queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
     queryClient.invalidateQueries({ queryKey: ['production-runs'] });
-    toast.success(`Run ${run?.run_number} cancelled`);
+    queryClient.invalidateQueries({ queryKey: ['cooking-runs'] });
+    queryClient.invalidateQueries({ queryKey: ['wip-cooking-runs'] });
+    queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+    toast.success(`Run ${run?.run_number} cancelled — ${voidSummary.length > 0 ? voidSummary.join(', ') : 'no linked data to void'}`);
   };
 
   // ── Revert to Draft ──
