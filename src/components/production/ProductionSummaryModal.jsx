@@ -132,7 +132,7 @@ export default function ProductionSummaryModal({ runId, runNumber, lines, onClos
   // Totals
   const totalConsumed = [...(grouped.production_pick || []), ...(grouped.production_consume || [])].reduce((s, m) => s + m.qty, 0);
   const totalYielded = (grouped.production_yield || []).reduce((s, m) => s + m.qty, 0);
-  const totalReturned = (grouped.return || []).reduce((s, m) => s + m.qty, 0);
+  const totalReturned = [...(grouped.return || []), ...(grouped.production_return || [])].reduce((s, m) => s + m.qty, 0);
   const totalWaste = [...(grouped.wastage_unusable || []), ...(grouped.wastage_usable || [])].reduce((s, m) => s + m.qty, 0);
   const totalWasteCost = (grouped.wastage_unusable || []).reduce((s, m) => s + (m.unit_cost_at_movement || 0) * m.qty, 0);
 
