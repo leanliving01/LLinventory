@@ -31,6 +31,10 @@
       "default": false,
       "description": "Whether this is a consumable (oil, water, etc.)"
     },
+    "step_no": {
+      "type": "number",
+      "description": "Which operation step this ingredient is used in (matches BomOperation.step_no). Null/0 = used across all steps."
+    },
     "make_day": {
       "type": "string",
       "enum": [

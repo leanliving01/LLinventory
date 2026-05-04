@@ -87,7 +87,12 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
 
   const componentRows = useMemo(() => {
     if (!relevantBom) return [];
-    const comps = allComponents.filter(c => c.bom_id === relevantBom.id);
+    let comps = allComponents.filter(c => c.bom_id === relevantBom.id);
+    // Filter by step: if task has a step_no, only show components assigned to that step (or "all steps" = 0/null)
+    const taskStep = task.step_no || 0;
+    if (taskStep > 0) {
+      comps = comps.filter(c => !c.step_no || c.step_no === taskStep);
+    }
     const yieldQty = relevantBom.yield_qty || 1;
     return comps.map(c => {
       const perUnit = c.qty / yieldQty;

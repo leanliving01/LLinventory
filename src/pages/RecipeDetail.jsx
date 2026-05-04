@@ -40,6 +40,7 @@ export default function RecipeDetail() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const [editedQtys, setEditedQtys] = useState({});
+  const [editedSteps, setEditedSteps] = useState({});
   const [localFields, setLocalFields] = useState(null); // lazy-init from bom
 
   const { data: bom, isLoading: loadingBom } = useQuery({
@@ -54,6 +55,12 @@ export default function RecipeDetail() {
   const { data: components = [], isLoading: loadingComps } = useQuery({
     queryKey: ['bom-components', bomId],
     queryFn: () => base44.entities.BomComponent.filter({ bom_id: bomId }),
+    enabled: !!bomId,
+  });
+
+  const { data: operations = [] } = useQuery({
+    queryKey: ['bom-operations', bomId],
+    queryFn: () => base44.entities.BomOperation.filter({ bom_id: bomId }),
     enabled: !!bomId,
   });
 
@@ -86,15 +93,20 @@ export default function RecipeDetail() {
   const ingredients = components.filter(c => !c.is_consumable);
   const consumables = components.filter(c => c.is_consumable);
 
+  const handleStepChange = (compId, stepNo) => {
+    setEditedSteps(prev => ({ ...prev, [compId]: stepNo }));
+  };
+
   const hasUnsavedChanges = () => {
     const qtyChanged = Object.keys(editedQtys).length > 0;
+    const stepChanged = Object.keys(editedSteps).length > 0;
     const yieldChanged = String(bom.yield_qty || 1) !== yieldQty || (bom.yield_uom || '') !== yieldUom;
     const typeChanged = bomType !== bom.bom_type;
     const subChanged = subcategory !== (bom.subcategory || '');
     const chefChanged = chefNotes !== (bom.chef_notes || '');
     const notesChanged = notes !== (bom.notes || '');
     const filesChanged = JSON.stringify(files) !== JSON.stringify(bom.files || []);
-    return qtyChanged || yieldChanged || typeChanged || subChanged || chefChanged || notesChanged || filesChanged;
+    return qtyChanged || stepChanged || yieldChanged || typeChanged || subChanged || chefChanged || notesChanged || filesChanged;
   };
 
   const handleSave = async () => {
@@ -116,7 +128,11 @@ export default function RecipeDetail() {
       if (isNaN(val) || val < 0) continue;
       await base44.entities.BomComponent.update(compId, { qty: val });
     }
+    for (const [compId, stepNo] of Object.entries(editedSteps)) {
+      await base44.entities.BomComponent.update(compId, { step_no: stepNo || null });
+    }
     setEditedQtys({});
+    setEditedSteps({});
     queryClient.invalidateQueries({ queryKey: ['bom-detail', bomId] });
     queryClient.invalidateQueries({ queryKey: ['bom-components', bomId] });
     queryClient.invalidateQueries({ queryKey: ['recipes-boms'] });
@@ -300,18 +316,22 @@ export default function RecipeDetail() {
           {/* Ingredients */}
           <RecipeComponentTable
             title="Ingredients" icon={<Utensils className="w-4 h-4 text-primary" />}
-            components={ingredients} loading={loadingComps}
+            components={ingredients.map(c => ({ ...c, step_no: editedSteps[c.id] !== undefined ? editedSteps[c.id] : (c.step_no || 0) }))}
+            loading={loadingComps}
             editedQtys={editedQtys} onQtyChange={(id, v) => setEditedQtys(prev => ({ ...prev, [id]: v }))}
             onRemove={handleRemoveComponent} onAdd={() => setShowAddModal(true)}
+            operations={operations} onStepChange={handleStepChange}
           />
 
           {/* Consumables */}
           {consumables.length > 0 && (
             <RecipeComponentTable
               title="Packaging / Consumables" icon={<Package className="w-4 h-4 text-muted-foreground" />}
-              components={consumables} loading={loadingComps}
+              components={consumables.map(c => ({ ...c, step_no: editedSteps[c.id] !== undefined ? editedSteps[c.id] : (c.step_no || 0) }))}
+              loading={loadingComps}
               editedQtys={editedQtys} onQtyChange={(id, v) => setEditedQtys(prev => ({ ...prev, [id]: v }))}
               onRemove={handleRemoveComponent} onAdd={() => setShowAddModal(true)}
+              operations={operations} onStepChange={handleStepChange}
             />
           )}
         </div>

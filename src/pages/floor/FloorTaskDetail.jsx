@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -78,6 +78,13 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
     queryFn: () => base44.entities.BomOperation.filter({ bom_id: bom.id }, 'step_no', 50),
     enabled: !!bom?.id,
   });
+
+  // Filter components by step assignment: show only ingredients for this task's step (or "all steps")
+  const stepFilteredComponents = useMemo(() => {
+    const taskStep = task.step_no || 0;
+    if (taskStep <= 0) return components; // no step = show all
+    return components.filter(c => !c.step_no || c.step_no === taskStep);
+  }, [components, task.step_no]);
 
   const stationLabel = { prep: 'Preparation', cook: 'Cooking', portion: 'Portioning' }[task.station] || task.station;
   const stationColor = { prep: 'bg-blue-500', cook: 'bg-amber-500', portion: 'bg-green-500' }[task.station] || 'bg-primary';
@@ -166,7 +173,7 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
 
       {/* Tab content */}
       <div className="min-h-[200px]">
-        {activeTab === 'consume' && <ConsumeTab task={task} bom={bom} components={components} onRef={handleConsumeRef} />}
+        {activeTab === 'consume' && <ConsumeTab task={task} bom={bom} components={stepFilteredComponents} onRef={handleConsumeRef} />}
         {activeTab === 'resources' && <ResourcesTab task={task} operations={operations} />}
         {activeTab === 'notes' && <NotesTab task={task} bom={bom} operations={operations} />}
         {activeTab === 'files' && <FilesTab bom={bom} />}

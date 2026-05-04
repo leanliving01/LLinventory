@@ -112,14 +112,18 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
           </div>
           <Switch checked={formData.inventory_tracked !== false} onCheckedChange={v => set('inventory_tracked', v)} />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
-            <div>
-              <p className="text-sm font-medium">Sellable</p>
-              <p className="text-xs text-muted-foreground">Sold to customers (meals, supplements, packages)</p>
-            </div>
-            <Switch checked={formData.sellable === true} onCheckedChange={v => set('sellable', v)} />
+        <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
+          <div>
+            <p className="text-sm font-medium">Sellable</p>
+            <p className="text-xs text-muted-foreground">Sold to customers (meals, supplements, packages)</p>
           </div>
+          <Switch checked={formData.sellable === true} onCheckedChange={v => set('sellable', v)} />
+        </div>
+      </Section>
+
+      {/* ── Supply Method ── */}
+      <Section title="Supply Method">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
             <div>
               <p className="text-sm font-medium">Purchasable</p>
@@ -127,7 +131,19 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
             </div>
             <Switch checked={formData.purchasable !== false} onCheckedChange={v => set('purchasable', v)} />
           </div>
+          <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Produced In-House</p>
+              <p className="text-xs text-muted-foreground">Made during production (bulk cooked, finished meals)</p>
+            </div>
+            <Switch checked={!formData.purchasable || ['wip_bulk', 'finished_meal', 'sauce', 'solo_serve'].includes(formData.type)} disabled />
+          </div>
         </div>
+        {formData.purchasable === false && (
+          <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-2.5 text-sm text-blue-700 dark:text-blue-300">
+            This product is produced in-house — supplier, purchase UoM, and purchasing sections are hidden.
+          </div>
+        )}
       </Section>
 
       {/* ── Units of Measure ── */}
@@ -136,19 +152,23 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
           <FormField label="Stock UoM" hint="Unit used in inventory">
             <UomSelect value={formData.stock_uom || ''} onValueChange={v => set('stock_uom', v)} placeholder="Select unit" />
           </FormField>
-          <FormField label="Purchase UoM" hint="e.g. Box of 10kg">
-            <Input value={formData.purchase_uom || ''} onChange={e => set('purchase_uom', e.target.value)} />
-          </FormField>
-          <FormField label="Purchase → Stock Factor" hint="e.g. 10 if 1 Box = 10 kg">
-            <Input type="number" value={formData.purchase_to_stock_factor || ''} onChange={e => set('purchase_to_stock_factor', e.target.value ? Number(e.target.value) : null)} />
-          </FormField>
+          {formData.purchasable !== false && (
+            <FormField label="Purchase UoM" hint="e.g. Box of 10kg">
+              <Input value={formData.purchase_uom || ''} onChange={e => set('purchase_uom', e.target.value)} />
+            </FormField>
+          )}
+          {formData.purchasable !== false && (
+            <FormField label="Purchase → Stock Factor" hint="e.g. 10 if 1 Box = 10 kg">
+              <Input type="number" value={formData.purchase_to_stock_factor || ''} onChange={e => set('purchase_to_stock_factor', e.target.value ? Number(e.target.value) : null)} />
+            </FormField>
+          )}
         </div>
         <FormField label="Recipe UoM" hint="Unit used in recipes (e.g. g when stock is kg)">
           <Input value={formData.recipe_uom || ''} onChange={e => set('recipe_uom', e.target.value)} className="max-w-xs" />
         </FormField>
 
         {/* Multiple purchase UoMs */}
-        {productId && (
+        {productId && formData.purchasable !== false && (
           <ProductPurchaseUomEditor
             productId={productId}
             stockUom={formData.stock_uom}
@@ -190,23 +210,25 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
         </FormField>
       </Section>
 
-      {/* ── Supplier ── */}
-      <Section title="Supplier">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField label="Supplier">
-            <Select value={formData.supplier_id || 'none'} onValueChange={v => set('supplier_id', v === 'none' ? '' : v)}>
-              <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">— None —</SelectItem>
-                {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </FormField>
-          <FormField label="Supplier SKU">
-            <Input value={formData.supplier_sku || ''} onChange={e => set('supplier_sku', e.target.value)} />
-          </FormField>
-        </div>
-      </Section>
+      {/* ── Supplier (hidden when not purchasable) ── */}
+      {formData.purchasable !== false && (
+        <Section title="Supplier">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField label="Supplier">
+              <Select value={formData.supplier_id || 'none'} onValueChange={v => set('supplier_id', v === 'none' ? '' : v)}>
+                <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— None —</SelectItem>
+                  {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label="Supplier SKU">
+              <Input value={formData.supplier_sku || ''} onChange={e => set('supplier_sku', e.target.value)} />
+            </FormField>
+          </div>
+        </Section>
+      )}
 
       {/* ── Location ── */}
       <Section title="Default Location">
