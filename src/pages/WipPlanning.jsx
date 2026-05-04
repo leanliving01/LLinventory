@@ -179,9 +179,12 @@ export default function WipPlanning() {
       }
     }
 
-    // Build available WIP
+    // Build available WIP — exclude batches declined during QC (decisions state)
+    // Only count batches that are either QC-approved or not yet decided (undecided = still potentially usable)
+    // Declined batches are explicitly removed from the available pool
     const wipAvail = {};
     batches.filter(b => ['fresh', 'use_today'].includes(b.quality_status) && b.qty_kg > 0).forEach(b => {
+      if (decisions[b.id] === 'declined') return; // excluded from available WIP
       wipAvail[b.bulk_product_id] = (wipAvail[b.bulk_product_id] || 0) + b.qty_kg;
     });
 
@@ -207,7 +210,7 @@ export default function WipPlanning() {
         contributions,
       };
     }).sort((a, b) => b.netToCookKg - a.netToCookKg);
-  }, [selectedRunLines, portionBoms, bomComponents, cookBoms, productTypeById, batches, runById]);
+  }, [selectedRunLines, portionBoms, bomComponents, cookBoms, productTypeById, batches, runById, decisions]);
 
   // Ad-hoc draft cooking runs (not linked to any selected production run)
   const draftAdHocRuns = useMemo(() => {
@@ -219,9 +222,9 @@ export default function WipPlanning() {
   const totalMealsPlanned = selectedRunLines.reduce((s, l) => s + (l.planned_qty || 0), 0);
   const needsCookingCount = consolidatedRows.filter(r => r.needsCooking).length;
   const wipAvailableTotal = useMemo(() => {
-    return batches.filter(b => ['fresh', 'use_today'].includes(b.quality_status) && b.qty_kg > 0)
+    return batches.filter(b => ['fresh', 'use_today'].includes(b.quality_status) && b.qty_kg > 0 && decisions[b.id] !== 'declined')
       .reduce((s, b) => s + b.qty_kg, 0);
-  }, [batches]);
+  }, [batches, decisions]);
   const releasedCount = existingCookingRuns.filter(r => r.status !== 'draft').length;
 
   // ── QC Logic (unchanged) ──
@@ -370,7 +373,7 @@ export default function WipPlanning() {
           <ClipboardCheck className="w-6 h-6 text-primary" /> WIP Planning
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Select runs → consolidate bulk requirements → QC check → release cooking runs
+          Select runs → QC check → review cooking requirements → release
         </p>
       </div>
 
@@ -382,65 +385,7 @@ export default function WipPlanning() {
       <RunSelector selectedRunIds={selectedRunIds} onSelectionChange={setSelectedRunIds} />
 
       {/* ═══════════════════════════════════ */}
-      {/* STEP 2: CONSOLIDATED REQUIREMENTS   */}
-      {/* ═══════════════════════════════════ */}
-      {selectedRunIds.size > 0 && (
-        <>
-          {/* KPI strip */}
-          <div className="flex items-center gap-6 bg-card border border-border rounded-xl px-6 py-4 flex-wrap">
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Selected Runs</p>
-              <p className="text-lg font-bold">{selectedRuns.length}</p>
-            </div>
-            <div className="w-px h-8 bg-border" />
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Meals Planned</p>
-              <p className="text-lg font-bold">{totalMealsPlanned}</p>
-            </div>
-            <div className="w-px h-8 bg-border" />
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Bulk Products</p>
-              <p className="text-lg font-bold">{consolidatedRows.length}</p>
-            </div>
-            <div className="w-px h-8 bg-border" />
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Need Cooking</p>
-              <p className={`text-lg font-bold ${needsCookingCount > 0 ? 'text-red-600' : 'text-green-600'}`}>{needsCookingCount}</p>
-            </div>
-            <div className="w-px h-8 bg-border" />
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase font-semibold">WIP Available</p>
-              <p className="text-lg font-bold">{wipAvailableTotal.toFixed(1)} kg</p>
-            </div>
-            <div className="w-px h-8 bg-border" />
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Runs Released</p>
-              <p className="text-lg font-bold">{releasedCount}</p>
-            </div>
-          </div>
-
-          <ConsolidatedCookingGrid
-            rows={consolidatedRows}
-            wipProducts={wipProducts}
-            cookBoms={cookBoms}
-            existingCookingRuns={existingCookingRuns}
-            canRelease={perms.cooking_runs_release}
-            onReleased={() => queryClient.invalidateQueries({ queryKey: ['wip-cooking-runs'] })}
-            draftAdHocRuns={draftAdHocRuns}
-            isQcConfirmed={isSessionConfirmed}
-            unqcComponentBatches={unqcComponentBatches}
-          />
-        </>
-      )}
-
-      {selectedRunIds.size === 0 && (
-        <div className="bg-card border border-border rounded-xl p-8 text-center text-sm text-muted-foreground">
-          Select one or more production runs above to see consolidated cooking requirements.
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════ */}
-      {/* STEP 3: MORNING QC                  */}
+      {/* STEP 2: MORNING QC (must happen before requirements — QC decisions affect available WIP) */}
       {/* ═══════════════════════════════════ */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <button
@@ -578,6 +523,64 @@ export default function WipPlanning() {
           </div>
         )}
       </div>
+
+      {/* ═══════════════════════════════════ */}
+      {/* STEP 3: CONSOLIDATED REQUIREMENTS (reflects QC decisions live) */}
+      {/* ═══════════════════════════════════ */}
+      {selectedRunIds.size > 0 && (
+        <>
+          {/* KPI strip */}
+          <div className="flex items-center gap-6 bg-card border border-border rounded-xl px-6 py-4 flex-wrap">
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Selected Runs</p>
+              <p className="text-lg font-bold">{selectedRuns.length}</p>
+            </div>
+            <div className="w-px h-8 bg-border" />
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Meals Planned</p>
+              <p className="text-lg font-bold">{totalMealsPlanned}</p>
+            </div>
+            <div className="w-px h-8 bg-border" />
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Bulk Products</p>
+              <p className="text-lg font-bold">{consolidatedRows.length}</p>
+            </div>
+            <div className="w-px h-8 bg-border" />
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Need Cooking</p>
+              <p className={`text-lg font-bold ${needsCookingCount > 0 ? 'text-red-600' : 'text-green-600'}`}>{needsCookingCount}</p>
+            </div>
+            <div className="w-px h-8 bg-border" />
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase font-semibold">WIP Available</p>
+              <p className="text-lg font-bold">{wipAvailableTotal.toFixed(1)} kg</p>
+            </div>
+            <div className="w-px h-8 bg-border" />
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Runs Released</p>
+              <p className="text-lg font-bold">{releasedCount}</p>
+            </div>
+          </div>
+
+          <ConsolidatedCookingGrid
+            rows={consolidatedRows}
+            wipProducts={wipProducts}
+            cookBoms={cookBoms}
+            existingCookingRuns={existingCookingRuns}
+            canRelease={perms.cooking_runs_release}
+            onReleased={() => queryClient.invalidateQueries({ queryKey: ['wip-cooking-runs'] })}
+            draftAdHocRuns={draftAdHocRuns}
+            isQcConfirmed={isSessionConfirmed}
+            unqcComponentBatches={unqcComponentBatches}
+          />
+        </>
+      )}
+
+      {selectedRunIds.size === 0 && (
+        <div className="bg-card border border-border rounded-xl p-8 text-center text-sm text-muted-foreground">
+          Select one or more production runs above to see consolidated cooking requirements.
+        </div>
+      )}
 
       {overrideBatch && (
         <RestOverrideDialog open={!!overrideBatch} onOpenChange={open => { if (!open) setOverrideBatch(null); }}
