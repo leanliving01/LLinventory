@@ -20,30 +20,39 @@ export default function FloorPackTimer({ startedAt, onStart, onPause, onResume, 
   const intervalRef = useRef(null);
   const segmentStartRef = useRef(null);
 
+  // Track accumulated separately so interval closure always reads latest value
+  const accRef = useRef(accumulatedSeconds);
+  useEffect(() => { accRef.current = accumulatedSeconds; }, [accumulatedSeconds]);
+
   useEffect(() => {
     clearInterval(intervalRef.current);
 
     if (!startedAt) {
       setDisplaySeconds(0);
+      segmentStartRef.current = null;
       return;
     }
 
     if (isPaused) {
       // Show accumulated time frozen
       setDisplaySeconds(accumulatedSeconds);
+      segmentStartRef.current = null;
       return;
     }
 
-    // Running — track current segment + accumulated
-    segmentStartRef.current = Date.now();
+    // Running — only reset segment start if not already tracking
+    // This prevents the timer from resetting on re-renders
+    if (!segmentStartRef.current) {
+      segmentStartRef.current = Date.now();
+    }
     const tick = () => {
       const segmentElapsed = Math.floor((Date.now() - segmentStartRef.current) / 1000);
-      setDisplaySeconds(accumulatedSeconds + segmentElapsed);
+      setDisplaySeconds(accRef.current + segmentElapsed);
     };
     tick();
     intervalRef.current = setInterval(tick, 1000);
     return () => clearInterval(intervalRef.current);
-  }, [startedAt, isPaused, accumulatedSeconds]);
+  }, [startedAt, isPaused]);
 
   const mins = Math.floor(displaySeconds / 60);
   const secs = displaySeconds % 60;
