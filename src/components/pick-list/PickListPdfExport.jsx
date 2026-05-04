@@ -5,7 +5,7 @@ import { format } from 'date-fns';
  * Compact, minimal PDF pick list — matches the on-screen layout.
  * Tight row spacing to minimize pages.
  */
-export function generatePickListPdf({ run, lines, pickItems, categories }) {
+export function generatePickListPdf({ run, lines, pickItems, categories, pickedState = {} }) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -21,11 +21,18 @@ export function generatePickListPdf({ run, lines, pickItems, categories }) {
     }
   };
 
+  // Check if any items have been picked (to show Picked column)
+  const hasPicked = pickItems.some(i => {
+    const s = pickedState[i.product?.id];
+    return s?.picked && s?.qty && Number(s.qty) > 0;
+  });
+
   // Column positions — aligned like the screen
   const colCheck = margin;
   const colSku = margin + 6;
   const colName = margin + 28;
-  const colQty = pageW - margin - 14;
+  const colPicked = hasPicked ? pageW - margin - 28 : null;
+  const colQty = hasPicked ? pageW - margin - 14 : pageW - margin - 14;
   const colUom = pageW - margin;
 
   // ── Header ──
@@ -71,15 +78,41 @@ export function generatePickListPdf({ run, lines, pickItems, categories }) {
     doc.text(`${cat}  (${catItems.length})`, margin + 1.5, y + 3.5);
     y += 7;
 
-    // Rows — no repeating column headers per category to save space
+    // Column sub-headers for this category
+    doc.setFontSize(6);
+    doc.setTextColor(120);
+    doc.text('Needed', colQty, y, { align: 'right' });
+    if (hasPicked) {
+      doc.text('Picked', colPicked, y, { align: 'right' });
+    }
+    doc.setTextColor(0);
+    y += 3;
+
+    // Rows
     doc.setFont('helvetica', 'normal');
     for (const item of catItems) {
       checkSpace(rowH + 1);
 
-      // Checkbox
+      const ps = pickedState[item.product?.id];
+      const pickedQty = ps?.picked && ps?.qty ? Number(ps.qty) : 0;
+      const isPicked = pickedQty > 0;
+
+      // Checkbox — filled if picked
       doc.setDrawColor(120);
       doc.setLineWidth(0.25);
-      doc.rect(colCheck, y - 2, 3, 3);
+      if (isPicked) {
+        doc.setFillColor(34, 139, 34);
+        doc.rect(colCheck, y - 2, 3, 3, 'FD');
+        // Tick mark
+        doc.setDrawColor(255, 255, 255);
+        doc.setLineWidth(0.4);
+        doc.line(colCheck + 0.6, y - 0.3, colCheck + 1.2, y + 0.3);
+        doc.line(colCheck + 1.2, y + 0.3, colCheck + 2.4, y - 1.2);
+        doc.setDrawColor(120);
+        doc.setLineWidth(0.25);
+      } else {
+        doc.rect(colCheck, y - 2, 3, 3);
+      }
 
       // SKU
       doc.setFontSize(6.5);
@@ -89,13 +122,22 @@ export function generatePickListPdf({ run, lines, pickItems, categories }) {
       // Name
       doc.setFontSize(7.5);
       doc.setTextColor(20);
-      const maxNameW = colQty - colName - 4;
+      const nameEnd = hasPicked ? colPicked - 4 : colQty - 4;
+      const maxNameW = nameEnd - colName;
       const name = doc.getStringUnitWidth(item.product.name) * 7.5 / doc.internal.scaleFactor > maxNameW
-        ? item.product.name.substring(0, 42) + '…'
+        ? item.product.name.substring(0, 36) + '…'
         : item.product.name;
       doc.text(name, colName, y);
 
-      // Qty
+      // Picked qty (if column is shown)
+      if (hasPicked) {
+        doc.setFont('helvetica', isPicked ? 'bold' : 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(isPicked ? 34 : 180, isPicked ? 139 : 180, isPicked ? 34 : 180);
+        doc.text(isPicked ? pickedQty.toLocaleString() : '—', colPicked, y, { align: 'right' });
+      }
+
+      // Needed qty
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(0);

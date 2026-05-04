@@ -282,7 +282,7 @@ export default function PickList() {
 
   const handleExportPdf = () => {
     if (!run || pickItems.length === 0) return;
-    generatePickListPdf({ run, lines, pickItems, categories });
+    generatePickListPdf({ run, lines, pickItems, categories, pickedState: effectivePickedState });
     toast.success('PDF downloaded');
   };
 
