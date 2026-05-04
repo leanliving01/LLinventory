@@ -202,15 +202,42 @@ export default function WipBatchDrawer({ batch, onClose, onUpdated }) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-          {/* Batch info */}
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div><span className="text-muted-foreground text-xs uppercase font-semibold">Remaining</span><p className="text-lg font-bold">{(batch.qty_kg || 0).toFixed(1)} kg</p></div>
-            <div><span className="text-muted-foreground text-xs uppercase font-semibold">Original</span><p>{(batch.original_qty_kg || 0).toFixed(1)} kg</p></div>
-            <div><span className="text-muted-foreground text-xs uppercase font-semibold">Cost/kg</span><p>R {(batch.carrying_cost_per_kg || 0).toFixed(2)}</p></div>
-            <div><span className="text-muted-foreground text-xs uppercase font-semibold">Carrying Value</span><p>R {(batch.total_carrying_value || 0).toFixed(2)}</p></div>
-            <div><span className="text-muted-foreground text-xs uppercase font-semibold">Produced</span><p>{batch.produced_date || '—'}</p></div>
-            <div><span className="text-muted-foreground text-xs uppercase font-semibold">Supplier</span><p>{batch.supplier_name || '—'}</p></div>
-          </div>
+          {/* Batch info with usage bar */}
+          {(() => {
+            const original = batch.original_qty_kg || batch.qty_kg || 0;
+            const remaining = batch.qty_kg || 0;
+            const consumed = Math.max(0, Math.round((original - remaining) * 100) / 100);
+            const pctUsed = original > 0 ? Math.round((consumed / original) * 100) : 0;
+            return (
+              <div className="space-y-3">
+                <div className="bg-muted/50 rounded-xl p-4 space-y-2">
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <span className="text-[10px] text-muted-foreground uppercase font-semibold">Available</span>
+                      <p className="text-2xl font-bold tabular-nums text-green-600">{remaining.toFixed(1)} <span className="text-sm text-muted-foreground font-normal">kg</span></p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-muted-foreground uppercase font-semibold">Original</span>
+                      <p className="text-lg tabular-nums">{original.toFixed(1)} kg</p>
+                    </div>
+                  </div>
+                  <div className="w-full bg-green-100 dark:bg-green-950 rounded-full h-3 overflow-hidden">
+                    <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${pctUsed}%` }} />
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-amber-600 font-semibold">{consumed.toFixed(1)} kg portioned ({pctUsed}%)</span>
+                    <span className="text-green-600 font-semibold">{remaining.toFixed(1)} kg remaining</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div><span className="text-muted-foreground text-xs uppercase font-semibold">Cost/kg</span><p>R {(batch.carrying_cost_per_kg || 0).toFixed(2)}</p></div>
+                  <div><span className="text-muted-foreground text-xs uppercase font-semibold">Carrying Value</span><p>R {(batch.total_carrying_value || 0).toFixed(2)}</p></div>
+                  <div><span className="text-muted-foreground text-xs uppercase font-semibold">Produced</span><p>{batch.produced_date || '—'}</p></div>
+                  <div><span className="text-muted-foreground text-xs uppercase font-semibold">Supplier</span><p>{batch.supplier_name || '—'}</p></div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Quality Check */}
           {!isWrittenOff && perms.wip_manage && (

@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import WipBatchDrawer from '@/components/wip/WipBatchDrawer';
+import WipProductCard from '@/components/wip/WipProductCard';
 import PageHelp from '@/components/help/PageHelp';
 
 const HELP_ITEMS = [
@@ -63,13 +64,14 @@ export default function WipInventory() {
     });
   }, [batches, statusFilter, search]);
 
-  // Aggregate by product
+  // Aggregate by product — track original and remaining
   const productSummary = useMemo(() => {
     const map = {};
     batches.filter(b => b.quality_status !== 'written_off').forEach(b => {
       const key = b.bulk_product_id;
-      if (!map[key]) map[key] = { name: b.bulk_product_name, sku: b.bulk_product_sku, totalKg: 0, batchCount: 0, totalValue: 0 };
+      if (!map[key]) map[key] = { name: b.bulk_product_name, sku: b.bulk_product_sku, totalKg: 0, originalKg: 0, batchCount: 0, totalValue: 0 };
       map[key].totalKg += b.qty_kg || 0;
+      map[key].originalKg += b.original_qty_kg || b.qty_kg || 0;
       map[key].totalValue += b.total_carrying_value || 0;
       map[key].batchCount += 1;
     });
@@ -77,6 +79,8 @@ export default function WipInventory() {
   }, [batches]);
 
   const totalKg = productSummary.reduce((s, p) => s + p.totalKg, 0);
+  const totalOriginalKg = productSummary.reduce((s, p) => s + p.originalKg, 0);
+  const totalConsumedKg = Math.max(0, totalOriginalKg - totalKg);
   const totalValue = productSummary.reduce((s, p) => s + p.totalValue, 0);
 
   return (
@@ -97,23 +101,28 @@ export default function WipInventory() {
       {/* Summary strip */}
       <div className="flex items-center gap-6 bg-card border border-border rounded-xl px-6 py-4 flex-wrap">
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase font-semibold">Total On Hand</p>
-          <p className="text-lg font-bold">{totalKg.toFixed(1)} kg</p>
+          <p className="text-[10px] text-muted-foreground uppercase font-semibold">Produced</p>
+          <p className="text-lg font-bold tabular-nums">{totalOriginalKg.toFixed(1)} kg</p>
+        </div>
+        <div className="w-px h-8 bg-border" />
+        <div>
+          <p className="text-[10px] text-amber-600 uppercase font-semibold">Portioned</p>
+          <p className="text-lg font-bold tabular-nums text-amber-600">{totalConsumedKg.toFixed(1)} kg</p>
+        </div>
+        <div className="w-px h-8 bg-border" />
+        <div>
+          <p className="text-[10px] text-green-600 uppercase font-semibold">Available</p>
+          <p className="text-lg font-bold tabular-nums text-green-600">{totalKg.toFixed(1)} kg</p>
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
           <p className="text-[10px] text-muted-foreground uppercase font-semibold">Carrying Value</p>
-          <p className="text-lg font-bold">R {totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
-        </div>
-        <div className="w-px h-8 bg-border" />
-        <div>
-          <p className="text-[10px] text-muted-foreground uppercase font-semibold">Products</p>
-          <p className="text-lg font-bold">{productSummary.length}</p>
+          <p className="text-lg font-bold tabular-nums">R {totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
           <p className="text-[10px] text-muted-foreground uppercase font-semibold">Batches</p>
-          <p className="text-lg font-bold">{batches.filter(b => b.quality_status !== 'written_off').length}</p>
+          <p className="text-lg font-bold tabular-nums">{batches.filter(b => b.quality_status !== 'written_off').length}</p>
         </div>
       </div>
 
@@ -121,12 +130,7 @@ export default function WipInventory() {
       {productSummary.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {productSummary.slice(0, 8).map(p => (
-            <div key={p.sku} className="bg-card border border-border rounded-lg p-3">
-              <p className="text-xs font-mono text-muted-foreground">{p.sku}</p>
-              <p className="text-sm font-semibold truncate">{p.name}</p>
-              <p className="text-lg font-bold mt-1">{p.totalKg.toFixed(1)} kg</p>
-              <p className="text-[10px] text-muted-foreground">{p.batchCount} batch{p.batchCount !== 1 ? 'es' : ''}</p>
-            </div>
+            <WipProductCard key={p.sku} {...p} />
           ))}
         </div>
       )}
@@ -162,34 +166,44 @@ export default function WipInventory() {
               <tr className="bg-muted/50 border-b border-border">
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Batch</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Product</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Qty (kg)</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Original</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Portioned</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Available</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Value</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Produced</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Last QC</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.slice(0, 15).map(b => (
-                <tr key={b.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => setSelectedBatch(b)}>
-                  <td className="px-4 py-2.5 text-sm font-mono font-medium">{b.batch_number}</td>
-                  <td className="px-4 py-2.5">
-                    <p className="text-sm font-medium">{b.bulk_product_name}</p>
-                    <p className="text-[10px] font-mono text-muted-foreground">{b.bulk_product_sku}</p>
-                  </td>
-                  <td className="px-4 py-2.5 text-sm text-right font-medium tabular-nums">{(b.qty_kg || 0).toFixed(1)}</td>
-                  <td className="px-4 py-2.5 text-sm text-right tabular-nums">R {(b.total_carrying_value || 0).toFixed(2)}</td>
-                  <td className="px-4 py-2.5 text-center">
-                    <Badge className={`text-[10px] ${QS_STYLES[b.quality_status] || ''}`}>
-                      {QS_LABELS[b.quality_status] || b.quality_status}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-2.5 text-sm text-muted-foreground">{b.produced_date || '—'}</td>
-                  <td className="px-4 py-2.5 text-sm text-muted-foreground">{b.last_qc_date || '—'}</td>
-                </tr>
-              ))}
+              {filtered.slice(0, 15).map(b => {
+                const original = b.original_qty_kg || b.qty_kg || 0;
+                const remaining = b.qty_kg || 0;
+                const consumed = Math.max(0, Math.round((original - remaining) * 10) / 10);
+                return (
+                  <tr key={b.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => setSelectedBatch(b)}>
+                    <td className="px-4 py-2.5 text-sm font-mono font-medium">{b.batch_number}</td>
+                    <td className="px-4 py-2.5">
+                      <p className="text-sm font-medium">{b.bulk_product_name}</p>
+                      <p className="text-[10px] font-mono text-muted-foreground">{b.bulk_product_sku}</p>
+                    </td>
+                    <td className="px-4 py-2.5 text-sm text-right tabular-nums text-muted-foreground">{original.toFixed(1)}</td>
+                    <td className="px-4 py-2.5 text-sm text-right tabular-nums font-medium text-amber-600">{consumed > 0 ? consumed.toFixed(1) : '—'}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      <span className="text-sm font-bold tabular-nums text-green-600">{remaining.toFixed(1)}</span>
+                      <span className="text-[10px] text-muted-foreground ml-0.5">kg</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-sm text-right tabular-nums">R {(b.total_carrying_value || 0).toFixed(2)}</td>
+                    <td className="px-4 py-2.5 text-center">
+                      <Badge className={`text-[10px] ${QS_STYLES[b.quality_status] || ''}`}>
+                        {QS_LABELS[b.quality_status] || b.quality_status}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2.5 text-sm text-muted-foreground">{b.produced_date || '—'}</td>
+                  </tr>
+                );
+              })}
               {filtered.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground">No batches found</td></tr>
+                <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-muted-foreground">No batches found</td></tr>
               )}
             </tbody>
           </table>

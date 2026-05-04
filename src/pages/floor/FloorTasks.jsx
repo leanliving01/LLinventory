@@ -186,26 +186,52 @@ export default function FloorTasks() {
       if (varianceParts.length > 0) notes += ` | Variance: ${varianceParts.join('; ')}`;
       if (meta.variance_note) notes += ` | Note: ${meta.variance_note}`;
 
-      // Handle stock movements for ALL portioning components (bulk WIP + packaging)
+      // Handle stock movements + WipBatch deduction for ALL portioning components
       for (const item of consumption) {
-        const diff = Math.round((item.actual - item.picked) * 100) / 100;
-        if (diff === 0) continue;
-
-        if (item.is_bulk_wip) {
-          // Bulk WIP: return excess or record extra consumption
+        if (item.is_bulk_wip && item.actual > 0) {
+          // Record the FULL consumption of bulk WIP as a stock movement
           await base44.entities.StockMovement.create({
             product_id: item.input_product_id, product_sku: item.sku, product_name: item.name,
-            qty: Math.abs(diff), uom: item.uom,
-            reason: diff < 0 ? 'return' : 'production_consume',
+            qty: item.actual, uom: item.uom,
+            reason: 'production_consume',
             ref_type: 'production_run', ref_id: selectedRunId,
-            notes: `[task:${taskId}] Bulk ${diff < 0 ? 'excess returned' : 'extra consumed'} (available ${item.picked}, used ${item.actual} ${item.uom})`,
+            notes: `[task:${taskId}] Bulk consumed for portioning (used ${item.actual} ${item.uom})`,
           });
-        } else {
-          // Packaging
+          // Deduct from WipBatch (FIFO — oldest first)
+          const batches = await base44.entities.WipBatch.filter(
+            { bulk_product_id: item.input_product_id, quality_status: 'fresh' },
+            'produced_date', 10
+          );
+          let remaining = item.actual;
+          for (const batch of batches) {
+            if (remaining <= 0) break;
+            const deduct = Math.min(remaining, batch.qty_kg || 0);
+            const newQty = Math.max(0, Math.round(((batch.qty_kg || 0) - deduct) * 100) / 100);
+            await base44.entities.WipBatch.update(batch.id, {
+              qty_kg: newQty,
+              total_carrying_value: Math.round(newQty * (batch.carrying_cost_per_kg || 0) * 100) / 100,
+            });
+            remaining -= deduct;
+          }
+          // If there was leftover (actual < picked), return excess to newest batch
+          const diff = Math.round((item.actual - item.picked) * 100) / 100;
+          if (diff < 0) {
+            await base44.entities.StockMovement.create({
+              product_id: item.input_product_id, product_sku: item.sku, product_name: item.name,
+              qty: Math.abs(diff), uom: item.uom,
+              reason: 'production_return',
+              ref_type: 'production_run', ref_id: selectedRunId,
+              notes: `[task:${taskId}] Excess bulk returned (available ${item.picked}, used ${item.actual} ${item.uom})`,
+            });
+          }
+        } else if (!item.is_bulk_wip) {
+          // Packaging: only record variance movements
+          const diff = Math.round((item.actual - item.picked) * 100) / 100;
+          if (diff === 0) continue;
           await base44.entities.StockMovement.create({
             product_id: item.input_product_id, product_sku: item.sku, product_name: item.name,
             qty: Math.abs(diff), uom: item.uom,
-            reason: diff < 0 ? 'return' : 'production_consume',
+            reason: diff < 0 ? 'production_return' : 'production_consume',
             ref_type: 'production_run', ref_id: selectedRunId,
             notes: `[task:${taskId}] Packaging ${diff < 0 ? 'returned' : 'consumed'} (planned ${item.picked}, used ${item.actual})`,
           });
@@ -271,9 +297,42 @@ export default function FloorTasks() {
           yieldNote = `Yield: ${actualYield} ${task.qty_uom || ''} (planned ${plannedYield})${yieldNote ? ' | ' + yieldNote : ''}`;
         }
 
-        // Cascade actual yield to the downstream task (prep→cook or cook→portion via BOM)
+        // Create WipBatch for cook tasks (bulk cooked output becomes WIP inventory)
+        if (task.station === 'cook') {
+          const now = new Date();
+          const year = now.getFullYear();
+          const existingBatches = await base44.entities.WipBatch.filter({ bulk_product_id: task.product_id }, '-created_date', 1);
+          const seq = existingBatches.length > 0 ? (existingBatches.length + 1) : 1;
+          const batchNumber = `WIP-${year}-${String(seq).padStart(4, '0')}`;
+
+          const product = allProducts.find(p => p.id === task.product_id);
+          const shelfLifeHours = product?.shelf_life_hours || 72;
+          const expiryAt = new Date(now.getTime() + shelfLifeHours * 3600000).toISOString();
+          const minRestHours = product?.minimum_rest_time_hours || 0;
+          const restReadyAt = minRestHours > 0
+            ? new Date(now.getTime() + minRestHours * 3600000).toISOString()
+            : now.toISOString();
+
+          await base44.entities.WipBatch.create({
+            batch_number: batchNumber,
+            bulk_product_id: task.product_id,
+            bulk_product_name: task.meal_name || task.name || '',
+            bulk_product_sku: task.product_sku || '',
+            qty_kg: actualYield,
+            original_qty_kg: actualYield,
+            produced_date: now.toISOString().split('T')[0],
+            cooking_run_id: selectedRunId,
+            quality_status: 'fresh',
+            expiry_at: expiryAt,
+            rest_time_met: minRestHours <= 0,
+            rest_ready_at: restReadyAt,
+            notes: `Created from production task — run ${selectedRun?.run_number || selectedRunId}`,
+          });
+          toast.success(`Bulk batch created: ${actualYield} ${task.qty_uom || 'kg'} of ${task.meal_name || task.name}`);
+        }
+
+        // Cascade actual yield to the downstream task (prep→cook: same product)
         if (task.station === 'prep') {
-          // Prep→Cook: same product_id
           const downstream = tasks.filter(
             t => t.station === 'cook' && t.product_id === task.product_id && !t.archived && t.status !== 'done'
           );
@@ -281,9 +340,6 @@ export default function FloorTasks() {
             await base44.entities.ProductionTask.update(dt.id, { qty: actualYield });
           }
         }
-        // Cook→Portion: different product_ids — portioning reads WIP availability from WipBatch
-        // (created above in Kanban handler) and from getPreviousStepInfo lookup.
-        // No direct qty cascade needed since portion tasks track plate counts, not WIP kg.
       }
 
       await base44.entities.ProductionTask.update(taskId, { status: 'done', finished_at: new Date().toISOString(), notes: yieldNote || summary || undefined });
@@ -294,6 +350,7 @@ export default function FloorTasks() {
     setLoading(false);
     queryClient.invalidateQueries({ queryKey: ['floor-tasks', selectedRunId] });
     queryClient.invalidateQueries({ queryKey: ['floor-task-logs', selectedRunId] });
+    queryClient.invalidateQueries({ queryKey: ['wip-batches'] });
     toast.success('Task completed');
   };
 

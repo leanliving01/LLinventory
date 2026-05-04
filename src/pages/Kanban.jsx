@@ -319,8 +319,10 @@ export default function Kanban() {
           for (const batch of batches) {
             if (remaining <= 0) break;
             const deduct = Math.min(remaining, batch.qty_kg || 0);
+            const newQty = Math.max(0, Math.round(((batch.qty_kg || 0) - deduct) * 100) / 100);
             await base44.entities.WipBatch.update(batch.id, {
-              qty_kg: Math.max(0, (batch.qty_kg || 0) - deduct),
+              qty_kg: newQty,
+              total_carrying_value: Math.round(newQty * (batch.carrying_cost_per_kg || 0) * 100) / 100,
             });
             remaining -= deduct;
           }
@@ -459,6 +461,7 @@ export default function Kanban() {
     queryClient.invalidateQueries({ queryKey: ['production-tasks', runId] });
     queryClient.invalidateQueries({ queryKey: ['task-logs', runId] });
     queryClient.invalidateQueries({ queryKey: ['wip-batches'] });
+    toast.success('Task completed');
   };
 
   const doStatusChange = async (taskId, newStatus) => {
