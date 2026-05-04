@@ -59,7 +59,7 @@ import FloorShortages from '@/pages/floor/FloorShortages';
 import CookingRuns from '@/pages/CookingRuns';
 import WipInventory from '@/pages/WipInventory';
 import WipPlanning from '@/pages/WipPlanning';
-// PortioningRuns removed — portioning is handled by ProductionTasks on the Kanban
+// Portioning is handled by ProductionTasks on the Kanban board
 import YieldReview from '@/pages/YieldReview';
 import SupplierYieldDashboard from '@/pages/SupplierYieldDashboard';
 import SupplierProductCatalog from '@/pages/SupplierProductCatalog';

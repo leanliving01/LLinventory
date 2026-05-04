@@ -135,7 +135,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
         is_consumable: c.is_consumable || false,
       };
     });
-  }, [relevantBom, allComponents, task.qty, productMap, isCookAfterPrep, originalRequiredQty]);
+  }, [relevantBom, allComponents, task.qty, productMap, isCookAfterPrep, originalRequiredQty, isPortioning, prevStepInfo]);
 
   // Separate bulk WIP rows from packaging/consumable rows for portioning
   const bulkRows = useMemo(() => componentRows.filter(r => r.isBulkWip && !r.is_consumable), [componentRows]);
