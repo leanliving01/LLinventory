@@ -55,6 +55,20 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
     onDone(t);
   };
 
+  // Detect cook-after-prep to show context in header
+  const isCookAfterPrep = task.station === 'cook' && (task.step_no || 0) > 1;
+  const { data: siblingPrepTasks = [] } = useQuery({
+    queryKey: ['sibling-prep-detail', task.run_id, task.product_id],
+    queryFn: () => base44.entities.ProductionTask.filter({
+      run_id: task.run_id,
+      product_id: task.product_id,
+      station: 'prep',
+    }),
+    enabled: isCookAfterPrep && !!task.run_id && !!task.product_id,
+  });
+  const donePrep = siblingPrepTasks.find(t => t.status === 'done');
+  const originalPlanned = donePrep ? donePrep.qty : null;
+
   // Fetch BOM for this product + station.
   // Prep and cook tasks both belong to the Cook BOM layer. Portion tasks use their own Portion BOM.
   const bomType = task.station === 'portion' ? 'portion' : 'cook';
@@ -115,10 +129,24 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
             </div>
           </div>
           <div className="text-right shrink-0">
-            <div className="text-2xl font-bold tabular-nums">
-              {task.qty != null ? (Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)) : '—'}
-            </div>
-            <span className="text-[10px] text-muted-foreground">{task.qty_uom || (task.station === 'portion' ? 'pcs' : 'units')}</span>
+            {isCookAfterPrep && originalPlanned != null ? (
+              <>
+                <div className="text-2xl font-bold tabular-nums text-blue-600 dark:text-blue-400">
+                  {Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)}
+                </div>
+                <span className="text-[10px] text-muted-foreground">available {task.qty_uom || 'kg'}</span>
+                <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
+                  Recipe: {Number.isInteger(originalPlanned) ? originalPlanned : Number(originalPlanned).toFixed(2)} {task.qty_uom || 'kg'}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-bold tabular-nums">
+                  {task.qty != null ? (Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)) : '—'}
+                </div>
+                <span className="text-[10px] text-muted-foreground">{task.qty_uom || (task.station === 'portion' ? 'pcs' : 'units')}</span>
+              </>
+            )}
           </div>
         </div>
 

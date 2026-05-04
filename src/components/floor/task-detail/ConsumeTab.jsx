@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Zap, Check, Loader2 } from 'lucide-react';
+import { Zap, Check, Loader2, ArrowDown } from 'lucide-react';
 import { toast } from 'sonner';
 
 /**
@@ -12,11 +12,39 @@ import { toast } from 'sonner';
  * Auto-saves each row individually on field change (debounced 300ms).
  * Data persists across navigation — no manual Save button needed.
  *
+ * For cook tasks that follow a prep step (step > 1, same product):
+ *   - Shows the WIP output from prep as "Available from Prep"
+ *   - Shows the original BOM-required qty (before yield cascade) as "Required"
+ *   - Only shows step-specific consumables (oil, spice), NOT raw ingredients already used in prep
+ *
  * Exposes `flushPendingSaves()` via ref so parent can force-save before task completion.
  */
 export default function ConsumeTab({ task, bom, components, onRef }) {
   const queryClient = useQueryClient();
-  const scale = bom?.yield_qty ? (task.qty || 1) / bom.yield_qty : 1;
+
+  // Detect if this is a cook/prep task with step > 1 that has a completed predecessor
+  const isCookAfterPrep = task.station === 'cook' && (task.step_no || 0) > 1;
+
+  // Fetch sibling prep task for this product in the same run (to get original planned qty)
+  const { data: siblingTasks = [] } = useQuery({
+    queryKey: ['sibling-prep-task', task.run_id, task.product_id],
+    queryFn: () => base44.entities.ProductionTask.filter({
+      run_id: task.run_id,
+      product_id: task.product_id,
+      station: 'prep',
+    }),
+    enabled: isCookAfterPrep && !!task.run_id && !!task.product_id,
+  });
+
+  // The prep task's qty = original BOM-derived requirement (before yield cascade)
+  const prepTask = siblingTasks.find(t => t.status === 'done');
+  const originalRequiredQty = prepTask ? prepTask.qty : null;
+  const availableFromPrep = isCookAfterPrep ? task.qty : null;
+
+  // Use the original required qty (before cascade) for scaling BOM ingredients
+  // If this is a cook-after-prep, scale to the ORIGINAL planned qty, not the cascaded qty
+  const scaleQty = (isCookAfterPrep && originalRequiredQty != null) ? originalRequiredQty : (task.qty || 1);
+  const scale = bom?.yield_qty ? scaleQty / bom.yield_qty : 1;
 
   // Scale components from BOM — this is the authoritative "required" qty for THIS task.
   // We do NOT use pick list totals here because the pick list aggregates across ALL tasks
@@ -189,7 +217,7 @@ export default function ConsumeTab({ task, bom, components, onRef }) {
     };
   }, [scaledComponents, saveRow]);
 
-  if (scaledComponents.length === 0) {
+  if (scaledComponents.length === 0 && !isCookAfterPrep) {
     return (
       <div className="text-center py-10">
         <p className="text-muted-foreground text-sm">No recipe components found for this task.</p>
@@ -199,14 +227,72 @@ export default function ConsumeTab({ task, bom, components, onRef }) {
 
   return (
     <div className="space-y-3">
-      {/* Auto-consume button */}
-      <Button variant="outline" size="sm" onClick={autoConsume} className="w-full gap-2">
-        <Zap className="w-4 h-4" /> Auto-consume (set all to required)
-      </Button>
+      {/* Cook-after-Prep: show WIP availability from the prep step */}
+      {isCookAfterPrep && availableFromPrep != null && (
+        <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-2xl p-4 space-y-2">
+          <div className="flex items-center gap-2 mb-1">
+            <ArrowDown className="w-4 h-4 text-blue-600" />
+            <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider">
+              From Prep Step
+            </p>
+          </div>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-bold text-sm">{task.meal_name || 'WIP Output'}</p>
+              <p className="text-xs font-mono text-muted-foreground">{task.product_sku}</p>
+            </div>
+            <Badge variant="outline" className="text-[10px]">{task.qty_uom || 'kg'}</Badge>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Required (recipe)</span>
+              <span className="text-lg font-bold tabular-nums">
+                {originalRequiredQty != null
+                  ? (Number.isInteger(originalRequiredQty) ? originalRequiredQty : Number(originalRequiredQty).toFixed(2))
+                  : '—'}
+              </span>
+              <span className="text-xs text-muted-foreground ml-1">{task.qty_uom || 'kg'}</span>
+            </div>
+            <div>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Available from Prep</span>
+              <span className="text-lg font-bold tabular-nums text-blue-600 dark:text-blue-400">
+                {Number.isInteger(availableFromPrep) ? availableFromPrep : Number(availableFromPrep).toFixed(2)}
+              </span>
+              <span className="text-xs text-muted-foreground ml-1">{task.qty_uom || 'kg'}</span>
+            </div>
+          </div>
+          {availableFromPrep > (originalRequiredQty || 0) && (
+            <p className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
+              +{(availableFromPrep - (originalRequiredQty || 0)).toFixed(2)} {task.qty_uom || 'kg'} extra from prep — you can cook more or set aside the surplus
+            </p>
+          )}
+          {availableFromPrep < (originalRequiredQty || 0) && (
+            <p className="text-[11px] font-medium text-amber-600">
+              {((originalRequiredQty || 0) - availableFromPrep).toFixed(2)} {task.qty_uom || 'kg'} short from prep — yield was lower than planned
+            </p>
+          )}
+        </div>
+      )}
 
-      <p className="text-[11px] text-muted-foreground text-center">
-        Changes auto-save — no need to press a save button
-      </p>
+      {/* Consumables for this step (oil, spice, etc.) */}
+      {scaledComponents.length > 0 && (
+        <>
+          {isCookAfterPrep && (
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Additional Ingredients for This Step
+            </p>
+          )}
+
+          {/* Auto-consume button */}
+          <Button variant="outline" size="sm" onClick={autoConsume} className="w-full gap-2">
+            <Zap className="w-4 h-4" /> Auto-consume (set all to required)
+          </Button>
+
+          <p className="text-[11px] text-muted-foreground text-center">
+            Changes auto-save — no need to press a save button
+          </p>
+        </>
+      )}
 
       {/* Component rows */}
       {scaledComponents.map(c => {

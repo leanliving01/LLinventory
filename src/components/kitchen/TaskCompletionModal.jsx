@@ -17,6 +17,21 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
   const [confirming, setConfirming] = useState(false);
 
   const isPortioning = task.station === 'portion';
+  const isCookAfterPrep = task.station === 'cook' && (task.step_no || 0) > 1;
+
+  // Fetch sibling prep task to get original planned qty (before yield cascade)
+  const { data: siblingPrepTasks = [] } = useQuery({
+    queryKey: ['sibling-prep-modal', task.run_id, task.product_id],
+    queryFn: () => base44.entities.ProductionTask.filter({
+      run_id: task.run_id,
+      product_id: task.product_id,
+      station: 'prep',
+    }),
+    enabled: isCookAfterPrep && !!task.run_id && !!task.product_id,
+  });
+  const prepTask = siblingPrepTasks.find(t => t.status === 'done');
+  const originalRequiredQty = prepTask ? prepTask.qty : null;
+  const availableFromPrep = isCookAfterPrep ? task.qty : null;
 
   // Load existing TaskConsumption records (saved from ConsumeTab)
   const { data: existingConsumption = [] } = useQuery({
@@ -74,9 +89,11 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
       comps = comps.filter(c => !c.step_no || c.step_no === taskStep);
     }
     const yieldQty = relevantBom.yield_qty || 1;
+    // For cook-after-prep, scale to the ORIGINAL planned qty (before yield cascade)
+    const scaleQty = (isCookAfterPrep && originalRequiredQty != null) ? originalRequiredQty : (task.qty || 1);
     return comps.map(c => {
       const perUnit = c.qty / yieldQty;
-      const totalRequired = Math.round(perUnit * (task.qty || 1) * 100) / 100;
+      const totalRequired = Math.round(perUnit * scaleQty * 100) / 100;
       const product = productMap[c.input_product_id];
       const isBulkWip = product?.type === 'wip_bulk';
       return {
@@ -93,7 +110,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
         is_consumable: c.is_consumable || false,
       };
     });
-  }, [relevantBom, allComponents, task.qty, productMap]);
+  }, [relevantBom, allComponents, task.qty, productMap, isCookAfterPrep, originalRequiredQty]);
 
   // Separate bulk WIP rows from packaging/consumable rows for portioning
   const bulkRows = useMemo(() => componentRows.filter(r => r.isBulkWip && !r.is_consumable), [componentRows]);
@@ -370,13 +387,33 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
           ) : (
             /* ===== PREP / COOK FLOW ===== */
             <>
+              {/* Cook-after-Prep context */}
+              {isCookAfterPrep && availableFromPrep != null && (
+                <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-xl p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <ArrowDown className="w-3 h-3 text-blue-600" />
+                    <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider">From Prep Step</p>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Required (recipe):</span>
+                    <span className="font-bold tabular-nums">{originalRequiredQty != null ? (Number.isInteger(originalRequiredQty) ? originalRequiredQty : Number(originalRequiredQty).toFixed(2)) : '—'} {task.qty_uom || 'kg'}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Available from Prep:</span>
+                    <span className="font-bold tabular-nums text-blue-600">{Number.isInteger(availableFromPrep) ? availableFromPrep : Number(availableFromPrep).toFixed(2)} {task.qty_uom || 'kg'}</span>
+                  </div>
+                </div>
+              )}
+
               {/* Actual Yield */}
               <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-bold">Actual Yield</p>
                     <p className="text-xs text-muted-foreground">
-                      Planned: {task.qty != null ? (Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)) : '—'} {task.qty_uom || ''}
+                      {isCookAfterPrep ? 'Recipe target' : 'Planned'}: {isCookAfterPrep && originalRequiredQty != null
+                        ? (Number.isInteger(originalRequiredQty) ? originalRequiredQty : Number(originalRequiredQty).toFixed(2))
+                        : (task.qty != null ? (Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)) : '—')} {task.qty_uom || ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
