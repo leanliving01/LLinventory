@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, XCircle, Clock, Lock, AlertTriangle } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { CheckCircle2, XCircle, Clock, Lock } from 'lucide-react';
 
 const QS_STYLES = {
   fresh: 'bg-green-100 text-green-700',
@@ -9,7 +10,7 @@ const QS_STYLES = {
   quarantine: 'bg-red-100 text-red-600',
 };
 
-export default function QCBatchRow({ batch, decision, onDecide, onRestOverride, product }) {
+export default function QCBatchRow({ batch, decision, onDecide, onRestOverride, product, selected, onToggleSelect }) {
   const restHours = product?.minimum_rest_time_hours || 0;
   const now = new Date();
 
@@ -32,7 +33,15 @@ export default function QCBatchRow({ batch, decision, onDecide, onRestOverride, 
   return (
     <div className={`flex items-center gap-3 px-4 py-3 border-b border-border last:border-b-0 transition-colors ${
       isApproved ? 'bg-green-50/50 dark:bg-green-950/10' : isDeclined ? 'bg-red-50/50 dark:bg-red-950/10' : ''
-    }`}>
+    } ${selected ? 'ring-2 ring-inset ring-primary/30' : ''}`}>
+      {/* Selection checkbox */}
+      {onToggleSelect && (
+        <Checkbox
+          checked={!!selected}
+          onCheckedChange={() => onToggleSelect(batch.id)}
+          className="shrink-0"
+        />
+      )}
       {/* Batch info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">

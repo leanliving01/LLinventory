@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  ClipboardCheck, Sun, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp
+  ClipboardCheck, Sun, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp, SquareCheck
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -40,6 +40,7 @@ export default function WipPlanning() {
 
   // QC flow state
   const [decisions, setDecisions] = useState({});
+  const [qcSelected, setQcSelected] = useState(new Set());
   const [overrideBatch, setOverrideBatch] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [showQCSection, setShowQCSection] = useState(true);
@@ -447,17 +448,36 @@ export default function WipPlanning() {
               </div>
             ) : (
               <>
-                {/* Bulk action buttons */}
+                {/* Selection toolbar */}
                 {activeBatches.length > 1 && (
-                  <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-muted/20">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase mr-auto">Bulk Actions</span>
+                  <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/20 flex-wrap">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 h-8"
+                      onClick={() => {
+                        if (qcSelected.size === activeBatches.length) {
+                          setQcSelected(new Set());
+                        } else {
+                          setQcSelected(new Set(activeBatches.map(b => b.id)));
+                        }
+                      }}
+                    >
+                      <SquareCheck className="w-3.5 h-3.5" />
+                      {qcSelected.size === activeBatches.length ? 'Deselect All' : 'Select All'}
+                    </Button>
+                    {qcSelected.size > 0 && (
+                      <span className="text-xs font-semibold text-primary tabular-nums">{qcSelected.size} selected</span>
+                    )}
+                    <div className="flex-1" />
                     <Button
                       variant="outline"
                       size="sm"
                       className="gap-1.5 h-8 text-green-700 border-green-300 hover:bg-green-50 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-950"
+                      disabled={qcSelected.size === 0}
                       onClick={() => {
                         const next = { ...decisions };
-                        activeBatches.forEach(b => {
+                        activeBatches.filter(b => qcSelected.has(b.id)).forEach(b => {
                           const prod = productById[b.bulk_product_id];
                           const restMet = !prod?.minimum_rest_time_hours || prod.minimum_rest_time_hours <= 0
                             || (b.rest_ready_at && new Date() >= new Date(b.rest_ready_at))
@@ -465,30 +485,41 @@ export default function WipPlanning() {
                           if (restMet) next[b.id] = 'approved';
                         });
                         setDecisions(next);
-                        toast.success('All eligible batches approved');
+                        setQcSelected(new Set());
+                        toast.success('Selected batches approved');
                       }}
                     >
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Approve All
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Approve Selected
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       className="gap-1.5 h-8 text-red-700 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
+                      disabled={qcSelected.size === 0}
                       onClick={() => {
                         const next = { ...decisions };
-                        activeBatches.forEach(b => { next[b.id] = 'declined'; });
+                        activeBatches.filter(b => qcSelected.has(b.id)).forEach(b => {
+                          next[b.id] = 'declined';
+                        });
                         setDecisions(next);
-                        toast.success('All batches declined');
+                        setQcSelected(new Set());
+                        toast.success('Selected batches declined');
                       }}
                     >
-                      <XCircle className="w-3.5 h-3.5" /> Decline All
+                      <XCircle className="w-3.5 h-3.5" /> Decline Selected
                     </Button>
                   </div>
                 )}
                 <div className="max-h-[50vh] overflow-y-auto">
                   {activeBatches.map(b => (
                     <QCBatchRow key={b.id} batch={b} decision={decisions[b.id]} onDecide={handleDecide}
-                      onRestOverride={handleRestOverride} product={productById[b.bulk_product_id]} />
+                      onRestOverride={handleRestOverride} product={productById[b.bulk_product_id]}
+                      selected={qcSelected.has(b.id)}
+                      onToggleSelect={(id) => setQcSelected(prev => {
+                        const next = new Set(prev);
+                        next.has(id) ? next.delete(id) : next.add(id);
+                        return next;
+                      })} />
                   ))}
                 </div>
                 {declinedBatches.length > 0 && (
