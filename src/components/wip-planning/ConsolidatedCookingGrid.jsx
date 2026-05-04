@@ -28,7 +28,7 @@ export default function ConsolidatedCookingGrid({
   const [expandedRow, setExpandedRow] = useState(null);
 
   // Already released = not draft
-  const releasedOrActiveRuns = existingCookingRuns.filter(r => r.status !== 'draft');
+  const releasedOrActiveRuns = existingCookingRuns.filter(r => r.status !== 'draft' && r.status !== 'cancelled');
   const alreadyReleasedIds = new Set(releasedOrActiveRuns.map(r => r.bulk_product_id));
 
   const needsCookingRows = rows.filter(r => r.needsCooking);
