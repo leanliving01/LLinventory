@@ -116,27 +116,37 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
   const bulkRows = useMemo(() => componentRows.filter(r => r.isBulkWip && !r.is_consumable), [componentRows]);
   const otherRows = useMemo(() => componentRows.filter(r => !r.isBulkWip || r.is_consumable), [componentRows]);
 
-  // Pre-fill actuals from saved TaskConsumption records, falling back to actual picked values
-  useMemo(() => {
-    if (!isPortioning && componentRows.length > 0 && Object.keys(actuals).length === 0) {
-      const prefilled = {};
-      const prefilledWaste = {};
-      componentRows.forEach(r => {
-        const saved = existingConsumption.find(e => e.bom_component_id === r.id);
-        if (saved && saved.consumed_qty > 0) {
-          prefilled[r.id] = saved.consumed_qty;
-          prefilledWaste[r.id] = saved.wastage_qty || 0;
-        } else {
-          // Default to what was actually picked (from pick list), not BOM-required
-          prefilled[r.id] = r.picked;
-        }
-      });
-      setActuals(prefilled);
-      if (Object.values(prefilledWaste).some(v => v > 0)) {
-        setWastage(prefilledWaste);
+  // Track whether we've done the initial seed and which pick data version we used
+  const [seededWithPickData, setSeededWithPickData] = useState(false);
+  const pickDataReady = pickLines.length > 0;
+
+  // Pre-fill actuals from saved TaskConsumption records, falling back to actual picked values.
+  // Re-seeds once when pick list data arrives to replace BOM-fallback values.
+  useEffect(() => {
+    if (isPortioning || componentRows.length === 0) return;
+    // Skip if we already seeded WITH pick data
+    if (seededWithPickData && pickDataReady) return;
+    // Skip if we already seeded and pick data still hasn't arrived
+    if (Object.keys(actuals).length > 0 && !pickDataReady) return;
+
+    const prefilled = {};
+    const prefilledWaste = {};
+    componentRows.forEach(r => {
+      const saved = existingConsumption.find(e => e.bom_component_id === r.id);
+      if (saved && saved.consumed_qty > 0) {
+        prefilled[r.id] = saved.consumed_qty;
+        prefilledWaste[r.id] = saved.wastage_qty || 0;
+      } else {
+        // Default to what was actually picked (from pick list), not BOM-required
+        prefilled[r.id] = r.picked;
       }
+    });
+    setActuals(prefilled);
+    if (Object.values(prefilledWaste).some(v => v > 0)) {
+      setWastage(prefilledWaste);
     }
-  }, [componentRows, isPortioning, existingConsumption]);
+    if (pickDataReady) setSeededWithPickData(true);
+  }, [componentRows, isPortioning, existingConsumption, pickDataReady]);
 
   // Pre-fill portioning leftover with 0 (assume they used everything unless they say otherwise)
   useEffect(() => {
@@ -217,6 +227,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
   const hasComponents = componentRows.length > 0;
   const plates = Number(platesProduced) || 0;
   const portionVariance = plates - (task.qty || 0);
+  const pickDataLoading = !!task.run_id && pickLines.length === 0 && !seededWithPickData;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -234,6 +245,12 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {pickDataLoading && (
+            <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 dark:bg-blue-950/30 rounded-xl px-4 py-2.5">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading actual picked quantities…
+            </div>
+          )}
           {!hasComponents ? (
             <div className="text-center py-6">
               <p className="text-sm text-muted-foreground mb-2">No recipe ingredients found for this task.</p>
