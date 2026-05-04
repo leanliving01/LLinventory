@@ -12,6 +12,7 @@ import FloorPickCategory from '@/components/floor/FloorPickCategory';
 import CameraScanner from '@/components/floor/CameraScanner';
 import LiveTimer from '@/components/kitchen/LiveTimer';
 import { generatePickList } from '@/lib/pickListGenerator';
+import { addToProductionFloor } from '@/lib/productionFloorStock.js';
 
 const CATEGORY_ORDER = [
   'Meats', 'Vegetables', 'Starches', 'Spices & Seasoning',
@@ -232,6 +233,9 @@ export default function FloorPick() {
         });
         remaining -= deduct;
       }
+
+      // Add to Production floor SOH
+      await addToProductionFloor(pl.product_id, pl.product_sku, pl.product_name, qty, pl.required_uom);
 
       await base44.entities.PickLine.update(pl.id, { status: 'released', released_at: releaseBatch, release_batch: releaseBatch });
     }

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Search, X, Package } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import ProductionFloorBanner from '@/components/inventory/ProductionFloorBanner';
 import InventoryCSVExport from '@/components/inventory/InventoryCSVExport';
 import TablePagination from '@/components/shared/TablePagination';
 import InventoryCSVImport from '@/components/inventory/InventoryCSVImport';
@@ -124,6 +125,9 @@ export default function InventoryOverview() {
           />
         </div>
       </div>
+
+      {/* Production Floor Banner (virtual calculation) */}
+      <ProductionFloorBanner />
 
       {/* Recalculate Committed Stock */}
       {(user?.role === 'admin' || perms.inventory_recalc_committed) && (

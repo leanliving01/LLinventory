@@ -14,6 +14,7 @@ import PickListEditModal from '@/components/pick-list/PickListEditModal';
 import LiveTimer from '@/components/kitchen/LiveTimer';
 import { writeAuditLog } from '@/lib/auditLog';
 import { generatePickList } from '@/lib/pickListGenerator';
+import { addToProductionFloor, removeFromProductionFloor } from '@/lib/productionFloorStock.js';
 
 const CATEGORY_ORDER = [
   'Meats', 'Vegetables', 'Starches', 'Spices & Seasoning',
@@ -208,6 +209,9 @@ export default function PickList() {
         remaining -= deduct;
       }
 
+      // Add to Production floor SOH
+      await addToProductionFloor(pl.product_id, pl.product_sku, pl.product_name, qty, pl.required_uom);
+
       // Mark line as released
       await base44.entities.PickLine.update(pl.id, {
         status: 'released',
@@ -292,6 +296,13 @@ export default function PickList() {
           qty_available: newOnHand - (soh.qty_committed || 0),
           last_updated_at: new Date().toISOString(),
         });
+      }
+
+      // Update Production floor SOH
+      if (diff > 0) {
+        await addToProductionFloor(productId, productSku, productName, Math.abs(diff), uom);
+      } else {
+        await removeFromProductionFloor(productId, Math.abs(diff));
       }
 
       // Update PickLine qty

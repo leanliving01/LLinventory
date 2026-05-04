@@ -22,6 +22,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import { generatePickList } from '@/lib/pickListGenerator';
+import { clearProductionFloorForRun } from '@/lib/productionFloorStock.js';
 
 const STATUS_STYLES = {
   draft: 'bg-muted text-muted-foreground',
@@ -461,13 +462,18 @@ export default function ProductionRunDetail() {
       }
     }
 
-    // 4. Archive all production tasks for this run
+    // 4. Clear Production floor SOH for this run's pick list
+    if (existingPickList) {
+      await clearProductionFloorForRun(existingPickList.id);
+    }
+
+    // 5. Archive all production tasks for this run
     const runTasks = await base44.entities.ProductionTask.filter({ run_id: runId }, 'step_no', 500);
     for (let i = 0; i < runTasks.length; i++) {
       await base44.entities.ProductionTask.update(runTasks[i].id, { archived: true });
     }
 
-    // 5. Mark run as completed
+    // 6. Mark run as completed
     const totalActual = lines.reduce((s, l) => s + (Number(actuals[l.id]) || 0), 0);
     await base44.entities.ProductionRun.update(runId, {
       status: 'completed',
@@ -612,14 +618,20 @@ export default function ProductionRunDetail() {
       }
     }
 
-    // 4. Delete TaskConsumption records for this run
+    // 4. Clear Production floor SOH
+    if (existingPickList) {
+      await clearProductionFloorForRun(existingPickList.id);
+      voidSummary.push('Production floor stock cleared');
+    }
+
+    // 5. Delete TaskConsumption records for this run
     const consumptions = await base44.entities.TaskConsumption.filter({ run_id: runId }, '-created_date', 500);
     if (consumptions.length > 0) {
       for (const tc of consumptions) await base44.entities.TaskConsumption.delete(tc.id);
       voidSummary.push(`${consumptions.length} task consumption records removed`);
     }
 
-    // 5. Mark production run as cancelled and reset picking flags
+    // 6. Mark production run as cancelled and reset picking flags
     await base44.entities.ProductionRun.update(runId, {
       status: 'cancelled',
       pick_list_confirmed: false,
