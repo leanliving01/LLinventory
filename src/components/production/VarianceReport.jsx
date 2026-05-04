@@ -7,7 +7,9 @@ import { X, TrendingDown, TrendingUp, Trash2, RotateCcw, ChefHat } from 'lucide-
 import { cn } from '@/lib/utils';
 
 const REASON_LABELS = {
-  production_consume: 'Consumed',
+  production_pick: 'Picked → Production',
+  production_consume: 'Consumed (Legacy)',
+  production_return: 'Returned from Production',
   return: 'Returned',
   wastage_unusable: 'Unusable Waste',
   wastage_usable: 'Usable Waste',
@@ -15,10 +17,20 @@ const REASON_LABELS = {
 };
 
 export default function VarianceReport({ runId, runNumber, lines, onClose }) {
-  // Load stock movements for this run
+  // Load stock movements for this run (production_run ref + pick_list ref)
   const { data: movements = [], isLoading } = useQuery({
     queryKey: ['variance-movements', runId],
-    queryFn: () => base44.entities.StockMovement.filter({ ref_id: runId, ref_type: 'production_run' }, '-created_date', 1000),
+    queryFn: async () => {
+      const [runMvs, pickListRecs] = await Promise.all([
+        base44.entities.StockMovement.filter({ ref_id: runId, ref_type: 'production_run' }, '-created_date', 1000),
+        base44.entities.PickList.filter({ production_run_id: runId }, '-created_date', 1),
+      ]);
+      if (pickListRecs.length > 0) {
+        const pickMvs = await base44.entities.StockMovement.filter({ ref_id: pickListRecs[0].id, ref_type: 'pick_list' }, '-created_date', 1000);
+        return [...runMvs, ...pickMvs];
+      }
+      return runMvs;
+    },
     enabled: !!runId,
   });
 
@@ -42,8 +54,13 @@ export default function VarianceReport({ runId, runNumber, lines, onClose }) {
     return byReason;
   }, [movements]);
 
-  // Returns summary
-  const returns = summary['return'] || { items: [], totalQty: 0, totalCost: 0 };
+  // Returns summary (merge 'return' + 'production_return')
+  const returnItems = [...(summary['return']?.items || []), ...(summary['production_return']?.items || [])];
+  const returns = {
+    items: returnItems,
+    totalQty: returnItems.reduce((s, m) => s + (m.qty || 0), 0),
+    totalCost: returnItems.reduce((s, m) => s + (m.qty || 0) * (m.unit_cost_at_movement || 0), 0),
+  };
   const unusableWaste = summary['wastage_unusable'] || { items: [], totalQty: 0, totalCost: 0 };
   const usableWaste = summary['wastage_usable'] || { items: [], totalQty: 0, totalCost: 0 };
 
