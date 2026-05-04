@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, Play, CheckCircle2, Loader2, Scale, AlertTriangle, Plus, Trash2, Clock } from 'lucide-react';
+import { X, Play, CheckCircle2, Loader2, Scale, AlertTriangle, Plus, Trash2, Clock, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import WastageEventForm from './WastageEventForm';
 
@@ -173,6 +173,15 @@ export default function CookingRunDrawer({ run, onClose, onUpdated }) {
   const isReleased = run.status === 'released';
   const isActive = run.status === 'in_progress';
   const canStart = isDraft || isReleased;
+  const canRevertToDraft = isReleased;
+
+  const handleRevertToDraft = async () => {
+    setUpdating(true);
+    await base44.entities.CookingRun.update(run.id, { status: 'draft' });
+    toast.success(`${run.run_number} reverted to draft`);
+    setUpdating(false);
+    onUpdated();
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-end">
@@ -307,6 +316,17 @@ export default function CookingRunDrawer({ run, onClose, onUpdated }) {
 
         {/* Footer actions */}
         <div className="sticky bottom-0 bg-card border-t border-border px-6 py-4 shrink-0 flex gap-3 relative z-10">
+          {canRevertToDraft && (
+            <Button
+              variant="outline"
+              onClick={handleRevertToDraft}
+              disabled={updating}
+              className="gap-2 h-11 border-amber-300 text-amber-700 hover:bg-amber-50"
+            >
+              {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+              Revert to Draft
+            </Button>
+          )}
           {canStart && (
             <>
               <div className="flex-1" />

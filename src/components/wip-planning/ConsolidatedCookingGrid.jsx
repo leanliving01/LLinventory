@@ -1,12 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import {
   AlertTriangle, CheckCircle2, CookingPot, Loader2, Flame,
-  Merge, Split, ChevronDown, Play
+  Merge, Split, ChevronDown, Play, RotateCcw
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -14,9 +15,9 @@ import { writeAuditLog } from '@/lib/auditLog';
 
 /**
  * Creates cooking runs for a set of requirement rows.
- * Returns array of created CookingRun records.
+ * Uses cookPlanOverrides to determine target_output_kg when available.
  */
-async function createCookingRuns(rowsToRelease, splitRows, wipProducts, cookBoms) {
+async function createCookingRuns(rowsToRelease, splitRows, wipProducts, cookBoms, cookPlanOverrides) {
   const existingRuns = await base44.entities.CookingRun.list('-created_date', 1);
   let nextNum = existingRuns.length > 0
     ? (parseInt((existingRuns[0].run_number || '').replace(/\D/g, '') || '0') + 1) : 1;
@@ -27,15 +28,21 @@ async function createCookingRuns(rowsToRelease, splitRows, wipProducts, cookBoms
   for (const row of rowsToRelease) {
     const product = wipProducts.find(p => p.id === row.id);
     const bom = cookBoms.find(b => b.product_id === row.id);
+    const overriddenKg = cookPlanOverrides[row.id];
+    const targetKg = overriddenKg !== undefined ? Number(overriddenKg) : row.netToCookKg;
 
     if (splitRows.has(row.id)) {
+      // When split, scale override proportionally across contributions
+      const totalNet = row.contributions.reduce((s, c) => s + c.kgNeeded, 0);
       for (const contrib of row.contributions) {
+        const proportion = totalNet > 0 ? contrib.kgNeeded / totalNet : 1 / row.contributions.length;
+        const splitTarget = Math.round(targetKg * proportion * 10) / 10;
         const runNumber = `COOK-${new Date().getFullYear()}-${String(nextNum).padStart(4, '0')}`;
         nextNum++;
         const run = await base44.entities.CookingRun.create({
           run_number: runNumber, run_date: todayStr, status: 'released', run_type: 'standard',
           bulk_product_id: row.id, bulk_product_name: row.name, bulk_product_sku: row.sku,
-          target_output_kg: Math.round(contrib.kgNeeded * 10) / 10,
+          target_output_kg: splitTarget,
           cook_bom_id: bom?.id || null, bom_expected_yield_pct: bom?.yield_qty || null,
           raw_product_id: product?.primary_yield_ingredient_id || null,
           raw_product_name: product?.primary_yield_ingredient_name || null,
@@ -52,7 +59,7 @@ async function createCookingRuns(rowsToRelease, splitRows, wipProducts, cookBoms
       const run = await base44.entities.CookingRun.create({
         run_number: runNumber, run_date: todayStr, status: 'released', run_type: 'standard',
         bulk_product_id: row.id, bulk_product_name: row.name, bulk_product_sku: row.sku,
-        target_output_kg: Math.round(row.netToCookKg * 10) / 10,
+        target_output_kg: Math.round(targetKg * 10) / 10,
         cook_bom_id: bom?.id || null, bom_expected_yield_pct: bom?.yield_qty || null,
         raw_product_id: product?.primary_yield_ingredient_id || null,
         raw_product_name: product?.primary_yield_ingredient_name || null,
@@ -72,14 +79,27 @@ export default function ConsolidatedCookingGrid({
 }) {
   const queryClient = useQueryClient();
   const [releasing, setReleasing] = useState(false);
-  const [releasingRowId, setReleasingRowId] = useState(null); // for single-row release
+  const [releasingRowId, setReleasingRowId] = useState(null);
+  const [revertingRowId, setRevertingRowId] = useState(null);
   const [splitRows, setSplitRows] = useState(new Set());
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [expandedRow, setExpandedRow] = useState(null);
+  // Cook Plan overrides: { [bulkProductId]: number string }
+  const [cookPlanOverrides, setCookPlanOverrides] = useState({});
 
   // Already released = active cooking runs (not draft or cancelled)
   const releasedOrActiveRuns = existingCookingRuns.filter(r => r.status !== 'draft' && r.status !== 'cancelled');
   const alreadyReleasedIds = new Set(releasedOrActiveRuns.map(r => r.bulk_product_id));
+
+  // Map released cooking runs by bulk_product_id for revert
+  const releasedRunsByProduct = useMemo(() => {
+    const map = {};
+    releasedOrActiveRuns.forEach(r => {
+      if (!map[r.bulk_product_id]) map[r.bulk_product_id] = [];
+      map[r.bulk_product_id].push(r);
+    });
+    return map;
+  }, [releasedOrActiveRuns]);
 
   const needsCookingRows = rows.filter(r => r.needsCooking);
   const unreleased = needsCookingRows.filter(r => !alreadyReleasedIds.has(r.id));
@@ -87,6 +107,12 @@ export default function ConsolidatedCookingGrid({
   const selectedUnreleased = unreleased.filter(r => selectedRows.has(r.id));
   const allSelected = unreleased.length > 0 && unreleased.every(r => selectedRows.has(r.id));
   const someSelected = selectedUnreleased.length > 0;
+
+  // Check if any released rows can be reverted (only "released" status, not in_progress/completed)
+  const revertableReleased = needsCookingRows.filter(r => {
+    const runs = releasedRunsByProduct[r.id] || [];
+    return runs.length > 0 && runs.every(cr => cr.status === 'released');
+  });
 
   const toggleSplit = (bulkProductId) => {
     setSplitRows(prev => {
@@ -114,16 +140,41 @@ export default function ConsolidatedCookingGrid({
     }
   };
 
+  const handleCookPlanChange = useCallback((rowId, value) => {
+    setCookPlanOverrides(prev => ({ ...prev, [rowId]: value }));
+  }, []);
+
+  const invalidateAndNotify = (count, action) => {
+    queryClient.invalidateQueries({ queryKey: ['cooking-runs'] });
+    queryClient.invalidateQueries({ queryKey: ['wip-cooking-runs'] });
+    toast.success(`${count} cooking run${count > 1 ? 's' : ''} ${action}`);
+    onReleased?.();
+  };
+
   const finishRelease = (names) => {
     writeAuditLog({
       action: 'create', entity_type: 'CookingRun',
       description: `Released ${names.length} cooking runs from WIP Planning: ${names.join(', ')}`,
     });
-    queryClient.invalidateQueries({ queryKey: ['cooking-runs'] });
-    queryClient.invalidateQueries({ queryKey: ['wip-cooking-runs'] });
-    toast.success(`${names.length} cooking run${names.length > 1 ? 's' : ''} released to kitchen`);
+    invalidateAndNotify(names.length, 'released to kitchen');
     setSelectedRows(new Set());
-    onReleased?.();
+  };
+
+  // Revert a single released product's cooking runs back to draft
+  const handleRevertSingle = async (row) => {
+    const runs = releasedRunsByProduct[row.id] || [];
+    const revertable = runs.filter(cr => cr.status === 'released');
+    if (revertable.length === 0) { toast.info('No released runs to revert'); return; }
+    setRevertingRowId(row.id);
+    for (const cr of revertable) {
+      await base44.entities.CookingRun.update(cr.id, { status: 'draft' });
+    }
+    writeAuditLog({
+      action: 'update', entity_type: 'CookingRun',
+      description: `Reverted ${revertable.length} cooking run(s) to draft for ${row.name}: ${revertable.map(r => r.run_number).join(', ')}`,
+    });
+    invalidateAndNotify(revertable.length, 'reverted to draft');
+    setRevertingRowId(null);
   };
 
   // Release ALL unreleased rows + ad-hoc drafts
@@ -136,7 +187,7 @@ export default function ConsolidatedCookingGrid({
     for (const dr of draftAdHocRuns) {
       await base44.entities.CookingRun.update(dr.id, { status: 'released' });
     }
-    const created = await createCookingRuns(unreleased, splitRows, wipProducts, cookBoms);
+    const created = await createCookingRuns(unreleased, splitRows, wipProducts, cookBoms, cookPlanOverrides);
     const allNames = [...draftAdHocRuns.map(r => r.run_number), ...created.map(r => r.run_number)];
     finishRelease(allNames);
     setReleasing(false);
@@ -146,7 +197,7 @@ export default function ConsolidatedCookingGrid({
   const handleReleaseSelected = async () => {
     if (selectedUnreleased.length === 0) { toast.info('No rows selected'); return; }
     setReleasing(true);
-    const created = await createCookingRuns(selectedUnreleased, splitRows, wipProducts, cookBoms);
+    const created = await createCookingRuns(selectedUnreleased, splitRows, wipProducts, cookBoms, cookPlanOverrides);
     finishRelease(created.map(r => r.run_number));
     setReleasing(false);
   };
@@ -154,7 +205,7 @@ export default function ConsolidatedCookingGrid({
   // Release a SINGLE row
   const handleReleaseSingle = async (row) => {
     setReleasingRowId(row.id);
-    const created = await createCookingRuns([row], splitRows, wipProducts, cookBoms);
+    const created = await createCookingRuns([row], splitRows, wipProducts, cookBoms, cookPlanOverrides);
     finishRelease(created.map(r => r.run_number));
     setReleasingRowId(null);
   };
@@ -166,6 +217,9 @@ export default function ConsolidatedCookingGrid({
       </div>
     );
   }
+
+  const hasCheckboxCol = canRelease && (unreleased.length > 0 || revertableReleased.length > 0);
+  const colCount = hasCheckboxCol ? 9 : 8;
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -210,186 +264,240 @@ export default function ConsolidatedCookingGrid({
       </div>
 
       {/* Table */}
-      <table className="w-full">
-        <thead>
-          <tr className="border-b border-border">
-            {canRelease && unreleased.length > 0 && (
-              <th className="w-10 px-3 py-2.5 text-center">
-                <Checkbox
-                  checked={allSelected}
-                  onCheckedChange={toggleSelectAll}
-                  aria-label="Select all"
-                />
-              </th>
-            )}
-            <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Bulk Product</th>
-            <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Contributing Runs</th>
-            <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Required</th>
-            <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Available WIP</th>
-            <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Net to Cook</th>
-            <th className="text-center px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Mode</th>
-            <th className="text-center px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Status</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {rows.map(r => {
-            const released = alreadyReleasedIds.has(r.id);
-            const isSplit = splitRows.has(r.id);
-            const isMultiRun = r.contributions.length > 1;
-            const isExpanded = expandedRow === r.id;
-            const isUnreleased = r.needsCooking && !released;
-            const isReleasingSingle = releasingRowId === r.id;
-            const colSpan = canRelease && unreleased.length > 0 ? 8 : 7;
-
-            return (
-              <React.Fragment key={r.id}>
-                <tr className={r.needsCooking ? 'bg-red-50/50 dark:bg-red-950/10' : ''}>
-                  {/* Checkbox column */}
-                  {canRelease && unreleased.length > 0 && (
-                    <td className="w-10 px-3 py-2.5 text-center">
-                      {isUnreleased ? (
-                        <Checkbox
-                          checked={selectedRows.has(r.id)}
-                          onCheckedChange={() => toggleSelect(r.id)}
-                          aria-label={`Select ${r.name}`}
-                        />
-                      ) : null}
-                    </td>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-border">
+              {hasCheckboxCol && (
+                <th className="w-10 px-3 py-2.5 text-center">
+                  {unreleased.length > 0 && (
+                    <Checkbox
+                      checked={allSelected}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Select all"
+                    />
                   )}
-                  <td className="px-4 py-2.5">
-                    <p className="text-sm font-medium">{r.name}</p>
-                    <p className="text-[10px] font-mono text-muted-foreground">{r.sku}</p>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {r.contributions.length <= 2 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {r.contributions.map(c => (
-                          <Badge key={c.runId} variant="outline" className="text-[10px] font-mono">
-                            {c.runNumber}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setExpandedRow(isExpanded ? null : r.id)}
-                        className="flex items-center gap-1 text-xs text-primary hover:underline"
-                      >
-                        {r.contributions.length} runs
-                        <ChevronDown className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                      </button>
+                </th>
+              )}
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Bulk Product</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Contributing Runs</th>
+              <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Required</th>
+              <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Available WIP</th>
+              <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Net to Cook</th>
+              <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Cook Plan</th>
+              <th className="text-center px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Mode</th>
+              <th className="text-center px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.map(r => {
+              const released = alreadyReleasedIds.has(r.id);
+              const isSplit = splitRows.has(r.id);
+              const isMultiRun = r.contributions.length > 1;
+              const isExpanded = expandedRow === r.id;
+              const isUnreleased = r.needsCooking && !released;
+              const isReleasingSingle = releasingRowId === r.id;
+              const isRevertingSingle = revertingRowId === r.id;
+
+              // Can this released row be reverted? Only if all its runs are still "released" (not started)
+              const releasedRuns = releasedRunsByProduct[r.id] || [];
+              const canRevert = released && releasedRuns.length > 0 && releasedRuns.every(cr => cr.status === 'released');
+
+              // Cook plan value: override or net-to-cook
+              const cookPlanValue = cookPlanOverrides[r.id] !== undefined
+                ? cookPlanOverrides[r.id]
+                : r.netToCookKg.toFixed(1);
+              const isOverridden = cookPlanOverrides[r.id] !== undefined &&
+                Number(cookPlanOverrides[r.id]) !== Math.round(r.netToCookKg * 10) / 10;
+
+              return (
+                <React.Fragment key={r.id}>
+                  <tr className={r.needsCooking ? 'bg-red-50/50 dark:bg-red-950/10' : ''}>
+                    {/* Checkbox column */}
+                    {hasCheckboxCol && (
+                      <td className="w-10 px-3 py-2.5 text-center">
+                        {isUnreleased ? (
+                          <Checkbox
+                            checked={selectedRows.has(r.id)}
+                            onCheckedChange={() => toggleSelect(r.id)}
+                            aria-label={`Select ${r.name}`}
+                          />
+                        ) : null}
+                      </td>
                     )}
-                  </td>
-                  <td className="px-4 py-2.5 text-sm text-right tabular-nums font-medium">{r.requiredKg.toFixed(1)} kg</td>
-                  <td className="px-4 py-2.5 text-sm text-right tabular-nums">{r.availableKg.toFixed(1)} kg</td>
-                  <td className={`px-4 py-2.5 text-sm text-right tabular-nums font-bold ${r.needsCooking ? 'text-red-600' : 'text-green-600'}`}>
-                    {r.needsCooking ? r.netToCookKg.toFixed(1) : '—'}
-                  </td>
-                  <td className="px-4 py-2.5 text-center">
-                    {isUnreleased && isMultiRun ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleSplit(r.id)}
-                        className={`gap-1.5 text-xs h-7 ${isSplit ? 'text-amber-600' : 'text-primary'}`}
-                      >
-                        {isSplit ? <><Split className="w-3 h-3" /> Split</> : <><Merge className="w-3 h-3" /> Combined</>}
-                      </Button>
-                    ) : isUnreleased ? (
-                      <span className="text-[10px] text-muted-foreground">single run</span>
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 text-center">
-                    {r.needsCooking ? (
-                      released ? (
-                        <Badge className="bg-blue-100 text-blue-700 text-[10px] gap-1">
-                          <CookingPot className="w-3 h-3" /> Released
-                        </Badge>
-                      ) : canRelease ? (
+                    <td className="px-4 py-2.5">
+                      <p className="text-sm font-medium">{r.name}</p>
+                      <p className="text-[10px] font-mono text-muted-foreground">{r.sku}</p>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {r.contributions.length <= 2 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {r.contributions.map(c => (
+                            <Badge key={c.runId} variant="outline" className="text-[10px] font-mono">
+                              {c.runNumber}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setExpandedRow(isExpanded ? null : r.id)}
+                          className="flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          {r.contributions.length} runs
+                          <ChevronDown className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-sm text-right tabular-nums font-medium">{r.requiredKg.toFixed(1)} kg</td>
+                    <td className="px-4 py-2.5 text-sm text-right tabular-nums">{r.availableKg.toFixed(1)} kg</td>
+                    <td className={`px-4 py-2.5 text-sm text-right tabular-nums font-bold ${r.needsCooking ? 'text-red-600' : 'text-green-600'}`}>
+                      {r.needsCooking ? r.netToCookKg.toFixed(1) : '—'}
+                    </td>
+                    {/* Cook Plan — editable for unreleased rows */}
+                    <td className="px-4 py-2.5 text-right">
+                      {isUnreleased ? (
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={cookPlanValue}
+                          onChange={e => handleCookPlanChange(r.id, e.target.value)}
+                          className={`w-20 h-7 text-xs text-right tabular-nums ml-auto ${isOverridden ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/20 font-bold' : ''}`}
+                        />
+                      ) : released ? (
+                        <span className="text-sm tabular-nums text-muted-foreground">
+                          {releasedRuns.reduce((s, cr) => s + (cr.target_output_kg || 0), 0).toFixed(1)} kg
+                        </span>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      {isUnreleased && isMultiRun ? (
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleReleaseSingle(r)}
-                          disabled={isReleasingSingle || releasing}
-                          className="gap-1.5 text-xs h-7 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                          onClick={() => toggleSplit(r.id)}
+                          className={`gap-1.5 text-xs h-7 ${isSplit ? 'text-amber-600' : 'text-primary'}`}
                         >
-                          {isReleasingSingle ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Play className="w-3 h-3" />
-                          )}
-                          Release
+                          {isSplit ? <><Split className="w-3 h-3" /> Split</> : <><Merge className="w-3 h-3" /> Combined</>}
                         </Button>
+                      ) : isUnreleased ? (
+                        <span className="text-[10px] text-muted-foreground">single run</span>
                       ) : (
-                        <Badge className="bg-red-100 text-red-700 text-[10px] gap-1">
-                          <AlertTriangle className="w-3 h-3" /> Needs cooking
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      {r.needsCooking ? (
+                        released ? (
+                          canRevert && canRelease ? (
+                            <div className="flex items-center gap-1 justify-center">
+                              <Badge className="bg-blue-100 text-blue-700 text-[10px] gap-1">
+                                <CookingPot className="w-3 h-3" /> Released
+                              </Badge>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRevertSingle(r)}
+                                disabled={isRevertingSingle || releasing}
+                                className="gap-1 text-[10px] h-6 px-1.5 text-muted-foreground hover:text-amber-700 hover:bg-amber-50"
+                                title="Revert to draft"
+                              >
+                                {isRevertingSingle ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                              </Button>
+                            </div>
+                          ) : (
+                            <Badge className="bg-blue-100 text-blue-700 text-[10px] gap-1">
+                              <CookingPot className="w-3 h-3" /> Released
+                            </Badge>
+                          )
+                        ) : canRelease ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleReleaseSingle(r)}
+                            disabled={isReleasingSingle || releasing}
+                            className="gap-1.5 text-xs h-7 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                          >
+                            {isReleasingSingle ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Play className="w-3 h-3" />
+                            )}
+                            Release
+                          </Button>
+                        ) : (
+                          <Badge className="bg-red-100 text-red-700 text-[10px] gap-1">
+                            <AlertTriangle className="w-3 h-3" /> Needs cooking
+                          </Badge>
+                        )
+                      ) : (
+                        <Badge className="bg-green-100 text-green-700 text-[10px] gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> Covered
                         </Badge>
-                      )
-                    ) : (
-                      <Badge className="bg-green-100 text-green-700 text-[10px] gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Covered
-                      </Badge>
-                    )}
-                  </td>
-                </tr>
-                {/* Expanded contribution detail rows */}
-                {isExpanded && (
-                  <tr>
-                    <td colSpan={colSpan} className="px-8 py-2 bg-muted/30">
-                      <div className="flex flex-wrap gap-x-6 gap-y-1">
-                        {r.contributions.map(c => (
-                          <span key={c.runId} className="text-xs text-muted-foreground">
-                            <span className="font-mono font-semibold text-foreground">{c.runNumber}</span>
-                            {' '}— {c.kgNeeded.toFixed(1)} kg
-                            {c.runDate && <span className="ml-1">({c.runDate})</span>}
-                          </span>
-                        ))}
-                      </div>
+                      )}
                     </td>
                   </tr>
-                )}
-                {/* If split mode, show per-run breakdown below */}
-                {isSplit && isUnreleased && r.contributions.map(c => (
-                  <tr key={`split-${r.id}-${c.runId}`} className="bg-amber-50/30 dark:bg-amber-950/5">
-                    {canRelease && unreleased.length > 0 && <td />}
-                    <td className="pl-10 pr-4 py-1.5">
-                      <p className="text-xs text-muted-foreground">↳ {r.name}</p>
-                    </td>
-                    <td className="px-4 py-1.5">
-                      <Badge variant="outline" className="text-[10px] font-mono">{c.runNumber}</Badge>
-                    </td>
-                    <td className="px-4 py-1.5 text-xs text-right tabular-nums">{c.kgNeeded.toFixed(1)} kg</td>
-                    <td colSpan={2} className="px-4 py-1.5 text-xs text-right tabular-nums text-muted-foreground">separate run</td>
-                    <td></td>
-                    <td></td>
-                  </tr>
-                ))}
-              </React.Fragment>
-            );
-          })}
-          {/* Ad-hoc draft runs */}
-          {draftAdHocRuns.filter(dr => !rows.some(r => r.id === dr.bulk_product_id && r.needsCooking)).map(dr => (
-            <tr key={`adhoc-${dr.id}`} className="bg-amber-50/50 dark:bg-amber-950/10">
-              {canRelease && unreleased.length > 0 && <td />}
-              <td className="px-4 py-2.5">
-                <p className="text-sm font-medium">{dr.bulk_product_name}</p>
-                <p className="text-[10px] font-mono text-muted-foreground">{dr.bulk_product_sku} · {dr.run_number}</p>
-              </td>
-              <td className="px-4 py-2.5 text-xs text-muted-foreground">ad-hoc</td>
-              <td className="px-4 py-2.5 text-sm text-right tabular-nums text-muted-foreground">ad-hoc</td>
-              <td className="px-4 py-2.5 text-sm text-right tabular-nums text-muted-foreground">—</td>
-              <td className="px-4 py-2.5 text-sm text-right tabular-nums font-bold text-amber-600">{dr.target_output_kg} kg</td>
-              <td></td>
-              <td className="px-4 py-2.5 text-center">
-                <Badge className="bg-gray-100 text-gray-600 text-[10px] gap-1">
-                  <CookingPot className="w-3 h-3" /> Draft
-                </Badge>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                  {/* Expanded contribution detail rows */}
+                  {isExpanded && (
+                    <tr>
+                      <td colSpan={colCount} className="px-8 py-2 bg-muted/30">
+                        <div className="flex flex-wrap gap-x-6 gap-y-1">
+                          {r.contributions.map(c => (
+                            <span key={c.runId} className="text-xs text-muted-foreground">
+                              <span className="font-mono font-semibold text-foreground">{c.runNumber}</span>
+                              {' '}— {c.kgNeeded.toFixed(1)} kg
+                              {c.runDate && <span className="ml-1">({c.runDate})</span>}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {/* If split mode, show per-run breakdown below */}
+                  {isSplit && isUnreleased && r.contributions.map(c => (
+                    <tr key={`split-${r.id}-${c.runId}`} className="bg-amber-50/30 dark:bg-amber-950/5">
+                      {hasCheckboxCol && <td />}
+                      <td className="pl-10 pr-4 py-1.5">
+                        <p className="text-xs text-muted-foreground">↳ {r.name}</p>
+                      </td>
+                      <td className="px-4 py-1.5">
+                        <Badge variant="outline" className="text-[10px] font-mono">{c.runNumber}</Badge>
+                      </td>
+                      <td className="px-4 py-1.5 text-xs text-right tabular-nums">{c.kgNeeded.toFixed(1)} kg</td>
+                      <td colSpan={3} className="px-4 py-1.5 text-xs text-right tabular-nums text-muted-foreground">separate run</td>
+                      <td></td>
+                      <td></td>
+                    </tr>
+                  ))}
+                </React.Fragment>
+              );
+            })}
+            {/* Ad-hoc draft runs */}
+            {draftAdHocRuns.filter(dr => !rows.some(r => r.id === dr.bulk_product_id && r.needsCooking)).map(dr => (
+              <tr key={`adhoc-${dr.id}`} className="bg-amber-50/50 dark:bg-amber-950/10">
+                {hasCheckboxCol && <td />}
+                <td className="px-4 py-2.5">
+                  <p className="text-sm font-medium">{dr.bulk_product_name}</p>
+                  <p className="text-[10px] font-mono text-muted-foreground">{dr.bulk_product_sku} · {dr.run_number}</p>
+                </td>
+                <td className="px-4 py-2.5 text-xs text-muted-foreground">ad-hoc</td>
+                <td className="px-4 py-2.5 text-sm text-right tabular-nums text-muted-foreground">ad-hoc</td>
+                <td className="px-4 py-2.5 text-sm text-right tabular-nums text-muted-foreground">—</td>
+                <td className="px-4 py-2.5 text-sm text-right tabular-nums font-bold text-amber-600">{dr.target_output_kg} kg</td>
+                <td className="px-4 py-2.5 text-sm text-right tabular-nums text-muted-foreground">—</td>
+                <td></td>
+                <td className="px-4 py-2.5 text-center">
+                  <Badge className="bg-gray-100 text-gray-600 text-[10px] gap-1">
+                    <CookingPot className="w-3 h-3" /> Draft
+                  </Badge>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
