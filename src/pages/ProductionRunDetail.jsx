@@ -566,11 +566,14 @@ export default function ProductionRunDetail() {
       voidSummary.push(`${linkedCookingRuns.length} cooking run(s) cancelled`);
     }
 
-    // 3. Reverse pick list stock if it was confirmed (return consumed ingredients to SOH)
+    // 3. Reverse pick list stock if it was confirmed (return released ingredients to SOH)
     if (run?.pick_list_confirmed) {
-      const pickMovements = await base44.entities.StockMovement.filter({
-        ref_id: runId, reason: 'production_consume',
-      }, '-created_date', 500);
+      // Find movements from both the new system (production_pick via PickList) and legacy (production_consume via ProductionRun)
+      const [pickMvNew, pickMvLegacy] = await Promise.all([
+        existingPickList ? base44.entities.StockMovement.filter({ ref_id: existingPickList.id, reason: 'production_pick' }, '-created_date', 500) : [],
+        base44.entities.StockMovement.filter({ ref_id: runId, reason: 'production_consume' }, '-created_date', 500),
+      ]);
+      const pickMovements = [...pickMvNew, ...pickMvLegacy];
 
       if (pickMovements.length > 0) {
         const sohRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
@@ -581,21 +584,19 @@ export default function ProductionRunDetail() {
         });
 
         for (const mv of pickMovements) {
-          // Create reversal stock movement
           await base44.entities.StockMovement.create({
             product_id: mv.product_id,
             product_sku: mv.product_sku,
             product_name: mv.product_name,
             qty: mv.qty,
             uom: mv.uom,
-            reason: 'cancellation_reversal',
-            ref_type: 'production_run',
-            ref_id: runId,
+            reason: 'production_return',
+            ref_type: mv.ref_type || 'production_run',
+            ref_id: mv.ref_id,
             ref_number: run?.run_number || '',
             notes: `Reversal: run ${run?.run_number} cancelled — returning ${mv.qty} ${mv.uom} of ${mv.product_sku}`,
           });
 
-          // Add qty back to the first SOH record for this product
           const productSoh = sohByProduct[mv.product_id];
           if (productSoh && productSoh.length > 0) {
             const soh = productSoh[0];

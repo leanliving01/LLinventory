@@ -17,8 +17,10 @@ function groupByReason(movements) {
 }
 
 const REASON_LABELS = {
-  production_consume: { label: 'Consumed (Picked)', icon: ArrowDownToLine, color: 'text-blue-600' },
+  production_pick: { label: 'Picked → Production', icon: ArrowDownToLine, color: 'text-teal-600' },
+  production_consume: { label: 'Consumed (Legacy)', icon: ArrowDownToLine, color: 'text-blue-600' },
   production_yield: { label: 'Produced (Yield)', icon: TrendingUp, color: 'text-green-600' },
+  production_return: { label: 'Returned to Stock', icon: RotateCcw, color: 'text-green-600' },
   return: { label: 'Returned to Stock', icon: RotateCcw, color: 'text-amber-600' },
   wastage_unusable: { label: 'Unusable Wastage', icon: Trash2, color: 'text-red-600' },
   wastage_usable: { label: 'Usable Wastage (Surplus)', icon: Trash2, color: 'text-orange-500' },
@@ -107,17 +109,28 @@ function VarianceSection({ lines }) {
 }
 
 export default function ProductionSummaryModal({ runId, runNumber, lines, onClose }) {
+  // Fetch movements from both production_run ref and pick_list ref
   const { data: movements = [], isLoading } = useQuery({
     queryKey: ['run-stock-movements', runId],
-    queryFn: () => base44.entities.StockMovement.filter({ ref_id: runId, ref_type: 'production_run' }, '-created_date', 500),
+    queryFn: async () => {
+      const [runMvs, pickListRecs] = await Promise.all([
+        base44.entities.StockMovement.filter({ ref_id: runId, ref_type: 'production_run' }, '-created_date', 500),
+        base44.entities.PickList.filter({ production_run_id: runId }, '-created_date', 1),
+      ]);
+      if (pickListRecs.length > 0) {
+        const pickMvs = await base44.entities.StockMovement.filter({ ref_id: pickListRecs[0].id, ref_type: 'pick_list' }, '-created_date', 500);
+        return [...runMvs, ...pickMvs];
+      }
+      return runMvs;
+    },
     enabled: !!runId,
   });
 
   const grouped = groupByReason(movements);
-  const displayOrder = ['production_consume', 'production_yield', 'return', 'wastage_unusable', 'wastage_usable'];
+  const displayOrder = ['production_pick', 'production_consume', 'production_yield', 'production_return', 'return', 'wastage_unusable', 'wastage_usable'];
 
   // Totals
-  const totalConsumed = (grouped.production_consume || []).reduce((s, m) => s + m.qty, 0);
+  const totalConsumed = [...(grouped.production_pick || []), ...(grouped.production_consume || [])].reduce((s, m) => s + m.qty, 0);
   const totalYielded = (grouped.production_yield || []).reduce((s, m) => s + m.qty, 0);
   const totalReturned = (grouped.return || []).reduce((s, m) => s + m.qty, 0);
   const totalWaste = [...(grouped.wastage_unusable || []), ...(grouped.wastage_usable || [])].reduce((s, m) => s + m.qty, 0);

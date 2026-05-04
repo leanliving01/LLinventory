@@ -3,29 +3,49 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
-import { ChevronDown, ChevronUp, CheckCheck, XCircle, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronUp, CheckCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
 
 /**
- * Mobile-optimised pick list category — card-based rows instead of a table.
+ * Mobile-optimised pick list category — reads from PickLine entities.
+ * Statuses: not_picked → picked → released.
  */
 export default function FloorPickCategory({
-  category, items, pickedState, stockMap,
-  onTogglePicked, onQtyChange, onMarkAll, disabled, confirmed,
+  category, pickLines, stockMap,
+  onMarkPicked, onUnpick, disabled, confirmed,
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const [showUnmarkConfirm, setShowUnmarkConfirm] = useState(false);
-  const checkedCount = confirmed ? items.length : items.filter(i => pickedState[i.product.id]?.picked).length;
-  const allChecked = !confirmed && items.length > 0 && items.every(i => pickedState[i.product.id]?.picked);
-  const allDone = confirmed || items.every(i => {
-    const s = pickedState[i.product.id];
-    return s?.picked && s?.qty && Number(s.qty) > 0;
-  });
+  // Local qty edits for lines being picked
+  const [localQty, setLocalQty] = useState({});
+
+  const releasedAll = pickLines.every(pl => pl.status === 'released');
+  const allDone = confirmed || releasedAll;
+  const checkedCount = pickLines.filter(pl => pl.status !== 'not_picked').length;
+
+  const handleCheckboxToggle = (pl) => {
+    if (pl.status === 'not_picked') {
+      const qty = localQty[pl.id] || pl.required_qty;
+      onMarkPicked(pl.id, qty);
+    } else if (pl.status === 'picked') {
+      onUnpick(pl.id);
+    }
+  };
+
+  const handleQtyBlur = (pl) => {
+    const qty = localQty[pl.id];
+    if (qty !== undefined && pl.status === 'picked') {
+      onMarkPicked(pl.id, Number(qty));
+    }
+  };
+
+  const handleMarkAllUnpicked = () => {
+    pickLines.filter(pl => pl.status === 'not_picked').forEach(pl => {
+      onMarkPicked(pl.id, localQty[pl.id] || pl.required_qty);
+    });
+  };
 
   return (
     <div className="bg-card border border-border rounded-2xl overflow-hidden">
-      {/* Header */}
       <button
         onClick={() => setCollapsed(c => !c)}
         className={cn(
@@ -34,135 +54,86 @@ export default function FloorPickCategory({
         )}
       >
         <span className="font-bold text-sm flex-1">{category}</span>
-        <Badge variant="secondary" className="text-[10px]">{checkedCount}/{items.length}</Badge>
+        <Badge variant="secondary" className="text-[10px]">{checkedCount}/{pickLines.length}</Badge>
         {allDone && <Badge className="bg-green-100 text-green-700 text-[10px]">✓ Done</Badge>}
         {collapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
       </button>
 
       {!collapsed && (
         <div className="divide-y divide-border">
-          {/* Mark / Unmark all button */}
+          {/* Mark all button */}
           {!disabled && !confirmed && (
             <button
-              onClick={() => {
-                if (allChecked) {
-                  const hasQtyData = items.some(i => pickedState[i.product.id]?.qty);
-                  if (hasQtyData) {
-                    setShowUnmarkConfirm(true);
-                    return;
-                  }
-                }
-                onMarkAll(items, allChecked);
-              }}
-              className={cn(
-                "w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted/30",
-                allChecked ? "text-orange-600" : "text-primary",
-              )}
+              onClick={handleMarkAllUnpicked}
+              className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-primary hover:bg-muted/30"
             >
-              {allChecked ? <XCircle className="w-4 h-4" /> : <CheckCheck className="w-4 h-4" />}
-              <span>{allChecked ? 'Unmark All' : 'Mark All Checked'}</span>
+              <CheckCheck className="w-4 h-4" />
+              <span>Mark All ({checkedCount}/{pickLines.length})</span>
             </button>
           )}
 
-          {/* Unmark confirmation dialog */}
-          {showUnmarkConfirm && (
-            <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-6">
-              <div className="bg-card rounded-2xl shadow-xl p-6 max-w-sm w-full space-y-4">
-                <div className="flex items-center gap-3">
-                  <AlertTriangle className="w-6 h-6 text-orange-500 shrink-0" />
-                  <h2 className="text-lg font-bold">Are you sure?</h2>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  This will uncheck all items and clear all picked quantities in this category.
-                </p>
-                <div className="flex gap-3">
-                  <Button
-                    variant="outline"
-                    className="flex-1 h-12"
-                    onClick={() => setShowUnmarkConfirm(false)}
-                  >
-                    No
-                  </Button>
-                  <Button
-                    className="flex-1 h-12 bg-orange-600 hover:bg-orange-700 text-white"
-                    onClick={() => {
-                      onMarkAll(items, true);
-                      setShowUnmarkConfirm(false);
-                    }}
-                  >
-                    Yes, Unmark All
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {items.map(item => {
-            const pid = item.product.id;
-            const state = confirmed
-              ? { picked: true, qty: String(item.totalQty) }
-              : (pickedState[pid] || { picked: false, qty: '' });
-            const isComplete = confirmed || (state.picked && state.qty && Number(state.qty) > 0);
-            const pickedQty = state.qty ? Number(state.qty) : null;
-            const isBelowNeeded = pickedQty !== null && pickedQty < item.totalQty;
-            const inStock = stockMap?.[pid] ?? null;
+          {pickLines.map(pl => {
+            const isReleased = pl.status === 'released';
+            const isPicked = pl.status === 'picked';
+            const isNotPicked = pl.status === 'not_picked';
+            const displayQty = localQty[pl.id] !== undefined ? localQty[pl.id] : (pl.actual_qty_picked || '');
+            const pickedQty = Number(displayQty) || 0;
+            const isBelowNeeded = isPicked && pickedQty > 0 && pickedQty < pl.required_qty;
+            const inStock = stockMap?.[pl.product_id] ?? null;
 
             return (
               <div
-                key={pid}
+                key={pl.id}
                 className={cn(
                   "px-4 py-3 space-y-2",
-                  isComplete && !isBelowNeeded && "bg-green-50/60 dark:bg-green-900/10",
+                  isReleased && "bg-green-50/60 dark:bg-green-900/10",
+                  isPicked && !isBelowNeeded && "bg-amber-50/40 dark:bg-amber-900/10",
                   isBelowNeeded && "bg-red-50/60 dark:bg-red-900/10",
-                  state.picked && !state.qty && "bg-amber-50/60 dark:bg-amber-900/10",
                 )}
               >
                 {/* Row 1: checkbox + name + needed */}
                 <div className="flex items-center gap-3">
                   <Checkbox
-                    checked={state.picked}
-                    onCheckedChange={() => onTogglePicked(pid)}
-                    disabled={disabled}
+                    checked={!isNotPicked}
+                    onCheckedChange={() => handleCheckboxToggle(pl)}
+                    disabled={disabled || isReleased}
                     className="w-7 h-7 shrink-0"
                   />
                   <div className="flex-1 min-w-0">
                     <p className={cn(
                       "font-semibold text-sm truncate",
-                      isComplete && !isBelowNeeded && "line-through text-muted-foreground",
+                      isReleased && "line-through text-muted-foreground",
                     )}>
-                      {item.product.name}
+                      {pl.product_name}
                     </p>
-                    <p className="text-[11px] font-mono text-muted-foreground">{item.product.sku}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono text-muted-foreground">{pl.product_sku}</span>
+                      {isReleased && <Badge className="bg-green-100 text-green-700 text-[9px] px-1.5 py-0">Released</Badge>}
+                      {isPicked && <Badge className="bg-amber-100 text-amber-700 text-[9px] px-1.5 py-0">Picked</Badge>}
+                    </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-bold tabular-nums text-sm">{item.totalQty.toLocaleString()}</p>
-                    <p className="text-[10px] text-muted-foreground">{item.uom}</p>
+                    <p className="font-bold tabular-nums text-sm">{pl.required_qty.toLocaleString()}</p>
+                    <p className="text-[10px] text-muted-foreground">{pl.required_uom}</p>
                   </div>
                 </div>
 
-                {/* Row 2: qty input (only when checked) */}
-                {state.picked && !disabled && (
+                {/* Row 2: qty input */}
+                {(isPicked || isNotPicked) && !disabled && !isReleased && (
                   <div className="flex items-center gap-3 pl-10">
                     <span className="text-xs text-muted-foreground shrink-0">Picked:</span>
                     <Input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={state.qty}
-                      placeholder="Enter qty..."
-                      onChange={e => onQtyChange(pid, e.target.value)}
-                      onBlur={() => {
-                        if (pickedQty !== null && pickedQty < item.totalQty) {
-                          toast.warning(`Picked ${pickedQty} but need ${item.totalQty} ${item.uom}`);
-                        }
-                      }}
+                      type="number" min="0" step="any"
+                      value={displayQty}
+                      placeholder={String(pl.required_qty)}
+                      onChange={e => setLocalQty(prev => ({ ...prev, [pl.id]: e.target.value }))}
+                      onBlur={() => handleQtyBlur(pl)}
                       className={cn(
                         "h-12 text-base text-right flex-1 max-w-[140px]",
-                        state.picked && !state.qty && "border-amber-400 ring-1 ring-amber-300",
                         isBelowNeeded && "border-red-400 ring-1 ring-red-300",
                       )}
                     />
-                    <span className="text-xs text-muted-foreground">{item.uom}</span>
+                    <span className="text-xs text-muted-foreground">{pl.required_uom}</span>
                     {inStock !== null && (
                       <span className="text-[10px] text-muted-foreground ml-auto">
                         Stock: {inStock.toLocaleString()}
@@ -170,6 +141,15 @@ export default function FloorPickCategory({
                     )}
                   </div>
                 )}
+
+                {/* Released qty display */}
+                {isReleased && (
+                  <div className="flex items-center gap-3 pl-10">
+                    <span className="text-xs text-muted-foreground">Released:</span>
+                    <span className="font-bold tabular-nums text-green-700">{pl.actual_qty_picked || pl.required_qty} {pl.required_uom}</span>
+                  </div>
+                )}
+
                 {isBelowNeeded && (
                   <p className="text-[11px] text-red-600 font-medium pl-10">Below needed — go buy more!</p>
                 )}

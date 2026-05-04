@@ -1,12 +1,13 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Printer, FileDown } from 'lucide-react';
 import HelpDrawer from '@/components/help/HelpDrawer';
 
 export default function PickListHeader({
   runId, runNumber, lineCount, itemCount,
-  pickedCount, onPrint, onExportPdf,
+  pickedCount, releasedCount = 0, onPrint, onExportPdf,
 }) {
   return (
     <div className="flex items-center justify-between flex-wrap gap-3 print:hidden">
@@ -16,9 +17,15 @@ export default function PickListHeader({
         </Link>
         <div>
           <h1 className="text-2xl font-bold">Pick List — {runNumber}</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {lineCount} meals · {itemCount} ingredients · {pickedCount}/{itemCount} picked
-          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-sm text-muted-foreground">{lineCount} meals · {itemCount} ingredients</span>
+            {itemCount > 0 && (
+              <>
+                <Badge variant="secondary" className="text-[10px] tabular-nums">{pickedCount}/{itemCount} picked</Badge>
+                <Badge className="text-[10px] tabular-nums bg-green-100 text-green-700">{releasedCount}/{itemCount} released</Badge>
+              </>
+            )}
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-2">

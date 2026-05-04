@@ -45,6 +45,7 @@
         "stocktake_adjustment",
         "return",
         "supplier_return",
+        "cancellation_reversal",
         "write_off",
         "packing_material"
       ],

@@ -4,23 +4,32 @@ import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ScanBarcode, Check } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { ScanBarcode, Check, Send, Loader2 } from 'lucide-react';
 import PickListHeader from '@/components/pick-list/PickListHeader';
 import PickListCategory from '@/components/pick-list/PickListCategory';
 import { generatePickListPdf } from '@/components/pick-list/PickListPdfExport';
 import PickListPrintView from '@/components/pick-list/PickListPrintView';
 import PickListEditModal from '@/components/pick-list/PickListEditModal';
-import PickListConsumeModal from '@/components/pick-list/PickListConsumeModal';
 import LiveTimer from '@/components/kitchen/LiveTimer';
+import { writeAuditLog } from '@/lib/auditLog';
+import { generatePickList } from '@/lib/pickListGenerator';
+
+const CATEGORY_ORDER = [
+  'Meats', 'Vegetables', 'Starches', 'Spices & Seasoning',
+  'Sauces & Condiments', 'Dairy & Eggs', 'Oils & Fats',
+  'Dry Goods', 'Packaging', 'Other', 'Uncategorized',
+];
 
 /**
- * §5.1.3 Master Pick List
- * Aggregates raw ingredients across Cook BOMs for a production run.
- * Groups by pick_category. Interactive tablet picking + barcode scanner + PDF export.
+ * §10 Persisted Pick List — reads from PickList + PickLine entities.
+ * Flow: Generate → Start Picking → Pick items → Release to production (creates stock movements).
  */
 export default function PickList() {
   const runId = window.location.pathname.split('/').filter(Boolean).find((_, i, arr) => arr[i - 1] === 'run');
+  const queryClient = useQueryClient();
 
+  // ── Core data ──
   const { data: run } = useQuery({
     queryKey: ['production-run', runId],
     queryFn: () => base44.entities.ProductionRun.filter({ id: runId }).then(r => r[0]),
@@ -33,19 +42,18 @@ export default function PickList() {
     enabled: !!runId,
   });
 
-  const { data: boms = [] } = useQuery({
-    queryKey: ['boms-active'],
-    queryFn: () => base44.entities.Bom.filter({ is_active: true }, '-created_date', 500),
+  // ── Persisted pick list ──
+  const { data: pickLists = [], isLoading: loadingPickList } = useQuery({
+    queryKey: ['pick-list-for-run', runId],
+    queryFn: () => base44.entities.PickList.filter({ production_run_id: runId }, '-created_date', 1),
+    enabled: !!runId,
   });
+  const pickList = pickLists[0] || null;
 
-  const { data: bomComponents = [] } = useQuery({
-    queryKey: ['bom-components'],
-    queryFn: () => base44.entities.BomComponent.list('-created_date', 2000),
-  });
-
-  const { data: products = [] } = useQuery({
-    queryKey: ['all-products'],
-    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
+  const { data: pickLines = [], isLoading: loadingPickLines } = useQuery({
+    queryKey: ['pick-lines', pickList?.id],
+    queryFn: () => base44.entities.PickLine.filter({ pick_list_id: pickList.id }, 'product_name', 500),
+    enabled: !!pickList?.id,
   });
 
   const { data: stockRecords = [] } = useQuery({
@@ -53,7 +61,7 @@ export default function PickList() {
     queryFn: () => base44.entities.StockOnHand.list('-updated_date', 1000),
   });
 
-  // Build stock map for display
+  // ── Derived data ──
   const stockMap = useMemo(() => {
     const map = {};
     stockRecords.forEach(s => {
@@ -63,363 +71,131 @@ export default function PickList() {
     return map;
   }, [stockRecords]);
 
-  // Picked state: { [productId]: { picked: bool, qty: string } }
-  const [pickedState, setPickedState] = useState({});
-  const [confirmingPick, setConfirmingPick] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
-  const [editLog, setEditLog] = useState([]); // Track edits for display
-  const [showConsumeModal, setShowConsumeModal] = useState(false);
-  const queryClient = useQueryClient();
+  const { categories, itemsByCategory } = useMemo(() => {
+    const catSet = new Set();
+    const byCategory = {};
+    pickLines.forEach(pl => {
+      const cat = pl.category_group || 'Uncategorized';
+      catSet.add(cat);
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push(pl);
+    });
+    // Sort each category's items by name
+    Object.values(byCategory).forEach(arr => arr.sort((a, b) => (a.product_name || '').localeCompare(b.product_name || '')));
+    const cats = [...catSet].sort((a, b) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b));
+    return { categories: cats, itemsByCategory: byCategory };
+  }, [pickLines]);
 
-  const isConfirmed = !!run?.pick_list_confirmed;
-
-  // Inline barcode scanner state
+  // ── Local state ──
+  const [generating, setGenerating] = useState(false);
+  const [releasing, setReleasing] = useState(false);
+  const [editingLine, setEditingLine] = useState(null);
   const [scanInput, setScanInput] = useState('');
   const [lastScanned, setLastScanned] = useState(null);
   const scanInputRef = useRef(null);
   const bufferRef = useRef('');
   const timerRef = useRef(null);
 
-  // Build ingredient pick list
-  const { pickItems, categories } = useMemo(() => {
-    if (!lines.length || !boms.length || !bomComponents.length || !products.length) {
-      return { pickItems: [], categories: [] };
-    }
+  // ── Counts ──
+  const totalLines = pickLines.length;
+  const pickedCount = pickLines.filter(pl => pl.status === 'picked' || pl.status === 'released').length;
+  const releasedCount = pickLines.filter(pl => pl.status === 'released').length;
+  const allPicked = totalLines > 0 && pickedCount === totalLines;
+  const allReleased = totalLines > 0 && releasedCount === totalLines;
 
-    const productMap = {};
-    products.forEach(p => { productMap[p.id] = p; });
+  const isPicking = !!run?.picking_started_at && !allReleased;
+  const isCompleted = pickList?.status === 'completed' || allReleased;
 
-    const compsByBom = {};
-    bomComponents.forEach(c => {
-      if (!compsByBom[c.bom_id]) compsByBom[c.bom_id] = [];
-      compsByBom[c.bom_id].push(c);
-    });
-
-    const ingredientAgg = {};
-
-    for (const line of lines) {
-      const qty = line.planned_qty;
-      if (qty <= 0) continue;
-
-      const portionBom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
-      if (!portionBom) continue;
-
-      const portionComps = compsByBom[portionBom.id] || [];
-      for (const comp of portionComps) {
-        const inputProduct = productMap[comp.input_product_id];
-        if (!inputProduct) continue;
-
-        const portionYield = portionBom.yield_qty || 1;
-        const neededPerUnit = comp.qty / portionYield;
-        const totalNeeded = neededPerUnit * qty;
-
-        if (inputProduct.type === 'wip_bulk') {
-          const cookBom = boms.find(b => b.product_id === inputProduct.id && b.bom_type === 'cook');
-          if (cookBom) {
-            const cookComps = compsByBom[cookBom.id] || [];
-            const cookYield = cookBom.yield_qty || 1;
-            for (const cc of cookComps) {
-              if (cc.is_consumable) continue;
-              const rawProduct = productMap[cc.input_product_id];
-              if (!rawProduct) continue;
-              const rawTotal = (cc.qty / cookYield) * totalNeeded;
-              if (!ingredientAgg[rawProduct.id]) {
-                ingredientAgg[rawProduct.id] = { product: rawProduct, totalQty: 0, uom: cc.uom || rawProduct.stock_uom };
-              }
-              ingredientAgg[rawProduct.id].totalQty += rawTotal;
-            }
-          } else {
-            if (!ingredientAgg[inputProduct.id]) {
-              ingredientAgg[inputProduct.id] = { product: inputProduct, totalQty: 0, uom: comp.uom || inputProduct.stock_uom };
-            }
-            ingredientAgg[inputProduct.id].totalQty += totalNeeded;
-          }
-        } else {
-          if (!ingredientAgg[inputProduct.id]) {
-            ingredientAgg[inputProduct.id] = { product: inputProduct, totalQty: 0, uom: comp.uom || inputProduct.stock_uom };
-          }
-          ingredientAgg[inputProduct.id].totalQty += totalNeeded;
-        }
-      }
-    }
-
-    // Exclude packaging materials — they're at the machines and auto-deducted on run completion
-    for (const pid of Object.keys(ingredientAgg)) {
-      const prod = ingredientAgg[pid].product;
-      if (prod.type === 'packaging') {
-        delete ingredientAgg[pid];
-      }
-    }
-
-    const CATEGORY_ORDER = [
-      'Meats', 'Vegetables', 'Starches', 'Spices & Seasoning',
-      'Sauces & Condiments', 'Dairy & Eggs', 'Oils & Fats',
-      'Dry Goods', 'Packaging', 'Other', 'Uncategorized',
-    ];
-
-    const items = Object.values(ingredientAgg).map(item => ({
-      ...item,
-      totalQty: Math.round(item.totalQty * 100) / 100,
-      pickCategory: item.product.pick_category || 'Uncategorized',
-    }));
-
-    items.sort((a, b) => {
-      const ai = CATEGORY_ORDER.indexOf(a.pickCategory);
-      const bi = CATEGORY_ORDER.indexOf(b.pickCategory);
-      if (ai !== bi) return ai - bi;
-      return a.product.name.localeCompare(b.product.name);
-    });
-
-    const cats = [...new Set(items.map(i => i.pickCategory))];
-    cats.sort((a, b) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b));
-
-    return { pickItems: items, categories: cats };
-  }, [lines, boms, bomComponents, products]);
-
-  // After confirmation, merge: keep user-entered picked state if present, fall back to needed qty
-  const effectivePickedState = useMemo(() => {
-    if (!isConfirmed) return pickedState;
-    const state = {};
-    pickItems.forEach(item => {
-      const userEntry = pickedState[item.product.id];
-      // If user entered a picked qty during picking, preserve it; otherwise fall back to needed
-      state[item.product.id] = {
-        picked: true,
-        qty: userEntry?.qty || String(item.totalQty),
-      };
-    });
-    return state;
-  }, [isConfirmed, pickedState, pickItems]);
-
-  const pickedCount = pickItems.filter(i => {
-    const s = effectivePickedState[i.product.id];
-    return s?.picked && s?.qty && Number(s.qty) > 0;
-  }).length;
-
-  // Barcode scanner lookup map
-  const lookupMap = useMemo(() => {
-    const map = {};
-    pickItems.forEach(item => {
-      if (item.product.barcode) map[item.product.barcode.toLowerCase()] = item;
-      if (item.product.sku) map[item.product.sku.toLowerCase()] = item;
-    });
-    return map;
-  }, [pickItems]);
-
-  const processCode = (code) => {
-    const trimmed = code.trim().toLowerCase();
-    if (!trimmed) return;
-    const found = lookupMap[trimmed];
-    if (found) {
-      setLastScanned(found);
-      setPickedState(prev => ({
-        ...prev,
-        [found.product.id]: { picked: true, qty: prev[found.product.id]?.qty || '' },
-      }));
-      toast.success(`Checked: ${found.product.name} — enter qty picked`);
-    } else {
-      setLastScanned(null);
-      toast.error(`No match for "${code.trim()}" on this pick list`);
-    }
-  };
-
-  // Hardware barcode scanner listener (always active when picking)
-  useEffect(() => {
-    if (!run?.picking_started_at || run?.pick_list_confirmed) return;
-    const handleKeyDown = (e) => {
-      if (document.activeElement && document.activeElement !== scanInputRef.current &&
-          (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
-        return;
-      }
-      if (e.key === 'Enter') {
-        if (bufferRef.current.length > 3) {
-          processCode(bufferRef.current);
-        }
-        bufferRef.current = '';
-        return;
-      }
-      if (e.key.length === 1) {
-        bufferRef.current += e.key;
-        clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => { bufferRef.current = ''; }, 100);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [lookupMap, run?.picking_started_at, run?.pick_list_confirmed]);
-
-  const handleScanSubmit = (e) => {
-    e.preventDefault();
-    processCode(scanInput);
-    setScanInput('');
-  };
-
-  // Toggle checkbox only — never auto-fill qty
-  const handleTogglePicked = (productId) => {
-    setPickedState(prev => {
-      const current = prev[productId] || { picked: false, qty: '' };
-      return {
-        ...prev,
-        [productId]: { picked: !current.picked, qty: current.qty },
-      };
-    });
-  };
-
-  const handleQtyChange = (productId, value) => {
-    setPickedState(prev => ({
-      ...prev,
-      [productId]: { ...(prev[productId] || { picked: false }), qty: value },
-    }));
-  };
-
-  // Mark All for a category
-  const handleMarkAll = (categoryItems) => {
-    setPickedState(prev => {
-      const next = { ...prev };
-      categoryItems.forEach(item => {
-        if (!next[item.product.id]?.picked) {
-          next[item.product.id] = { picked: true, qty: next[item.product.id]?.qty || '' };
-        }
+  // ── Generate pick list ──
+  const handleGenerate = async () => {
+    setGenerating(true);
+    try {
+      const { pickList: pl, pickLines: pls } = await generatePickList(runId, run);
+      writeAuditLog({
+        action: 'create', entity_type: 'PickList', entity_id: pl.id,
+        description: `Generated pick list for run ${run?.run_number} — ${pls.length} ingredients`,
       });
-      return next;
-    });
+      queryClient.invalidateQueries({ queryKey: ['pick-list-for-run', runId] });
+      toast.success(`Pick list generated — ${pls.length} ingredients`);
+    } catch (err) {
+      toast.error(err.message || 'Failed to generate pick list');
+    }
+    setGenerating(false);
   };
 
+  // ── Start picking ──
   const handleStartPicking = async () => {
     await base44.entities.ProductionRun.update(runId, { picking_started_at: new Date().toISOString() });
     queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
     toast.success('Picking timer started');
   };
 
-  const handleExportPdf = () => {
-    if (!run || pickItems.length === 0) return;
-    generatePickListPdf({ run, lines, pickItems, categories, pickedState: effectivePickedState });
-    toast.success('PDF downloaded');
-  };
-
-  // Edit a confirmed pick list item
-  const handleEditSave = async ({ productId, productName, productSku, oldQty, newQty, reason, notes, uom }) => {
-    const diff = newQty - oldQty;
-
-    // Create adjustment stock movement
-    if (diff !== 0) {
-      await base44.entities.StockMovement.create({
-        product_id: productId,
-        product_sku: productSku,
-        product_name: productName,
-        qty: Math.abs(diff),
-        uom,
-        reason: diff > 0 ? 'production_consume' : 'return',
-        ref_type: 'production_run',
-        ref_id: runId,
-        ref_number: run?.run_number || '',
-        notes: `Pick list edit: ${reason}${notes ? ' — ' + notes : ''} (${oldQty} → ${newQty} ${uom})`,
-      });
-
-      // Update StockOnHand
-      const sohRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
-      const productSoh = sohRecords
-        .filter(s => s.product_id === productId)
-        .sort((a, b) => (b.qty_on_hand || 0) - (a.qty_on_hand || 0));
-
-      if (diff > 0) {
-        // More consumed — deduct from stock
-        let remaining = diff;
-        for (const soh of productSoh) {
-          if (remaining <= 0) break;
-          const deduct = Math.min(remaining, soh.qty_on_hand || 0);
-          const newOnHand = Math.max(0, (soh.qty_on_hand || 0) - deduct);
-          await base44.entities.StockOnHand.update(soh.id, {
-            qty_on_hand: newOnHand,
-            qty_available: newOnHand - (soh.qty_committed || 0),
-            last_updated_at: new Date().toISOString(),
-          });
-          remaining -= deduct;
-        }
-      } else {
-        // Less consumed — return stock
-        const returnQty = Math.abs(diff);
-        if (productSoh.length > 0) {
-          const soh = productSoh[0];
-          const newOnHand = (soh.qty_on_hand || 0) + returnQty;
-          await base44.entities.StockOnHand.update(soh.id, {
-            qty_on_hand: newOnHand,
-            qty_available: newOnHand - (soh.qty_committed || 0),
-            last_updated_at: new Date().toISOString(),
-          });
-        }
-      }
-    }
-
-    // Update local picked state
-    setPickedState(prev => ({
-      ...prev,
-      [productId]: { picked: true, qty: String(newQty) },
-    }));
-
-    // Log the edit for display
-    setEditLog(prev => [...prev, {
-      productName, oldQty, newQty, reason, notes, uom,
-      timestamp: new Date().toISOString(),
-    }]);
-
-    queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
-    toast.success(`Updated ${productName}: ${oldQty} → ${newQty} ${uom}`);
-    setEditingItem(null);
-  };
-
-  // Step 1: User clicks "Confirm Pick List" → show consumption modal
-  const handleConfirmPickList = () => {
-    if (pickedCount < pickItems.length) {
-      toast.error(`Only ${pickedCount} of ${pickItems.length} items picked. Pick all items before confirming.`);
-      return;
-    }
-    // Check items with no qty entered
-    const missingQty = pickItems.filter(i => {
-      const s = pickedState[i.product.id];
-      return !s?.qty || Number(s.qty) <= 0;
+  // ── Mark a line as picked (with qty) ──
+  const handleMarkPicked = async (pickLineId, actualQty) => {
+    await base44.entities.PickLine.update(pickLineId, {
+      status: 'picked',
+      actual_qty_picked: Number(actualQty),
+      picked_at: new Date().toISOString(),
     });
-    if (missingQty.length > 0) {
-      toast.error(`${missingQty.length} item(s) are checked but have no picked qty entered. Enter the actual amount you pulled from the shelf.`);
-      return;
-    }
-    // Open consumption modal
-    setShowConsumeModal(true);
+    queryClient.invalidateQueries({ queryKey: ['pick-lines', pickList?.id] });
   };
 
-  // Step 2: User enters consumed qtys in modal → process stock
-  const handleConfirmConsumption = async (consumedQtyMap) => {
-    setConfirmingPick(true);
-    setShowConsumeModal(false);
+  // ── Unpick a line ──
+  const handleUnpick = async (pickLineId) => {
+    await base44.entities.PickLine.update(pickLineId, {
+      status: 'not_picked',
+      actual_qty_picked: 0,
+      picked_at: null,
+    });
+    queryClient.invalidateQueries({ queryKey: ['pick-lines', pickList?.id] });
+  };
 
+  // ── Release all picked lines → production_pick stock movements ──
+  const handleReleaseAll = async () => {
+    const pickedLines = pickLines.filter(pl => pl.status === 'picked');
+    if (pickedLines.length === 0) {
+      toast.error('No picked items to release');
+      return;
+    }
+
+    setReleasing(true);
+    const releaseBatch = new Date().toISOString();
     const sohRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
 
-    for (const item of pickItems) {
-      const pid = item.product.id;
-      const pickedQty = Number(pickedState[pid]?.qty) || item.totalQty;
-      const consumedQty = Number(consumedQtyMap[pid]) || item.totalQty;
-      const surplus = pickedQty - consumedQty;
+    for (const pl of pickedLines) {
+      const qty = pl.actual_qty_picked || pl.required_qty;
+      if (qty <= 0) continue;
 
-      // Create consumption movement for what was actually CONSUMED
+      // Skip consumables — no stock movement
+      if (pl.is_consumable) {
+        await base44.entities.PickLine.update(pl.id, {
+          status: 'released',
+          released_at: releaseBatch,
+          release_batch: releaseBatch,
+        });
+        continue;
+      }
+
+      // Create production_pick stock movement (storage → production)
       await base44.entities.StockMovement.create({
-        product_id: pid,
-        product_sku: item.product.sku,
-        product_name: item.product.name,
-        qty: consumedQty,
-        uom: item.uom,
-        reason: 'production_consume',
-        ref_type: 'production_run',
-        ref_id: runId,
+        product_id: pl.product_id,
+        product_sku: pl.product_sku,
+        product_name: pl.product_name,
+        from_location_id: pl.from_location_id || null,
+        qty,
+        uom: pl.required_uom,
+        reason: 'production_pick',
+        ref_type: 'pick_list',
+        ref_id: pickList.id,
         ref_number: run?.run_number || '',
-        notes: `Pick list: picked ${pickedQty} ${item.uom}, consumed ${consumedQty} ${item.uom}${surplus > 0.001 ? `, surplus ${surplus.toFixed(2)} ${item.uom} returned` : ''}`,
+        notes: `Released ${qty} ${pl.required_uom} of ${pl.product_sku} to production`,
       });
 
-      // Deduct the CONSUMED qty from StockOnHand
+      // Deduct from StockOnHand
       const productSoh = sohRecords
-        .filter(s => s.product_id === pid && (s.qty_on_hand || 0) > 0)
+        .filter(s => s.product_id === pl.product_id && (s.qty_on_hand || 0) > 0)
         .sort((a, b) => (b.qty_on_hand || 0) - (a.qty_on_hand || 0));
-
-      let remaining = consumedQty;
+      let remaining = qty;
       for (const soh of productSoh) {
         if (remaining <= 0) break;
         const deduct = Math.min(remaining, soh.qty_on_hand || 0);
@@ -431,47 +207,224 @@ export default function PickList() {
         });
         remaining -= deduct;
       }
+
+      // Mark line as released
+      await base44.entities.PickLine.update(pl.id, {
+        status: 'released',
+        released_at: releaseBatch,
+        release_batch: releaseBatch,
+      });
     }
 
-    // Mark the run as pick list confirmed
-    await base44.entities.ProductionRun.update(runId, {
-      pick_list_confirmed: true,
-      picking_finished_at: new Date().toISOString(),
+    // Check if all lines are now released
+    const updatedPickLines = await base44.entities.PickLine.filter({ pick_list_id: pickList.id }, 'product_name', 500);
+    const newReleasedCount = updatedPickLines.filter(pl => pl.status === 'released').length;
+
+    // Update PickList counters
+    const updates = { released_lines: newReleasedCount };
+    if (newReleasedCount >= updatedPickLines.length) {
+      updates.status = 'completed';
+      updates.completed_at = new Date().toISOString();
+      // Also mark run as pick-confirmed and stop timer
+      await base44.entities.ProductionRun.update(runId, {
+        pick_list_confirmed: true,
+        picking_finished_at: new Date().toISOString(),
+      });
+    }
+    await base44.entities.PickList.update(pickList.id, updates);
+
+    writeAuditLog({
+      action: 'update', entity_type: 'PickList', entity_id: pickList.id,
+      description: `Released ${pickedLines.length} lines to production for run ${run?.run_number}`,
     });
+
+    queryClient.invalidateQueries({ queryKey: ['pick-lines', pickList?.id] });
+    queryClient.invalidateQueries({ queryKey: ['pick-list-for-run', runId] });
     queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
     queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
-    toast.success('Pick list confirmed — consumed quantities deducted from stock');
-    setConfirmingPick(false);
+    toast.success(`${pickedLines.length} items released to production — stock deducted`);
+    setReleasing(false);
   };
 
+  // ── Edit a released line (post-release adjustment) ──
+  const handleEditSave = async ({ pickLineId, productId, productName, productSku, oldQty, newQty, reason, notes, uom }) => {
+    const diff = newQty - oldQty;
+    if (diff !== 0) {
+      // Adjustment stock movement
+      await base44.entities.StockMovement.create({
+        product_id: productId,
+        product_sku: productSku,
+        product_name: productName,
+        qty: Math.abs(diff),
+        uom,
+        reason: diff > 0 ? 'production_pick' : 'production_return',
+        ref_type: 'pick_list',
+        ref_id: pickList?.id || '',
+        ref_number: run?.run_number || '',
+        notes: `Pick edit: ${reason}${notes ? ' — ' + notes : ''} (${oldQty} → ${newQty} ${uom})`,
+      });
+
+      // Update SOH
+      const sohRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
+      const productSoh = sohRecords
+        .filter(s => s.product_id === productId)
+        .sort((a, b) => (b.qty_on_hand || 0) - (a.qty_on_hand || 0));
+
+      if (diff > 0 && productSoh.length > 0) {
+        // More consumed — deduct
+        let remaining = diff;
+        for (const soh of productSoh) {
+          if (remaining <= 0) break;
+          const deduct = Math.min(remaining, soh.qty_on_hand || 0);
+          await base44.entities.StockOnHand.update(soh.id, {
+            qty_on_hand: Math.max(0, (soh.qty_on_hand || 0) - deduct),
+            qty_available: Math.max(0, (soh.qty_on_hand || 0) - deduct) - (soh.qty_committed || 0),
+            last_updated_at: new Date().toISOString(),
+          });
+          remaining -= deduct;
+        }
+      } else if (diff < 0 && productSoh.length > 0) {
+        // Return to stock
+        const soh = productSoh[0];
+        const newOnHand = (soh.qty_on_hand || 0) + Math.abs(diff);
+        await base44.entities.StockOnHand.update(soh.id, {
+          qty_on_hand: newOnHand,
+          qty_available: newOnHand - (soh.qty_committed || 0),
+          last_updated_at: new Date().toISOString(),
+        });
+      }
+
+      // Update PickLine qty
+      await base44.entities.PickLine.update(pickLineId, { actual_qty_picked: newQty });
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['pick-lines', pickList?.id] });
+    queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+    toast.success(`Updated ${productName}: ${oldQty} → ${newQty} ${uom}`);
+    setEditingLine(null);
+  };
+
+  // ── PDF export ──
+  const handleExportPdf = () => {
+    if (!run || pickLines.length === 0) return;
+    // Transform pickLines to the shape the PDF exporter expects
+    const pickItems = pickLines.map(pl => ({
+      product: { id: pl.product_id, sku: pl.product_sku, name: pl.product_name, barcode: '' },
+      totalQty: pl.required_qty,
+      uom: pl.required_uom,
+      pickCategory: pl.category_group || 'Uncategorized',
+    }));
+    const pickedState = {};
+    pickLines.forEach(pl => {
+      pickedState[pl.product_id] = {
+        picked: pl.status !== 'not_picked',
+        qty: String(pl.actual_qty_picked || 0),
+      };
+    });
+    generatePickListPdf({ run, lines, pickItems, categories, pickedState });
+    toast.success('PDF downloaded');
+  };
+
+  // ── Barcode scanner ──
+  const lookupMap = useMemo(() => {
+    const map = {};
+    pickLines.forEach(pl => {
+      if (pl.product_sku) map[pl.product_sku.toLowerCase()] = pl;
+    });
+    return map;
+  }, [pickLines]);
+
+  const processCode = (code) => {
+    const trimmed = code.trim().toLowerCase();
+    if (!trimmed) return;
+    const found = lookupMap[trimmed];
+    if (found) {
+      setLastScanned(found);
+      if (found.status === 'not_picked') {
+        // Auto-fill required qty and mark as picked
+        handleMarkPicked(found.id, found.required_qty);
+        toast.success(`Scanned: ${found.product_name} — auto-picked ${found.required_qty} ${found.required_uom}`);
+      } else {
+        toast.info(`${found.product_name} already ${found.status}`);
+      }
+    } else {
+      setLastScanned(null);
+      toast.error(`No match for "${code.trim()}" on this pick list`);
+    }
+  };
+
+  // Hardware scanner listener
+  useEffect(() => {
+    if (!isPicking) return;
+    const handleKeyDown = (e) => {
+      if (document.activeElement && document.activeElement !== scanInputRef.current &&
+          (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+        return;
+      }
+      if (e.key === 'Enter') {
+        if (bufferRef.current.length > 3) processCode(bufferRef.current);
+        bufferRef.current = '';
+        return;
+      }
+      if (e.key.length === 1) {
+        bufferRef.current += e.key;
+        clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => { bufferRef.current = ''; }, 100);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lookupMap, isPicking]);
+
+  const handleScanSubmit = (e) => {
+    e.preventDefault();
+    processCode(scanInput);
+    setScanInput('');
+  };
+
+  // ── Loading states ──
   if (!run) {
     return <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>;
   }
 
-  const isPicking = !!run.picking_started_at && !run.pick_list_confirmed;
+  // ── No pick list yet — show generate prompt ──
+  if (!pickList && !loadingPickList) {
+    return (
+      <div className="space-y-4">
+        <PickListHeader
+          runId={runId} runNumber={run.run_number} lineCount={lines.length}
+          itemCount={0} pickedCount={0} releasedCount={0}
+          onPrint={() => {}} onExportPdf={() => {}}
+        />
+        <div className="bg-card border border-border rounded-xl px-6 py-12 text-center space-y-4">
+          <p className="text-sm text-muted-foreground">No pick list generated yet for this run.</p>
+          <Button onClick={handleGenerate} disabled={generating} className="gap-2">
+            {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            {generating ? 'Generating...' : 'Generate Pick List'}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadingPickLines) {
+    return <div className="text-center py-12 text-sm text-muted-foreground">Loading pick lines...</div>;
+  }
+
+  const pickedButNotReleased = pickLines.filter(pl => pl.status === 'picked').length;
 
   return (
     <div className="space-y-4 print:space-y-2">
       <PickListHeader
-        runId={runId}
-        runNumber={run.run_number}
-        lineCount={lines.length}
-        itemCount={pickItems.length}
-        pickedCount={pickedCount}
-        onPrint={() => window.print()}
-        onExportPdf={handleExportPdf}
+        runId={runId} runNumber={run.run_number} lineCount={lines.length}
+        itemCount={totalLines} pickedCount={pickedCount} releasedCount={releasedCount}
+        onPrint={() => window.print()} onExportPdf={handleExportPdf}
       />
 
-      {/* Print view — mirrors the PDF layout */}
-      <PickListPrintView
-        run={run}
-        lines={lines}
-        pickItems={pickItems}
-        categories={categories}
-        pickedState={effectivePickedState}
-      />
+      {/* Print view */}
+      <PickListPrintView run={run} lines={lines} pickLines={pickLines} categories={categories} />
 
-      {/* Inline scanner — visible only while picking is active */}
+      {/* Scanner — visible during active picking */}
       {isPicking && (
         <div className="bg-card border-2 border-primary/30 rounded-xl px-4 py-3 print:hidden">
           <form onSubmit={handleScanSubmit} className="flex items-center gap-3">
@@ -490,15 +443,16 @@ export default function PickList() {
           {lastScanned && (
             <div className="flex items-center gap-2 mt-2 text-sm text-amber-700 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">
               <Check className="w-4 h-4 shrink-0" />
-              <span><strong>{lastScanned.product.name}</strong> — checked ✓ enter the qty you picked</span>
+              <span><strong>{lastScanned.product_name}</strong> — {lastScanned.status === 'not_picked' ? 'auto-picked ✓' : `already ${lastScanned.status}`}</span>
             </div>
           )}
         </div>
       )}
 
-      {run?.pick_list_confirmed ? (
+      {/* Status banners */}
+      {isCompleted ? (
         <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2.5 text-sm text-green-700 print:hidden flex items-center justify-between">
-          <span>✓ Pick list confirmed — stock has been consumed from storage. Kitchen tasks can now begin.</span>
+          <span>✓ All {totalLines} items released to production — stock deducted. Kitchen tasks can begin.</span>
           {run.picking_started_at && run.picking_finished_at && (
             <span className="text-xs font-mono text-green-600">
               Picking time: {(() => {
@@ -518,7 +472,7 @@ export default function PickList() {
           </div>
           <Button
             onClick={handleStartPicking}
-            disabled={pickItems.length === 0}
+            disabled={totalLines === 0}
             size="lg"
             className="shrink-0 gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8"
           >
@@ -529,96 +483,86 @@ export default function PickList() {
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm text-amber-800 print:hidden flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <span>Picking in progress</span>
-            <LiveTimer
-              startedAt={run.picking_started_at}
-              isActive={true}
-              className="font-mono text-sm font-bold text-amber-700"
-            />
+            <LiveTimer startedAt={run.picking_started_at} isActive={!isCompleted} className="font-mono text-sm font-bold text-amber-700" />
           </div>
-          <Button
-            onClick={handleConfirmPickList}
-            disabled={confirmingPick || pickedCount < pickItems.length}
-            className="shrink-0 bg-green-600 hover:bg-green-700 text-white gap-1.5"
-            size="sm"
-          >
-            {confirmingPick ? 'Confirming...' : `Confirm Pick List (${pickedCount}/${pickItems.length})`}
-          </Button>
+          <div className="flex items-center gap-2">
+            {pickedButNotReleased > 0 && (
+              <Button
+                onClick={handleReleaseAll}
+                disabled={releasing}
+                className="shrink-0 bg-green-600 hover:bg-green-700 text-white gap-1.5"
+                size="sm"
+              >
+                {releasing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {releasing ? 'Releasing...' : `Release ${pickedButNotReleased} to Production`}
+              </Button>
+            )}
+            <Badge variant="secondary" className="text-xs tabular-nums">
+              {pickedCount}/{totalLines} picked · {releasedCount} released
+            </Badge>
+          </div>
         </div>
       )}
 
-      {/* Progress bar — screen only */}
-      {pickItems.length > 0 && (
+      {/* Progress bar */}
+      {totalLines > 0 && (
         <div className="print:hidden">
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-            <span>Pick progress</span>
-            <span className="font-semibold">{pickedCount} / {pickItems.length}</span>
+            <span>Pick & Release progress</span>
+            <span className="font-semibold tabular-nums">{releasedCount}/{totalLines} released</span>
           </div>
-          <div className="w-full bg-muted rounded-full h-2.5">
+          <div className="w-full bg-muted rounded-full h-2.5 relative overflow-hidden">
+            {/* Released = solid green */}
             <div
-              className="bg-green-500 h-2.5 rounded-full transition-all duration-300"
-              style={{ width: `${pickItems.length ? (pickedCount / pickItems.length) * 100 : 0}%` }}
+              className="absolute top-0 left-0 bg-green-500 h-2.5 rounded-full transition-all duration-300"
+              style={{ width: `${(releasedCount / totalLines) * 100}%` }}
             />
+            {/* Picked but not released = amber overlay */}
+            <div
+              className="absolute top-0 bg-amber-400 h-2.5 transition-all duration-300"
+              style={{
+                left: `${(releasedCount / totalLines) * 100}%`,
+                width: `${((pickedCount - releasedCount) / totalLines) * 100}%`,
+              }}
+            />
+          </div>
+          <div className="flex gap-4 mt-1 text-[10px] text-muted-foreground">
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" /> Released</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" /> Picked</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-muted inline-block border" /> Not picked</span>
           </div>
         </div>
       )}
 
-      {/* Categories — hidden when printing (print view handles it) */}
-      <div className="print:hidden">
+      {/* Categories — on screen only */}
+      <div className="print:hidden space-y-3">
         {categories.map(cat => (
           <PickListCategory
             key={cat}
             category={cat}
-            items={pickItems.filter(i => i.pickCategory === cat)}
-            pickedState={effectivePickedState}
+            pickLines={itemsByCategory[cat] || []}
             stockMap={stockMap}
-            onTogglePicked={handleTogglePicked}
-            onQtyChange={handleQtyChange}
-            onMarkAll={handleMarkAll}
-            disabled={!run.picking_started_at || run.pick_list_confirmed}
-            isConfirmed={isConfirmed}
-            onEditItem={isConfirmed ? setEditingItem : null}
+            onMarkPicked={handleMarkPicked}
+            onUnpick={handleUnpick}
+            disabled={!run.picking_started_at || isCompleted}
+            isCompleted={isCompleted}
+            onEditLine={isCompleted ? setEditingLine : null}
           />
         ))}
       </div>
 
-      {pickItems.length === 0 && (
+      {totalLines === 0 && (
         <div className="bg-card border border-border rounded-xl px-6 py-12 text-center text-sm text-muted-foreground print:hidden">
           No ingredients found — check that recipes (Cook + Portion BOMs) are set up for the meals in this run.
         </div>
       )}
 
-      {/* Edit log — show after confirmed */}
-      {isConfirmed && editLog.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 print:hidden">
-          <p className="text-xs font-semibold text-amber-800 mb-2">Pick List Edits ({editLog.length})</p>
-          <div className="space-y-1">
-            {editLog.map((log, i) => (
-              <p key={i} className="text-xs text-amber-700">
-                <span className="font-medium">{log.productName}</span>: {log.oldQty} → {log.newQty} {log.uom}
-                <span className="text-amber-500 ml-2">— {log.reason}</span>
-              </p>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Edit modal */}
-      {editingItem && (
+      {editingLine && (
         <PickListEditModal
-          item={editingItem}
-          currentQty={Number(effectivePickedState[editingItem.product.id]?.qty) || editingItem.totalQty}
+          pickLine={editingLine}
           onSave={handleEditSave}
-          onCancel={() => setEditingItem(null)}
-        />
-      )}
-
-      {/* Consumption modal — shown after all items picked, before final confirm */}
-      {showConsumeModal && (
-        <PickListConsumeModal
-          pickItems={pickItems}
-          pickedState={pickedState}
-          onConfirmConsumption={handleConfirmConsumption}
-          onCancel={() => setShowConsumeModal(false)}
+          onCancel={() => setEditingLine(null)}
         />
       )}
     </div>

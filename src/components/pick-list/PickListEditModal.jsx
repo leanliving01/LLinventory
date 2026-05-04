@@ -14,8 +14,13 @@ const EDIT_REASONS = [
   'Other',
 ];
 
-export default function PickListEditModal({ item, currentQty, onSave, onCancel }) {
-  const [newQty, setNewQty] = useState(String(currentQty || item.totalQty));
+/**
+ * Edit a released PickLine's actual_qty_picked (post-release adjustment).
+ * Accepts a PickLine entity record as `pickLine`.
+ */
+export default function PickListEditModal({ pickLine, onSave, onCancel }) {
+  const currentQty = pickLine.actual_qty_picked || pickLine.required_qty;
+  const [newQty, setNewQty] = useState(String(currentQty));
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -24,51 +29,45 @@ export default function PickListEditModal({ item, currentQty, onSave, onCancel }
     if (!reason) return;
     setSaving(true);
     await onSave({
-      productId: item.product.id,
-      productName: item.product.name,
-      productSku: item.product.sku,
-      oldQty: currentQty || item.totalQty,
+      pickLineId: pickLine.id,
+      productId: pickLine.product_id,
+      productName: pickLine.product_name,
+      productSku: pickLine.product_sku,
+      oldQty: currentQty,
       newQty: Number(newQty),
       reason,
       notes,
-      uom: item.uom,
+      uom: pickLine.required_uom,
     });
     setSaving(false);
   };
 
-  const diff = Number(newQty) - (currentQty || item.totalQty);
+  const diff = Number(newQty) - currentQty;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30" onClick={onCancel} />
       <div className="relative bg-card rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-base font-bold">Edit Picked Quantity</h3>
+          <h3 className="text-base font-bold">Edit Released Quantity</h3>
           <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-4 h-4" /></Button>
         </div>
 
         <div className="bg-muted/50 rounded-lg p-3 text-sm">
-          <p className="font-medium">{item.product.name}</p>
-          <p className="text-xs font-mono text-muted-foreground">{item.product.sku}</p>
+          <p className="font-medium">{pickLine.product_name}</p>
+          <p className="text-xs font-mono text-muted-foreground">{pickLine.product_sku}</p>
           <div className="flex gap-4 mt-2 text-xs">
-            <span>Needed: <strong>{item.totalQty} {item.uom}</strong></span>
-            <span>Currently picked: <strong>{currentQty || item.totalQty} {item.uom}</strong></span>
+            <span>Needed: <strong>{pickLine.required_qty} {pickLine.required_uom}</strong></span>
+            <span>Currently released: <strong>{currentQty} {pickLine.required_uom}</strong></span>
           </div>
         </div>
 
         <div>
-          <label className="text-xs font-semibold text-muted-foreground uppercase">New Picked Qty ({item.uom})</label>
-          <Input
-            type="number"
-            min="0"
-            step="any"
-            value={newQty}
-            onChange={e => setNewQty(e.target.value)}
-            className="mt-1"
-          />
+          <label className="text-xs font-semibold text-muted-foreground uppercase">New Qty ({pickLine.required_uom})</label>
+          <Input type="number" min="0" step="any" value={newQty} onChange={e => setNewQty(e.target.value)} className="mt-1" />
           {diff !== 0 && (
-            <p className={`text-xs mt-1 font-medium ${diff > 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {diff > 0 ? '+' : ''}{diff.toFixed(2)} {item.uom} {diff > 0 ? '(more picked)' : '(less picked)'}
+            <p className={`text-xs mt-1 font-medium ${diff > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              {diff > 0 ? '+' : ''}{diff.toFixed(2)} {pickLine.required_uom} {diff > 0 ? '(more from stock)' : '(returned to stock)'}
             </p>
           )}
         </div>
@@ -85,19 +84,14 @@ export default function PickListEditModal({ item, currentQty, onSave, onCancel }
 
         <div>
           <label className="text-xs font-semibold text-muted-foreground uppercase">Notes (optional)</label>
-          <Textarea
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            placeholder="Additional detail..."
-            className="mt-1 h-16"
-          />
+          <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Additional detail..." className="mt-1 h-16" />
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" onClick={onCancel}>Cancel</Button>
           <Button
             onClick={handleSave}
-            disabled={saving || !reason || Number(newQty) === (currentQty || item.totalQty)}
+            disabled={saving || !reason || Number(newQty) === currentQty}
             className="gap-1.5"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
