@@ -102,17 +102,17 @@ export default function WipInventory() {
       <div className="flex items-center gap-6 bg-card border border-border rounded-xl px-6 py-4 flex-wrap">
         <div>
           <p className="text-[10px] text-muted-foreground uppercase font-semibold">Produced</p>
-          <p className="text-lg font-bold tabular-nums">{totalOriginalKg.toFixed(1)} kg</p>
+          <p className="text-lg font-bold tabular-nums">{totalOriginalKg.toFixed(2)} kg</p>
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
           <p className="text-[10px] text-amber-600 uppercase font-semibold">Portioned</p>
-          <p className="text-lg font-bold tabular-nums text-amber-600">{totalConsumedKg.toFixed(1)} kg</p>
+          <p className="text-lg font-bold tabular-nums text-amber-600">{totalConsumedKg.toFixed(2)} kg</p>
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
           <p className="text-[10px] text-green-600 uppercase font-semibold">Available</p>
-          <p className="text-lg font-bold tabular-nums text-green-600">{totalKg.toFixed(1)} kg</p>
+          <p className="text-lg font-bold tabular-nums text-green-600">{totalKg.toFixed(2)} kg</p>
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
@@ -178,7 +178,7 @@ export default function WipInventory() {
               {filtered.slice(0, 15).map(b => {
                 const original = b.original_qty_kg || b.qty_kg || 0;
                 const remaining = b.qty_kg || 0;
-                const consumed = Math.max(0, Math.round((original - remaining) * 10) / 10);
+                const consumed = Math.max(0, Math.round((original - remaining) * 100) / 100);
                 return (
                   <tr key={b.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => setSelectedBatch(b)}>
                     <td className="px-4 py-2.5 text-sm font-mono font-medium">{b.batch_number}</td>
@@ -186,10 +186,10 @@ export default function WipInventory() {
                       <p className="text-sm font-medium">{b.bulk_product_name}</p>
                       <p className="text-[10px] font-mono text-muted-foreground">{b.bulk_product_sku}</p>
                     </td>
-                    <td className="px-4 py-2.5 text-sm text-right tabular-nums text-muted-foreground">{original.toFixed(1)}</td>
-                    <td className="px-4 py-2.5 text-sm text-right tabular-nums font-medium text-amber-600">{consumed > 0 ? consumed.toFixed(1) : '—'}</td>
+                    <td className="px-4 py-2.5 text-sm text-right tabular-nums text-muted-foreground">{original.toFixed(2)}</td>
+                    <td className="px-4 py-2.5 text-sm text-right tabular-nums font-medium text-amber-600">{consumed > 0 ? consumed.toFixed(2) : '—'}</td>
                     <td className="px-4 py-2.5 text-right">
-                      <span className="text-sm font-bold tabular-nums text-green-600">{remaining.toFixed(1)}</span>
+                       <span className="text-sm font-bold tabular-nums text-green-600">{remaining.toFixed(2)}</span>
                       <span className="text-[10px] text-muted-foreground ml-0.5">kg</span>
                     </td>
                     <td className="px-4 py-2.5 text-sm text-right tabular-nums">R {(b.total_carrying_value || 0).toFixed(2)}</td>
