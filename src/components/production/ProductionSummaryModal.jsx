@@ -81,23 +81,38 @@ export default function ProductionSummaryModal({ runId, runNumber, lines, onClos
   });
 
   // Fetch WipBatch records linked to this run's cooking tasks to get remaining bulk WIP
-  // These represent what is LEFT after portioning — the true "leftovers"
   const { data: wipBatches = [] } = useQuery({
     queryKey: ['run-wip-batches', runId],
-    queryFn: async () => {
-      // WipBatches are created with cooking_run_id = runId (from the production run)
-      const direct = await base44.entities.WipBatch.filter({ cooking_run_id: runId }, 'produced_date', 100);
-      return direct;
-    },
+    queryFn: () => base44.entities.WipBatch.filter({ cooking_run_id: runId }, 'produced_date', 100),
     enabled: !!runId,
   });
 
+  // Fetch products to identify raw materials vs bulk/WIP/packaging
+  const productIdsInMovements = useMemo(() => {
+    const ids = new Set();
+    movements.forEach(m => { if (m.product_id) ids.add(m.product_id); });
+    return [...ids];
+  }, [movements]);
+
+  const { data: products = [] } = useQuery({
+    queryKey: ['run-summary-products', runId],
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'sku', 500),
+    enabled: productIdsInMovements.length > 0,
+  });
+
+  const productTypeMap = useMemo(() => {
+    const map = {};
+    products.forEach(p => { map[p.id] = p.type; });
+    return map;
+  }, [products]);
+
   // Categorise movements
   const { rawReturns, wastage, totalRawReturnQty, totalWasteQty, totalWasteCost } = useMemo(() => {
-    // Raw material returns = 'return' reason movements (from cook/prep tasks returning unused raw ingredients)
-    // We exclude 'production_return' of bulk WIP products — those are intermediate stage movements
-    // that get netted into WipBatch qty_kg anyway
-    const returnMvs = movements.filter(m => m.reason === 'return');
+    // Raw material returns = 'return' reason movements for ONLY type=raw products
+    // Bulk/WIP products are already tracked via WipBatch leftovers — never show them here
+    const returnMvs = movements.filter(m =>
+      m.reason === 'return' && productTypeMap[m.product_id] === 'raw'
+    );
     const wastageMvs = movements.filter(m => m.reason === 'wastage_unusable' || m.reason === 'wastage_usable');
 
     const rawReturns = netByProduct(returnMvs);
@@ -110,7 +125,7 @@ export default function ProductionSummaryModal({ runId, runNumber, lines, onClos
       totalWasteQty: wastage.reduce((s, r) => s + r.qty, 0),
       totalWasteCost: wastage.reduce((s, r) => s + r.cost, 0),
     };
-  }, [movements]);
+  }, [movements, productTypeMap]);
 
   // WIP leftovers = WipBatch records with remaining qty > 0
   const wipLeftovers = useMemo(() => {
