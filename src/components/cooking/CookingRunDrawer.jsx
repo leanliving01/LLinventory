@@ -173,12 +173,15 @@ export default function CookingRunDrawer({ run, onClose, onUpdated }) {
   const isReleased = run.status === 'released';
   const isActive = run.status === 'in_progress';
   const canStart = isDraft || isReleased;
-  const canRevertToDraft = isReleased;
+  const canCancel = isReleased || isDraft;
 
-  const handleRevertToDraft = async () => {
+  const handleCancelRun = async () => {
     setUpdating(true);
-    await base44.entities.CookingRun.update(run.id, { status: 'draft' });
-    toast.success(`${run.run_number} reverted to draft`);
+    await base44.entities.CookingRun.update(run.id, {
+      status: 'cancelled',
+      notes: `${run.notes ? run.notes + '\n' : ''}Cancelled from cooking run detail`,
+    });
+    toast.success(`${run.run_number} cancelled`);
     setUpdating(false);
     onUpdated();
   };
@@ -316,15 +319,15 @@ export default function CookingRunDrawer({ run, onClose, onUpdated }) {
 
         {/* Footer actions */}
         <div className="sticky bottom-0 bg-card border-t border-border px-6 py-4 shrink-0 flex gap-3 relative z-10">
-          {canRevertToDraft && (
+          {canCancel && (
             <Button
               variant="outline"
-              onClick={handleRevertToDraft}
+              onClick={handleCancelRun}
               disabled={updating}
-              className="gap-2 h-11 border-amber-300 text-amber-700 hover:bg-amber-50"
+              className="gap-2 h-11 border-red-300 text-red-700 hover:bg-red-50"
             >
               {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-              Revert to Draft
+              Cancel Run
             </Button>
           )}
           {canStart && (

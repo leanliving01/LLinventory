@@ -14,29 +14,39 @@ import { toast } from 'sonner';
 import { writeAuditLog } from '@/lib/auditLog';
 
 /**
- * Creates cooking runs for a set of requirement rows.
+ * Releases cooking runs for requirement rows.
+ * If an existing draft cooking run exists for the same bulk product, re-use it
+ * (update target + status → released) instead of creating a duplicate.
  * Uses cookPlanOverrides to determine target_output_kg when available.
  */
-async function createCookingRuns(rowsToRelease, splitRows, wipProducts, cookBoms, cookPlanOverrides) {
-  const existingRuns = await base44.entities.CookingRun.list('-created_date', 1);
-  let nextNum = existingRuns.length > 0
-    ? (parseInt((existingRuns[0].run_number || '').replace(/\D/g, '') || '0') + 1) : 1;
+async function releaseOrCreateCookingRuns(rowsToRelease, splitRows, wipProducts, cookBoms, cookPlanOverrides, existingDraftRuns) {
+  const allRuns = await base44.entities.CookingRun.list('-created_date', 1);
+  let nextNum = allRuns.length > 0
+    ? (parseInt((allRuns[0].run_number || '').replace(/\D/g, '') || '0') + 1) : 1;
+
+  // Index existing draft runs by bulk_product_id for re-use
+  const draftsByProduct = {};
+  (existingDraftRuns || []).forEach(dr => {
+    if (!draftsByProduct[dr.bulk_product_id]) draftsByProduct[dr.bulk_product_id] = [];
+    draftsByProduct[dr.bulk_product_id].push(dr);
+  });
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
-  const created = [];
+  const released = [];
 
   for (const row of rowsToRelease) {
     const product = wipProducts.find(p => p.id === row.id);
     const bom = cookBoms.find(b => b.product_id === row.id);
     const overriddenKg = cookPlanOverrides[row.id];
     const targetKg = overriddenKg !== undefined ? Number(overriddenKg) : row.netToCookKg;
+    const allRunIds = row.contributions.map(c => c.runId);
 
     if (splitRows.has(row.id)) {
-      // When split, scale override proportionally across contributions
       const totalNet = row.contributions.reduce((s, c) => s + c.kgNeeded, 0);
       for (const contrib of row.contributions) {
         const proportion = totalNet > 0 ? contrib.kgNeeded / totalNet : 1 / row.contributions.length;
         const splitTarget = Math.round(targetKg * proportion * 10) / 10;
+
         const runNumber = `COOK-${new Date().getFullYear()}-${String(nextNum).padStart(4, '0')}`;
         nextNum++;
         const run = await base44.entities.CookingRun.create({
@@ -50,28 +60,49 @@ async function createCookingRuns(rowsToRelease, splitRows, wipProducts, cookBoms
           production_run_id: contrib.runId,
           contributing_run_ids: JSON.stringify([contrib.runId]),
         });
-        created.push(run);
+        released.push(run);
       }
     } else {
-      const runNumber = `COOK-${new Date().getFullYear()}-${String(nextNum).padStart(4, '0')}`;
-      nextNum++;
-      const allRunIds = row.contributions.map(c => c.runId);
-      const run = await base44.entities.CookingRun.create({
-        run_number: runNumber, run_date: todayStr, status: 'released', run_type: 'standard',
-        bulk_product_id: row.id, bulk_product_name: row.name, bulk_product_sku: row.sku,
-        target_output_kg: Math.round(targetKg * 10) / 10,
-        cook_bom_id: bom?.id || null, bom_expected_yield_pct: bom?.yield_qty || null,
-        raw_product_id: product?.primary_yield_ingredient_id || null,
-        raw_product_name: product?.primary_yield_ingredient_name || null,
-        raw_cost_per_kg: product?.cost_avg || 0,
-        production_run_id: allRunIds[0],
-        contributing_run_ids: JSON.stringify(allRunIds),
-      });
-      created.push(run);
+      // Check if there's an existing draft cooking run for this product we can re-use
+      const existingDrafts = draftsByProduct[row.id] || [];
+      const draftToReuse = existingDrafts.shift(); // take the first available draft
+
+      if (draftToReuse) {
+        // Re-use: update the existing draft run with new target and release it
+        await base44.entities.CookingRun.update(draftToReuse.id, {
+          status: 'released',
+          target_output_kg: Math.round(targetKg * 10) / 10,
+          run_date: todayStr,
+          production_run_id: allRunIds[0],
+          contributing_run_ids: JSON.stringify(allRunIds),
+          cook_bom_id: bom?.id || null,
+          bom_expected_yield_pct: bom?.yield_qty || null,
+          raw_product_id: product?.primary_yield_ingredient_id || null,
+          raw_product_name: product?.primary_yield_ingredient_name || null,
+          raw_cost_per_kg: product?.cost_avg || 0,
+        });
+        released.push({ ...draftToReuse, run_number: draftToReuse.run_number });
+      } else {
+        // No existing draft — create a new one
+        const runNumber = `COOK-${new Date().getFullYear()}-${String(nextNum).padStart(4, '0')}`;
+        nextNum++;
+        const run = await base44.entities.CookingRun.create({
+          run_number: runNumber, run_date: todayStr, status: 'released', run_type: 'standard',
+          bulk_product_id: row.id, bulk_product_name: row.name, bulk_product_sku: row.sku,
+          target_output_kg: Math.round(targetKg * 10) / 10,
+          cook_bom_id: bom?.id || null, bom_expected_yield_pct: bom?.yield_qty || null,
+          raw_product_id: product?.primary_yield_ingredient_id || null,
+          raw_product_name: product?.primary_yield_ingredient_name || null,
+          raw_cost_per_kg: product?.cost_avg || 0,
+          production_run_id: allRunIds[0],
+          contributing_run_ids: JSON.stringify(allRunIds),
+        });
+        released.push(run);
+      }
     }
   }
 
-  return created;
+  return released;
 }
 
 export default function ConsolidatedCookingGrid({
@@ -90,6 +121,9 @@ export default function ConsolidatedCookingGrid({
   // Already released = active cooking runs (not draft or cancelled)
   const releasedOrActiveRuns = existingCookingRuns.filter(r => r.status !== 'draft' && r.status !== 'cancelled');
   const alreadyReleasedIds = new Set(releasedOrActiveRuns.map(r => r.bulk_product_id));
+
+  // All draft cooking runs (for re-use when releasing)
+  const allDraftCookingRuns = existingCookingRuns.filter(r => r.status === 'draft');
 
   // Map released cooking runs by bulk_product_id for revert
   const releasedRunsByProduct = useMemo(() => {
@@ -160,20 +194,23 @@ export default function ConsolidatedCookingGrid({
     setSelectedRows(new Set());
   };
 
-  // Revert a single released product's cooking runs back to draft
-  const handleRevertSingle = async (row) => {
+  // Void (cancel) a single released product's cooking runs
+  const handleVoidSingle = async (row) => {
     const runs = releasedRunsByProduct[row.id] || [];
-    const revertable = runs.filter(cr => cr.status === 'released');
-    if (revertable.length === 0) { toast.info('No released runs to revert'); return; }
+    const voidable = runs.filter(cr => cr.status === 'released');
+    if (voidable.length === 0) { toast.info('No released runs to void'); return; }
     setRevertingRowId(row.id);
-    for (const cr of revertable) {
-      await base44.entities.CookingRun.update(cr.id, { status: 'draft' });
+    for (const cr of voidable) {
+      await base44.entities.CookingRun.update(cr.id, {
+        status: 'cancelled',
+        notes: `${cr.notes ? cr.notes + '\n' : ''}Voided from WIP Planning grid`,
+      });
     }
     writeAuditLog({
-      action: 'update', entity_type: 'CookingRun',
-      description: `Reverted ${revertable.length} cooking run(s) to draft for ${row.name}: ${revertable.map(r => r.run_number).join(', ')}`,
+      action: 'cancel', entity_type: 'CookingRun',
+      description: `Voided ${voidable.length} cooking run(s) for ${row.name}: ${voidable.map(r => r.run_number).join(', ')}`,
     });
-    invalidateAndNotify(revertable.length, 'reverted to draft');
+    invalidateAndNotify(voidable.length, 'voided');
     setRevertingRowId(null);
   };
 
@@ -187,8 +224,8 @@ export default function ConsolidatedCookingGrid({
     for (const dr of draftAdHocRuns) {
       await base44.entities.CookingRun.update(dr.id, { status: 'released' });
     }
-    const created = await createCookingRuns(unreleased, splitRows, wipProducts, cookBoms, cookPlanOverrides);
-    const allNames = [...draftAdHocRuns.map(r => r.run_number), ...created.map(r => r.run_number)];
+    const released = await releaseOrCreateCookingRuns(unreleased, splitRows, wipProducts, cookBoms, cookPlanOverrides, allDraftCookingRuns);
+    const allNames = [...draftAdHocRuns.map(r => r.run_number), ...released.map(r => r.run_number)];
     finishRelease(allNames);
     setReleasing(false);
   };
@@ -197,16 +234,16 @@ export default function ConsolidatedCookingGrid({
   const handleReleaseSelected = async () => {
     if (selectedUnreleased.length === 0) { toast.info('No rows selected'); return; }
     setReleasing(true);
-    const created = await createCookingRuns(selectedUnreleased, splitRows, wipProducts, cookBoms, cookPlanOverrides);
-    finishRelease(created.map(r => r.run_number));
+    const released = await releaseOrCreateCookingRuns(selectedUnreleased, splitRows, wipProducts, cookBoms, cookPlanOverrides, allDraftCookingRuns);
+    finishRelease(released.map(r => r.run_number));
     setReleasing(false);
   };
 
   // Release a SINGLE row
   const handleReleaseSingle = async (row) => {
     setReleasingRowId(row.id);
-    const created = await createCookingRuns([row], splitRows, wipProducts, cookBoms, cookPlanOverrides);
-    finishRelease(created.map(r => r.run_number));
+    const released = await releaseOrCreateCookingRuns([row], splitRows, wipProducts, cookBoms, cookPlanOverrides, allDraftCookingRuns);
+    finishRelease(released.map(r => r.run_number));
     setReleasingRowId(null);
   };
 
@@ -399,10 +436,10 @@ export default function ConsolidatedCookingGrid({
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => handleRevertSingle(r)}
+                                onClick={() => handleVoidSingle(r)}
                                 disabled={isRevertingSingle || releasing}
-                                className="gap-1 text-[10px] h-6 px-1.5 text-muted-foreground hover:text-amber-700 hover:bg-amber-50"
-                                title="Revert to draft"
+                                className="gap-1 text-[10px] h-6 px-1.5 text-muted-foreground hover:text-red-700 hover:bg-red-50"
+                                title="Void / cancel this cooking run"
                               >
                                 {isRevertingSingle ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
                               </Button>

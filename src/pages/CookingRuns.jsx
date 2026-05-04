@@ -27,6 +27,7 @@ const STATUS_TABS = [
   { key: 'draft', label: 'Draft' },
   { key: 'pending_review', label: 'Pending Review' },
   { key: 'completed', label: 'Completed' },
+  { key: 'cancelled', label: 'Cancelled' },
   { key: 'all', label: 'All' },
 ];
 
