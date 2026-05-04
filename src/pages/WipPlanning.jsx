@@ -158,13 +158,17 @@ export default function WipPlanning() {
       const portionBom = bomByProductId[line.product_id];
       if (!portionBom) continue;
       const comps = compsByBomId[portionBom.id] || [];
+      const bomYield = portionBom.yield_qty || 1;
       for (const comp of comps) {
         const isWipBulk = productTypeById[comp.input_product_id] === 'wip_bulk' || cookBomProductIds.has(comp.input_product_id);
         if (!isWipBulk) continue;
 
-        const qtyPerMeal = comp.qty || 0;
+        // comp.qty is the amount needed for `bomYield` meals (the BOM's yield_qty)
+        // So per-meal = comp.qty / bomYield
+        const qtyPerBomYield = comp.qty || 0;
         const uom = (comp.uom || 'g').toLowerCase();
-        const perMealKg = uom === 'kg' ? qtyPerMeal : uom === 'g' ? qtyPerMeal / 1000 : qtyPerMeal;
+        const qtyInKg = uom === 'kg' ? qtyPerBomYield : uom === 'g' ? qtyPerBomYield / 1000 : qtyPerBomYield;
+        const perMealKg = qtyInKg / bomYield;
         const totalKgNeeded = perMealKg * (line.planned_qty || 0);
 
         if (!bulkReq[comp.input_product_id]) {
@@ -236,15 +240,23 @@ export default function WipPlanning() {
   }, [consolidatedRows]);
 
   // Tag each active batch as component or leftover
+  // Only flag as "not a component" when runs are actually selected — otherwise don't flag at all
   const batchIsComponent = useMemo(() => {
     const map = {};
-    activeBatches.forEach(b => { map[b.id] = componentProductIds.has(b.bulk_product_id); });
+    const hasSelectedRuns = selectedRunIds.size > 0;
+    activeBatches.forEach(b => {
+      if (!hasSelectedRuns) {
+        map[b.id] = undefined; // no runs selected, don't flag anything
+      } else {
+        map[b.id] = componentProductIds.has(b.bulk_product_id);
+      }
+    });
     return map;
-  }, [activeBatches, componentProductIds]);
+  }, [activeBatches, componentProductIds, selectedRunIds]);
 
   // Batches that ARE components but haven't been QC'd yet (no decision made)
   const unqcComponentBatches = useMemo(() => {
-    return activeBatches.filter(b => batchIsComponent[b.id] && !decisions[b.id]);
+    return activeBatches.filter(b => batchIsComponent[b.id] === true && !decisions[b.id]);
   }, [activeBatches, batchIsComponent, decisions]);
 
   const declinedBatches = useMemo(() => activeBatches.filter(b => decisions[b.id] === 'declined'), [activeBatches, decisions]);
