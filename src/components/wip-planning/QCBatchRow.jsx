@@ -10,9 +10,14 @@ const QS_STYLES = {
   quarantine: 'bg-red-100 text-red-600',
 };
 
-export default function QCBatchRow({ batch, decision, onDecide, onRestOverride, product, selected, onToggleSelect }) {
+export default function QCBatchRow({ batch, decision, onDecide, onRestOverride, product, selected, onToggleSelect, isComponent }) {
   const restHours = product?.minimum_rest_time_hours || 0;
   const now = new Date();
+
+  // Aging: days since produced
+  const ageDays = batch.produced_date
+    ? Math.max(0, Math.floor((now - new Date(batch.produced_date)) / 86400000))
+    : null;
 
   const restInfo = useMemo(() => {
     if (!restHours || restHours <= 0) return { met: true, readyAt: null, hoursLeft: 0, ageHours: 0 };
@@ -54,6 +59,14 @@ export default function QCBatchRow({ batch, decision, onDecide, onRestOverride, 
           <span className="font-mono">{batch.batch_number}</span>
           <span>{(batch.qty_kg || 0).toFixed(1)} kg</span>
           <span>Produced {batch.produced_date}</span>
+          {ageDays !== null && (
+            <Badge variant="outline" className={`text-[10px] font-mono ${ageDays >= 3 ? 'border-red-300 text-red-600' : ageDays >= 2 ? 'border-amber-300 text-amber-600' : 'border-muted text-muted-foreground'}`}>
+              {ageDays === 0 ? 'Today' : ageDays === 1 ? '1 day' : `${ageDays} days`}
+            </Badge>
+          )}
+          {isComponent === false && (
+            <Badge variant="outline" className="text-[10px] text-muted-foreground border-dashed">Leftover</Badge>
+          )}
           {batch.supplier_name && <span>{batch.supplier_name}</span>}
         </div>
         {/* Rest time warning */}

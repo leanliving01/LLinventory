@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3, RefreshCw, Trash2, XCircle, RotateCcw } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3, RefreshCw, Trash2, XCircle, RotateCcw, ShieldAlert } from 'lucide-react';
 import { formatDateSAST, formatTimeSAST } from '@/lib/dateUtils';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -23,6 +23,7 @@ import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import { generatePickList } from '@/lib/pickListGenerator';
 import { clearProductionFloorForRun } from '@/lib/productionFloorStock.js';
+import CookingGateModal from '@/components/production/CookingGateModal';
 
 const STATUS_STYLES = {
   draft: 'bg-muted text-muted-foreground',
@@ -54,6 +55,7 @@ export default function ProductionRunDetail() {
   const [savingPlanned, setSavingPlanned] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showRevertDialog, setShowRevertDialog] = useState(false);
+  const [cookingGate, setCookingGate] = useState(null); // { title, description, items, itemLabel }
 
   const { data: run, isLoading: loadingRun } = useQuery({
     queryKey: ['production-run', runId],
@@ -108,6 +110,103 @@ export default function ProductionRunDetail() {
   const handleStartRun = async () => {
     setStarting(true);
 
+    // ── Gate B: Cooking runs must be completed & WIP available ──
+    const [allCookRuns, wipBatches, boms_gate, bomComponents_gate, products_gate] = await Promise.all([
+      base44.entities.CookingRun.list('-created_date', 500),
+      base44.entities.WipBatch.list('-created_date', 500),
+      base44.entities.Bom.filter({ is_active: true }, '-created_date', 500),
+      base44.entities.BomComponent.list('-created_date', 2000),
+      base44.entities.Product.filter({ status: 'active' }, 'name', 500),
+    ]);
+
+    // Find cooking runs linked to this production run
+    const linkedCookRuns = allCookRuns.filter(cr => {
+      if (cr.production_run_id === runId) return true;
+      if (cr.contributing_run_ids) {
+        try {
+          const ids = JSON.parse(cr.contributing_run_ids);
+          return Array.isArray(ids) && ids.includes(runId);
+        } catch { return false; }
+      }
+      return false;
+    });
+
+    // Determine which WIP bulk products this run needs
+    const productMap_gate = {};
+    products_gate.forEach(p => { productMap_gate[p.id] = p; });
+    const compsByBom_gate = {};
+    bomComponents_gate.forEach(c => {
+      if (!compsByBom_gate[c.bom_id]) compsByBom_gate[c.bom_id] = [];
+      compsByBom_gate[c.bom_id].push(c);
+    });
+    const cookBomProductIds = new Set(boms_gate.filter(b => b.bom_type === 'cook').map(b => b.product_id));
+
+    const wipNeeded = {}; // { productId: { name, sku, requiredKg } }
+    for (const line of lines) {
+      const portionBom = boms_gate.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
+      if (!portionBom) continue;
+      const comps = compsByBom_gate[portionBom.id] || [];
+      for (const c of comps) {
+        if (!cookBomProductIds.has(c.input_product_id)) continue;
+        const perUnit = c.qty / (portionBom.yield_qty || 1);
+        const uom = (c.uom || 'g').toLowerCase();
+        const perUnitKg = uom === 'kg' ? perUnit : uom === 'g' ? perUnit / 1000 : perUnit;
+        const totalKg = perUnitKg * (line.planned_qty || 0);
+        if (!wipNeeded[c.input_product_id]) {
+          wipNeeded[c.input_product_id] = { name: c.input_product_name || productMap_gate[c.input_product_id]?.name || '?', sku: c.input_product_sku || '', requiredKg: 0 };
+        }
+        wipNeeded[c.input_product_id].requiredKg += totalKg;
+      }
+    }
+
+    // Check 1: All linked cooking runs must be completed
+    const incompleteCookRuns = linkedCookRuns.filter(cr => !['completed', 'cancelled'].includes(cr.status));
+    if (incompleteCookRuns.length > 0) {
+      setCookingGate({
+        title: 'Cooking Runs Not Complete',
+        description: 'The following cooking runs linked to this production run are not yet completed. Complete them before starting the production run.',
+        itemLabel: 'Incomplete cooking runs',
+        items: incompleteCookRuns.map(cr => ({
+          name: `${cr.run_number} — ${cr.bulk_product_name}`,
+          detail: `Target: ${cr.target_output_kg} kg · Status: ${cr.status?.replace('_', ' ')}`,
+          badge: cr.status?.replace('_', ' '),
+          badgeClass: cr.status === 'in_progress' ? 'bg-amber-100 text-amber-700' : cr.status === 'released' ? 'bg-blue-100 text-blue-700' : 'bg-muted text-muted-foreground',
+        })),
+      });
+      setStarting(false);
+      return;
+    }
+
+    // Check 2: Sufficient WIP batches available for each bulk product
+    const wipAvail = {};
+    wipBatches.filter(b => ['fresh', 'use_today'].includes(b.quality_status) && (b.qty_kg || 0) > 0)
+      .forEach(b => { wipAvail[b.bulk_product_id] = (wipAvail[b.bulk_product_id] || 0) + b.qty_kg; });
+
+    const wipShortages = [];
+    for (const [pid, info] of Object.entries(wipNeeded)) {
+      const available = wipAvail[pid] || 0;
+      if (available < info.requiredKg * 0.9) { // 10% tolerance
+        wipShortages.push({
+          name: info.name,
+          detail: `Need ${info.requiredKg.toFixed(1)} kg · Available ${available.toFixed(1)} kg · Short ${(info.requiredKg - available).toFixed(1)} kg`,
+          badge: `${available.toFixed(1)} / ${info.requiredKg.toFixed(1)} kg`,
+          badgeClass: 'bg-red-100 text-red-700',
+        });
+      }
+    }
+
+    if (wipShortages.length > 0) {
+      setCookingGate({
+        title: 'Insufficient Bulk Cooked Stock',
+        description: 'Not enough cooked bulk (WIP) is available for this production run. Ensure cooking runs are completed and yielded sufficient output.',
+        itemLabel: 'Bulk products short',
+        items: wipShortages,
+      });
+      setStarting(false);
+      return;
+    }
+
+    // ── Original stock guardrail (raw materials) ──
     // If pick list is already confirmed, ingredients have been physically picked
     // and stock already consumed — skip the stock guardrail entirely
     if (run?.pick_list_confirmed) {
@@ -1027,6 +1126,17 @@ export default function ProductionRunDetail() {
         onDeleteLine={handleDeleteLine}
         savingPlanned={savingPlanned}
       />
+
+      {/* Cooking Gate Modal — blocks until cooking runs complete + WIP sufficient */}
+      {cookingGate && (
+        <CookingGateModal
+          title={cookingGate.title}
+          description={cookingGate.description}
+          items={cookingGate.items}
+          itemLabel={cookingGate.itemLabel}
+          onClose={() => { setCookingGate(null); setStarting(false); }}
+        />
+      )}
 
       {/* §5.1.8 Stock Guardrail Modal — hard block, no override */}
       {showGuardrail && (

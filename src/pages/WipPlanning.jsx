@@ -230,6 +230,23 @@ export default function WipPlanning() {
     ).sort((a, b) => (a.bulk_product_name || '').localeCompare(b.bulk_product_name || ''));
   }, [batches]);
 
+  // Which bulk product IDs are components of the selected production runs?
+  const componentProductIds = useMemo(() => {
+    return new Set(consolidatedRows.map(r => r.id));
+  }, [consolidatedRows]);
+
+  // Tag each active batch as component or leftover
+  const batchIsComponent = useMemo(() => {
+    const map = {};
+    activeBatches.forEach(b => { map[b.id] = componentProductIds.has(b.bulk_product_id); });
+    return map;
+  }, [activeBatches, componentProductIds]);
+
+  // Batches that ARE components but haven't been QC'd yet (no decision made)
+  const unqcComponentBatches = useMemo(() => {
+    return activeBatches.filter(b => batchIsComponent[b.id] && !decisions[b.id]);
+  }, [activeBatches, batchIsComponent, decisions]);
+
   const declinedBatches = useMemo(() => activeBatches.filter(b => decisions[b.id] === 'declined'), [activeBatches, decisions]);
   const approvedBatches = useMemo(() => activeBatches.filter(b => decisions[b.id] === 'approved'), [activeBatches, decisions]);
   const undecidedCount = activeBatches.length - Object.keys(decisions).length;
@@ -398,6 +415,8 @@ export default function WipPlanning() {
             canRelease={perms.cooking_runs_release}
             onReleased={() => queryClient.invalidateQueries({ queryKey: ['wip-cooking-runs'] })}
             draftAdHocRuns={draftAdHocRuns}
+            isQcConfirmed={isSessionConfirmed}
+            unqcComponentBatches={unqcComponentBatches}
           />
         </>
       )}
@@ -515,6 +534,7 @@ export default function WipPlanning() {
                     <QCBatchRow key={b.id} batch={b} decision={decisions[b.id]} onDecide={handleDecide}
                       onRestOverride={handleRestOverride} product={productById[b.bulk_product_id]}
                       selected={qcSelected.has(b.id)}
+                      isComponent={batchIsComponent[b.id]}
                       onToggleSelect={(id) => setQcSelected(prev => {
                         const next = new Set(prev);
                         next.has(id) ? next.delete(id) : next.add(id);

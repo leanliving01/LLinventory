@@ -106,7 +106,8 @@ async function releaseOrCreateCookingRuns(rowsToRelease, splitRows, wipProducts,
 }
 
 export default function ConsolidatedCookingGrid({
-  rows, wipProducts, cookBoms, existingCookingRuns, canRelease, onReleased, draftAdHocRuns = []
+  rows, wipProducts, cookBoms, existingCookingRuns, canRelease, onReleased, draftAdHocRuns = [],
+  isQcConfirmed = false, unqcComponentBatches = []
 }) {
   const queryClient = useQueryClient();
   const [releasing, setReleasing] = useState(false);
@@ -214,8 +215,18 @@ export default function ConsolidatedCookingGrid({
     setRevertingRowId(null);
   };
 
+  // QC gate check — block release if component batches haven't been QC'd
+  const checkQcGate = () => {
+    if (!isQcConfirmed && unqcComponentBatches.length > 0) {
+      toast.error(`${unqcComponentBatches.length} bulk batch(es) need QC approval before releasing cooking runs. Complete the Morning Quality Check first.`);
+      return false;
+    }
+    return true;
+  };
+
   // Release ALL unreleased rows + ad-hoc drafts
   const handleReleaseAll = async () => {
+    if (!checkQcGate()) return;
     if (unreleased.length === 0 && draftAdHocRuns.length === 0) {
       toast.info('All cooking runs already released');
       return;
@@ -232,6 +243,7 @@ export default function ConsolidatedCookingGrid({
 
   // Release only SELECTED rows
   const handleReleaseSelected = async () => {
+    if (!checkQcGate()) return;
     if (selectedUnreleased.length === 0) { toast.info('No rows selected'); return; }
     setReleasing(true);
     const released = await releaseOrCreateCookingRuns(selectedUnreleased, splitRows, wipProducts, cookBoms, cookPlanOverrides, allDraftCookingRuns);
@@ -241,6 +253,7 @@ export default function ConsolidatedCookingGrid({
 
   // Release a SINGLE row
   const handleReleaseSingle = async (row) => {
+    if (!checkQcGate()) return;
     setReleasingRowId(row.id);
     const released = await releaseOrCreateCookingRuns([row], splitRows, wipProducts, cookBoms, cookPlanOverrides, allDraftCookingRuns);
     finishRelease(released.map(r => r.run_number));
