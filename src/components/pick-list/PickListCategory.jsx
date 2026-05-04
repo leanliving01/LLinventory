@@ -68,13 +68,15 @@ export default function PickListCategory({ category, items, pickedState, stockMa
               const pickedQty = state.qty ? Number(state.qty) : null;
               const inStock = stockMap?.[pid] ?? null;
               const isBelowNeeded = pickedQty !== null && pickedQty < item.totalQty;
+              const isOverPicked = pickedQty !== null && pickedQty > item.totalQty;
 
               return (
                 <tr
                   key={pid}
                   className={cn(
                     "transition-colors print:leading-8",
-                    isComplete && !isBelowNeeded && "bg-green-50/60 dark:bg-green-900/10",
+                    isComplete && !isBelowNeeded && !isOverPicked && "bg-green-50/60 dark:bg-green-900/10",
+                    isOverPicked && "bg-blue-50/60 dark:bg-blue-950/10",
                     isBelowNeeded && "bg-red-50/60 dark:bg-red-900/10",
                     state.picked && !state.qty && "bg-amber-50/60 dark:bg-amber-900/10"
                   )}
@@ -98,7 +100,14 @@ export default function PickListCategory({ category, items, pickedState, stockMa
                   </td>
                   <td className="px-4 py-2 text-center print:hidden">
                     {isConfirmed && state.picked ? (
-                      <span className="font-bold tabular-nums text-green-700">{state.qty || item.totalQty}</span>
+                      <div className="text-center">
+                        <span className="font-bold tabular-nums text-green-700">{state.qty || item.totalQty}</span>
+                        {Number(state.qty) > item.totalQty && (
+                          <p className="text-[10px] text-blue-600">
+                            +{(Number(state.qty) - item.totalQty).toFixed(2)} over
+                          </p>
+                        )}
+                      </div>
                     ) : state.picked && !disabled ? (
                       <div className="space-y-1">
                         <Input
@@ -111,23 +120,21 @@ export default function PickListCategory({ category, items, pickedState, stockMa
                             const val = e.target.value;
                             onQtyChange(pid, val);
                           }}
-                          onBlur={() => {
-                            if (pickedQty !== null && pickedQty < item.totalQty) {
-                              toast.warning(
-                                `Warning: You picked ${pickedQty} ${item.uom} but need ${item.totalQty} ${item.uom} of ${item.product.name}. If you don't have enough, you need to go buy more.`,
-                                { duration: 6000 }
-                              );
-                            }
-                          }}
                           className={cn(
                             "w-24 h-9 text-right text-sm mx-auto",
                             state.picked && !state.qty && "border-amber-400 ring-1 ring-amber-300",
-                            isBelowNeeded && "border-red-400 ring-1 ring-red-300"
+                            isBelowNeeded && "border-red-400 ring-1 ring-red-300",
+                            isOverPicked && "border-blue-400 ring-1 ring-blue-300"
                           )}
                           autoFocus={state.picked && !state.qty}
                         />
                         {isBelowNeeded && (
-                          <p className="text-[10px] text-red-600 font-medium">Below needed!</p>
+                          <p className="text-[10px] text-red-600 font-medium">Below needed — go buy more?</p>
+                        )}
+                        {isOverPicked && (
+                          <p className="text-[10px] text-blue-600 font-medium">
+                            Over-pick: +{(pickedQty - item.totalQty).toFixed(2)} {item.uom} surplus
+                          </p>
                         )}
                       </div>
                     ) : (

@@ -10,6 +10,7 @@ import PickListCategory from '@/components/pick-list/PickListCategory';
 import { generatePickListPdf } from '@/components/pick-list/PickListPdfExport';
 import PickListPrintView from '@/components/pick-list/PickListPrintView';
 import PickListEditModal from '@/components/pick-list/PickListEditModal';
+import PickListConsumeModal from '@/components/pick-list/PickListConsumeModal';
 import LiveTimer from '@/components/kitchen/LiveTimer';
 
 /**
@@ -67,6 +68,7 @@ export default function PickList() {
   const [confirmingPick, setConfirmingPick] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [editLog, setEditLog] = useState([]); // Track edits for display
+  const [showConsumeModal, setShowConsumeModal] = useState(false);
   const queryClient = useQueryClient();
 
   const isConfirmed = !!run?.pick_list_confirmed;
@@ -174,12 +176,17 @@ export default function PickList() {
     return { pickItems: items, categories: cats };
   }, [lines, boms, bomComponents, products]);
 
-  // After confirmation, populate pickedState from the pick items so the UI shows green checks + qty
+  // After confirmation, merge: keep user-entered picked state if present, fall back to needed qty
   const effectivePickedState = useMemo(() => {
     if (!isConfirmed) return pickedState;
     const state = {};
     pickItems.forEach(item => {
-      state[item.product.id] = { picked: true, qty: String(item.totalQty) };
+      const userEntry = pickedState[item.product.id];
+      // If user entered a picked qty during picking, preserve it; otherwise fall back to needed
+      state[item.product.id] = {
+        picked: true,
+        qty: userEntry?.qty || String(item.totalQty),
+      };
     });
     return state;
   }, [isConfirmed, pickedState, pickItems]);
@@ -361,54 +368,58 @@ export default function PickList() {
     setEditingItem(null);
   };
 
-  const handleConfirmPickList = async () => {
-    // Check for items picked below needed
-    const belowNeeded = pickItems.filter(i => {
-      const s = pickedState[i.product.id];
-      if (!s?.picked || !s?.qty) return false;
-      return Number(s.qty) < i.totalQty;
-    });
-
-    if (belowNeeded.length > 0) {
-      const names = belowNeeded.map(i => i.product.name).join(', ');
-      toast.error(`Cannot confirm: ${belowNeeded.length} item(s) picked below needed quantity (${names}). You need to pick at least what's required or go buy more.`, { duration: 8000 });
-      return;
-    }
-
+  // Step 1: User clicks "Confirm Pick List" → show consumption modal
+  const handleConfirmPickList = () => {
     if (pickedCount < pickItems.length) {
       toast.error(`Only ${pickedCount} of ${pickItems.length} items picked. Pick all items before confirming.`);
       return;
     }
-    setConfirmingPick(true);
+    // Check items with no qty entered
+    const missingQty = pickItems.filter(i => {
+      const s = pickedState[i.product.id];
+      return !s?.qty || Number(s.qty) <= 0;
+    });
+    if (missingQty.length > 0) {
+      toast.error(`${missingQty.length} item(s) are checked but have no picked qty entered. Enter the actual amount you pulled from the shelf.`);
+      return;
+    }
+    // Open consumption modal
+    setShowConsumeModal(true);
+  };
 
-    // Create stock consumption movements for all picked items
+  // Step 2: User enters consumed qtys in modal → process stock
+  const handleConfirmConsumption = async (consumedQtyMap) => {
+    setConfirmingPick(true);
+    setShowConsumeModal(false);
+
+    const sohRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
+
     for (const item of pickItems) {
-      const state = pickedState[item.product.id];
-      const qty = Number(state?.qty) || item.totalQty;
+      const pid = item.product.id;
+      const pickedQty = Number(pickedState[pid]?.qty) || item.totalQty;
+      const consumedQty = Number(consumedQtyMap[pid]) || item.totalQty;
+      const surplus = pickedQty - consumedQty;
+
+      // Create consumption movement for what was actually CONSUMED
       await base44.entities.StockMovement.create({
-        product_id: item.product.id,
+        product_id: pid,
         product_sku: item.product.sku,
         product_name: item.product.name,
-        qty,
+        qty: consumedQty,
         uom: item.uom,
         reason: 'production_consume',
         ref_type: 'production_run',
         ref_id: runId,
         ref_number: run?.run_number || '',
-        notes: `Pick list confirmed for run ${run?.run_number}`,
+        notes: `Pick list: picked ${pickedQty} ${item.uom}, consumed ${consumedQty} ${item.uom}${surplus > 0.001 ? `, surplus ${surplus.toFixed(2)} ${item.uom} returned` : ''}`,
       });
-    }
 
-    // Decrement StockOnHand for consumed ingredients
-    // Pick from the location with the MOST stock first, then deduct remainder from next
-    const sohRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
-    for (const item of pickItems) {
-      const state = pickedState[item.product.id];
-      let remaining = Number(state?.qty) || item.totalQty;
-      // Get all SOH records for this product, sorted by qty_on_hand descending
+      // Deduct the CONSUMED qty from StockOnHand
       const productSoh = sohRecords
-        .filter(s => s.product_id === item.product.id && (s.qty_on_hand || 0) > 0)
+        .filter(s => s.product_id === pid && (s.qty_on_hand || 0) > 0)
         .sort((a, b) => (b.qty_on_hand || 0) - (a.qty_on_hand || 0));
+
+      let remaining = consumedQty;
       for (const soh of productSoh) {
         if (remaining <= 0) break;
         const deduct = Math.min(remaining, soh.qty_on_hand || 0);
@@ -422,14 +433,14 @@ export default function PickList() {
       }
     }
 
-    // Mark the run as pick list confirmed with finished timestamp
+    // Mark the run as pick list confirmed
     await base44.entities.ProductionRun.update(runId, {
       pick_list_confirmed: true,
       picking_finished_at: new Date().toISOString(),
     });
     queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
     queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
-    toast.success('Pick list confirmed — stock consumed from storage');
+    toast.success('Pick list confirmed — consumed quantities deducted from stock');
     setConfirmingPick(false);
   };
 
@@ -598,6 +609,16 @@ export default function PickList() {
           currentQty={Number(effectivePickedState[editingItem.product.id]?.qty) || editingItem.totalQty}
           onSave={handleEditSave}
           onCancel={() => setEditingItem(null)}
+        />
+      )}
+
+      {/* Consumption modal — shown after all items picked, before final confirm */}
+      {showConsumeModal && (
+        <PickListConsumeModal
+          pickItems={pickItems}
+          pickedState={pickedState}
+          onConfirmConsumption={handleConfirmConsumption}
+          onCancel={() => setShowConsumeModal(false)}
         />
       )}
     </div>
