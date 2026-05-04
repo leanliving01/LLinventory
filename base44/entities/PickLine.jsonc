@@ -1,0 +1,87 @@
+{
+  "name": "PickLine",
+  "type": "object",
+  "properties": {
+    "pick_list_id": {
+      "type": "string",
+      "description": "FK to PickList"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product (raw ingredient)"
+    },
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized SKU"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Denormalized product name"
+    },
+    "category_group": {
+      "type": "string",
+      "description": "From Product.pick_category \u2014 used for grouping on the pick screen"
+    },
+    "from_location_id": {
+      "type": "string",
+      "description": "FK to Location \u2014 storage location to pick from (defaults to product's default_location_id)"
+    },
+    "from_location_name": {
+      "type": "string",
+      "description": "Denormalized location name"
+    },
+    "required_qty": {
+      "type": "number",
+      "description": "BOM-calculated aggregate qty needed"
+    },
+    "required_uom": {
+      "type": "string",
+      "description": "Unit of measure (from Product.stock_uom)"
+    },
+    "actual_qty_picked": {
+      "type": "number",
+      "default": 0,
+      "description": "Actual amount physically pulled by the picker"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "not_picked",
+        "picked",
+        "released"
+      ],
+      "default": "not_picked",
+      "description": "not_picked \u2192 picked \u2192 released"
+    },
+    "picked_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the picker confirmed the qty"
+    },
+    "released_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this line was released to production"
+    },
+    "release_batch": {
+      "type": "string",
+      "description": "Groups lines released together \u2014 timestamp or UUID for kitchen board grouping"
+    },
+    "is_consumable": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, no stock movement on release (expensed, not tracked per unit)"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional picker notes (e.g. pack slightly damaged)"
+    }
+  },
+  "required": [
+    "pick_list_id",
+    "product_id",
+    "required_qty",
+    "required_uom",
+    "status"
+  ]
+}

@@ -17,6 +17,9 @@ const REASON_LABELS = {
   write_off: 'Write Off',
   packing_material: 'Packing Material',
   cancellation_reversal: 'Cancellation Reversal',
+  production_pick: 'Pick → Production',
+  production_return: 'Return from Production',
+  supplier_return: 'Supplier Return',
 };
 
 const REASON_COLORS = {
@@ -32,9 +35,12 @@ const REASON_COLORS = {
   write_off: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
   packing_material: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
   cancellation_reversal: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  production_pick: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
+  production_return: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  supplier_return: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
 };
 
-const OUT_REASONS = ['sale_fulfillment', 'production_consume', 'wastage_usable', 'wastage_unusable', 'write_off', 'packing_material'];
+const OUT_REASONS = ['sale_fulfillment', 'production_consume', 'production_pick', 'wastage_usable', 'wastage_unusable', 'write_off', 'packing_material'];
 
 function DirectionIcon({ reason, fromLoc }) {
   if (reason === 'transfer') return <ArrowLeftRight className="w-3.5 h-3.5 text-purple-500" />;

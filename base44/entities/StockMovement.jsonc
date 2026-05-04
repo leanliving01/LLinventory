@@ -37,6 +37,8 @@
         "transfer",
         "production_consume",
         "production_yield",
+        "production_pick",
+        "production_return",
         "sale_fulfillment",
         "wastage_usable",
         "wastage_unusable",
@@ -59,6 +61,7 @@
         "transfer",
         "grn",
         "supplier_return",
+        "pick_list",
         "manual"
       ],
       "description": "Reference entity type"

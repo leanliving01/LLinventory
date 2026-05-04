@@ -21,6 +21,7 @@ import { splitTasksByEquipment } from '@/lib/equipmentSplitter';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
+import { generatePickList } from '@/lib/pickListGenerator';
 
 const STATUS_STYLES = {
   draft: 'bg-muted text-muted-foreground',
@@ -64,6 +65,15 @@ export default function ProductionRunDetail() {
     queryFn: () => base44.entities.ProductionRunLine.filter({ run_id: runId }, 'product_sku', 200),
     enabled: !!runId,
   });
+
+  // Check if a persisted PickList already exists for this run
+  const { data: existingPickLists = [] } = useQuery({
+    queryKey: ['pick-list-for-run', runId],
+    queryFn: () => base44.entities.PickList.filter({ production_run_id: runId }, '-created_date', 1),
+    enabled: !!runId,
+  });
+  const existingPickList = existingPickLists[0] || null;
+  const [generatingPickList, setGeneratingPickList] = useState(false);
 
   // Pre-fill actuals from lines that already have actual_qty
   useMemo(() => {
@@ -756,6 +766,27 @@ export default function ProductionRunDetail() {
     toast.success(`Saved changes — ${edits.length} line${edits.length > 1 ? 's' : ''} updated`);
   };
 
+  // Generate persisted pick list (§10 Step 1)
+  const handleGeneratePickList = async () => {
+    if (existingPickList) {
+      toast.info('Pick list already exists — opening it');
+      return;
+    }
+    setGeneratingPickList(true);
+    try {
+      const { pickList, pickLines } = await generatePickList(runId, run);
+      writeAuditLog({
+        action: 'create', entity_type: 'PickList', entity_id: pickList.id,
+        description: `Generated pick list for run ${run?.run_number} — ${pickLines.length} ingredients`,
+      });
+      queryClient.invalidateQueries({ queryKey: ['pick-list-for-run', runId] });
+      toast.success(`Pick list generated — ${pickLines.length} ingredients`);
+    } catch (err) {
+      toast.error(err.message || 'Failed to generate pick list');
+    }
+    setGeneratingPickList(false);
+  };
+
   // Delete a line from the run
   const handleDeleteLine = async (lineId) => {
     await base44.entities.ProductionRunLine.delete(lineId);
@@ -824,7 +855,33 @@ export default function ProductionRunDetail() {
               <XCircle className="w-4 h-4" /> Cancel Run
             </Button>
           )}
-          {(isScheduled || isInProgress || run.status === 'completed') && (
+          {(isScheduled || isInProgress || run.status === 'completed') && perms.pick_lists && (
+            existingPickList ? (
+              <Link to={`/production/run/${runId}/pick-list`}>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <ClipboardList className="w-4 h-4" /> Pick List
+                  {existingPickList.status === 'open' && (
+                    <Badge variant="secondary" className="ml-1 text-[10px]">{existingPickList.released_lines}/{existingPickList.total_lines}</Badge>
+                  )}
+                  {existingPickList.status === 'completed' && (
+                    <Badge className="ml-1 text-[10px] bg-green-100 text-green-700">Done</Badge>
+                  )}
+                </Button>
+              </Link>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={handleGeneratePickList}
+                disabled={generatingPickList || isDraft}
+              >
+                <ClipboardList className="w-4 h-4" />
+                {generatingPickList ? 'Generating...' : 'Generate Pick List'}
+              </Button>
+            )
+          )}
+          {(isScheduled || isInProgress || run.status === 'completed') && !perms.pick_lists && (
             <Link to={`/production/run/${runId}/pick-list`}>
               <Button variant="outline" size="sm" className="gap-1.5">
                 <ClipboardList className="w-4 h-4" /> Pick List
