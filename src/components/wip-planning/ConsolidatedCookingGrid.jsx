@@ -21,8 +21,12 @@ import { writeAuditLog } from '@/lib/auditLog';
  */
 async function releaseOrCreateCookingRuns(rowsToRelease, splitRows, wipProducts, cookBoms, cookPlanOverrides, existingDraftRuns) {
   const allRuns = await base44.entities.CookingRun.list('-created_date', 1);
-  let nextNum = allRuns.length > 0
-    ? (parseInt((allRuns[0].run_number || '').replace(/\D/g, '') || '0') + 1) : 1;
+  let nextNum = 1;
+  if (allRuns.length > 0) {
+    const parts = (allRuns[0].run_number || '').split('-');
+    const seq = parseInt(parts[parts.length - 1] || '0', 10);
+    nextNum = (isNaN(seq) ? 0 : seq) + 1;
+  }
 
   // Index existing draft runs by bulk_product_id for re-use
   const draftsByProduct = {};

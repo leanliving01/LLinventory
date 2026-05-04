@@ -163,13 +163,13 @@ export default function ProductionRunDetail() {
     const incompleteCookRuns = linkedCookRuns.filter(cr => !['completed', 'cancelled'].includes(cr.status));
     if (incompleteCookRuns.length > 0) {
       setCookingGate({
-        title: 'Cooking Runs Not Complete',
-        description: 'The following cooking runs linked to this production run are not yet completed. Complete them before starting the production run.',
-        itemLabel: 'Incomplete cooking runs',
+        title: 'Bulk Cooking Not Finished',
+        description: 'These bulk items still need to be cooked before you can start portioning. Go to Production → Cooking Runs, complete each one (enter the actual output weight), then come back and press Start Run.',
+        itemLabel: 'Bulk items still cooking',
         items: incompleteCookRuns.map(cr => ({
-          name: `${cr.run_number} — ${cr.bulk_product_name}`,
-          detail: `Target: ${cr.target_output_kg} kg · Status: ${cr.status?.replace('_', ' ')}`,
-          badge: cr.status?.replace('_', ' '),
+          name: cr.bulk_product_name || 'Unknown product',
+          detail: `${cr.run_number} · Target: ${cr.target_output_kg} kg`,
+          badge: cr.status === 'in_progress' ? 'in progress' : cr.status?.replace('_', ' '),
           badgeClass: cr.status === 'in_progress' ? 'bg-amber-100 text-amber-700' : cr.status === 'released' ? 'bg-blue-100 text-blue-700' : 'bg-muted text-muted-foreground',
         })),
       });

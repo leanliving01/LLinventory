@@ -36,8 +36,12 @@ export default function CreateCookingRunModal({ onCreated, onCancel }) {
 
     // Generate run number
     const existing = await base44.entities.CookingRun.list('-created_date', 1);
-    const nextNum = existing.length > 0 ? 
-      (parseInt((existing[0].run_number || '').replace(/\D/g, '') || '0') + 1) : 1;
+    let nextNum = 1;
+    if (existing.length > 0) {
+      const parts = (existing[0].run_number || '').split('-');
+      const seq = parseInt(parts[parts.length - 1] || '0', 10);
+      nextNum = (isNaN(seq) ? 0 : seq) + 1;
+    }
     const runNumber = `COOK-${new Date().getFullYear()}-${String(nextNum).padStart(4, '0')}`;
 
     const data = {
