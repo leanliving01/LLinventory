@@ -71,7 +71,7 @@ export default function QCBatchRow({ batch, decision, onDecide, onRestOverride, 
         <Button
           variant={isApproved ? 'default' : 'outline'}
           size="sm"
-          className={`gap-1.5 h-9 ${isApproved ? 'bg-green-600 hover:bg-green-700' : ''}`}
+          className={`gap-1.5 h-9 ${isApproved ? 'bg-green-600 hover:bg-green-700 text-white' : 'text-green-700 border-green-300 hover:bg-green-50 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-950'}`}
           onClick={() => onDecide(batch.id, 'approved')}
           disabled={!restInfo.met && !decision}
         >
@@ -81,7 +81,7 @@ export default function QCBatchRow({ batch, decision, onDecide, onRestOverride, 
         <Button
           variant={isDeclined ? 'destructive' : 'outline'}
           size="sm"
-          className="gap-1.5 h-9"
+          className={`gap-1.5 h-9 ${isDeclined ? '' : 'text-red-700 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950'}`}
           onClick={() => onDecide(batch.id, 'declined')}
         >
           <XCircle className="w-3.5 h-3.5" />

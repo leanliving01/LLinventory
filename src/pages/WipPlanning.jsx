@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  ClipboardCheck, Sun, CheckCircle2, Loader2, ChevronDown, ChevronUp
+  ClipboardCheck, Sun, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -447,6 +447,44 @@ export default function WipPlanning() {
               </div>
             ) : (
               <>
+                {/* Bulk action buttons */}
+                {activeBatches.length > 1 && (
+                  <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-muted/20">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase mr-auto">Bulk Actions</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 h-8 text-green-700 border-green-300 hover:bg-green-50 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-950"
+                      onClick={() => {
+                        const next = { ...decisions };
+                        activeBatches.forEach(b => {
+                          const prod = productById[b.bulk_product_id];
+                          const restMet = !prod?.minimum_rest_time_hours || prod.minimum_rest_time_hours <= 0
+                            || (b.rest_ready_at && new Date() >= new Date(b.rest_ready_at))
+                            || b.rest_time_met !== false;
+                          if (restMet) next[b.id] = 'approved';
+                        });
+                        setDecisions(next);
+                        toast.success('All eligible batches approved');
+                      }}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Approve All
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 h-8 text-red-700 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
+                      onClick={() => {
+                        const next = { ...decisions };
+                        activeBatches.forEach(b => { next[b.id] = 'declined'; });
+                        setDecisions(next);
+                        toast.success('All batches declined');
+                      }}
+                    >
+                      <XCircle className="w-3.5 h-3.5" /> Decline All
+                    </Button>
+                  </div>
+                )}
                 <div className="max-h-[50vh] overflow-y-auto">
                   {activeBatches.map(b => (
                     <QCBatchRow key={b.id} batch={b} decision={decisions[b.id]} onDecide={handleDecide}
