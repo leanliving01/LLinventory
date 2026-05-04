@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { CheckCircle2, XCircle, Clock, Lock } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, Lock, AlertTriangle } from 'lucide-react';
 
 const QS_STYLES = {
   fresh: 'bg-green-100 text-green-700',
@@ -65,7 +65,9 @@ export default function QCBatchRow({ batch, decision, onDecide, onRestOverride, 
             </Badge>
           )}
           {isComponent === false && (
-            <Badge variant="outline" className="text-[10px] text-muted-foreground border-dashed">Leftover</Badge>
+            <Badge className="text-[10px] bg-amber-100 text-amber-700 border border-amber-300 gap-1">
+              <AlertTriangle className="w-3 h-3" /> Unused — not in production
+            </Badge>
           )}
           {batch.supplier_name && <span>{batch.supplier_name}</span>}
         </div>
