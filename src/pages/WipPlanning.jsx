@@ -571,7 +571,6 @@ export default function WipPlanning() {
             onReleased={() => queryClient.invalidateQueries({ queryKey: ['wip-cooking-runs'] })}
             draftAdHocRuns={draftAdHocRuns}
             isQcConfirmed={isSessionConfirmed}
-            unqcComponentBatches={unqcComponentBatches}
           />
         </>
       )}

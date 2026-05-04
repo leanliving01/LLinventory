@@ -107,7 +107,7 @@ async function releaseOrCreateCookingRuns(rowsToRelease, splitRows, wipProducts,
 
 export default function ConsolidatedCookingGrid({
   rows, wipProducts, cookBoms, existingCookingRuns, canRelease, onReleased, draftAdHocRuns = [],
-  isQcConfirmed = false, unqcComponentBatches = []
+  isQcConfirmed = false
 }) {
   const queryClient = useQueryClient();
   const [releasing, setReleasing] = useState(false);
@@ -215,10 +215,10 @@ export default function ConsolidatedCookingGrid({
     setRevertingRowId(null);
   };
 
-  // QC gate check — block release if component batches haven't been QC'd
+  // QC gate check — block release until today's QC session is confirmed
   const checkQcGate = () => {
-    if (!isQcConfirmed && unqcComponentBatches.length > 0) {
-      toast.error(`${unqcComponentBatches.length} bulk batch(es) need QC approval before releasing cooking runs. Complete the Morning Quality Check first.`);
+    if (!isQcConfirmed) {
+      toast.error('Morning Quality Check must be completed before releasing cooking runs. Go to Step 2 above — approve or decline every WIP batch, then confirm.');
       return false;
     }
     return true;
@@ -313,6 +313,16 @@ export default function ConsolidatedCookingGrid({
         </div>
       </div>
 
+      {/* QC gate warning banner */}
+      {!isQcConfirmed && canRelease && unreleased.length > 0 && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border-b border-amber-200 dark:bg-amber-950/20 dark:border-amber-800">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          <p className="text-sm text-amber-800 dark:text-amber-300">
+            <span className="font-semibold">QC not confirmed.</span> Complete the Morning Quality Check above before releasing any cooking runs.
+          </p>
+        </div>
+      )}
+
       {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full">
@@ -403,9 +413,11 @@ export default function ConsolidatedCookingGrid({
                     <td className={`px-4 py-2.5 text-sm text-right tabular-nums font-bold ${r.needsCooking ? 'text-red-600' : 'text-green-600'}`}>
                       {r.needsCooking ? r.netToCookKg.toFixed(1) : '—'}
                     </td>
-                    {/* Cook Plan — editable for unreleased rows */}
+                    {/* Cook Plan — editable for unreleased rows that need cooking */}
                     <td className="px-4 py-2.5 text-right">
-                      {isUnreleased ? (
+                      {!r.needsCooking ? (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      ) : isUnreleased ? (
                         <Input
                           type="number"
                           min="0"
