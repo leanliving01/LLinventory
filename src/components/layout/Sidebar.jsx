@@ -33,7 +33,8 @@ import {
   Bug,
   DollarSign,
   Award,
-  ScrollText
+  ScrollText,
+  FileX2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
@@ -74,6 +75,7 @@ const PATH_PERMISSION_MAP = {
   '/stock/transfer': 'stock_transfers',
   '/stock/stock-take': 'stocktake_view',
   '/stock/wastage': 'wastage',
+  '/stock/write-offs': 'stock_writeoff_view',
   '/stock/par-levels': 'par_levels',
   '/stock/movements': 'movements_view',
   '/shopify': 'shopify_sync',
@@ -143,6 +145,7 @@ const navItems = [
       { label: 'Inventory Overview', path: '/stock/overview', icon: Package },
       { label: 'Stock Movements', path: '/stock/movements', icon: ArrowRightLeft },
       { label: 'Wastage', path: '/stock/wastage', icon: Trash2 },
+      { label: 'Stock Write-Offs', path: '/stock/write-offs', icon: FileX2 },
       { label: 'Par Levels', path: '/stock/par-levels', icon: Gauge },
       { label: 'Pack Compositions', path: '/purchasing/pack-bom', icon: Box },
     ]

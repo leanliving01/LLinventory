@@ -39,6 +39,7 @@ const ROUTE_PERMISSIONS = {
   '/stock/transfer':       'stock_transfers',
   '/stock/stock-take':     'stocktake_view',
   '/stock/wastage':        'wastage',
+  '/stock/write-offs':     'stock_writeoff_view',
   '/stock/par-levels':     'par_levels',
   '/shopify':              'shopify_sync',
   '/reports':              'reports_view',

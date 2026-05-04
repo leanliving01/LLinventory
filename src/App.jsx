@@ -74,6 +74,7 @@ import PurchasingDashboard from '@/pages/PurchasingDashboard';
 import FoodCostDashboard from '@/pages/FoodCostDashboard';
 import SupplierScorecard from '@/pages/SupplierScorecard';
 import ActivityLog from '@/pages/ActivityLog';
+import StockWriteOffs from '@/pages/StockWriteOffs';
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -161,6 +162,7 @@ const AuthenticatedApp = () => {
         <Route path="/production/supplier-yield" element={<SupplierYieldDashboard />} />
         <Route path="/stock/new-production" element={<Navigate to="/production/runs" replace />} />
         <Route path="/stock/wastage" element={<Wastage />} />
+        <Route path="/stock/write-offs" element={<StockWriteOffs />} />
         <Route path="/stock/stock-take" element={<StockTakeNew />} />
         <Route path="/stock/overview" element={<InventoryOverview />} />
         <Route path="/stock/movements" element={<StockMovements />} />

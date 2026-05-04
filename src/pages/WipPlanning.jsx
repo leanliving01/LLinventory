@@ -414,6 +414,20 @@ export default function WipPlanning() {
           </div>
         </button>
 
+        {showQCSection && isSessionConfirmed && (
+          <div className="border-t border-border px-5 py-4 bg-green-50/50 dark:bg-green-950/10">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-green-600" />
+              <div>
+                <p className="text-sm font-semibold text-green-700 dark:text-green-400">Morning Quality Check Completed</p>
+                <p className="text-xs text-muted-foreground">
+                  {todaySession?.approved_count || 0} approved · {todaySession?.declined_count || 0} declined · Confirmed by {todaySession?.confirmed_by_name || 'Unknown'} at {todaySession?.confirmed_at ? format(new Date(todaySession.confirmed_at), 'HH:mm') : '—'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showQCSection && !isSessionConfirmed && (
           <div className="border-t border-border">
             {isLoading ? (

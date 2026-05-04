@@ -1,0 +1,92 @@
+{
+  "name": "StockWriteOff",
+  "type": "object",
+  "properties": {
+    "write_off_number": {
+      "type": "string",
+      "description": "Auto: SWO-YYYY-NNNN"
+    },
+    "write_off_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the write-off is recorded"
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the write-off is effective for stock purposes"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "FK to Product"
+    },
+    "product_sku": {
+      "type": "string",
+      "description": "Denormalized SKU"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Denormalized product name"
+    },
+    "qty": {
+      "type": "number",
+      "description": "Quantity written off"
+    },
+    "uom": {
+      "type": "string",
+      "description": "Unit of measure (from product stock_uom)"
+    },
+    "unit_cost": {
+      "type": "number",
+      "default": 0,
+      "description": "Cost per unit at time of write-off (ZAR)"
+    },
+    "total_value": {
+      "type": "number",
+      "default": 0,
+      "description": "qty \u00d7 unit_cost (ZAR)"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "quality_deterioration",
+        "shelf_life_exceeded",
+        "contamination",
+        "damaged",
+        "stocktake_variance",
+        "other"
+      ],
+      "description": "Reason for write-off"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes or justification"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "confirmed"
+      ],
+      "default": "confirmed",
+      "description": "Write-off status"
+    },
+    "confirmed_by_name": {
+      "type": "string",
+      "description": "Who confirmed the write-off"
+    },
+    "confirmed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "stock_movement_id": {
+      "type": "string",
+      "description": "FK to StockMovement created by this write-off"
+    }
+  },
+  "required": [
+    "product_id",
+    "qty",
+    "reason"
+  ]
+}

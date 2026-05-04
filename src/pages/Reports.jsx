@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ShoppingCart, DollarSign, Package, Factory, Trash2, Calculator, ScrollText } from 'lucide-react';
+import { ShoppingCart, DollarSign, Package, Factory, Trash2, Calculator, ScrollText, ClipboardCheck } from 'lucide-react';
 import HelpDrawer from '@/components/help/HelpDrawer';
 
 import PurchaseReport from '@/components/reports/PurchaseReport';
@@ -10,12 +10,14 @@ import ProductionReport from '@/components/reports/ProductionReport';
 import WastageReport from '@/components/reports/WastageReport';
 import FoodCostReport from '@/components/reports/FoodCostReport';
 import AuditTrailReport from '@/components/reports/AuditTrailReport';
+import QualityCheckReport from '@/components/reports/QualityCheckReport';
 
 const TABS = [
   { id: 'purchase', label: 'Purchase', icon: ShoppingCart },
   { id: 'sales', label: 'Sales', icon: DollarSign },
   { id: 'inventory', label: 'Inventory', icon: Package },
   { id: 'production', label: 'Production', icon: Factory },
+  { id: 'qc', label: 'Quality Check', icon: ClipboardCheck },
   { id: 'wastage', label: 'Wastage', icon: Trash2 },
   { id: 'food-cost', label: 'Food Cost', icon: Calculator },
   { id: 'audit', label: 'Audit Trail', icon: ScrollText },
@@ -27,7 +29,7 @@ export default function Reports() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Reports</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Purchase, Sales, Inventory, Production, Wastage, Food Cost & Audit</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Purchase, Sales, Inventory, Production, Quality Check, Wastage, Food Cost & Audit</p>
         </div>
         <HelpDrawer pageKey="reports" />
       </div>
@@ -49,6 +51,7 @@ export default function Reports() {
         <TabsContent value="sales"><SalesReport /></TabsContent>
         <TabsContent value="inventory"><InventoryReport /></TabsContent>
         <TabsContent value="production"><ProductionReport /></TabsContent>
+        <TabsContent value="qc"><QualityCheckReport /></TabsContent>
         <TabsContent value="wastage"><WastageReport /></TabsContent>
         <TabsContent value="food-cost"><FoodCostReport /></TabsContent>
         <TabsContent value="audit"><AuditTrailReport /></TabsContent>
