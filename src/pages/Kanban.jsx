@@ -87,6 +87,12 @@ export default function Kanban() {
     enabled: productIds.length > 0,
   });
 
+  // Live WipBatch data — source of truth for portioning availability
+  const { data: wipBatches = [] } = useQuery({
+    queryKey: ['kanban-wip-batches'],
+    queryFn: () => base44.entities.WipBatch.filter({ quality_status: 'fresh' }, 'produced_date', 200),
+  });
+
   // Build product_id → category map for package detection
   const productCategoryMap = useMemo(() => {
     const map = {};
@@ -461,6 +467,7 @@ export default function Kanban() {
     queryClient.invalidateQueries({ queryKey: ['production-tasks', runId] });
     queryClient.invalidateQueries({ queryKey: ['task-logs', runId] });
     queryClient.invalidateQueries({ queryKey: ['wip-batches'] });
+    queryClient.invalidateQueries({ queryKey: ['kanban-wip-batches'] });
     toast.success('Task completed');
   };
 
@@ -579,6 +586,7 @@ export default function Kanban() {
           cachedComponents={allBomComponents}
           cachedProducts={products}
           allTasks={tasks}
+          wipBatches={wipBatches}
         />
       )}
 

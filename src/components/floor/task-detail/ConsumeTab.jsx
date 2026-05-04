@@ -20,14 +20,14 @@ import PreviousStepCard from '@/components/floor/task-detail/PreviousStepCard';
  *
  * Exposes `flushPendingSaves()` via ref so parent can force-save before task completion.
  */
-export default function ConsumeTab({ task, bom, components, onRef, allTasks, allBoms, allBomComponents }) {
+export default function ConsumeTab({ task, bom, components, onRef, allTasks, allBoms, allBomComponents, wipBatches }) {
   const queryClient = useQueryClient();
 
   // Use shared lookup to detect previous step context
   const prevStepInfo = useMemo(() => {
     if (!allTasks || !allBoms || !allBomComponents) return { hasPreviousStep: false, previousStation: null, items: [] };
-    return getPreviousStepInfo(task, allTasks, allBoms, allBomComponents);
-  }, [task, allTasks, allBoms, allBomComponents]);
+    return getPreviousStepInfo(task, allTasks, allBoms, allBomComponents, wipBatches);
+  }, [task, allTasks, allBoms, allBomComponents, wipBatches]);
 
   // Legacy fallback: fetch sibling prep task if parent didn't pass allTasks
   const isCookAfterPrep = task.station === 'cook' && (task.step_no || 0) > 1;

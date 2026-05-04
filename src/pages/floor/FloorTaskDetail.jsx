@@ -27,7 +27,7 @@ const ALL_STATION_TABS = [
 /**
  * Full-page drill-down for an active production task with tabbed sections.
  */
-export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack, onDone, loading, allTasks, allBoms, allBomComponents }) {
+export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack, onDone, loading, allTasks, allBoms, allBomComponents, wipBatches }) {
   const tabs = ALL_STATION_TABS;
   const [activeTab, setActiveTab] = useState('consume');
   const [flushing, setFlushing] = useState(false);
@@ -51,8 +51,8 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
   // Use shared lookup for previous step context (prep→cook or cook→portion)
   const prevStepInfo = useMemo(() => {
     if (!allTasks || !allBoms || !allBomComponents) return { hasPreviousStep: false, items: [] };
-    return getPreviousStepInfo(task, allTasks, allBoms, allBomComponents);
-  }, [task, allTasks, allBoms, allBomComponents]);
+    return getPreviousStepInfo(task, allTasks, allBoms, allBomComponents, wipBatches);
+  }, [task, allTasks, allBoms, allBomComponents, wipBatches]);
 
   // Fetch BOM for this product + station.
   // Prep and cook tasks both belong to the Cook BOM layer. Portion tasks use their own Portion BOM.
@@ -179,7 +179,7 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
 
       {/* Tab content */}
       <div className="min-h-[200px]">
-        {activeTab === 'consume' && <ConsumeTab task={task} bom={bom} components={stepFilteredComponents} onRef={handleConsumeRef} allTasks={allTasks} allBoms={allBoms} allBomComponents={allBomComponents} />}
+        {activeTab === 'consume' && <ConsumeTab task={task} bom={bom} components={stepFilteredComponents} onRef={handleConsumeRef} allTasks={allTasks} allBoms={allBoms} allBomComponents={allBomComponents} wipBatches={wipBatches} />}
         {activeTab === 'resources' && <ResourcesTab task={task} operations={operations} />}
         {activeTab === 'notes' && <NotesTab task={task} bom={bom} operations={operations} />}
         {activeTab === 'files' && <FilesTab bom={bom} />}

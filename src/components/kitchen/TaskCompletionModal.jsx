@@ -9,7 +9,7 @@ import { X, CheckCircle2, Loader2, AlertTriangle, ArrowDown } from 'lucide-react
 import { getPreviousStepInfo } from '@/lib/previousStepLookup';
 import PreviousStepCard from '@/components/floor/task-detail/PreviousStepCard';
 
-export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedBoms, cachedComponents, cachedProducts, allTasks }) {
+export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedBoms, cachedComponents, cachedProducts, allTasks, wipBatches }) {
   const [actuals, setActuals] = useState({});
   const [wastage, setWastage] = useState({});
   const [actualYield, setActualYield] = useState('');
@@ -24,8 +24,8 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
   // Shared previous-step lookup (works for cook-after-prep AND portioning)
   const prevStepInfo = useMemo(() => {
     if (!allTasks || !cachedBoms || !cachedComponents) return { hasPreviousStep: false, previousStation: null, items: [] };
-    return getPreviousStepInfo(task, allTasks, cachedBoms, cachedComponents);
-  }, [task, allTasks, cachedBoms, cachedComponents]);
+    return getPreviousStepInfo(task, allTasks, cachedBoms, cachedComponents, wipBatches);
+  }, [task, allTasks, cachedBoms, cachedComponents, wipBatches]);
 
   // Legacy fallback: fetch sibling prep task if allTasks not available
   const { data: siblingPrepTasks = [] } = useQuery({

@@ -5,10 +5,10 @@
  *   Prep → Cook → Portion
  *
  * For Cook tasks (step > 1): the previous step is a Prep task on the same product.
- * For Portion tasks: the previous step is the Cook task(s) that produced the WIP bulk
- *   ingredient(s) used in the Portion BOM.
+ * For Portion tasks: reads LIVE WipBatch availability (the source of truth after
+ *   portioning tasks consume from them).
  *
- * Returns { hasPreviousStep, previousStation, originalRequiredQty, availableQty, productName, uom }
+ * Returns { hasPreviousStep, previousStation, items: [...] }
  */
 
 /**
@@ -18,9 +18,10 @@
  * @param {object[]} allTasks - All tasks in the run (not archived)
  * @param {object[]} allBoms - All active BOMs
  * @param {object[]} allBomComponents - All BOM components
+ * @param {object[]} [wipBatches] - Optional: live WipBatch records for accurate portioning availability
  * @returns {{ hasPreviousStep: boolean, previousStation: string|null, items: Array<{ productId, productName, productSku, uom, requiredQty, availableQty }> }}
  */
-export function getPreviousStepInfo(task, allTasks, allBoms, allBomComponents) {
+export function getPreviousStepInfo(task, allTasks, allBoms, allBomComponents, wipBatches) {
   const empty = { hasPreviousStep: false, previousStation: null, items: [] };
 
   // Case 1: Cook after Prep — same product, step > 1
@@ -71,16 +72,27 @@ export function getPreviousStepInfo(task, allTasks, allBoms, allBomComponents) {
       const perUnit = comp.qty / (portionBom.yield_qty || 1);
       const requiredQty = Math.round(perUnit * (task.qty || 1) * 100) / 100;
 
-      // The cook task's actual yield tells us how much is available
-      // We read the latest qty from the cook task (which was set to actual yield on completion)
-      // But we actually need the WIP batch qty for true availability — for now, use cook task notes or qty
+      // Use WipBatch as the source of truth for available qty (it gets deducted as portioning consumes).
+      // Fall back to cook task qty only if wipBatches aren't provided.
+      let availableQty = cookTask.qty;
+      if (wipBatches && wipBatches.length > 0) {
+        const productBatches = wipBatches.filter(
+          b => b.bulk_product_id === comp.input_product_id &&
+               (b.quality_status === 'fresh' || b.quality_status === 'use_today')
+        );
+        if (productBatches.length > 0) {
+          availableQty = productBatches.reduce((sum, b) => sum + (b.qty_kg || 0), 0);
+          availableQty = Math.round(availableQty * 100) / 100;
+        }
+      }
+
       items.push({
         productId: comp.input_product_id,
         productName: comp.input_product_name || '',
         productSku: comp.input_product_sku || '',
         uom: comp.uom || 'kg',
         requiredQty,
-        availableQty: cookTask.qty, // cascaded actual yield from cook step
+        availableQty,
         cookTaskName: cookTask.meal_name || cookTask.name || '',
       });
     }

@@ -87,6 +87,13 @@ export default function FloorTasks() {
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
   });
 
+  // Live WipBatch data — source of truth for portioning availability
+  const { data: wipBatches = [] } = useQuery({
+    queryKey: ['floor-wip-batches'],
+    queryFn: () => base44.entities.WipBatch.filter({ quality_status: 'fresh' }, 'produced_date', 200),
+    refetchInterval: 10000,
+  });
+
   // Map: product_id → portion BOM components (for dependency checking)
   const bomComponentsMap = useMemo(() => {
     const portionBoms = allBoms.filter(b => b.bom_type === 'portion');
@@ -351,6 +358,7 @@ export default function FloorTasks() {
     queryClient.invalidateQueries({ queryKey: ['floor-tasks', selectedRunId] });
     queryClient.invalidateQueries({ queryKey: ['floor-task-logs', selectedRunId] });
     queryClient.invalidateQueries({ queryKey: ['wip-batches'] });
+    queryClient.invalidateQueries({ queryKey: ['floor-wip-batches'] });
     toast.success('Task completed');
   };
 
@@ -408,8 +416,9 @@ export default function FloorTasks() {
           allTasks={tasks}
           allBoms={allBoms}
           allBomComponents={allBomComponents}
+          wipBatches={wipBatches}
         />
-        {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} cachedBoms={allBoms} cachedComponents={allBomComponents} cachedProducts={allProducts} allTasks={tasks} />}
+        {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => setPendingDone(null)} cachedBoms={allBoms} cachedComponents={allBomComponents} cachedProducts={allProducts} allTasks={tasks} wipBatches={wipBatches} />}
       </>
     );
   }
@@ -481,7 +490,7 @@ export default function FloorTasks() {
 
       {/* Modals */}
       {blockMessage && <DependencyBlockModal message={blockMessage} onClose={() => setBlockMessage(null)} />}
-      {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => { setPendingDone(null); }} cachedBoms={allBoms} cachedComponents={allBomComponents} cachedProducts={allProducts} allTasks={tasks} />}
+      {pendingDone && <TaskCompletionModal task={pendingDone} onConfirm={handleTaskCompleted} onCancel={() => { setPendingDone(null); }} cachedBoms={allBoms} cachedComponents={allBomComponents} cachedProducts={allProducts} allTasks={tasks} wipBatches={wipBatches} />}
       {pendingStart && (
         <TeamMemberSelect
           members={allTeamMembers.filter(m => {
