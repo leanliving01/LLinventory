@@ -18,13 +18,34 @@ export default function ConsumeTab({ task, bom, components, onRef }) {
   const queryClient = useQueryClient();
   const scale = bom?.yield_qty ? (task.qty || 1) / bom.yield_qty : 1;
 
+  // Fetch actual picked quantities from the pick list for this run
+  const { data: pickLines = [] } = useQuery({
+    queryKey: ['pick-lines-for-consume', task.run_id],
+    queryFn: async () => {
+      const pls = await base44.entities.PickList.filter({ production_run_id: task.run_id }, '-created_date', 1);
+      if (pls.length === 0) return [];
+      return base44.entities.PickLine.filter({ pick_list_id: pls[0].id }, 'product_name', 500);
+    },
+    enabled: !!task.run_id,
+  });
+
+  const pickedByProduct = useMemo(() => {
+    const map = {};
+    pickLines.forEach(pl => {
+      if (!map[pl.product_id]) map[pl.product_id] = 0;
+      map[pl.product_id] += pl.actual_qty_picked || pl.required_qty || 0;
+    });
+    return map;
+  }, [pickLines]);
+
   const scaledComponents = useMemo(() => {
     if (!components || components.length === 0) return [];
     return components.map(c => ({
       ...c,
       required: Math.round(c.qty * scale * 100) / 100,
+      actualPicked: pickedByProduct[c.input_product_id] ?? null,
     }));
-  }, [components, scale]);
+  }, [components, scale, pickedByProduct]);
 
   // Fetch existing TaskConsumption records for this task
   const { data: existing = [] } = useQuery({
@@ -154,11 +175,12 @@ export default function ConsumeTab({ task, bom, components, onRef }) {
     if (comp) saveRow(comp, values[compId]);
   };
 
-  // Auto-consume: set all consumed = required and save all immediately
+  // Auto-consume: set all consumed = picked qty (what was physically pulled), falling back to required
   const autoConsume = async () => {
     const next = {};
     scaledComponents.forEach(c => {
-      next[c.id] = { ...values[c.id], consumed: String(c.required) };
+      const qty = c.actualPicked != null ? c.actualPicked : c.required;
+      next[c.id] = { ...values[c.id], consumed: String(qty) };
     });
     setValues(next);
     // Save all rows
@@ -166,7 +188,7 @@ export default function ConsumeTab({ task, bom, components, onRef }) {
       await saveRow(comp, next[comp.id]);
     }
     queryClient.invalidateQueries({ queryKey: ['task-consumption', task.id] });
-    toast.success('All set to required and saved');
+    toast.success('All set to picked quantities and saved');
   };
 
   // Flush pending saves on unmount (so nothing is lost when navigating away)
@@ -198,7 +220,7 @@ export default function ConsumeTab({ task, bom, components, onRef }) {
     <div className="space-y-3">
       {/* Auto-consume button */}
       <Button variant="outline" size="sm" onClick={autoConsume} className="w-full gap-2">
-        <Zap className="w-4 h-4" /> Auto-consume (set all to required)
+        <Zap className="w-4 h-4" /> Auto-consume (set all to picked qty)
       </Button>
 
       <p className="text-[11px] text-muted-foreground text-center">
@@ -228,6 +250,12 @@ export default function ConsumeTab({ task, bom, components, onRef }) {
               <span className="text-muted-foreground">Required:</span>
               <span className="font-bold tabular-nums">{c.required} {c.uom}</span>
             </div>
+            {c.actualPicked != null && c.actualPicked !== c.required && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Picked:</span>
+                <span className="font-bold tabular-nums text-blue-600">{c.actualPicked} {c.uom}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm text-muted-foreground shrink-0">Consumed:</span>
               <Input

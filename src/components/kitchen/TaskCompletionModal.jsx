@@ -65,6 +65,26 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
     return boms[0];
   }, [boms, task.station]);
 
+  // Fetch actual picked quantities from the pick list for this run
+  const { data: pickLines = [] } = useQuery({
+    queryKey: ['pick-lines-for-task-modal', task.run_id],
+    queryFn: async () => {
+      const pls = await base44.entities.PickList.filter({ production_run_id: task.run_id }, '-created_date', 1);
+      if (pls.length === 0) return [];
+      return base44.entities.PickLine.filter({ pick_list_id: pls[0].id }, 'product_name', 500);
+    },
+    enabled: !!task.run_id,
+  });
+
+  const pickedByProduct = useMemo(() => {
+    const map = {};
+    pickLines.forEach(pl => {
+      if (!map[pl.product_id]) map[pl.product_id] = 0;
+      map[pl.product_id] += pl.actual_qty_picked || pl.required_qty || 0;
+    });
+    return map;
+  }, [pickLines]);
+
   const componentRows = useMemo(() => {
     if (!relevantBom) return [];
     const comps = allComponents.filter(c => c.bom_id === relevantBom.id);
@@ -74,26 +94,29 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
       const totalRequired = Math.round(perUnit * (task.qty || 1) * 100) / 100;
       const product = productMap[c.input_product_id];
       const isBulkWip = product?.type === 'wip_bulk';
+      // Use actual picked qty from pick list if available, otherwise fall back to BOM-required
+      const actualPicked = pickedByProduct[c.input_product_id];
       return {
         id: c.id,
         input_product_id: c.input_product_id,
         name: c.input_product_name || product?.name || 'Unknown',
         sku: c.input_product_sku || product?.sku || '',
         uom: c.uom || product?.stock_uom || '',
-        picked: totalRequired,
+        required: totalRequired,
+        picked: actualPicked != null ? actualPicked : totalRequired,
         perUnit,
         cost_per_unit: product?.cost_avg || 0,
         isBulkWip,
         is_consumable: c.is_consumable || false,
       };
     });
-  }, [relevantBom, allComponents, task.qty, productMap]);
+  }, [relevantBom, allComponents, task.qty, productMap, pickedByProduct]);
 
   // Separate bulk WIP rows from packaging/consumable rows for portioning
   const bulkRows = useMemo(() => componentRows.filter(r => r.isBulkWip && !r.is_consumable), [componentRows]);
   const otherRows = useMemo(() => componentRows.filter(r => !r.isBulkWip || r.is_consumable), [componentRows]);
 
-  // Pre-fill actuals from saved TaskConsumption records, falling back to picked values
+  // Pre-fill actuals from saved TaskConsumption records, falling back to actual picked values
   useMemo(() => {
     if (!isPortioning && componentRows.length > 0 && Object.keys(actuals).length === 0) {
       const prefilled = {};
@@ -104,6 +127,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
           prefilled[r.id] = saved.consumed_qty;
           prefilledWaste[r.id] = saved.wastage_qty || 0;
         } else {
+          // Default to what was actually picked (from pick list), not BOM-required
           prefilled[r.id] = r.picked;
         }
       });
@@ -241,10 +265,13 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                             <Badge variant="outline" className="text-[10px]">{row.uom}</Badge>
                           </div>
                           <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Available (from cook)</label>
-                              <p className="text-sm font-bold">{row.picked} {row.uom}</p>
-                            </div>
+                           <div>
+                             <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Required (from recipe)</label>
+                             <p className="text-sm font-bold">{row.required} {row.uom}</p>
+                             {row.picked !== row.required && (
+                               <p className="text-[10px] text-blue-600 font-medium">Picked: {row.picked} {row.uom}</p>
+                             )}
+                           </div>
                             <div>
                               <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Left Over</label>
                               <Input
@@ -416,6 +443,9 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                         <div>
                           <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Picked</label>
                           <p className="text-sm font-bold">{row.picked}</p>
+                          {row.picked !== row.required && (
+                            <p className="text-[10px] text-muted-foreground">Req: {row.required}</p>
+                          )}
                         </div>
                         <div>
                           <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Consumed</label>
@@ -441,7 +471,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                       </div>
                       {diff !== 0 && (
                         <p className={`text-[11px] font-medium ${diff > 0 ? 'text-amber-600' : 'text-blue-600'}`}>
-                          {diff > 0 ? `+${diff.toFixed(2)} over picked` : `${Math.abs(diff).toFixed(2)} ${row.uom} returning to stock`}
+                          {diff > 0 ? `+${diff.toFixed(2)} over what was picked` : `${Math.abs(diff).toFixed(2)} ${row.uom} returning to stock`}
                         </p>
                       )}
                       {Number(waste) > 0 && (
