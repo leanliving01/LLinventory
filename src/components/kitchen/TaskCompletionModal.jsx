@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { X, CheckCircle2, Loader2, AlertTriangle, ArrowDown } from 'lucide-react';
+import { toast } from 'sonner';
 import { getPreviousStepInfo } from '@/lib/previousStepLookup';
 import PreviousStepCard from '@/components/floor/task-detail/PreviousStepCard';
 
@@ -17,6 +18,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
   const [portionLeftover, setPortionLeftover] = useState({}); // how much bulk WIP is left over after portioning
   const [varianceNote, setVarianceNote] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const [yieldRequired, setYieldRequired] = useState(false);
 
   const isPortioning = task.station === 'portion';
   const isCookAfterPrep = task.station === 'cook' && (task.step_no || 0) > 1;
@@ -177,6 +179,13 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
   }, [bulkRows, isPortioning]);
 
   const handleConfirm = async () => {
+    // Require actual yield for prep/cook tasks
+    if (!isPortioning && actualYield === '') {
+      setYieldRequired(true);
+      toast.error('Enter the actual yield to confirm this task');
+      return;
+    }
+
     setConfirming(true);
 
     if (isPortioning) {
@@ -424,10 +433,10 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
               )}
 
               {/* Actual Yield */}
-              <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+              <div className={`rounded-xl p-4 ${yieldRequired && actualYield === '' ? 'bg-red-50 dark:bg-red-950 border-2 border-red-400 dark:border-red-600' : 'bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800'}`}>
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-sm font-bold">Actual Yield</p>
+                    <p className="text-sm font-bold">Actual Yield <span className="text-red-500">*</span></p>
                     <p className="text-xs text-muted-foreground">
                       {prevStepInfo.hasPreviousStep ? 'Recipe target' : 'Planned'}: {prevStepInfo.hasPreviousStep && originalRequiredQty != null
                         ? (Number.isInteger(originalRequiredQty) ? originalRequiredQty : Number(originalRequiredQty).toFixed(2))
@@ -440,8 +449,9 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                       inputMode="decimal"
                       placeholder={String(task.qty || 0)}
                       value={actualYield}
-                      onChange={e => setActualYield(e.target.value)}
-                      className="w-28 h-12 text-right text-lg font-bold"
+                      onChange={e => { setActualYield(e.target.value); setYieldRequired(false); }}
+                      className={`w-28 h-12 text-right text-lg font-bold ${yieldRequired && actualYield === '' ? 'border-red-400 ring-2 ring-red-200' : ''}`}
+                      autoFocus
                     />
                     <span className="text-sm text-muted-foreground">{task.qty_uom || ''}</span>
                   </div>
