@@ -31,7 +31,8 @@ const CATEGORY_COLORS = {
 
 export default function RawMaterialGroupedTable({ products, showCheckbox, mergeSelection, setMergeSelection }) {
   const navigate = useNavigate();
-  const [collapsed, setCollapsed] = useState({});
+  // Start all categories collapsed
+  const [expanded, setExpanded] = useState({});
 
   const grouped = useMemo(() => {
     const groups = {};
@@ -54,7 +55,7 @@ export default function RawMaterialGroupedTable({ products, showCheckbox, mergeS
     return sorted;
   }, [products]);
 
-  const toggle = (cat) => setCollapsed(prev => ({ ...prev, [cat]: !prev[cat] }));
+  const toggle = (cat) => setExpanded(prev => ({ ...prev, [cat]: !prev[cat] }));
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -81,7 +82,7 @@ export default function RawMaterialGroupedTable({ products, showCheckbox, mergeS
       )}
 
       {grouped.map(({ category, items }) => {
-        const isCollapsed = collapsed[category];
+        const isOpen = expanded[category];
         const colorClass = CATEGORY_COLORS[category] || 'bg-slate-100 text-slate-700';
 
         return (
@@ -91,9 +92,9 @@ export default function RawMaterialGroupedTable({ products, showCheckbox, mergeS
               onClick={() => toggle(category)}
               className="w-full flex items-center gap-3 px-4 py-2.5 bg-muted/30 border-y border-border hover:bg-muted/50 transition-colors text-left"
             >
-              {isCollapsed
-                ? <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+              {isOpen
+                ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
               }
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${colorClass}`}>
                 {category}
@@ -104,7 +105,7 @@ export default function RawMaterialGroupedTable({ products, showCheckbox, mergeS
             </button>
 
             {/* Items table */}
-            {!isCollapsed && (
+            {isOpen && (
               <table className="w-full">
                 <tbody className="divide-y divide-border">
                   {items.map(p => {
