@@ -30,6 +30,18 @@
       ],
       "description": "Product type"
     },
+    "category_id": {
+      "type": "string",
+      "description": "FK to ProductCategory"
+    },
+    "subcategory_id": {
+      "type": "string",
+      "description": "FK to ProductSubcategory"
+    },
+    "subcategory": {
+      "type": "string",
+      "description": "LEGACY \u2014 Manual subcategory override text. Being replaced by subcategory_id."
+    },
     "item_type": {
       "type": "string",
       "enum": [
@@ -58,7 +70,7 @@
     },
     "category": {
       "type": "string",
-      "description": "Free text category from Cin7"
+      "description": "LEGACY \u2014 Free text category from Cin7. Being replaced by category_id."
     },
     "pick_category": {
       "type": "string",

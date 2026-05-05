@@ -31,6 +31,7 @@ export const PERMISSION_GROUPS = [
     keys: [
       { key: 'catalog_view',  label: 'View Products' },
       { key: 'catalog_edit',  label: 'Edit Products' },
+      { key: 'category_manage', label: 'Manage Categories & Subcategories' },
       { key: 'recipes_view',  label: 'View Recipes' },
       { key: 'recipes_edit',  label: 'Edit Recipes' },
     ],
@@ -149,7 +150,7 @@ export const ROLE_DEFAULTS = {
 
   ops_manager: p(
     'dashboard_view', 'dashboard_kpis', 'dashboard_revenue', 'dashboard_production', 'dashboard_costs', 'dashboard_shortages',
-    'catalog_view', 'catalog_edit', 'recipes_view', 'recipes_edit',
+    'catalog_view', 'catalog_edit', 'category_manage', 'recipes_view', 'recipes_edit',
     'planning_view', 'planning_create', 'runs_view', 'runs_create', 'runs_start_complete', 'runs_approve_complete', 'team_management', 'kitchen_tablet', 'pick_lists', 'yield_tracker',
     'cooking_runs_view', 'cooking_runs_create', 'cooking_runs_release', 'wip_view', 'wip_manage', 'wip_qc_override', 'yield_review', 'supplier_yield_view', 'wip_planning', 'wastage_review',
     'stocktake_view', 'stocktake_create', 'stock_transfers', 'receiving', 'wastage', 'par_levels', 'movements_view', 'inventory_overview', 'inventory_recalc_committed', 'stock_writeoff_view', 'stock_writeoff_create',

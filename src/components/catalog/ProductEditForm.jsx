@@ -46,7 +46,7 @@ function FormField({ label, children, hint }) {
   );
 }
 
-export default function ProductEditForm({ formData, onChange, locations, suppliers, categories = [], productId }) {
+export default function ProductEditForm({ formData, onChange, locations, suppliers, categories = [], productCategories = [], productSubcategories = [], productId }) {
   const set = (field, value) => onChange({ ...formData, [field]: value });
   const { accounts: xeroAccounts, taxRates: xeroTaxRates, isLoading: xeroLoading } = useXeroChartData();
 
@@ -78,18 +78,48 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
             </Select>
           </FormField>
           <FormField label="Category">
-            <Select value={formData.category || 'none'} onValueChange={v => set('category', v === 'none' ? '' : v)}>
+            <Select
+              value={formData.category_id || 'none'}
+              onValueChange={v => {
+                const newCatId = v === 'none' ? '' : v;
+                // Clear subcategory when category changes
+                onChange({ ...formData, category_id: newCatId, subcategory_id: '' });
+              }}
+            >
               <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">— None —</SelectItem>
-                {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                {productCategories
+                  .filter(c => !formData.type || c.product_type === formData.type)
+                  .map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
               </SelectContent>
             </Select>
+            {formData.category && !formData.category_id && (
+              <p className="text-[10px] text-amber-600">Legacy: {formData.category}</p>
+            )}
           </FormField>
-          <FormField label="Pick Category">
-            <Select value={formData.pick_category || ''} onValueChange={v => set('pick_category', v)}>
+          <FormField label="Subcategory">
+            <Select
+              value={formData.subcategory_id || 'none'}
+              onValueChange={v => set('subcategory_id', v === 'none' ? '' : v)}
+            >
+              <SelectTrigger><SelectValue placeholder="Select subcategory" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— None —</SelectItem>
+                {productSubcategories
+                  .filter(s => formData.category_id && s.category_id === formData.category_id)
+                  .map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {formData.subcategory && !formData.subcategory_id && (
+              <p className="text-[10px] text-amber-600">Legacy: {formData.subcategory}</p>
+            )}
+          </FormField>
+          <FormField label="Pick Category" hint="For raw material pick lists">
+            <Select value={formData.pick_category || 'none'} onValueChange={v => set('pick_category', v === 'none' ? '' : v)}>
               <SelectTrigger><SelectValue placeholder="Select pick category" /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="none">— None —</SelectItem>
                 {PICK_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>

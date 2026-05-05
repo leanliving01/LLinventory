@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Settings as SettingsIcon, Users, Database, Download, Building2, Bell, Ruler, Package, UserCog } from 'lucide-react';
+import { Settings as SettingsIcon, Users, Database, Download, Building2, Bell, Ruler, Package, UserCog, FolderTree } from 'lucide-react';
 import SettingsOrgTab from '@/components/settings/SettingsOrgTab';
 import SettingsUsersTab from '@/components/settings/SettingsUsersTab';
 import SettingsCin7Tab from '@/components/settings/SettingsCin7Tab';
@@ -12,6 +12,7 @@ import SettingsAlertsTab from '@/components/settings/SettingsAlertsTab';
 import SettingsUomTab from '@/components/settings/SettingsUomTab';
 
 import SettingsPackingMaterialsTab from '@/components/settings/SettingsPackingMaterialsTab';
+import SettingsCategoriesTab from '@/components/settings/SettingsCategoriesTab';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -37,6 +38,7 @@ export default function SettingsPage() {
           <TabsTrigger value="uom" className="gap-1.5"><Ruler className="w-3.5 h-3.5" />Units</TabsTrigger>
 
           <TabsTrigger value="packing" className="gap-1.5"><Package className="w-3.5 h-3.5" />Packing Materials</TabsTrigger>
+          {perms.category_manage && <TabsTrigger value="categories" className="gap-1.5"><FolderTree className="w-3.5 h-3.5" />Categories</TabsTrigger>}
         </TabsList>
         <TabsContent value="org" className="mt-4"><SettingsOrgTab /></TabsContent>
         {perms.user_management && <TabsContent value="users" className="mt-4"><SettingsUsersTab /></TabsContent>}
@@ -47,6 +49,7 @@ export default function SettingsPage() {
         <TabsContent value="uom" className="mt-4"><SettingsUomTab /></TabsContent>
 
         <TabsContent value="packing" className="mt-4"><SettingsPackingMaterialsTab /></TabsContent>
+        {perms.category_manage && <TabsContent value="categories" className="mt-4"><SettingsCategoriesTab /></TabsContent>}
       </Tabs>
     </div>
   );

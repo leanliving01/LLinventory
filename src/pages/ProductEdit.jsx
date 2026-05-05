@@ -59,6 +59,16 @@ export default function ProductEdit() {
     queryFn: () => base44.entities.Product.list('-created_date', 500),
   });
 
+  const { data: productCategories = [] } = useQuery({
+    queryKey: ['product-categories'],
+    queryFn: () => base44.entities.ProductCategory.filter({ is_active: true }, 'sort_order', 200),
+  });
+
+  const { data: productSubcategories = [] } = useQuery({
+    queryKey: ['product-subcategories'],
+    queryFn: () => base44.entities.ProductSubcategory.filter({ is_active: true }, 'sort_order', 500),
+  });
+
   const categories = [...new Set(allProducts.map(p => p.category).filter(Boolean))].sort();
 
   useEffect(() => {
@@ -151,6 +161,8 @@ export default function ProductEdit() {
             locations={locations}
             suppliers={suppliers}
             categories={categories}
+            productCategories={productCategories}
+            productSubcategories={productSubcategories}
             productId={productId}
           />
         </>
