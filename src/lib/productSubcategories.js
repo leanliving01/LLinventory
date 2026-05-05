@@ -50,8 +50,8 @@ export function getFinishedMealSubcategory(product) {
 // ── Bulk Cooked (WIP): categorize by ingredient type from name ──
 const BULK_KEYWORDS = {
   Meats: ['chicken', 'beef', 'steak', 'mince', 'lamb', 'pork', 'turkey', 'fish', 'salmon', 'hake', 'trinchado', 'cottage pie'],
-  Starches: ['rice', 'potato', 'mash', 'pasta', 'noodle'],
-  Vegetables: ['veg', 'carrot', 'bean', 'broccoli', 'butternut', 'spinach', 'cauliflower', 'cabbage', 'mushroom', 'pepper', 'onion', 'pumpkin'],
+  Starches: ['rice', 'potato', 'mash', 'pasta', 'noodle', 'couscous'],
+  Vegetables: ['veg', 'carrot', 'bean', 'broccoli', 'butternut', 'spinach', 'cauliflower', 'cabbage', 'mushroom', 'pepper', 'onion', 'pumpkin', 'corn', 'zucchini', 'eggplant'],
   Sauces: ['sauce', 'gravy', 'chili', 'curry', 'pesto', 'marinade', 'dressing'],
   'Stir-Fry & Mixed': ['stir-fry', 'stir fry', 'mixed veg', 'medley'],
 };
@@ -84,10 +84,11 @@ export function getPackageSubcategory(product) {
   const name = (product.name || '').toLowerCase();
   const sku = (product.sku || '').toUpperCase();
   if (name.includes('low carb') || name.includes('smart carb') || sku.startsWith('SCP')) return 'Low Carb Packages';
-  if (name.includes("men's lean muscle") || sku.startsWith('MENLEAMUS')) return "Men's Lean Muscle Packages";
-  if (name.includes("men's weight loss") || sku.startsWith('MENWEILOS')) return "Men's Weight Loss Packages";
+  // IMPORTANT: Women's checks MUST come before Men's — "women's lean muscle" contains "men's lean muscle" as substring
   if (name.includes("women's lean muscle") || sku.startsWith('WOMLEAMUS')) return "Women's Lean Muscle Packages";
   if (name.includes("women's weight loss") || sku.startsWith('WOMWEILOS')) return "Women's Weight Loss Packages";
+  if (name.includes("men's lean muscle") || sku.startsWith('MENLEAMUS')) return "Men's Lean Muscle Packages";
+  if (name.includes("men's weight loss") || sku.startsWith('MENWEILOS')) return "Men's Weight Loss Packages";
   if (name.includes('byo') || name.includes('build your own')) return 'Build Your Own (BYO)';
   return 'Other Packages';
 }
