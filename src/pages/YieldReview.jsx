@@ -79,9 +79,10 @@ function buildYieldLines(tasks, consumptions, yieldRecords, pickLines, pickLists
     const taskConsumptions = consumptionsByTask[task.id] || [];
 
     // Filter to weight-based only (kg, g, ml, L) — skip packaging (pcs, box)
+    // Also exclude WIP-sourced lines (wip_batch_id set) — those are leftover from prior runs, no pick/consume step
     const weightUoms = ['kg', 'g', 'l', 'ml'];
     const weightConsumptions = taskConsumptions.filter(tc =>
-      weightUoms.includes((tc.uom || '').toLowerCase())
+      weightUoms.includes((tc.uom || '').toLowerCase()) && !tc.wip_batch_id
     );
 
     // Find the pick list for this task's run
