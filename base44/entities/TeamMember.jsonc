@@ -23,6 +23,15 @@
       "type": "boolean",
       "default": true,
       "description": "Whether this team member is currently active"
+    },
+    "is_manager": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this team member can approve/complete production runs"
+    },
+    "manager_pin": {
+      "type": "string",
+      "description": "4-digit PIN for manager approval actions (stored as plain text \u2014 validated server-side)"
     }
   },
   "required": [

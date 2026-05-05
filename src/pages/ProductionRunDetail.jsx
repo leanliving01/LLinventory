@@ -34,8 +34,9 @@ const STATUS_STYLES = {
 };
 
 export default function ProductionRunDetail() {
-  const urlParams = new URLSearchParams(window.location.search);
   const runId = window.location.pathname.split('/').pop();
+  const urlParams = new URLSearchParams(window.location.search);
+  const approvedByManager = urlParams.get('approved_by');
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const customRoles = useCustomRoles();
@@ -78,11 +79,12 @@ export default function ProductionRunDetail() {
   const existingPickList = existingPickLists[0] || null;
   const [generatingPickList, setGeneratingPickList] = useState(false);
 
-  // Pre-fill actuals from lines that already have actual_qty
+  // Pre-fill actuals from lines that already have actual_qty (written by task completion)
   useMemo(() => {
     const prefilled = {};
     lines.forEach(l => {
-      if (l.actual_qty > 0 && actuals[l.id] === undefined) {
+      if (actuals[l.id] !== undefined) return; // already set by user
+      if (l.actual_qty > 0) {
         prefilled[l.id] = l.actual_qty;
       }
     });
@@ -99,10 +101,13 @@ export default function ProductionRunDetail() {
     setReasons(prev => ({ ...prev, [lineId]: value }));
   };
 
-  // Pre-fill all actuals = planned
+  // Pre-fill all actuals = planned (only for lines without task-reported actuals)
   const handleFillPlanned = () => {
     const filled = {};
-    lines.forEach(l => { filled[l.id] = l.planned_qty; });
+    lines.forEach(l => {
+      // Prefer task-reported actual_qty if it exists, otherwise use planned
+      filled[l.id] = l.actual_qty > 0 ? l.actual_qty : l.planned_qty;
+    });
     setActuals(filled);
   };
 
@@ -551,8 +556,8 @@ export default function ProductionRunDetail() {
       action: 'finalize',
       entity_type: 'ProductionRun',
       entity_id: runId,
-      description: `Completed run ${run?.run_number} — ${totalActual} units produced (${lines.length} meals)`,
-      new_value: { total_actual: totalActual, lines_count: lines.length },
+      description: `Completed run ${run?.run_number} — ${totalActual} units produced (${lines.length} meals)${approvedByManager ? ` — Approved by ${approvedByManager}` : ''}`,
+      new_value: { total_actual: totalActual, lines_count: lines.length, approved_by: approvedByManager || undefined },
     });
     toast.success(`Run completed — ${totalActual} units produced, stock updated`);
     setCompleting(false);
@@ -1054,6 +1059,13 @@ export default function ProductionRunDetail() {
         <div className="bg-muted border border-border rounded-lg px-4 py-3 text-sm text-muted-foreground flex items-center gap-2">
           <RotateCcw className="w-4 h-4 shrink-0" />
           This run is in draft. Go to WIP Planning to complete QC and release cooking runs — the run will automatically be scheduled.
+        </div>
+      )}
+
+      {approvedByManager && isInProgress && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700 flex items-center gap-2">
+          <ShieldAlert className="w-4 h-4 shrink-0" />
+          <span><strong>{approvedByManager}</strong> verified via PIN to review and complete this run.</span>
         </div>
       )}
 

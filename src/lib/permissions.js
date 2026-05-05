@@ -43,6 +43,7 @@ export const PERMISSION_GROUPS = [
       { key: 'runs_view',             label: 'View Production Runs' },
       { key: 'runs_create',           label: 'Create Runs' },
       { key: 'runs_start_complete',   label: 'Start / Complete Runs' },
+      { key: 'runs_approve_complete',  label: 'Approve Run Completion (Manager PIN)' },
       { key: 'kitchen_tablet',        label: 'Kitchen / Floor Tasks' },
       { key: 'pick_lists',            label: 'Pick Lists & Packing' },
       { key: 'yield_tracker',         label: 'Yield Tracker / Shortages' },
@@ -148,7 +149,7 @@ export const ROLE_DEFAULTS = {
   ops_manager: p(
     'dashboard_view', 'dashboard_kpis', 'dashboard_revenue', 'dashboard_production', 'dashboard_costs', 'dashboard_shortages',
     'catalog_view', 'catalog_edit', 'recipes_view', 'recipes_edit',
-    'planning_view', 'planning_create', 'runs_view', 'runs_create', 'runs_start_complete', 'kitchen_tablet', 'pick_lists', 'yield_tracker',
+    'planning_view', 'planning_create', 'runs_view', 'runs_create', 'runs_start_complete', 'runs_approve_complete', 'kitchen_tablet', 'pick_lists', 'yield_tracker',
     'cooking_runs_view', 'cooking_runs_create', 'cooking_runs_release', 'wip_view', 'wip_manage', 'wip_qc_override', 'yield_review', 'supplier_yield_view', 'wip_planning', 'wastage_review',
     'stocktake_view', 'stocktake_create', 'stock_transfers', 'receiving', 'wastage', 'par_levels', 'movements_view', 'inventory_overview', 'inventory_recalc_committed', 'stock_writeoff_view', 'stock_writeoff_create',
     'po_view', 'po_create', 'po_approve', 'grn_create', 'blind_receipt_create', 'product_review', 'product_create_from_queue', 'returns_process', 'supplier_product_edit', 'xero_invoice_sync', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'price_variance_view', 'three_way_match_view',
@@ -160,7 +161,7 @@ export const ROLE_DEFAULTS = {
   kitchen_manager: p(
     'dashboard_view', 'dashboard_kpis', 'dashboard_production', 'dashboard_shortages',
     'catalog_view', 'recipes_view', 'recipes_edit',
-    'planning_view', 'planning_create', 'runs_view', 'runs_create', 'runs_start_complete', 'kitchen_tablet', 'pick_lists', 'yield_tracker',
+    'planning_view', 'planning_create', 'runs_view', 'runs_create', 'runs_start_complete', 'runs_approve_complete', 'kitchen_tablet', 'pick_lists', 'yield_tracker',
     'cooking_runs_view', 'cooking_runs_create', 'cooking_runs_release', 'wip_view', 'wip_manage', 'wip_qc_override', 'yield_review', 'supplier_yield_view', 'wip_planning', 'wastage_review',
     'wastage', 'par_levels', 'inventory_overview', 'stock_writeoff_view', 'stock_writeoff_create',
     'po_view', 'grn_create', 'purchasing_dashboard',
