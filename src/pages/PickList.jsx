@@ -160,11 +160,21 @@ export default function PickList() {
     }
 
     setReleasing(true);
+
+    // Re-fetch pick lines fresh from DB to avoid stale cache (race condition:
+    // user picks last item and immediately releases — cache may not have the
+    // latest actual_qty_picked yet).
+    const freshPickLines = await base44.entities.PickLine.filter({ pick_list_id: pickList.id }, 'product_name', 500);
+    const freshById = {};
+    freshPickLines.forEach(fpl => { freshById[fpl.id] = fpl; });
+
     const releaseBatch = new Date().toISOString();
     const sohRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
 
     for (const pl of pickedLines) {
-      const qty = pl.actual_qty_picked || pl.required_qty;
+      // Use fresh DB data for the qty — never stale cache
+      const freshLine = freshById[pl.id] || pl;
+      const qty = freshLine.actual_qty_picked || freshLine.required_qty;
       if (qty <= 0) continue;
 
       // Skip consumables — no stock movement
