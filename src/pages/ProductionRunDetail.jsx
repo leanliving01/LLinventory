@@ -79,6 +79,16 @@ export default function ProductionRunDetail() {
   const existingPickList = existingPickLists[0] || null;
   const [generatingPickList, setGeneratingPickList] = useState(false);
 
+  // Fetch tasks to check completion status for the "Review & Complete" gate
+  const { data: runTasks = [] } = useQuery({
+    queryKey: ['production-tasks', runId],
+    queryFn: () => base44.entities.ProductionTask.filter({ run_id: runId }, 'step_no', 500),
+    enabled: !!runId && run?.status === 'in_progress',
+  });
+  const nonArchivedTasks = runTasks.filter(t => !t.archived);
+  const allTasksDone = nonArchivedTasks.length > 0 && nonArchivedTasks.every(t => t.status === 'done');
+  const pendingTaskCount = nonArchivedTasks.filter(t => t.status !== 'done').length;
+
   // Pre-fill actuals from lines that already have actual_qty (written by task completion)
   useMemo(() => {
     const prefilled = {};
@@ -991,13 +1001,19 @@ export default function ProductionRunDetail() {
               Fill Planned
             </Button>
           )}
-          {canComplete && perms.runs_start_complete && (
+          {canComplete && perms.runs_start_complete && allTasksDone && (
             <Link to={`/production/run/${runId}/complete`}>
               <Button className="gap-2 bg-green-600 hover:bg-green-700" size="lg">
                 <CheckCircle2 className="w-5 h-5" />
                 Review & Complete
               </Button>
             </Link>
+          )}
+          {canComplete && perms.runs_start_complete && !allTasksDone && nonArchivedTasks.length > 0 && (
+            <Button disabled className="gap-2" size="lg" variant="outline" title={`${pendingTaskCount} task(s) still incomplete`}>
+              <CheckCircle2 className="w-5 h-5" />
+              {pendingTaskCount} task{pendingTaskCount !== 1 ? 's' : ''} remaining
+            </Button>
           )}
         </div>
       </div>

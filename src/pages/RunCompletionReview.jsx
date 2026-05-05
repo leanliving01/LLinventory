@@ -18,8 +18,9 @@ import CompletionStockSections from '@/components/completion-review/CompletionSt
 import CompletionTaskNotes from '@/components/completion-review/CompletionTaskNotes';
 
 export default function RunCompletionReview() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const runId = window.location.pathname.split('/').filter(Boolean).pop();
+  // URL: /production/run/:runId/complete → runId is second-to-last segment
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const runId = pathParts[pathParts.length - 2]; // "complete" is last, runId is before it
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -78,8 +79,8 @@ export default function RunCompletionReview() {
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'sku', 500),
   });
 
-  // Tasks (for notes)
-  const { data: tasks = [] } = useQuery({
+  // Tasks (for notes + completeness check)
+  const { data: tasks = [], isLoading: loadingTasks } = useQuery({
     queryKey: ['completion-tasks', runId],
     queryFn: () => base44.entities.ProductionTask.filter({ run_id: runId }, 'step_no', 500),
     enabled: !!runId,
@@ -250,6 +251,62 @@ export default function RunCompletionReview() {
         <Link to={`/production/run/${runId}`}>
           <Button variant="outline">← Back to Run</Button>
         </Link>
+      </div>
+    );
+  }
+
+  // Gate: all tasks must be done before review is possible
+  const nonArchivedTasks = tasks.filter(t => !t.archived);
+  const incompleteTasks = nonArchivedTasks.filter(t => t.status !== 'done');
+  const allTasksDone = nonArchivedTasks.length > 0 && incompleteTasks.length === 0;
+
+  if (!loadingTasks && !allTasksDone) {
+    return (
+      <div className="max-w-lg mx-auto text-center py-16 space-y-4">
+        <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto">
+          <ChefHat className="w-8 h-8 text-amber-600" />
+        </div>
+        <h2 className="text-xl font-bold">Tasks Not Complete</h2>
+        <p className="text-sm text-muted-foreground">
+          {nonArchivedTasks.length === 0
+            ? 'No tasks found for this run. Start the run first to generate kitchen tasks.'
+            : `${incompleteTasks.length} of ${nonArchivedTasks.length} task${nonArchivedTasks.length !== 1 ? 's' : ''} still in progress. All portioning, cooking, and prep tasks must be completed before a manager can review and approve.`
+          }
+        </p>
+        {incompleteTasks.length > 0 && (
+          <div className="bg-card border border-border rounded-xl overflow-hidden text-left max-h-60 overflow-y-auto">
+            {incompleteTasks.slice(0, 10).map(t => (
+              <div key={t.id} className="flex items-center justify-between px-4 py-2.5 border-b border-border last:border-b-0">
+                <div>
+                  <span className="text-sm font-medium">{t.meal_name || t.name}</span>
+                  <span className="text-xs text-muted-foreground ml-2 capitalize">{t.station}</span>
+                </div>
+                <Badge className={cn("text-[10px]",
+                  t.status === 'pending' ? 'bg-muted text-muted-foreground' :
+                  t.status === 'in_progress' ? 'bg-amber-100 text-amber-700' :
+                  t.status === 'paused' ? 'bg-blue-100 text-blue-700' : ''
+                )}>
+                  {t.status?.replace('_', ' ')}
+                </Badge>
+              </div>
+            ))}
+            {incompleteTasks.length > 10 && (
+              <div className="px-4 py-2 text-xs text-muted-foreground text-center">
+                +{incompleteTasks.length - 10} more tasks...
+              </div>
+            )}
+          </div>
+        )}
+        <div className="flex justify-center gap-3 pt-2">
+          <Link to={`/production/run/${runId}`}>
+            <Button variant="outline">← Back to Run</Button>
+          </Link>
+          <Link to={`/floor/tasks?runId=${runId}`}>
+            <Button className="gap-1.5">
+              <ChefHat className="w-4 h-4" /> Go to Kitchen Board
+            </Button>
+          </Link>
+        </div>
       </div>
     );
   }
