@@ -105,21 +105,22 @@ export default function DuplicateAuditModal({ onClose, onMergesComplete }) {
     const ids = cluster.products.map(p => p.id);
     setMergingCluster(cluster.normalised_name);
 
-    // Preview first
-    const previewRes = await base44.functions.invoke('mergeProducts', { product_ids: ids, preview: true });
-    const plan = previewRes.data.plan;
+    try {
+      // Execute directly — no need for preview since audit already shows the plan
+      const execRes = await base44.functions.invoke('mergeProducts', { product_ids: ids, preview: false });
+      const plan = execRes.data.plan;
+      const r = execRes.data.results;
 
-    // Execute
-    const execRes = await base44.functions.invoke('mergeProducts', { product_ids: ids, preview: false });
-    const r = execRes.data.results;
+      toast.success(
+        `Merged → ${plan.canonical.sku}: archived ${r.archived_duplicates}, re-linked ${r.relinked_bom_components} BOM component(s)`
+      );
 
-    toast.success(
-      `Merged → ${plan.canonical.sku}: archived ${r.archived_duplicates}, re-linked ${r.relinked_bom_components} BOM component(s)`
-    );
-
-    // Remove this cluster from the list
-    setClusters(prev => prev.filter(c => c.normalised_name !== cluster.normalised_name));
-    setMergedCount(prev => prev + 1);
+      // Remove this cluster from the list
+      setClusters(prev => prev.filter(c => c.normalised_name !== cluster.normalised_name));
+      setMergedCount(prev => prev + 1);
+    } catch (err) {
+      toast.error(`Merge failed: ${err?.response?.data?.error || err.message}`);
+    }
     setMergingCluster(null);
   };
 

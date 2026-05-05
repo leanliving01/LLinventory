@@ -10,6 +10,9 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
  *
  * Payload: { product_ids: string[], preview?: boolean }
  */
+
+const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
@@ -23,20 +26,20 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'Provide at least 2 product_ids to merge' }, { status: 400 });
   }
 
-  // Load the products
-  const products = [];
-  for (const pid of product_ids) {
-    const results = await base44.asServiceRole.entities.Product.filter({ id: pid });
-    if (results[0]) products.push(results[0]);
-  }
+  // Load the products — single filter call instead of N calls
+  const allProducts = await base44.asServiceRole.entities.Product.list('-created_date', 500);
+  const pidSet = new Set(product_ids);
+  const products = allProducts.filter(p => pidSet.has(p.id));
 
   if (products.length < 2) {
     return Response.json({ error: `Only found ${products.length} product(s) from ${product_ids.length} IDs` }, { status: 400 });
   }
 
-  // Load all BOM components and BOMs
-  const allBomComps = await base44.asServiceRole.entities.BomComponent.list('-created_date', 5000);
-  const allBoms = await base44.asServiceRole.entities.Bom.list('-created_date', 1000);
+  // Load BOM data — 2 calls
+  const [allBomComps, allBoms] = await Promise.all([
+    base44.asServiceRole.entities.BomComponent.list('-created_date', 5000),
+    base44.asServiceRole.entities.Bom.list('-created_date', 1000),
+  ]);
 
   // Count BOM references per product
   const bomCountFor = (pid) => {
@@ -123,13 +126,13 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Load existing SupplierProduct records for canonical
-  const existingSPs = await base44.asServiceRole.entities.SupplierProduct.filter(
-    { product_id: canonical.id }, '-created_date', 100
-  );
-  const existingSPKeys = new Set(existingSPs.map(sp => `${sp.supplier_id}__${sp.supplier_sku}`));
+  // Load existing SupplierProduct records for canonical + all suppliers in one batch
+  const [existingSPs, allSuppliers] = await Promise.all([
+    base44.asServiceRole.entities.SupplierProduct.filter({ product_id: canonical.id }, '-created_date', 100),
+    base44.asServiceRole.entities.Supplier.list('name', 200),
+  ]);
 
-  const allSuppliers = await base44.asServiceRole.entities.Supplier.list('name', 200);
+  const existingSPKeys = new Set(existingSPs.map(sp => `${sp.supplier_id}__${sp.supplier_sku}`));
   const supplierById = {};
   allSuppliers.forEach(s => { supplierById[s.id] = s; });
 
@@ -191,7 +194,7 @@ Deno.serve(async (req) => {
     results.updated_canonical = true;
   }
 
-  // 2. Re-link BOM components from duplicates → canonical
+  // 2. Re-link BOM components from duplicates → canonical (with throttle)
   for (const comp of bomCompsToRelink) {
     await base44.asServiceRole.entities.BomComponent.update(comp.bom_component_id, {
       input_product_id: canonical.id,
@@ -199,6 +202,7 @@ Deno.serve(async (req) => {
       input_product_sku: canonical.sku,
     });
     results.relinked_bom_components++;
+    await delay(100);
   }
 
   // 3. Re-link BOM outputs from duplicates → canonical
@@ -209,6 +213,7 @@ Deno.serve(async (req) => {
       product_sku: canonical.sku,
     });
     results.relinked_bom_outputs++;
+    await delay(100);
   }
 
   // 4. Create SupplierProduct records
@@ -216,33 +221,44 @@ Deno.serve(async (req) => {
     if (spData.note) continue;
     await base44.asServiceRole.entities.SupplierProduct.create(spData);
     results.created_supplier_products++;
+    await delay(100);
   }
 
   // 5. Re-link StockOnHand, PurchaseOrderLine, SupplierProduct from duplicates
-  for (const dup of duplicates) {
-    const sohRecords = await base44.asServiceRole.entities.StockOnHand.filter({ product_id: dup.id }, '-created_date', 100);
-    for (const soh of sohRecords) {
-      await base44.asServiceRole.entities.StockOnHand.update(soh.id, {
-        product_id: canonical.id, product_sku: canonical.sku, product_name: canonical.name,
-      });
-      results.updated_references++;
-    }
+  // Batch load all at once instead of per-duplicate
+  const dupIds = duplicates.map(d => d.id);
+  const [allSOH, allPOLines, allDupSPs] = await Promise.all([
+    base44.asServiceRole.entities.StockOnHand.list('-created_date', 2000),
+    base44.asServiceRole.entities.PurchaseOrderLine.list('-created_date', 2000),
+    base44.asServiceRole.entities.SupplierProduct.list('-created_date', 1000),
+  ]);
 
-    const poLines = await base44.asServiceRole.entities.PurchaseOrderLine.filter({ product_id: dup.id }, '-created_date', 500);
-    for (const pol of poLines) {
-      await base44.asServiceRole.entities.PurchaseOrderLine.update(pol.id, {
-        product_id: canonical.id, product_sku: canonical.sku, product_name: canonical.name,
-      });
-      results.updated_references++;
-    }
+  const sohToUpdate = allSOH.filter(s => dupIds.includes(s.product_id));
+  const polToUpdate = allPOLines.filter(p => dupIds.includes(p.product_id));
+  const spToUpdate = allDupSPs.filter(sp => dupIds.includes(sp.product_id));
 
-    const dupSPs = await base44.asServiceRole.entities.SupplierProduct.filter({ product_id: dup.id }, '-created_date', 100);
-    for (const sp of dupSPs) {
-      await base44.asServiceRole.entities.SupplierProduct.update(sp.id, {
-        product_id: canonical.id, product_name: canonical.name, product_sku: canonical.sku,
-      });
-      results.updated_references++;
-    }
+  for (const soh of sohToUpdate) {
+    await base44.asServiceRole.entities.StockOnHand.update(soh.id, {
+      product_id: canonical.id, product_sku: canonical.sku, product_name: canonical.name,
+    });
+    results.updated_references++;
+    await delay(100);
+  }
+
+  for (const pol of polToUpdate) {
+    await base44.asServiceRole.entities.PurchaseOrderLine.update(pol.id, {
+      product_id: canonical.id, product_sku: canonical.sku, product_name: canonical.name,
+    });
+    results.updated_references++;
+    await delay(100);
+  }
+
+  for (const sp of spToUpdate) {
+    await base44.asServiceRole.entities.SupplierProduct.update(sp.id, {
+      product_id: canonical.id, product_name: canonical.name, product_sku: canonical.sku,
+    });
+    results.updated_references++;
+    await delay(100);
   }
 
   // 6. Archive duplicates
@@ -252,6 +268,7 @@ Deno.serve(async (req) => {
       internal_note: `Merged into ${canonical.sku} (${canonical.name}) on ${new Date().toISOString().slice(0, 10)}. Original data preserved for audit.`,
     });
     results.archived_duplicates++;
+    await delay(100);
   }
 
   // 7. Audit log
