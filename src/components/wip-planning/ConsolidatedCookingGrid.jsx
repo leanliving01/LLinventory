@@ -111,7 +111,7 @@ async function releaseOrCreateCookingRuns(rowsToRelease, splitRows, wipProducts,
 
 export default function ConsolidatedCookingGrid({
   rows, wipProducts, cookBoms, existingCookingRuns, canRelease, onReleased, draftAdHocRuns = [],
-  isQcConfirmed = false
+  isQcConfirmed = false, selectedRunIds = new Set()
 }) {
   const queryClient = useQueryClient();
   const [releasing, setReleasing] = useState(false);
@@ -190,11 +190,40 @@ export default function ConsolidatedCookingGrid({
     onReleased?.();
   };
 
-  const finishRelease = (names) => {
+  const finishRelease = async (names, releasedRuns) => {
     writeAuditLog({
       action: 'create', entity_type: 'CookingRun',
       description: `Released ${names.length} cooking runs from WIP Planning: ${names.join(', ')}`,
     });
+
+    // Auto-transition linked production runs from draft → scheduled
+    const productionRunIds = new Set();
+    (releasedRuns || []).forEach(cr => {
+      if (cr.production_run_id) productionRunIds.add(cr.production_run_id);
+      if (cr.contributing_run_ids) {
+        try {
+          const ids = JSON.parse(cr.contributing_run_ids);
+          if (Array.isArray(ids)) ids.forEach(id => productionRunIds.add(id));
+        } catch {}
+      }
+    });
+
+    if (productionRunIds.size > 0) {
+      const allProdRuns = await base44.entities.ProductionRun.list('-created_date', 200);
+      const draftRuns = allProdRuns.filter(r => r.status === 'draft' && productionRunIds.has(r.id));
+      for (const pr of draftRuns) {
+        await base44.entities.ProductionRun.update(pr.id, { status: 'scheduled' });
+        writeAuditLog({
+          action: 'update', entity_type: 'ProductionRun', entity_id: pr.id,
+          description: `Auto-scheduled production run ${pr.run_number} — cooking runs released from WIP Planning`,
+        });
+      }
+      if (draftRuns.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ['production-runs'] });
+        toast.success(`${draftRuns.length} production run${draftRuns.length > 1 ? 's' : ''} auto-scheduled`);
+      }
+    }
+
     invalidateAndNotify(names.length, 'released to kitchen');
     setSelectedRows(new Set());
   };
@@ -236,12 +265,15 @@ export default function ConsolidatedCookingGrid({
       return;
     }
     setReleasing(true);
+    const updatedAdHoc = [];
     for (const dr of draftAdHocRuns) {
       await base44.entities.CookingRun.update(dr.id, { status: 'released' });
+      updatedAdHoc.push(dr);
     }
     const released = await releaseOrCreateCookingRuns(unreleased, splitRows, wipProducts, cookBoms, cookPlanOverrides, allDraftCookingRuns);
     const allNames = [...draftAdHocRuns.map(r => r.run_number), ...released.map(r => r.run_number)];
-    finishRelease(allNames);
+    const allReleasedRuns = [...updatedAdHoc, ...released];
+    await finishRelease(allNames, allReleasedRuns);
     setReleasing(false);
   };
 
@@ -251,7 +283,7 @@ export default function ConsolidatedCookingGrid({
     if (selectedUnreleased.length === 0) { toast.info('No rows selected'); return; }
     setReleasing(true);
     const released = await releaseOrCreateCookingRuns(selectedUnreleased, splitRows, wipProducts, cookBoms, cookPlanOverrides, allDraftCookingRuns);
-    finishRelease(released.map(r => r.run_number));
+    await finishRelease(released.map(r => r.run_number), released);
     setReleasing(false);
   };
 
@@ -260,7 +292,7 @@ export default function ConsolidatedCookingGrid({
     if (!checkQcGate()) return;
     setReleasingRowId(row.id);
     const released = await releaseOrCreateCookingRuns([row], splitRows, wipProducts, cookBoms, cookPlanOverrides, allDraftCookingRuns);
-    finishRelease(released.map(r => r.run_number));
+    await finishRelease(released.map(r => r.run_number), released);
     setReleasingRowId(null);
   };
 
@@ -499,9 +531,15 @@ export default function ConsolidatedCookingGrid({
                           </Badge>
                         )
                       ) : (
-                        <Badge className="bg-green-100 text-green-700 text-[10px] gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> Covered
-                        </Badge>
+                        isQcConfirmed ? (
+                          <Badge className="bg-green-100 text-green-700 text-[10px] gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> Covered
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-amber-100 text-amber-700 text-[10px] gap-1">
+                            <AlertTriangle className="w-3 h-3" /> Pending QC
+                          </Badge>
+                        )
                       )}
                     </td>
                   </tr>

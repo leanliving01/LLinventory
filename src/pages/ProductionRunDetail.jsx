@@ -110,14 +110,8 @@ export default function ProductionRunDetail() {
   const handleStartRun = async () => {
     setStarting(true);
 
-    // ── Gate B: Cooking runs must be completed & WIP available ──
-    const [allCookRuns, wipBatches, boms_gate, bomComponents_gate, products_gate] = await Promise.all([
-      base44.entities.CookingRun.list('-created_date', 500),
-      base44.entities.WipBatch.list('-created_date', 500),
-      base44.entities.Bom.filter({ is_active: true }, '-created_date', 500),
-      base44.entities.BomComponent.list('-created_date', 2000),
-      base44.entities.Product.filter({ status: 'active' }, 'name', 500),
-    ]);
+    // ── Gate B: Cooking runs must be released (or further) ──
+    const allCookRuns = await base44.entities.CookingRun.list('-created_date', 500);
 
     // Find cooking runs linked to this production run
     const linkedCookRuns = allCookRuns.filter(cr => {
@@ -131,76 +125,19 @@ export default function ProductionRunDetail() {
       return false;
     });
 
-    // Determine which WIP bulk products this run needs
-    const productMap_gate = {};
-    products_gate.forEach(p => { productMap_gate[p.id] = p; });
-    const compsByBom_gate = {};
-    bomComponents_gate.forEach(c => {
-      if (!compsByBom_gate[c.bom_id]) compsByBom_gate[c.bom_id] = [];
-      compsByBom_gate[c.bom_id].push(c);
-    });
-    const cookBomProductIds = new Set(boms_gate.filter(b => b.bom_type === 'cook').map(b => b.product_id));
-
-    const wipNeeded = {}; // { productId: { name, sku, requiredKg } }
-    for (const line of lines) {
-      const portionBom = boms_gate.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
-      if (!portionBom) continue;
-      const comps = compsByBom_gate[portionBom.id] || [];
-      for (const c of comps) {
-        if (!cookBomProductIds.has(c.input_product_id)) continue;
-        const perUnit = c.qty / (portionBom.yield_qty || 1);
-        const uom = (c.uom || 'g').toLowerCase();
-        const perUnitKg = uom === 'kg' ? perUnit : uom === 'g' ? perUnit / 1000 : perUnit;
-        const totalKg = perUnitKg * (line.planned_qty || 0);
-        if (!wipNeeded[c.input_product_id]) {
-          wipNeeded[c.input_product_id] = { name: c.input_product_name || productMap_gate[c.input_product_id]?.name || '?', sku: c.input_product_sku || '', requiredKg: 0 };
-        }
-        wipNeeded[c.input_product_id].requiredKg += totalKg;
-      }
-    }
-
-    // Check 1: All linked cooking runs must be completed
-    const incompleteCookRuns = linkedCookRuns.filter(cr => !['completed', 'cancelled'].includes(cr.status));
-    if (incompleteCookRuns.length > 0) {
+    // Check: All linked cooking runs must be at least released (not draft)
+    const notReleasedCookRuns = linkedCookRuns.filter(cr => cr.status === 'draft');
+    if (notReleasedCookRuns.length > 0) {
       setCookingGate({
-        title: 'Bulk Cooking Not Finished',
-        description: 'These bulk items still need to be cooked before you can start portioning. Go to Production → Cooking Runs, complete each one (enter the actual output weight), then come back and press Start Run.',
-        itemLabel: 'Bulk items still cooking',
-        items: incompleteCookRuns.map(cr => ({
+        title: 'Cooking Runs Not Released',
+        description: 'These cooking runs are still in draft. Go to WIP Planning, complete the Quality Check, and release the cooking runs before starting this production run.',
+        itemLabel: 'Cooking runs still in draft',
+        items: notReleasedCookRuns.map(cr => ({
           name: cr.bulk_product_name || 'Unknown product',
           detail: `${cr.run_number} · Target: ${cr.target_output_kg} kg`,
-          badge: cr.status === 'in_progress' ? 'in progress' : cr.status?.replace('_', ' '),
-          badgeClass: cr.status === 'in_progress' ? 'bg-amber-100 text-amber-700' : cr.status === 'released' ? 'bg-blue-100 text-blue-700' : 'bg-muted text-muted-foreground',
+          badge: 'draft',
+          badgeClass: 'bg-muted text-muted-foreground',
         })),
-      });
-      setStarting(false);
-      return;
-    }
-
-    // Check 2: Sufficient WIP batches available for each bulk product
-    const wipAvail = {};
-    wipBatches.filter(b => ['fresh', 'use_today'].includes(b.quality_status) && (b.qty_kg || 0) > 0)
-      .forEach(b => { wipAvail[b.bulk_product_id] = (wipAvail[b.bulk_product_id] || 0) + b.qty_kg; });
-
-    const wipShortages = [];
-    for (const [pid, info] of Object.entries(wipNeeded)) {
-      const available = wipAvail[pid] || 0;
-      if (available < info.requiredKg * 0.9) { // 10% tolerance
-        wipShortages.push({
-          name: info.name,
-          detail: `Need ${info.requiredKg.toFixed(1)} kg · Available ${available.toFixed(1)} kg · Short ${(info.requiredKg - available).toFixed(1)} kg`,
-          badge: `${available.toFixed(1)} / ${info.requiredKg.toFixed(1)} kg`,
-          badgeClass: 'bg-red-100 text-red-700',
-        });
-      }
-    }
-
-    if (wipShortages.length > 0) {
-      setCookingGate({
-        title: 'Insufficient Bulk Cooked Stock',
-        description: 'Not enough cooked bulk (WIP) is available for this production run. Ensure cooking runs are completed and yielded sufficient output.',
-        itemLabel: 'Bulk products short',
-        items: wipShortages,
       });
       setStarting(false);
       return;
@@ -786,7 +723,7 @@ export default function ProductionRunDetail() {
   const isInProgress = run.status === 'in_progress';
   const isEditable = isScheduled || isInProgress || isDraft;
   const canComplete = isInProgress;
-  const canStart = isScheduled;
+  const canStart = isScheduled || isDraft;
   const canCancel = isScheduled || isInProgress;
   const canRevertToDraft = isScheduled;
   const filledCount = lines.filter(l => actuals[l.id] !== undefined && actuals[l.id] !== '').length;
@@ -989,7 +926,7 @@ export default function ProductionRunDetail() {
                 size="sm"
                 className="gap-1.5"
                 onClick={handleGeneratePickList}
-                disabled={generatingPickList || isDraft}
+                disabled={generatingPickList}
               >
                 <ClipboardList className="w-4 h-4" />
                 {generatingPickList ? 'Generating...' : 'Generate Pick List'}
@@ -1015,20 +952,7 @@ export default function ProductionRunDetail() {
               <RefreshCw className="w-4 h-4" /> Recalculate
             </Button>
           )}
-          {isDraft && perms.runs_start_complete && (
-            <Button
-              onClick={async () => {
-                await base44.entities.ProductionRun.update(runId, { status: 'scheduled' });
-                writeAuditLog({ action: 'update', entity_type: 'ProductionRun', entity_id: runId, description: `Scheduled run ${run?.run_number}` });
-                queryClient.invalidateQueries({ queryKey: ['production-run', runId] });
-                queryClient.invalidateQueries({ queryKey: ['production-runs'] });
-                toast.success(`Run ${run?.run_number} scheduled`);
-              }}
-              className="gap-2 bg-blue-600 hover:bg-blue-700"
-            >
-              <Play className="w-4 h-4" /> Schedule Run
-            </Button>
-          )}
+          {/* Schedule Run removed — auto-transitions to scheduled when cooking runs are released from WIP Planning */}
           {canStart && perms.runs_start_complete && (
             <Button onClick={handleStartRun} disabled={starting} className="gap-2 bg-amber-600 hover:bg-amber-700">
               <Play className="w-4 h-4" />
@@ -1107,7 +1031,7 @@ export default function ProductionRunDetail() {
       {isDraft && (
         <div className="bg-muted border border-border rounded-lg px-4 py-3 text-sm text-muted-foreground flex items-center gap-2">
           <RotateCcw className="w-4 h-4 shrink-0" />
-          This run is in draft. Edit meal lines and quantities, then schedule it when ready.
+          This run is in draft. Go to WIP Planning to complete QC and release cooking runs — the run will automatically be scheduled.
         </div>
       )}
 
