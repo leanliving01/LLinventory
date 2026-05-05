@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, Minus } from 'lucide-react';
-import { format } from 'date-fns';
 
 const YIELD_THRESHOLD = 80;
 
@@ -17,17 +16,20 @@ function YieldRow({ record, onShowHistory }) {
       onClick={() => onShowHistory(record.bulk_product_id, record.bulk_product_name, record.station)}
     >
       <td className="px-4 py-3">
-        <p className="text-sm font-semibold">{record.bulk_product_name || record.input_product_name}</p>
-        <p className="text-[10px] font-mono text-muted-foreground">{record.bulk_product_sku || record.input_product_sku}</p>
+        <p className="text-sm font-semibold">{record.bulk_product_name}</p>
+        <p className="text-[10px] font-mono text-muted-foreground">{record.bulk_product_sku}</p>
       </td>
       <td className="px-4 py-3 text-sm text-right tabular-nums text-muted-foreground">
-        {(record.required_qty || record.actual_raw_issued_kg || 0).toFixed(2)} {record.uom || 'kg'}
+        {record.picked_qty > 0 ? `${record.picked_qty.toFixed(2)} kg` : '—'}
+      </td>
+      <td className="px-4 py-3 text-sm text-right tabular-nums text-muted-foreground">
+        {record.consumed_qty > 0 ? `${record.consumed_qty.toFixed(2)} kg` : '—'}
       </td>
       <td className="px-4 py-3 text-sm text-right tabular-nums font-medium">
-        {(record.consumed_qty || record.actual_cooked_output_kg || 0).toFixed(2)} {record.uom || 'kg'}
+        {record.output_qty > 0 ? `${record.output_qty.toFixed(2)} kg` : '—'}
       </td>
       <td className="px-4 py-3 text-sm text-right tabular-nums text-muted-foreground">
-        {(record.wastage_qty || record.wastage_qty_kg || 0).toFixed(2)}
+        {record.wastage_qty > 0 ? `${record.wastage_qty.toFixed(2)} kg` : '—'}
       </td>
       <td className="px-4 py-3 text-right">
         <span className={`text-sm font-bold tabular-nums ${isBelowThreshold ? 'text-red-600' : yieldPct > 95 ? 'text-green-600' : 'text-foreground'}`}>
@@ -108,8 +110,9 @@ export default function YieldStationSection({ title, icon: Icon, records, onShow
             <thead>
               <tr className="bg-muted/50 border-t border-border">
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Product</th>
-                <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Required</th>
-                <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Actual</th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Picked</th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Consumed</th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Output</th>
                 <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Waste</th>
                 <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Yield %</th>
                 <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Avg (30)</th>

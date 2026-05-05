@@ -14,22 +14,48 @@ import YieldRunPicker from '@/components/yield-review/YieldRunPicker';
 
 const HELP_ITEMS = [
   { title: 'Prep & Cooking yields', text: 'This page shows yield data from completed production tasks — Prep (trim/wash loss) and Cooking (shrinkage). Portioning is excluded.' },
-  { title: 'Data source', text: 'Yields are calculated from TaskConsumption records: Required qty (from recipe) vs Consumed qty (what staff entered). The yield % = consumed / required × 100.' },
+  { title: 'Data flow', text: 'Each row is one completed task. Picked = what the picker pulled from storage. Consumed = what staff recorded using. Output = what was produced. Yield % = output / picked × 100.' },
   { title: 'Rolling average', text: 'The Avg (30) column shows the rolling average yield from the last 30 yield records for that product at that station.' },
   { title: 'Click for history', text: 'Click any product row to open the yield history drawer. Records below 80% are highlighted red.' },
   { title: 'Filter by run', text: 'Use the run pills to filter yield records to a specific production run.' },
 ];
 
 /**
- * Build yield lines from completed production tasks + their TaskConsumption records.
- * Groups by station (prep / cook). Portioning is excluded.
+ * Normalise any weight quantity to kg for consistent display.
  */
-function buildYieldLines(tasks, consumptions, yieldRecords) {
+function toKg(qty, uom) {
+  const u = (uom || '').toLowerCase();
+  if (u === 'g') return qty / 1000;
+  if (u === 'ml') return qty / 1000; // ml → L ≈ kg for food
+  if (u === 'l') return qty;
+  return qty; // already kg
+}
+
+/**
+ * Build ONE yield line per completed task (not per ingredient).
+ *
+ * Flow: Picked (PickLine actual_qty_picked) → Consumed (TaskConsumption sum) → Output (task notes or task.qty)
+ * All quantities normalised to kg.
+ * Yield % = output / picked × 100 (or output / consumed if no pick data).
+ * Portioning excluded.
+ */
+function buildYieldLines(tasks, consumptions, yieldRecords, pickLines) {
   // Group consumptions by task_id
   const consumptionsByTask = {};
   for (const c of consumptions) {
     if (!consumptionsByTask[c.task_id]) consumptionsByTask[c.task_id] = [];
     consumptionsByTask[c.task_id].push(c);
+  }
+
+  // Group pick lines by run_id + product_id for lookup
+  // PickLine is per raw ingredient per run — we sum by run to get total picked for the run
+  const pickByRunProduct = {};
+  for (const pl of pickLines) {
+    if (!pl.pick_list_id) continue;
+    const key = `${pl.product_id}`;
+    if (!pickByRunProduct[key]) pickByRunProduct[key] = { required: 0, picked: 0, uom: pl.required_uom || 'kg' };
+    pickByRunProduct[key].required += pl.required_qty || 0;
+    pickByRunProduct[key].picked += pl.actual_qty_picked || 0;
   }
 
   // Group historical yield records by product+station for rolling average
@@ -43,97 +69,85 @@ function buildYieldLines(tasks, consumptions, yieldRecords) {
   const lines = [];
 
   for (const task of tasks) {
-    if (task.station === 'portion') continue; // Exclude portioning
+    if (task.station === 'portion') continue;
     if (task.status !== 'done') continue;
 
     const taskConsumptions = consumptionsByTask[task.id] || [];
 
-    // For each consumed ingredient, create a yield line
-    for (const tc of taskConsumptions) {
-      const required = tc.required_qty || 0;
-      const consumed = tc.consumed_qty || 0;
-      const wastage = tc.wastage_qty || 0;
+    // Filter to weight-based only (kg, g, ml, L) — skip packaging (pcs, box)
+    const weightUoms = ['kg', 'g', 'l', 'ml'];
+    const weightConsumptions = taskConsumptions.filter(tc =>
+      weightUoms.includes((tc.uom || '').toLowerCase())
+    );
 
-      if (required <= 0) continue;
+    // Aggregate all weight-based consumptions into totals (normalised to kg)
+    let totalRequiredKg = 0;
+    let totalConsumedKg = 0;
+    let totalWastageKg = 0;
+    let totalPickedKg = 0;
 
-      // Only include weight-based ingredients (kg, g, L, ml) — skip packaging (pcs, box)
-      const weightUoms = ['kg', 'g', 'l', 'ml'];
-      if (!weightUoms.includes((tc.uom || '').toLowerCase())) continue;
+    for (const tc of weightConsumptions) {
+      totalRequiredKg += toKg(tc.required_qty || 0, tc.uom);
+      totalConsumedKg += toKg(tc.consumed_qty || 0, tc.uom);
+      totalWastageKg += toKg(tc.wastage_qty || 0, tc.uom);
 
-      // Yield = consumed / required * 100 (how much usable output from input)
-      const yieldPct = required > 0 ? (consumed / required) * 100 : 0;
-
-      // Rolling average from stored yield records
-      const histKey = `${task.product_id}__${task.station}`;
-      const history = yieldByProductStation[histKey] || [];
-      const rollingAvg = history.length > 0
-        ? history.slice(0, 30).reduce((s, r) => s + (r.actual_yield_pct || 0), 0) / Math.min(history.length, 30)
-        : null;
-
-      const variancePct = rollingAvg != null ? yieldPct - rollingAvg : 0;
-
-      lines.push({
-        id: `${task.id}_${tc.id}`,
-        task_id: task.id,
-        run_id: task.run_id,
-        station: task.station,
-        bulk_product_id: task.product_id,
-        bulk_product_name: task.meal_name || tc.input_product_name,
-        bulk_product_sku: task.product_sku || tc.input_product_sku,
-        input_product_id: tc.input_product_id,
-        input_product_name: tc.input_product_name,
-        input_product_sku: tc.input_product_sku,
-        required_qty: required,
-        consumed_qty: consumed,
-        wastage_qty: wastage,
-        uom: tc.uom,
-        actual_yield_pct: yieldPct,
-        rolling_avg_yield_pct: rollingAvg,
-        yield_variance_pct: variancePct,
-        production_date: task.finished_at ? task.finished_at.split('T')[0] : '',
-        recorded_by_name: task.assigned_name || '',
-        production_notes: task.notes || '',
-      });
-    }
-
-    // If no consumptions but task has yield info in notes, create a line from task itself
-    if (taskConsumptions.length === 0 && task.notes && task.notes.includes('Yield:')) {
-      const yieldMatch = task.notes.match(/Yield:\s*([\d.]+)\s*kg\s*\(planned\s*([\d.]+)\)/);
-      if (yieldMatch) {
-        const actual = parseFloat(yieldMatch[1]);
-        const planned = parseFloat(yieldMatch[2]);
-        const yieldPct = planned > 0 ? (actual / planned) * 100 : 0;
-
-        const histKey = `${task.product_id}__${task.station}`;
-        const history = yieldByProductStation[histKey] || [];
-        const rollingAvg = history.length > 0
-          ? history.slice(0, 30).reduce((s, r) => s + (r.actual_yield_pct || 0), 0) / Math.min(history.length, 30)
-          : null;
-
-        lines.push({
-          id: `${task.id}_notes`,
-          task_id: task.id,
-          run_id: task.run_id,
-          station: task.station,
-          bulk_product_id: task.product_id,
-          bulk_product_name: task.meal_name,
-          bulk_product_sku: task.product_sku,
-          input_product_id: task.product_id,
-          input_product_name: task.meal_name,
-          input_product_sku: task.product_sku,
-          required_qty: planned,
-          consumed_qty: actual,
-          wastage_qty: 0,
-          uom: task.qty_uom || 'kg',
-          actual_yield_pct: yieldPct,
-          rolling_avg_yield_pct: rollingAvg,
-          yield_variance_pct: rollingAvg != null ? yieldPct - rollingAvg : 0,
-          production_date: task.finished_at ? task.finished_at.split('T')[0] : '',
-          recorded_by_name: task.assigned_name || '',
-          production_notes: task.notes || '',
-        });
+      // Look up picked qty for this ingredient
+      const pickInfo = pickByRunProduct[tc.input_product_id];
+      if (pickInfo) {
+        totalPickedKg += toKg(pickInfo.picked, pickInfo.uom);
       }
     }
+
+    // Parse output from task notes if available (e.g. "Yield: 0.8 kg (planned 0.08)")
+    let outputKg = null;
+    if (task.notes) {
+      const yieldMatch = task.notes.match(/Yield:\s*([\d.]+)\s*kg/);
+      if (yieldMatch) outputKg = parseFloat(yieldMatch[1]);
+    }
+
+    // If we have no weight consumptions and no yield note, skip
+    if (weightConsumptions.length === 0 && outputKg == null) continue;
+
+    // Determine the input basis for yield calculation:
+    // Prefer picked qty (what actually came from storage), fall back to consumed, then required
+    const inputKg = totalPickedKg > 0 ? totalPickedKg : (totalConsumedKg > 0 ? totalConsumedKg : totalRequiredKg);
+
+    // Determine output: prefer parsed yield note, else use consumed (for prep where consumed IS the output)
+    const effectiveOutputKg = outputKg != null ? outputKg : totalConsumedKg;
+
+    // Yield = output / input
+    const yieldPct = inputKg > 0 ? (effectiveOutputKg / inputKg) * 100 : 0;
+
+    // Rolling average
+    const histKey = `${task.product_id}__${task.station}`;
+    const history = yieldByProductStation[histKey] || [];
+    const rollingAvg = history.length > 0
+      ? history.slice(0, 30).reduce((s, r) => s + (r.actual_yield_pct || 0), 0) / Math.min(history.length, 30)
+      : null;
+
+    const variancePct = rollingAvg != null ? yieldPct - rollingAvg : 0;
+
+    lines.push({
+      id: task.id,
+      task_id: task.id,
+      run_id: task.run_id,
+      station: task.station,
+      bulk_product_id: task.product_id,
+      bulk_product_name: task.meal_name || task.name,
+      bulk_product_sku: task.product_sku,
+      picked_qty: totalPickedKg,
+      consumed_qty: totalConsumedKg,
+      required_qty: totalRequiredKg,
+      output_qty: effectiveOutputKg,
+      wastage_qty: totalWastageKg,
+      uom: 'kg',
+      actual_yield_pct: yieldPct,
+      rolling_avg_yield_pct: rollingAvg,
+      yield_variance_pct: variancePct,
+      production_date: task.finished_at ? task.finished_at.split('T')[0] : '',
+      recorded_by_name: task.assigned_name || '',
+      production_notes: task.notes || '',
+    });
   }
 
   return lines;
@@ -177,19 +191,24 @@ export default function YieldReview() {
     enabled: tasks.length > 0,
   });
 
+  // Load pick lines for picked qty lookup
+  const { data: pickLines = [] } = useQuery({
+    queryKey: ['yield-pick-lines'],
+    queryFn: () => base44.entities.PickLine.filter({ status: 'released' }, '-created_date', 2000),
+  });
+
   // Load existing yield records for rolling average calculation
   const { data: yieldRecords = [] } = useQuery({
     queryKey: ['yield-records-history'],
     queryFn: () => base44.entities.YieldRecord.list('-production_date', 500),
   });
 
-  // Build yield lines from tasks + consumptions
+  // Build yield lines from tasks + consumptions + pick data
   const allLines = useMemo(() => {
     if (tasks.length === 0) return [];
-    // Filter consumptions to only those belonging to our loaded tasks
     const relevantConsumptions = consumptions.filter(c => taskIds.includes(c.task_id));
-    return buildYieldLines(tasks, relevantConsumptions, yieldRecords);
-  }, [tasks, consumptions, taskIds, yieldRecords]);
+    return buildYieldLines(tasks, relevantConsumptions, yieldRecords, pickLines);
+  }, [tasks, consumptions, taskIds, yieldRecords, pickLines]);
 
   // Apply filters
   const filtered = useMemo(() => {
