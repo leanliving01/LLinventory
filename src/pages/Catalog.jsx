@@ -169,8 +169,9 @@ export default function Catalog() {
     return counts;
   }, [products, statusFilter]);
 
-  return (
-    <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+  const isGroupedView = SUBCATEGORIZED_TYPES.includes(typeFilter);
+
+  const content = (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
@@ -202,6 +203,7 @@ export default function Catalog() {
         typeCounts={typeCounts}
         currentTypeFilter={typeFilter}
         isDragging={isDragging}
+        isDropEnabled={isGroupedView}
         onTypeClick={(type) => setTypeFilter(typeFilter === type ? 'all' : type)}
       />
 
@@ -380,6 +382,16 @@ export default function Catalog() {
         />
       )}
     </div>
-    </DragDropContext>
   );
+
+  // Only wrap in DragDropContext when draggable items exist (grouped view)
+  if (isGroupedView) {
+    return (
+      <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        {content}
+      </DragDropContext>
+    );
+  }
+
+  return content;
 }
