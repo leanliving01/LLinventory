@@ -4,11 +4,27 @@
   "properties": {
     "cooking_run_id": {
       "type": "string",
-      "description": "FK to CookingRun (primary run \u2014 top-ups may merge into this)"
+      "description": "FK to CookingRun (if from a standalone cooking run)"
+    },
+    "production_run_id": {
+      "type": "string",
+      "description": "FK to ProductionRun (if from a production task)"
+    },
+    "task_id": {
+      "type": "string",
+      "description": "FK to ProductionTask that generated this yield record"
     },
     "production_date": {
       "type": "string",
       "format": "date"
+    },
+    "station": {
+      "type": "string",
+      "enum": [
+        "prep",
+        "cook"
+      ],
+      "description": "Which station this yield was recorded at"
     },
     "run_type": {
       "type": "string",
@@ -17,13 +33,26 @@
         "top_up_merged",
         "top_up_independent"
       ],
-      "description": "Whether this is standalone, includes merged top-up data, or is an independent top-up (different SKU)"
+      "description": "Whether this is standalone, includes merged top-up data, or is an independent top-up"
     },
     "bulk_product_id": {
       "type": "string",
-      "description": "FK to Product (wip_bulk)"
+      "description": "FK to Product \u2014 the output product being prepped/cooked"
     },
     "bulk_product_name": {
+      "type": "string"
+    },
+    "bulk_product_sku": {
+      "type": "string"
+    },
+    "input_product_id": {
+      "type": "string",
+      "description": "FK to Product \u2014 the specific input ingredient this yield tracks"
+    },
+    "input_product_name": {
+      "type": "string"
+    },
+    "input_product_sku": {
       "type": "string"
     },
     "primary_yield_ingredient_id": {
@@ -41,6 +70,21 @@
       "type": "string"
     },
     "supplier_sku": {
+      "type": "string"
+    },
+    "required_qty": {
+      "type": "number",
+      "description": "What the recipe required"
+    },
+    "consumed_qty": {
+      "type": "number",
+      "description": "What was actually used / output"
+    },
+    "wastage_qty": {
+      "type": "number",
+      "default": 0
+    },
+    "uom": {
       "type": "string"
     },
     "bom_planned_raw_kg": {
@@ -85,6 +129,10 @@
       "type": "number",
       "description": "actual \u2212 bom expected"
     },
+    "rolling_avg_yield_pct": {
+      "type": "number",
+      "description": "Snapshot of rolling average at time of recording"
+    },
     "recorded_by_name": {
       "type": "string"
     },
@@ -94,6 +142,7 @@
     "status": {
       "type": "string",
       "enum": [
+        "recorded",
         "pending_review",
         "approved_record_only",
         "approved_update_average",
@@ -102,7 +151,7 @@
         "flagged_unusual",
         "pending_recapture"
       ],
-      "default": "pending_review"
+      "default": "recorded"
     },
     "significant_variance_flag": {
       "type": "boolean",
@@ -137,9 +186,9 @@
     }
   },
   "required": [
-    "cooking_run_id",
     "production_date",
     "bulk_product_id",
+    "station",
     "status"
   ]
 }
