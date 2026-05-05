@@ -52,6 +52,8 @@ export default function WipInventory() {
 
   const filtered = useMemo(() => {
     return batches.filter(b => {
+      // Hide zero-available batches unless viewing written_off or all
+      if (statusFilter !== 'written_off' && statusFilter !== 'all' && (b.qty_kg || 0) <= 0) return false;
       if (statusFilter === 'active' && b.quality_status === 'written_off') return false;
       if (statusFilter !== 'active' && statusFilter !== 'all' && b.quality_status !== statusFilter) return false;
       if (search) {
@@ -67,7 +69,7 @@ export default function WipInventory() {
   // Aggregate by product — track original and remaining
   const productSummary = useMemo(() => {
     const map = {};
-    batches.filter(b => b.quality_status !== 'written_off').forEach(b => {
+    batches.filter(b => b.quality_status !== 'written_off' && (b.qty_kg || 0) > 0).forEach(b => {
       const key = b.bulk_product_id;
       if (!map[key]) map[key] = { name: b.bulk_product_name, sku: b.bulk_product_sku, totalKg: 0, originalKg: 0, batchCount: 0, totalValue: 0 };
       map[key].totalKg += b.qty_kg || 0;
@@ -138,7 +140,7 @@ export default function WipInventory() {
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex gap-2">
-          {['active', 'fresh', 'use_today', 'quarantine', 'written_off', 'all'].map(s => (
+          {['active', 'fresh', 'use_today', 'written_off', 'all'].map(s => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
