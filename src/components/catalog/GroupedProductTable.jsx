@@ -2,57 +2,43 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import { getProductSubcategory } from '@/lib/productSubcategories';
 
-const PICK_CATEGORY_ORDER = [
-  'Meats',
-  'Vegetables',
-  'Starches',
-  'Spices & Seasoning',
-  'Sauces & Condiments',
-  'Dairy & Eggs',
-  'Oils & Fats',
-  'Dry Goods',
-  'Packaging',
-  'Other',
+const GROUP_COLORS = [
+  'bg-red-100 text-red-700',
+  'bg-green-100 text-green-700',
+  'bg-yellow-100 text-yellow-700',
+  'bg-orange-100 text-orange-700',
+  'bg-rose-100 text-rose-700',
+  'bg-blue-100 text-blue-700',
+  'bg-amber-100 text-amber-700',
+  'bg-stone-100 text-stone-700',
+  'bg-purple-100 text-purple-700',
+  'bg-teal-100 text-teal-700',
+  'bg-indigo-100 text-indigo-700',
+  'bg-cyan-100 text-cyan-700',
+  'bg-slate-100 text-slate-700',
 ];
 
-const CATEGORY_COLORS = {
-  'Meats': 'bg-red-100 text-red-700',
-  'Vegetables': 'bg-green-100 text-green-700',
-  'Starches': 'bg-yellow-100 text-yellow-700',
-  'Spices & Seasoning': 'bg-orange-100 text-orange-700',
-  'Sauces & Condiments': 'bg-rose-100 text-rose-700',
-  'Dairy & Eggs': 'bg-blue-100 text-blue-700',
-  'Oils & Fats': 'bg-amber-100 text-amber-700',
-  'Dry Goods': 'bg-stone-100 text-stone-700',
-  'Packaging': 'bg-gray-100 text-gray-700',
-  'Other': 'bg-slate-100 text-slate-700',
-};
-
-export default function RawMaterialGroupedTable({ products, showCheckbox, mergeSelection, setMergeSelection }) {
+export default function GroupedProductTable({ products, showCheckbox, mergeSelection, setMergeSelection }) {
   const navigate = useNavigate();
-  // Start all categories collapsed
   const [expanded, setExpanded] = useState({});
 
   const grouped = useMemo(() => {
     const groups = {};
     for (const p of products) {
-      const cat = p.pick_category || 'Other';
+      const cat = getProductSubcategory(p) || 'Other';
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(p);
     }
-    // Sort groups by defined order
-    const sorted = [];
-    for (const cat of PICK_CATEGORY_ORDER) {
-      if (groups[cat]) sorted.push({ category: cat, items: groups[cat] });
-    }
-    // Any categories not in the predefined list
-    for (const cat of Object.keys(groups)) {
-      if (!PICK_CATEGORY_ORDER.includes(cat)) {
-        sorted.push({ category: cat, items: groups[cat] });
-      }
-    }
-    return sorted;
+    // Sort by group name, but put "Other" last
+    return Object.entries(groups)
+      .sort(([a], [b]) => {
+        if (a.startsWith('Other')) return 1;
+        if (b.startsWith('Other')) return -1;
+        return a.localeCompare(b);
+      })
+      .map(([category, items]) => ({ category, items }));
   }, [products]);
 
   const toggle = (cat) => setExpanded(prev => ({ ...prev, [cat]: !prev[cat] }));
@@ -77,17 +63,16 @@ export default function RawMaterialGroupedTable({ products, showCheckbox, mergeS
 
       {grouped.length === 0 && (
         <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-          No raw materials match your filters.
+          No products match your filters.
         </div>
       )}
 
-      {grouped.map(({ category, items }) => {
+      {grouped.map(({ category, items }, groupIdx) => {
         const isOpen = expanded[category];
-        const colorClass = CATEGORY_COLORS[category] || 'bg-slate-100 text-slate-700';
+        const colorClass = GROUP_COLORS[groupIdx % GROUP_COLORS.length];
 
         return (
           <div key={category}>
-            {/* Category header row */}
             <button
               onClick={() => toggle(category)}
               className="w-full flex items-center gap-3 px-4 py-2.5 bg-muted/30 border-y border-border hover:bg-muted/50 transition-colors text-left"
@@ -104,7 +89,6 @@ export default function RawMaterialGroupedTable({ products, showCheckbox, mergeS
               </span>
             </button>
 
-            {/* Items table */}
             {isOpen && (
               <table className="w-full">
                 <tbody className="divide-y divide-border">

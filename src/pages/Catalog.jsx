@@ -11,7 +11,8 @@ import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
 import TablePagination from '@/components/shared/TablePagination';
 import MergeProductsModal from '@/components/catalog/MergeProductsModal';
 import DuplicateAuditModal from '@/components/catalog/DuplicateAuditModal';
-import RawMaterialGroupedTable from '@/components/catalog/RawMaterialGroupedTable';
+import GroupedProductTable from '@/components/catalog/GroupedProductTable';
+import { SUBCATEGORIZED_TYPES } from '@/lib/productSubcategories';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -44,7 +45,7 @@ const TYPE_COLORS = {
 
 export default function Catalog() {
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('raw');
   const [statusFilter, setStatusFilter] = useState('active');
   const [sellableFilter, setSellableFilter] = useState('all');
   const [purchasableFilter, setPurchasableFilter] = useState('all');
@@ -200,8 +201,8 @@ export default function Catalog() {
       {/* Table */}
       {isLoading ? (
         <div className="text-center py-12 text-sm text-muted-foreground">Loading catalog...</div>
-      ) : typeFilter === 'raw' ? (
-        <RawMaterialGroupedTable
+      ) : SUBCATEGORIZED_TYPES.includes(typeFilter) ? (
+        <GroupedProductTable
           products={filtered}
           showCheckbox={perms.catalog_edit}
           mergeSelection={mergeSelection}
