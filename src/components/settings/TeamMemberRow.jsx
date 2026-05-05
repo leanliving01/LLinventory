@@ -8,6 +8,7 @@ const STATION_META = {
   prep: { label: 'Prep', color: 'bg-blue-100 text-blue-700' },
   cook: { label: 'Cook', color: 'bg-amber-100 text-amber-700' },
   portion: { label: 'Portion', color: 'bg-green-100 text-green-700' },
+  dispatch: { label: 'Dispatch', color: 'bg-purple-100 text-purple-700' },
 };
 
 export default function TeamMemberRow({ member, onEdit, onToggleActive }) {

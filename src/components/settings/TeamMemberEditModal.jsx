@@ -5,13 +5,14 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { X, Loader2, ShieldCheck, Utensils, Flame, ChefHat } from 'lucide-react';
+import { X, Loader2, ShieldCheck, Utensils, Flame, ChefHat, Truck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const STATIONS = [
   { id: 'prep', label: 'Prep', icon: Utensils, color: 'border-blue-300 bg-blue-50' },
   { id: 'cook', label: 'Cook', icon: Flame, color: 'border-amber-300 bg-amber-50' },
   { id: 'portion', label: 'Portion', icon: ChefHat, color: 'border-green-300 bg-green-50' },
+  { id: 'dispatch', label: 'Dispatch', icon: Truck, color: 'border-purple-300 bg-purple-50' },
 ];
 
 export default function TeamMemberEditModal({ member, onSave, onCancel }) {
@@ -79,8 +80,8 @@ export default function TeamMemberEditModal({ member, onSave, onCancel }) {
 
           {/* Stations */}
           <div>
-            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Stations</Label>
-            <p className="text-[11px] text-muted-foreground mb-2">Select all stations this person works at</p>
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Duties</Label>
+            <p className="text-[11px] text-muted-foreground mb-2">Select all duties this person handles</p>
             <div className="flex gap-3">
               {STATIONS.map(s => {
                 const Icon = s.icon;

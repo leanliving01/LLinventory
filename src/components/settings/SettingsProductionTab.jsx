@@ -14,6 +14,7 @@ const STATION_FILTERS = [
   { id: 'prep', label: 'Prep' },
   { id: 'cook', label: 'Cook' },
   { id: 'portion', label: 'Portion' },
+  { id: 'dispatch', label: 'Dispatch' },
 ];
 
 export default function SettingsProductionTab() {
@@ -138,7 +139,7 @@ export default function SettingsProductionTab() {
         <div className="px-5 py-3 border-b border-border bg-muted/30">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {showInactive ? 'Inactive Members' : 'Kitchen Team'}
+              {showInactive ? 'Inactive Members' : 'Lean Living Team'}
             </h3>
             <span className="text-xs text-muted-foreground">{filtered.length} member{filtered.length !== 1 ? 's' : ''}</span>
           </div>

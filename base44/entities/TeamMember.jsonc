@@ -13,11 +13,12 @@
         "enum": [
           "prep",
           "cook",
-          "portion"
+          "portion",
+          "dispatch"
         ]
       },
       "default": [],
-      "description": "Assigned kitchen stations (can be multiple)"
+      "description": "Assigned duties (can be multiple)"
     },
     "is_active": {
       "type": "boolean",
