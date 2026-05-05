@@ -28,8 +28,8 @@ const TYPE_COLORS = {
 };
 
 /**
- * Renders type chips as droppable targets during drag.
- * Only visible when isDragging=true, excluding the current type.
+ * Renders type chips — always mounted as Droppable to avoid mount/unmount
+ * during drag lifecycle. Visual styling changes based on isDragging.
  */
 export default function TypeDropChips({ typeCounts, currentTypeFilter, isDragging, onTypeClick }) {
   const types = Object.keys(typeCounts).sort((a, b) => (typeCounts[b] || 0) - (typeCounts[a] || 0));
@@ -39,45 +39,36 @@ export default function TypeDropChips({ typeCounts, currentTypeFilter, isDraggin
       {types.map(type => {
         const count = typeCounts[type] || 0;
         const isActive = currentTypeFilter === type;
-        const isDropTarget = isDragging && type !== currentTypeFilter;
-
-        if (isDropTarget) {
-          return (
-            <Droppable key={type} droppableId={`type:${type}`} type="PRODUCT">
-              {(provided, snapshot) => (
-                <div
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
-                >
-                  <button
-                    onClick={() => onTypeClick(type)}
-                    className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all border-2 border-dashed ${
-                      snapshot.isDraggingOver
-                        ? TYPE_COLORS[type] + ' ring-2 ring-primary scale-110 shadow-md'
-                        : TYPE_COLORS[type] + ' opacity-80 animate-pulse'
-                    }`}
-                  >
-                    {snapshot.isDraggingOver ? `Drop → ${TYPE_LABELS[type] || type}` : `${TYPE_LABELS[type] || type} (${count})`}
-                  </button>
-                  <div style={{ display: 'none' }}>{provided.placeholder}</div>
-                </div>
-              )}
-            </Droppable>
-          );
-        }
+        const showAsDropTarget = isDragging && type !== currentTypeFilter;
 
         return (
-          <button
-            key={type}
-            onClick={() => onTypeClick(type)}
-            className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${
-              isActive
-                ? (TYPE_COLORS[type]?.replace(/border-\S+/, '') || '') + ' ring-2 ring-primary/30'
-                : (TYPE_COLORS[type]?.replace(/border-\S+/, '') || '') + ' opacity-70 hover:opacity-100'
-            }`}
-          >
-            {TYPE_LABELS[type] || type} ({count})
-          </button>
+          <Droppable key={type} droppableId={`type:${type}`} type="PRODUCT">
+            {(provided, snapshot) => (
+              <div
+                ref={provided.innerRef}
+                {...provided.droppableProps}
+              >
+                <button
+                  onClick={() => onTypeClick(type)}
+                  className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${
+                    showAsDropTarget
+                      ? snapshot.isDraggingOver
+                        ? TYPE_COLORS[type] + ' border-2 border-dashed ring-2 ring-primary scale-110 shadow-md'
+                        : TYPE_COLORS[type] + ' border-2 border-dashed opacity-80 animate-pulse'
+                      : isActive
+                        ? (TYPE_COLORS[type]?.replace(/border-\S+/, '') || '') + ' ring-2 ring-primary/30'
+                        : (TYPE_COLORS[type]?.replace(/border-\S+/, '') || '') + ' opacity-70 hover:opacity-100'
+                  }`}
+                >
+                  {showAsDropTarget && snapshot.isDraggingOver
+                    ? `Drop → ${TYPE_LABELS[type] || type}`
+                    : `${TYPE_LABELS[type] || type} (${count})`
+                  }
+                </button>
+                <div style={{ display: 'none' }}>{provided.placeholder}</div>
+              </div>
+            )}
+          </Droppable>
         );
       })}
     </div>
