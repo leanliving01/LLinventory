@@ -17,6 +17,7 @@ import Reports from '@/pages/Reports';
 import ProductionRuns from '@/pages/ProductionRuns';
 import PlanRunReview from '@/pages/PlanRunReview';
 import ProductionRunDetail from '@/pages/ProductionRunDetail';
+import RunCompletionReview from '@/pages/RunCompletionReview';
 import Wastage from '@/pages/Wastage';
 import Settings from '@/pages/Settings';
 import SettingsPage from '@/pages/SettingsPage';
@@ -152,6 +153,7 @@ const AuthenticatedApp = () => {
         <Route path="/production/runs" element={<ProductionRuns />} />
         <Route path="/production/plan-review" element={<PlanRunReview />} />
         <Route path="/production/run/:runId" element={<ProductionRunDetail />} />
+        <Route path="/production/run/:runId/complete" element={<RunCompletionReview />} />
         <Route path="/production/run/:runId/pick-list" element={<PickList />} />
         <Route path="/production/run/:runId/kanban" element={<Kanban />} />
         <Route path="/production/cooking" element={<CookingRuns />} />

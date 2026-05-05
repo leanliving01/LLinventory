@@ -992,15 +992,12 @@ export default function ProductionRunDetail() {
             </Button>
           )}
           {canComplete && perms.runs_start_complete && (
-            <Button
-              onClick={handleCompleteRun}
-              disabled={completing || filledCount === 0}
-              className="gap-2 bg-green-600 hover:bg-green-700"
-              size="lg"
-            >
-              <CheckCircle2 className="w-5 h-5" />
-              {completing ? 'Completing...' : `Confirm Complete (${filledCount}/${lines.length})`}
-            </Button>
+            <Link to={`/production/run/${runId}/complete`}>
+              <Button className="gap-2 bg-green-600 hover:bg-green-700" size="lg">
+                <CheckCircle2 className="w-5 h-5" />
+                Review & Complete
+              </Button>
+            </Link>
           )}
         </div>
       </div>
