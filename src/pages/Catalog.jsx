@@ -64,8 +64,13 @@ export default function Catalog() {
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [showDuplicateAudit, setShowDuplicateAudit] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [hoveredType, setHoveredType] = useState(null);
+  const hoveredTypeRef = React.useRef(null);
   const [typeChangeRequest, setTypeChangeRequest] = useState(null); // { product, fromType, toType }
   const queryClient = useQueryClient();
+
+  // Keep ref in sync so onDragEnd can read it synchronously
+  React.useEffect(() => { hoveredTypeRef.current = hoveredType; }, [hoveredType]);
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['catalog-products'],
@@ -93,24 +98,26 @@ export default function Catalog() {
   const handleDragStart = () => setIsDragging(true);
 
   const handleDragEnd = (result) => {
+    const typeOnDrop = hoveredTypeRef.current;
     setIsDragging(false);
-    const { draggableId, source, destination } = result;
-    if (!destination) return;
-    if (source.droppableId === destination.droppableId) return;
+    setHoveredType(null);
 
+    const { draggableId, source, destination } = result;
     const productId = draggableId;
 
-    // Check if dropping onto a type chip (droppableId starts with "type:")
-    if (destination.droppableId.startsWith('type:')) {
-      const toType = destination.droppableId.replace('type:', '');
+    // Priority 1: check if mouse was hovering over a type chip (manual detection)
+    if (typeOnDrop) {
       const product = products.find(p => p.id === productId);
-      if (!product || product.type === toType) return;
-      // Trigger the confirmation dialog
-      setTypeChangeRequest({ product, fromType: product.type, toType });
+      if (!product || product.type === typeOnDrop) return;
+      setTypeChangeRequest({ product, fromType: product.type, toType: typeOnDrop });
       return;
     }
 
-    // Otherwise it's a subcategory move within the grouped table
+    // Priority 2: standard dnd destination (subcategory droppables)
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId) return;
+
+    // Subcategory move within the grouped table
     handleProductReclassify(productId, source.droppableId, destination.droppableId);
   };
 
@@ -198,12 +205,13 @@ export default function Catalog() {
 
       <SyncStatusBanner syncKeys={['shopify_products']} />
 
-      {/* Type summary chips — become drop targets during drag */}
+      {/* Type summary chips — mouse-hover drop targets during drag */}
       <TypeDropChips
         typeCounts={typeCounts}
         currentTypeFilter={typeFilter}
         isDragging={isDragging}
-        isDropEnabled={isGroupedView}
+        hoveredType={hoveredType}
+        setHoveredType={setHoveredType}
         onTypeClick={(type) => setTypeFilter(typeFilter === type ? 'all' : type)}
       />
 

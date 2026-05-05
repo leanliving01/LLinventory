@@ -1,5 +1,4 @@
 import React from 'react';
-import { Droppable } from '@hello-pangea/dnd';
 
 const TYPE_LABELS = {
   raw: 'Raw Material',
@@ -28,10 +27,14 @@ const TYPE_COLORS = {
 };
 
 /**
- * Renders type chips — always mounted as Droppable to avoid mount/unmount
- * during drag lifecycle. Visual styling changes based on isDragging.
+ * Type chips with manual hover detection for drag-and-drop.
+ * Uses mouse events instead of Droppable to avoid closest-center issues.
+ * 
+ * Props:
+ *   hoveredType / setHoveredType — lifted state from Catalog page so
+ *   onDragEnd can read which chip the mouse was over when the drop happened.
  */
-export default function TypeDropChips({ typeCounts, currentTypeFilter, isDragging, isDropEnabled = true, onTypeClick }) {
+export default function TypeDropChips({ typeCounts, currentTypeFilter, isDragging, hoveredType, setHoveredType, onTypeClick }) {
   const types = Object.keys(typeCounts).sort((a, b) => (typeCounts[b] || 0) - (typeCounts[a] || 0));
 
   return (
@@ -39,55 +42,35 @@ export default function TypeDropChips({ typeCounts, currentTypeFilter, isDraggin
       {types.map(type => {
         const count = typeCounts[type] || 0;
         const isActive = currentTypeFilter === type;
-        const showAsDropTarget = isDragging && isDropEnabled && type !== currentTypeFilter;
+        const isDropTarget = isDragging && type !== currentTypeFilter;
+        const isHovered = hoveredType === type;
 
-        // Only render as Droppable when inside a DragDropContext (isDropEnabled)
-        if (isDropEnabled) {
-          return (
-            <Droppable key={type} droppableId={`type:${type}`} type="PRODUCT">
-              {(provided, snapshot) => (
-                <div
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
-                  style={{ display: 'inline-block' }}
-                >
-                  <button
-                    onClick={() => onTypeClick(type)}
-                    className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${
-                      showAsDropTarget
-                        ? snapshot.isDraggingOver
-                          ? TYPE_COLORS[type] + ' border-2 border-dashed ring-2 ring-primary scale-110 shadow-md'
-                          : TYPE_COLORS[type] + ' border-2 border-dashed opacity-80 animate-pulse'
-                        : isActive
-                          ? (TYPE_COLORS[type]?.replace(/border-\S+/, '') || '') + ' ring-2 ring-primary/30'
-                          : (TYPE_COLORS[type]?.replace(/border-\S+/, '') || '') + ' opacity-70 hover:opacity-100'
-                    }`}
-                  >
-                    {showAsDropTarget && snapshot.isDraggingOver
-                      ? `Drop → ${TYPE_LABELS[type] || type}`
-                      : `${TYPE_LABELS[type] || type} (${count})`
-                    }
-                  </button>
-                  <div style={{ display: 'none' }}>{provided.placeholder}</div>
-                </div>
-              )}
-            </Droppable>
-          );
-        }
-
-        // Plain chip when not inside a DragDropContext
         return (
-          <button
+          <div
             key={type}
-            onClick={() => onTypeClick(type)}
-            className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${
-              isActive
-                ? (TYPE_COLORS[type]?.replace(/border-\S+/, '') || '') + ' ring-2 ring-primary/30'
-                : (TYPE_COLORS[type]?.replace(/border-\S+/, '') || '') + ' opacity-70 hover:opacity-100'
-            }`}
+            className="relative"
+            style={{ zIndex: isDragging ? 50 : 'auto' }}
+            onMouseEnter={() => isDragging && isDropTarget && setHoveredType(type)}
+            onMouseLeave={() => hoveredType === type && setHoveredType(null)}
           >
-            {TYPE_LABELS[type] || type} ({count})
-          </button>
+            <button
+              onClick={() => onTypeClick(type)}
+              className={`text-xs font-medium transition-all ${
+                isDropTarget
+                  ? isHovered
+                    ? TYPE_COLORS[type] + ' px-4 py-2 rounded-lg border-2 border-dashed ring-2 ring-primary scale-110 shadow-md'
+                    : TYPE_COLORS[type] + ' px-4 py-2 rounded-lg border-2 border-dashed opacity-80 animate-pulse'
+                  : isActive
+                    ? (TYPE_COLORS[type]?.replace(/border-\S+/, '') || '') + ' px-2.5 py-1 rounded-full ring-2 ring-primary/30'
+                    : (TYPE_COLORS[type]?.replace(/border-\S+/, '') || '') + ' px-2.5 py-1 rounded-full opacity-70 hover:opacity-100'
+              }`}
+            >
+              {isDropTarget && isHovered
+                ? `Drop → ${TYPE_LABELS[type] || type}`
+                : `${TYPE_LABELS[type] || type} (${count})`
+              }
+            </button>
+          </div>
         );
       })}
     </div>
