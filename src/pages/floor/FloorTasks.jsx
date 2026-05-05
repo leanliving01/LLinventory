@@ -338,7 +338,7 @@ export default function FloorTasks() {
           toast.success(`Bulk batch created: ${actualYield} ${task.qty_uom || 'kg'} of ${task.meal_name || task.name}`);
         }
 
-        // Cascade actual yield to the downstream task (prep→cook: same product)
+        // Cascade actual yield to the downstream cook task (prep→cook: same product)
         if (task.station === 'prep') {
           const downstream = tasks.filter(
             t => t.station === 'cook' && t.product_id === task.product_id && !t.archived && t.status !== 'done'

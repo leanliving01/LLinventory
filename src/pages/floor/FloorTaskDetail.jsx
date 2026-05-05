@@ -13,10 +13,12 @@ import NotesTab from '@/components/floor/task-detail/NotesTab';
 import FilesTab from '@/components/floor/task-detail/FilesTab';
 import BomTab from '@/components/floor/task-detail/BomTab';
 import AttributesTab from '@/components/floor/task-detail/AttributesTab';
+import StepsTab from '@/components/floor/task-detail/StepsTab';
 import { getPreviousStepInfo } from '@/lib/previousStepLookup';
 
 const ALL_STATION_TABS = [
   { id: 'consume', label: 'To Consume' },
+  { id: 'steps', label: 'Steps' },
   { id: 'resources', label: 'Resources' },
   { id: 'notes', label: 'Notes' },
   { id: 'files', label: 'Files' },
@@ -72,18 +74,30 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
   });
 
   // Fetch BOM operations
-  const { data: operations = [] } = useQuery({
+  const { data: rawOperations = [] } = useQuery({
     queryKey: ['task-bom-operations', bom?.id],
     queryFn: () => base44.entities.BomOperation.filter({ bom_id: bom.id }, 'step_no', 50),
     enabled: !!bom?.id,
   });
 
-  // Filter components by step assignment: show only ingredients for this task's step (or "all steps")
-  const stepFilteredComponents = useMemo(() => {
-    const taskStep = task.step_no || 0;
-    if (taskStep <= 0) return components; // no step = show all
-    return components.filter(c => !c.step_no || c.step_no === taskStep);
-  }, [components, task.step_no]);
+  // Fetch equipment to enrich operation names in StepsTab
+  const equipmentIds = useMemo(() => [...new Set(rawOperations.filter(o => o.equipment_id).map(o => o.equipment_id))], [rawOperations]);
+  const { data: equipmentList = [] } = useQuery({
+    queryKey: ['task-equipment', ...equipmentIds],
+    queryFn: () => base44.entities.Equipment.filter({ status: 'active' }, 'name', 100),
+    enabled: equipmentIds.length > 0,
+  });
+  const operations = useMemo(() => {
+    if (equipmentList.length === 0) return rawOperations;
+    const eqMap = {};
+    equipmentList.forEach(e => { eqMap[e.id] = e.name; });
+    return rawOperations.map(op => ({ ...op, equipment_name: eqMap[op.equipment_id] || op.equipment_name || '' }));
+  }, [rawOperations, equipmentList]);
+
+  // With consolidated tasks (one task per product per station), show ALL components
+  // for this BOM — individual step filtering is no longer needed since steps are
+  // displayed in the StepsTab for reference only.
+  const stepFilteredComponents = components;
 
   const stationLabel = { prep: 'Preparation', cook: 'Cooking', portion: 'Portioning' }[task.station] || task.station;
   const stationColor = { prep: 'bg-blue-500', cook: 'bg-amber-500', portion: 'bg-green-500' }[task.station] || 'bg-primary';
@@ -182,6 +196,7 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
       {/* Tab content */}
       <div className="min-h-[200px]">
         {activeTab === 'consume' && <ConsumeTab task={task} bom={bom} components={stepFilteredComponents} onRef={handleConsumeRef} allTasks={allTasks} allBoms={allBoms} allBomComponents={allBomComponents} wipBatches={wipBatches} />}
+        {activeTab === 'steps' && <StepsTab operations={operations} currentStation={task.station} />}
         {activeTab === 'resources' && <ResourcesTab task={task} operations={operations} />}
         {activeTab === 'notes' && <NotesTab task={task} bom={bom} operations={operations} />}
         {activeTab === 'files' && <FilesTab bom={bom} />}

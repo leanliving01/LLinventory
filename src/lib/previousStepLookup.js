@@ -24,24 +24,26 @@
 export function getPreviousStepInfo(task, allTasks, allBoms, allBomComponents, wipBatches) {
   const empty = { hasPreviousStep: false, previousStation: null, items: [] };
 
-  // Case 1: Cook after Prep — same product, step > 1
-  if (task.station === 'cook' && (task.step_no || 0) > 1) {
+  // Case 1: Cook after Prep — check if a prep task exists for the same product
+  if (task.station === 'cook') {
     const prepTask = allTasks.find(
-      t => t.station === 'prep' && t.product_id === task.product_id && t.status === 'done'
+      t => t.station === 'prep' && t.product_id === task.product_id && !t.archived
     );
-    if (!prepTask) return empty;
-    return {
-      hasPreviousStep: true,
-      previousStation: 'prep',
-      items: [{
-        productId: task.product_id,
-        productName: task.meal_name || task.name || '',
-        productSku: task.product_sku || '',
-        uom: task.qty_uom || 'kg',
-        requiredQty: prepTask.qty, // original BOM-derived requirement
-        availableQty: task.qty, // cascaded actual yield from prep
-      }],
-    };
+    if (prepTask && prepTask.status === 'done') {
+      return {
+        hasPreviousStep: true,
+        previousStation: 'prep',
+        items: [{
+          productId: task.product_id,
+          productName: task.meal_name || task.name || '',
+          productSku: task.product_sku || '',
+          uom: task.qty_uom || 'kg',
+          requiredQty: prepTask.qty, // original BOM-derived requirement
+          availableQty: task.qty, // cascaded actual yield from prep
+        }],
+      };
+    }
+    // No prep task or not done yet — no previous step
   }
 
   // Case 2: Portion — find cook tasks that produced the WIP bulk inputs

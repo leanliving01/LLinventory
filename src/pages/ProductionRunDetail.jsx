@@ -320,23 +320,36 @@ export default function ProductionRunDetail() {
 
         console.log(`[TaskGen] ${inputProduct.sku} (${inputProduct.name}): ${totalWipQty} ${wipUom}`);
 
+        // Consolidate: ONE task per product per station (steps visible inside detail view)
         const cookOps = opsByBom[cookBom.id] || [];
         if (cookOps.length > 0) {
-          for (const op of cookOps) {
+          // Group operations by station → one task per station
+          const stationGroups = {};
+          cookOps.forEach(op => {
+            if (!stationGroups[op.station]) stationGroups[op.station] = [];
+            stationGroups[op.station].push(op);
+          });
+
+          for (const [station, ops] of Object.entries(stationGroups)) {
+            const sorted = ops.sort((a, b) => (a.step_no || 0) - (b.step_no || 0));
+            const stationLabel = station === 'prep' ? 'Prep' : station === 'cook' ? 'Cook' : 'Portion';
+            const noteParts = sorted.map(op => op.notes).filter(Boolean);
+            // Use first op's equipment (primary equipment for this station group)
+            const primaryEquipmentId = sorted.find(op => op.equipment_id)?.equipment_id || null;
             baseTasks.push({
               run_id: runId,
               line_id: line.id,
               product_id: inputProduct.id,
               product_sku: inputProduct.sku,
               meal_name: inputProduct.name,
-              name: op.name,
-              station: op.station,
-              step_no: op.step_no,
+              name: `${stationLabel} ${inputProduct.name}`,
+              station,
+              step_no: sorted[0].step_no || 1,
               qty: totalWipQty,
               qty_uom: wipUom,
               status: 'pending',
-              notes: op.notes || '',
-              _equipment_id: op.equipment_id || null,
+              notes: noteParts.join('\n') || '',
+              _equipment_id: primaryEquipmentId,
             });
           }
         } else {
@@ -357,24 +370,33 @@ export default function ProductionRunDetail() {
         }
       }
 
-      // Portion BOM operations
+      // Portion BOM operations — consolidated: ONE task per station
       const portionOps = opsByBom[portionBom.id] || [];
       if (portionOps.length > 0) {
-        for (const op of portionOps) {
+        const stationGroups = {};
+        portionOps.forEach(op => {
+          if (!stationGroups[op.station]) stationGroups[op.station] = [];
+          stationGroups[op.station].push(op);
+        });
+        for (const [station, ops] of Object.entries(stationGroups)) {
+          const sorted = ops.sort((a, b) => (a.step_no || 0) - (b.step_no || 0));
+          const stationLabel = station === 'portion' ? 'Portion' : station === 'prep' ? 'Prep' : 'Cook';
+          const noteParts = sorted.map(op => op.notes).filter(Boolean);
+          const primaryEquipmentId = sorted.find(op => op.equipment_id)?.equipment_id || null;
           baseTasks.push({
             run_id: runId,
             line_id: line.id,
             product_id: line.product_id,
             product_sku: line.product_sku,
             meal_name: line.product_name,
-            name: op.name,
-            station: op.station,
-            step_no: op.step_no,
+            name: `${stationLabel} ${line.product_name}`,
+            station,
+            step_no: sorted[0].step_no || 1,
             qty: line.planned_qty,
             qty_uom: 'pcs',
             status: 'pending',
-            notes: op.notes || '',
-            _equipment_id: op.equipment_id || null,
+            notes: noteParts.join('\n') || '',
+            _equipment_id: primaryEquipmentId,
           });
         }
       } else {

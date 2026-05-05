@@ -30,7 +30,10 @@ export default function ConsumeTab({ task, bom, components, onRef, allTasks, all
   }, [task, allTasks, allBoms, allBomComponents, wipBatches]);
 
   // Legacy fallback: fetch sibling prep task if parent didn't pass allTasks
-  const isCookAfterPrep = task.station === 'cook' && (task.step_no || 0) > 1;
+  const isCookAfterPrep = task.station === 'cook' && (
+    allTasks?.some(t => t.station === 'prep' && t.product_id === task.product_id && !t.archived) ||
+    (!allTasks && (task.step_no || 0) > 1)
+  );
   const { data: siblingTasks = [] } = useQuery({
     queryKey: ['sibling-prep-task', task.run_id, task.product_id],
     queryFn: () => base44.entities.ProductionTask.filter({

@@ -21,7 +21,10 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
   const [yieldRequired, setYieldRequired] = useState(false);
 
   const isPortioning = task.station === 'portion';
-  const isCookAfterPrep = task.station === 'cook' && (task.step_no || 0) > 1;
+  // Check if this cook task has a sibling prep task (consolidated tasks no longer use step_no > 1)
+  const isCookAfterPrep = task.station === 'cook' && allTasks?.some(
+    t => t.station === 'prep' && t.product_id === task.product_id && !t.archived
+  );
 
   // Shared previous-step lookup (works for cook-after-prep AND portioning)
   const prevStepInfo = useMemo(() => {
@@ -103,12 +106,9 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
 
   const componentRows = useMemo(() => {
     if (!relevantBom) return [];
+    // With consolidated tasks (one per product per station), show ALL components
+    // for this BOM — step filtering is no longer needed.
     let comps = allComponents.filter(c => c.bom_id === relevantBom.id);
-    // Filter by step: if task has a step_no, only show components assigned to that step (or "all steps" = 0/null)
-    const taskStep = task.step_no || 0;
-    if (taskStep > 0) {
-      comps = comps.filter(c => !c.step_no || c.step_no === taskStep);
-    }
     const yieldQty = relevantBom.yield_qty || 1;
     // For cook-after-prep, scale to the ORIGINAL planned qty (before yield cascade)
     const scaleQty = (isCookAfterPrep && originalRequiredQty != null) ? originalRequiredQty : (task.qty || 1);
