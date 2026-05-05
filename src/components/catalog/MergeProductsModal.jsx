@@ -158,13 +158,29 @@ export default function MergeProductsModal({ products, onClose, onMerged }) {
                 </div>
               )}
 
-              {plan.duplicates_to_archive.some(d => d.bom_references > 0) && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+              {plan.bom_components_to_relink?.length > 0 && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex items-start gap-3">
+                  <Merge className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-semibold text-red-700 dark:text-red-300">Warning: BOM references on duplicates</p>
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                      Some duplicates are referenced in BOMs. These BOM references will NOT be updated automatically — you may need to update them manually.
+                    <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                      {plan.bom_components_to_relink.length} BOM component(s) will be re-linked
+                    </p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                      These BOM ingredients currently point to a duplicate and will be automatically updated to use {plan.canonical.sku}.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {plan.bom_outputs_to_relink?.length > 0 && (
+                <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-4 flex items-start gap-3">
+                  <Merge className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-purple-700 dark:text-purple-300">
+                      {plan.bom_outputs_to_relink.length} recipe output(s) will be re-linked
+                    </p>
+                    <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">
+                      These recipes produce a duplicate product and will be updated to produce {plan.canonical.sku}.
                     </p>
                   </div>
                 </div>

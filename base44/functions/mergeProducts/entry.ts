@@ -3,17 +3,12 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 /**
  * Merge duplicate products into BOM-linked canonical products.
  *
- * For a given product name (fuzzy), finds all Product records that match,
- * identifies which one is used in BOMs (BomComponent.input_product_id),
- * merges useful data from duplicates into the canonical record,
- * creates SupplierProduct records from the duplicate info, and archives the duplicates.
- *
- * Modes:
- *   preview: true  → returns what WOULD happen (no writes)
- *   preview: false → executes the merge
+ * Canonical = the product with the MOST BOM references.
+ * All BOM components pointing to duplicates are re-linked to the canonical product.
+ * Supplier info from duplicates becomes SupplierProduct records.
+ * Duplicates are archived.
  *
  * Payload: { product_ids: string[], preview?: boolean }
- *   product_ids: array of Product IDs to merge (must include the canonical one)
  */
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
@@ -31,58 +26,56 @@ Deno.serve(async (req) => {
   // Load the products
   const products = [];
   for (const pid of product_ids) {
-    try {
-      const results = await base44.asServiceRole.entities.Product.filter({ id: pid });
-      if (results[0]) products.push(results[0]);
-    } catch (e) {
-      // Skip invalid IDs
-      console.warn(`Skipping invalid product ID: ${pid}`, e.message);
-    }
+    const results = await base44.asServiceRole.entities.Product.filter({ id: pid });
+    if (results[0]) products.push(results[0]);
   }
 
   if (products.length < 2) {
     return Response.json({ error: `Only found ${products.length} product(s) from ${product_ids.length} IDs` }, { status: 400 });
   }
 
-  // Load all BOM components to find which product is used in BOMs
+  // Load all BOM components and BOMs
   const allBomComps = await base44.asServiceRole.entities.BomComponent.list('-created_date', 5000);
-  const bomLinkedIds = new Set(allBomComps.map(c => c.input_product_id));
-
-  // Also check Bom.product_id (output side)
   const allBoms = await base44.asServiceRole.entities.Bom.list('-created_date', 1000);
-  const bomOutputIds = new Set(allBoms.map(b => b.product_id));
 
-  // Find the canonical product (the one used in BOMs)
-  let canonical = null;
-  const duplicates = [];
+  // Count BOM references per product
+  const bomCountFor = (pid) => {
+    return allBomComps.filter(c => c.input_product_id === pid).length +
+           allBoms.filter(b => b.product_id === pid).length;
+  };
 
-  for (const p of products) {
-    if (bomLinkedIds.has(p.id) || bomOutputIds.has(p.id)) {
-      if (!canonical) {
-        canonical = p;
-      } else {
-        // Multiple BOM-linked — pick the one with more BOM references
-        const cCount = allBomComps.filter(c => c.input_product_id === canonical.id).length +
-                       allBoms.filter(b => b.product_id === canonical.id).length;
-        const pCount = allBomComps.filter(c => c.input_product_id === p.id).length +
-                       allBoms.filter(b => b.product_id === p.id).length;
-        if (pCount > cCount) {
-          duplicates.push(canonical);
-          canonical = p;
-        } else {
-          duplicates.push(p);
-        }
-      }
-    } else {
-      duplicates.push(p);
+  // Pick canonical = product with most BOM references
+  const sorted = [...products].sort((a, b) => bomCountFor(b.id) - bomCountFor(a.id));
+  const canonical = sorted[0];
+  const duplicates = sorted.slice(1);
+
+  // Find BOM components on duplicates that need re-linking
+  const bomCompsToRelink = [];
+  for (const dup of duplicates) {
+    const comps = allBomComps.filter(c => c.input_product_id === dup.id);
+    for (const comp of comps) {
+      bomCompsToRelink.push({
+        bom_component_id: comp.id,
+        bom_id: comp.bom_id,
+        old_product_id: dup.id,
+        old_product_sku: dup.sku,
+        old_product_name: dup.name,
+      });
     }
   }
 
-  // If none are BOM-linked, let user pick — use the first one
-  if (!canonical) {
-    canonical = products[0];
-    duplicates.length = 0;
-    products.slice(1).forEach(p => duplicates.push(p));
+  // Find BOMs where duplicate is the output product
+  const bomsToRelink = [];
+  for (const dup of duplicates) {
+    const boms = allBoms.filter(b => b.product_id === dup.id);
+    for (const bom of boms) {
+      bomsToRelink.push({
+        bom_id: bom.id,
+        old_product_id: dup.id,
+        old_product_sku: dup.sku,
+        old_product_name: dup.name,
+      });
+    }
   }
 
   // Build merge plan
@@ -91,16 +84,18 @@ Deno.serve(async (req) => {
       id: canonical.id,
       sku: canonical.sku,
       name: canonical.name,
-      bom_references: allBomComps.filter(c => c.input_product_id === canonical.id).length +
-                      allBoms.filter(b => b.product_id === canonical.id).length,
+      stock_uom: canonical.stock_uom,
+      bom_references: bomCountFor(canonical.id),
     },
     duplicates_to_archive: duplicates.map(d => ({
       id: d.id,
       sku: d.sku,
       name: d.name,
-      bom_references: allBomComps.filter(c => c.input_product_id === d.id).length +
-                      allBoms.filter(b => b.product_id === d.id).length,
+      stock_uom: d.stock_uom,
+      bom_references: bomCountFor(d.id),
     })),
+    bom_components_to_relink: bomCompsToRelink,
+    bom_outputs_to_relink: bomsToRelink,
     fields_to_merge: [],
     supplier_products_to_create: [],
   };
@@ -134,7 +129,6 @@ Deno.serve(async (req) => {
   );
   const existingSPKeys = new Set(existingSPs.map(sp => `${sp.supplier_id}__${sp.supplier_sku}`));
 
-  // Load all suppliers for matching
   const allSuppliers = await base44.asServiceRole.entities.Supplier.list('name', 200);
   const supplierById = {};
   allSuppliers.forEach(s => { supplierById[s.id] = s; });
@@ -167,9 +161,8 @@ Deno.serve(async (req) => {
         existingSPKeys.add(key);
       }
     } else {
-      // No supplier linked — still note it for the plan
       mergePlan.supplier_products_to_create.push({
-        note: `${dup.sku} (${dup.name}) has no supplier_id — cannot auto-create SupplierProduct. Data merged into canonical.`,
+        note: `${dup.sku} (${dup.name}) has no supplier_id — data merged into canonical fields instead.`,
         sku: dup.sku,
         name: dup.name,
         purchase_uom: dup.purchase_uom,
@@ -182,8 +175,15 @@ Deno.serve(async (req) => {
     return Response.json({ preview: true, plan: mergePlan });
   }
 
-  // Execute the merge
-  const results = { updated_canonical: false, created_supplier_products: 0, archived_duplicates: 0, updated_references: 0 };
+  // ── Execute the merge ──
+  const results = {
+    updated_canonical: false,
+    created_supplier_products: 0,
+    archived_duplicates: 0,
+    updated_references: 0,
+    relinked_bom_components: 0,
+    relinked_bom_outputs: 0,
+  };
 
   // 1. Update canonical with merged fields
   if (Object.keys(canonicalUpdates).length > 0) {
@@ -191,17 +191,35 @@ Deno.serve(async (req) => {
     results.updated_canonical = true;
   }
 
-  // 2. Create SupplierProduct records
+  // 2. Re-link BOM components from duplicates → canonical
+  for (const comp of bomCompsToRelink) {
+    await base44.asServiceRole.entities.BomComponent.update(comp.bom_component_id, {
+      input_product_id: canonical.id,
+      input_product_name: canonical.name,
+      input_product_sku: canonical.sku,
+    });
+    results.relinked_bom_components++;
+  }
+
+  // 3. Re-link BOM outputs from duplicates → canonical
+  for (const bom of bomsToRelink) {
+    await base44.asServiceRole.entities.Bom.update(bom.bom_id, {
+      product_id: canonical.id,
+      product_name: canonical.name,
+      product_sku: canonical.sku,
+    });
+    results.relinked_bom_outputs++;
+  }
+
+  // 4. Create SupplierProduct records
   for (const spData of mergePlan.supplier_products_to_create) {
-    if (spData.note) continue; // skip info-only entries
+    if (spData.note) continue;
     await base44.asServiceRole.entities.SupplierProduct.create(spData);
     results.created_supplier_products++;
   }
 
-  // 3. Update any StockOnHand, StockMovement, PickLine, TaskConsumption, PurchaseOrderLine
-  //    that reference duplicate product IDs → point them to canonical
+  // 5. Re-link StockOnHand, PurchaseOrderLine, SupplierProduct from duplicates
   for (const dup of duplicates) {
-    // StockOnHand
     const sohRecords = await base44.asServiceRole.entities.StockOnHand.filter({ product_id: dup.id }, '-created_date', 100);
     for (const soh of sohRecords) {
       await base44.asServiceRole.entities.StockOnHand.update(soh.id, {
@@ -210,7 +228,6 @@ Deno.serve(async (req) => {
       results.updated_references++;
     }
 
-    // PurchaseOrderLine
     const poLines = await base44.asServiceRole.entities.PurchaseOrderLine.filter({ product_id: dup.id }, '-created_date', 500);
     for (const pol of poLines) {
       await base44.asServiceRole.entities.PurchaseOrderLine.update(pol.id, {
@@ -219,7 +236,6 @@ Deno.serve(async (req) => {
       results.updated_references++;
     }
 
-    // Existing SupplierProduct records pointing to the duplicate → re-link
     const dupSPs = await base44.asServiceRole.entities.SupplierProduct.filter({ product_id: dup.id }, '-created_date', 100);
     for (const sp of dupSPs) {
       await base44.asServiceRole.entities.SupplierProduct.update(sp.id, {
@@ -229,7 +245,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  // 4. Archive duplicates
+  // 6. Archive duplicates
   for (const dup of duplicates) {
     await base44.asServiceRole.entities.Product.update(dup.id, {
       status: 'archived',
@@ -238,12 +254,12 @@ Deno.serve(async (req) => {
     results.archived_duplicates++;
   }
 
-  // 5. Audit log
+  // 7. Audit log
   await base44.asServiceRole.entities.AuditLog.create({
     action: 'update',
     entity_type: 'Product',
     entity_id: canonical.id,
-    description: `Merged ${duplicates.length} duplicate(s) into ${canonical.sku} (${canonical.name}). Archived: ${duplicates.map(d => d.sku).join(', ')}. Created ${results.created_supplier_products} supplier product(s).`,
+    description: `Merged ${duplicates.length} duplicate(s) into ${canonical.sku} (${canonical.name}). Archived: ${duplicates.map(d => d.sku).join(', ')}. Re-linked ${results.relinked_bom_components} BOM component(s), ${results.relinked_bom_outputs} BOM output(s). Created ${results.created_supplier_products} supplier product(s).`,
   });
 
   return Response.json({ preview: false, plan: mergePlan, results });

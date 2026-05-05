@@ -5,11 +5,12 @@ import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Search, Package, X, Merge, Check } from 'lucide-react';
+import { Search, Package, X, Merge, Check, ScanSearch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
 import TablePagination from '@/components/shared/TablePagination';
 import MergeProductsModal from '@/components/catalog/MergeProductsModal';
+import DuplicateAuditModal from '@/components/catalog/DuplicateAuditModal';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -55,6 +56,7 @@ export default function Catalog() {
   const [pageSize, setPageSize] = useState(15);
   const [mergeSelection, setMergeSelection] = useState([]);
   const [showMergeModal, setShowMergeModal] = useState(false);
+  const [showDuplicateAudit, setShowDuplicateAudit] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: products = [], isLoading } = useQuery({
@@ -111,12 +113,20 @@ export default function Catalog() {
             {filtered.length} of {products.length} products
           </p>
         </div>
-        {perms.catalog_edit && mergeSelection.length >= 2 && (
-          <Button onClick={() => setShowMergeModal(true)} className="gap-2">
-            <Merge className="w-4 h-4" />
-            Merge {mergeSelection.length} Products
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {perms.catalog_edit && (
+            <Button variant="outline" onClick={() => setShowDuplicateAudit(true)} className="gap-2">
+              <ScanSearch className="w-4 h-4" />
+              Scan Duplicates
+            </Button>
+          )}
+          {perms.catalog_edit && mergeSelection.length >= 2 && (
+            <Button onClick={() => setShowMergeModal(true)} className="gap-2">
+              <Merge className="w-4 h-4" />
+              Merge {mergeSelection.length} Products
+            </Button>
+          )}
+        </div>
       </div>
 
       <SyncStatusBanner syncKeys={['shopify_products']} />
@@ -279,6 +289,15 @@ export default function Catalog() {
           onMerged={() => {
             setShowMergeModal(false);
             setMergeSelection([]);
+            queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
+          }}
+        />
+      )}
+
+      {showDuplicateAudit && (
+        <DuplicateAuditModal
+          onClose={() => setShowDuplicateAudit(false)}
+          onMergesComplete={() => {
             queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
           }}
         />
