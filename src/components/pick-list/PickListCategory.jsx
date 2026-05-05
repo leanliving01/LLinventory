@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
  * Statuses: not_picked → picked → released.
  */
 export default function PickListCategory({
-  category, pickLines, stockMap, onMarkPicked, onUnpick,
+  category, pickLines, stockMap, onMarkPicked, onUnpick, onMarkAll,
   disabled = false, isCompleted = false, onEditLine = null,
 }) {
   // Local qty edits for lines being picked (not yet saved)
@@ -23,29 +23,31 @@ export default function PickListCategory({
 
   const handleCheckboxToggle = (pl) => {
     if (pl.status === 'not_picked') {
-      // Mark as picked with qty (use local edit or required)
       const qty = localQty[pl.id] || pl.required_qty;
       onMarkPicked(pl.id, qty);
     } else if (pl.status === 'picked') {
-      // Unpick
       onUnpick(pl.id);
     }
-    // released lines can't be toggled
   };
 
   const handleQtyBlur = (pl) => {
     const qty = localQty[pl.id];
     if (qty !== undefined && pl.status === 'picked') {
-      // Update the picked qty
       onMarkPicked(pl.id, Number(qty));
     }
   };
 
   const handleMarkAllUnpicked = () => {
     const unpicked = pickLines.filter(pl => pl.status === 'not_picked');
-    unpicked.forEach(pl => {
-      onMarkPicked(pl.id, localQty[pl.id] || pl.required_qty);
-    });
+    if (unpicked.length === 0) return;
+    // Build batch array and send to parent for single optimistic update
+    const batch = unpicked.map(pl => ({ id: pl.id, qty: localQty[pl.id] || pl.required_qty }));
+    if (onMarkAll) {
+      onMarkAll(batch);
+    } else {
+      // Fallback: individual calls
+      batch.forEach(({ id, qty }) => onMarkPicked(id, qty));
+    }
   };
 
   return (

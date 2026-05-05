@@ -12,10 +12,9 @@ import { cn } from '@/lib/utils';
  */
 export default function FloorPickCategory({
   category, pickLines, stockMap,
-  onMarkPicked, onUnpick, disabled, confirmed,
+  onMarkPicked, onUnpick, onMarkAll, disabled, confirmed,
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  // Local qty edits for lines being picked
   const [localQty, setLocalQty] = useState({});
 
   const releasedAll = pickLines.every(pl => pl.status === 'released');
@@ -39,9 +38,14 @@ export default function FloorPickCategory({
   };
 
   const handleMarkAllUnpicked = () => {
-    pickLines.filter(pl => pl.status === 'not_picked').forEach(pl => {
-      onMarkPicked(pl.id, localQty[pl.id] || pl.required_qty);
-    });
+    const unpicked = pickLines.filter(pl => pl.status === 'not_picked');
+    if (unpicked.length === 0) return;
+    const batch = unpicked.map(pl => ({ id: pl.id, qty: localQty[pl.id] || pl.required_qty }));
+    if (onMarkAll) {
+      onMarkAll(batch);
+    } else {
+      batch.forEach(({ id, qty }) => onMarkPicked(id, qty));
+    }
   };
 
   return (

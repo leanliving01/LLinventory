@@ -155,22 +155,40 @@ export default function FloorPick() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [lookupMap, isPicking]);
 
-  const handleMarkPicked = async (pickLineId, qty) => {
-    await base44.entities.PickLine.update(pickLineId, {
-      status: 'picked',
-      actual_qty_picked: Number(qty),
-      picked_at: new Date().toISOString(),
+  // Optimistic cache helper
+  const optimisticUpdateLine = (pickLineId, patch) => {
+    queryClient.setQueryData(['pick-lines', pickList?.id], (old) => {
+      if (!old) return old;
+      return old.map(pl => pl.id === pickLineId ? { ...pl, ...patch } : pl);
     });
-    queryClient.invalidateQueries({ queryKey: ['pick-lines', pickList?.id] });
   };
 
-  const handleUnpick = async (pickLineId) => {
-    await base44.entities.PickLine.update(pickLineId, {
-      status: 'not_picked',
-      actual_qty_picked: 0,
-      picked_at: null,
+  const handleMarkPicked = (pickLineId, qty) => {
+    const patch = { status: 'picked', actual_qty_picked: Number(qty), picked_at: new Date().toISOString() };
+    optimisticUpdateLine(pickLineId, patch);
+    base44.entities.PickLine.update(pickLineId, patch);
+  };
+
+  const handleUnpick = (pickLineId) => {
+    const patch = { status: 'not_picked', actual_qty_picked: 0, picked_at: null };
+    optimisticUpdateLine(pickLineId, patch);
+    base44.entities.PickLine.update(pickLineId, patch);
+  };
+
+  const handleMarkAll = (linesToMark) => {
+    const now = new Date().toISOString();
+    const qtyMap = {};
+    linesToMark.forEach(({ id, qty }) => { qtyMap[id] = Number(qty); });
+    queryClient.setQueryData(['pick-lines', pickList?.id], (old) => {
+      if (!old) return old;
+      return old.map(pl => qtyMap[pl.id] !== undefined
+        ? { ...pl, status: 'picked', actual_qty_picked: qtyMap[pl.id], picked_at: now }
+        : pl
+      );
     });
-    queryClient.invalidateQueries({ queryKey: ['pick-lines', pickList?.id] });
+    Promise.all(linesToMark.map(({ id, qty }) =>
+      base44.entities.PickLine.update(id, { status: 'picked', actual_qty_picked: Number(qty), picked_at: now })
+    ));
   };
 
   const handleStartPicking = async () => {
@@ -387,6 +405,7 @@ export default function FloorPick() {
             stockMap={stockMap}
             onMarkPicked={handleMarkPicked}
             onUnpick={handleUnpick}
+            onMarkAll={handleMarkAll}
             disabled={!isPicking}
             confirmed={isCompleted}
           />

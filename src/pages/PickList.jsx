@@ -131,24 +131,46 @@ export default function PickList() {
     toast.success('Picking timer started');
   };
 
-  // ── Mark a line as picked (with qty) ──
-  const handleMarkPicked = async (pickLineId, actualQty) => {
-    await base44.entities.PickLine.update(pickLineId, {
-      status: 'picked',
-      actual_qty_picked: Number(actualQty),
-      picked_at: new Date().toISOString(),
+  // ── Optimistic cache helper ──
+  const optimisticUpdateLine = (pickLineId, patch) => {
+    queryClient.setQueryData(['pick-lines', pickList?.id], (old) => {
+      if (!old) return old;
+      return old.map(pl => pl.id === pickLineId ? { ...pl, ...patch } : pl);
     });
-    queryClient.invalidateQueries({ queryKey: ['pick-lines', pickList?.id] });
   };
 
-  // ── Unpick a line ──
-  const handleUnpick = async (pickLineId) => {
-    await base44.entities.PickLine.update(pickLineId, {
-      status: 'not_picked',
-      actual_qty_picked: 0,
-      picked_at: null,
+  // ── Mark a line as picked (with qty) — optimistic ──
+  const handleMarkPicked = (pickLineId, actualQty) => {
+    const patch = { status: 'picked', actual_qty_picked: Number(actualQty), picked_at: new Date().toISOString() };
+    optimisticUpdateLine(pickLineId, patch);
+    base44.entities.PickLine.update(pickLineId, patch);
+  };
+
+  // ── Unpick a line — optimistic ──
+  const handleUnpick = (pickLineId) => {
+    const patch = { status: 'not_picked', actual_qty_picked: 0, picked_at: null };
+    optimisticUpdateLine(pickLineId, patch);
+    base44.entities.PickLine.update(pickLineId, patch);
+  };
+
+  // ── Mark ALL unpicked lines at once — optimistic batch ──
+  const handleMarkAll = (linesToMark) => {
+    const now = new Date().toISOString();
+    // Build a lookup for qty overrides
+    const qtyMap = {};
+    linesToMark.forEach(({ id, qty }) => { qtyMap[id] = Number(qty); });
+    // Optimistic: update cache instantly for all lines at once
+    queryClient.setQueryData(['pick-lines', pickList?.id], (old) => {
+      if (!old) return old;
+      return old.map(pl => qtyMap[pl.id] !== undefined
+        ? { ...pl, status: 'picked', actual_qty_picked: qtyMap[pl.id], picked_at: now }
+        : pl
+      );
     });
-    queryClient.invalidateQueries({ queryKey: ['pick-lines', pickList?.id] });
+    // Persist all in parallel — fire-and-forget
+    Promise.all(linesToMark.map(({ id, qty }) =>
+      base44.entities.PickLine.update(id, { status: 'picked', actual_qty_picked: Number(qty), picked_at: now })
+    ));
   };
 
   // ── Release all picked lines → production_pick stock movements ──
@@ -565,6 +587,7 @@ export default function PickList() {
             stockMap={stockMap}
             onMarkPicked={handleMarkPicked}
             onUnpick={handleUnpick}
+            onMarkAll={handleMarkAll}
             disabled={!run.picking_started_at || isCompleted}
             isCompleted={isCompleted}
             onEditLine={isCompleted ? setEditingLine : null}
