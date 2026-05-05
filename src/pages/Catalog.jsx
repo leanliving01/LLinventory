@@ -12,7 +12,10 @@ import TablePagination from '@/components/shared/TablePagination';
 import MergeProductsModal from '@/components/catalog/MergeProductsModal';
 import DuplicateAuditModal from '@/components/catalog/DuplicateAuditModal';
 import GroupedProductTable from '@/components/catalog/GroupedProductTable';
+import TypeDropChips from '@/components/catalog/TypeDropChips';
+import TypeChangeConfirmDialog from '@/components/catalog/TypeChangeConfirmDialog';
 import { SUBCATEGORIZED_TYPES } from '@/lib/productSubcategories';
+import { DragDropContext } from '@hello-pangea/dnd';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
@@ -60,6 +63,8 @@ export default function Catalog() {
   const [mergeSelection, setMergeSelection] = useState([]);
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [showDuplicateAudit, setShowDuplicateAudit] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [typeChangeRequest, setTypeChangeRequest] = useState(null); // { product, fromType, toType }
   const queryClient = useQueryClient();
 
   const { data: products = [], isLoading } = useQuery({
@@ -67,30 +72,61 @@ export default function Catalog() {
     queryFn: () => base44.entities.Product.list('-created_date', 500),
   });
 
-  // Raw materials use pick_category as the grouping field; other types use subcategory override
-  const RAW_PICK_CATEGORIES = ['Meats', 'Vegetables', 'Starches', 'Spices & Seasoning', 'Sauces & Condiments', 'Dairy & Eggs', 'Oils & Fats', 'Dry Goods', 'Packaging', 'Other'];
-
+  // Subcategory reclassify (within same type)
   const handleProductReclassify = async (productId, fromCategory, toCategory) => {
     const product = products.find(p => p.id === productId);
     if (!product) return;
 
     const updateData = {};
     if (product.type === 'raw') {
-      // For raw materials, the subcategory IS the pick_category
-      // Check if toCategory is a valid pick_category
-      if (RAW_PICK_CATEGORIES.includes(toCategory)) {
-        updateData.pick_category = toCategory;
-      } else {
-        updateData.pick_category = toCategory;
-      }
+      updateData.pick_category = toCategory;
     } else {
-      // For other types, set the subcategory override
       updateData.subcategory = toCategory;
     }
 
     await base44.entities.Product.update(productId, updateData);
     queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
     toast.success(`Moved "${product.name}" from "${fromCategory}" → "${toCategory}"`);
+  };
+
+  // Unified drag handler — routes to subcategory move or type-change flow
+  const handleDragStart = () => setIsDragging(true);
+
+  const handleDragEnd = (result) => {
+    setIsDragging(false);
+    const { draggableId, source, destination } = result;
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId) return;
+
+    const productId = draggableId;
+
+    // Check if dropping onto a type chip (droppableId starts with "type:")
+    if (destination.droppableId.startsWith('type:')) {
+      const toType = destination.droppableId.replace('type:', '');
+      const product = products.find(p => p.id === productId);
+      if (!product || product.type === toType) return;
+      // Trigger the confirmation dialog
+      setTypeChangeRequest({ product, fromType: product.type, toType });
+      return;
+    }
+
+    // Otherwise it's a subcategory move within the grouped table
+    handleProductReclassify(productId, source.droppableId, destination.droppableId);
+  };
+
+  // Execute the type change after manager PIN verification
+  const handleTypeChangeConfirmed = async (manager) => {
+    if (!typeChangeRequest) return;
+    const { product, toType } = typeChangeRequest;
+
+    await base44.entities.Product.update(product.id, {
+      type: toType,
+      subcategory: '', // Clear override so auto-detect runs for new type
+    });
+
+    queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
+    toast.success(`"${product.name}" moved to ${TYPE_LABELS[toType] || toType} (approved by ${manager.manager_name})`);
+    setTypeChangeRequest(null);
   };
 
   const filtered = useMemo(() => {
@@ -134,6 +170,7 @@ export default function Catalog() {
   }, [products, statusFilter]);
 
   return (
+    <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
@@ -160,20 +197,13 @@ export default function Catalog() {
 
       <SyncStatusBanner syncKeys={['shopify_products']} />
 
-      {/* Type summary chips */}
-      <div className="flex flex-wrap gap-2">
-        {Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
-          <button
-            key={type}
-            onClick={() => setTypeFilter(typeFilter === type ? 'all' : type)}
-            className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${
-              typeFilter === type ? TYPE_COLORS[type] + ' ring-2 ring-primary/30' : TYPE_COLORS[type] + ' opacity-70 hover:opacity-100'
-            }`}
-          >
-            {TYPE_LABELS[type] || type} ({count})
-          </button>
-        ))}
-      </div>
+      {/* Type summary chips — become drop targets during drag */}
+      <TypeDropChips
+        typeCounts={typeCounts}
+        currentTypeFilter={typeFilter}
+        isDragging={isDragging}
+        onTypeClick={(type) => setTypeFilter(typeFilter === type ? 'all' : type)}
+      />
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -339,6 +369,17 @@ export default function Catalog() {
           }}
         />
       )}
+
+      {typeChangeRequest && (
+        <TypeChangeConfirmDialog
+          product={typeChangeRequest.product}
+          fromType={typeChangeRequest.fromType}
+          toType={typeChangeRequest.toType}
+          onConfirm={handleTypeChangeConfirmed}
+          onCancel={() => setTypeChangeRequest(null)}
+        />
+      )}
     </div>
+    </DragDropContext>
   );
 }
