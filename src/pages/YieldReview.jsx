@@ -56,6 +56,10 @@ function buildYieldLines(tasks, consumptions, yieldRecords) {
 
       if (required <= 0) continue;
 
+      // Only include weight-based ingredients (kg, g, L, ml) — skip packaging (pcs, box)
+      const weightUoms = ['kg', 'g', 'l', 'ml'];
+      if (!weightUoms.includes((tc.uom || '').toLowerCase())) continue;
+
       // Yield = consumed / required * 100 (how much usable output from input)
       const yieldPct = required > 0 ? (consumed / required) * 100 : 0;
 
