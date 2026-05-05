@@ -3,19 +3,21 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Save, Loader2, Package, ArrowRightLeft, Settings2, Wrench } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Package, ArrowRightLeft, Settings2, Wrench, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import ProductEditForm from '@/components/catalog/ProductEditForm';
 import ProductStockTab from '@/components/catalog/ProductStockTab';
 import ProductMovementsTab from '@/components/catalog/ProductMovementsTab';
 import ProductCookBomCard from '@/components/catalog/ProductCookBomCard';
 import ProductEquipmentTab from '@/components/catalog/ProductEquipmentTab';
+import ProductSuppliersTab from '@/components/catalog/ProductSuppliersTab';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 
 const TABS = [
   { key: 'details', label: 'Details', icon: Settings2 },
+  { key: 'suppliers', label: 'Suppliers', icon: Truck },
   { key: 'equipment', label: 'Equipment', icon: Wrench },
   { key: 'stock', label: 'Stock', icon: Package },
   { key: 'movements', label: 'Movements', icon: ArrowRightLeft },
@@ -152,6 +154,16 @@ export default function ProductEdit() {
             productId={productId}
           />
         </>
+      )}
+
+      {activeTab === 'suppliers' && product && (
+        <ProductSuppliersTab
+          productId={productId}
+          productName={product.name}
+          productSku={product.sku}
+          stockUom={product.stock_uom}
+          canEdit={canEdit}
+        />
       )}
 
       {activeTab === 'equipment' && product && (

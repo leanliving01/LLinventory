@@ -32,9 +32,30 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
   });
 
+  // Load supplier products for the selected supplier
+  const { data: supplierProducts = [] } = useQuery({
+    queryKey: ['supplier-products-for-po', supplierId],
+    queryFn: () => base44.entities.SupplierProduct.filter({ supplier_id: supplierId, active: true }, 'product_name', 200),
+    enabled: !!supplierId,
+  });
+
+  // Map product_id → SupplierProduct for quick lookup
+  const spByProductId = useMemo(() => {
+    const map = {};
+    supplierProducts.forEach(sp => { map[sp.product_id] = sp; });
+    return map;
+  }, [supplierProducts]);
+
   const filteredProducts = useMemo(() => {
     let list = products;
-    if (supplierId) {
+    // When a supplier is selected and has SupplierProduct links, prioritise those
+    if (supplierId && supplierProducts.length > 0) {
+      const spProductIds = new Set(supplierProducts.map(sp => sp.product_id));
+      const linkedProducts = list.filter(p => spProductIds.has(p.id));
+      const otherProducts = list.filter(p => !spProductIds.has(p.id));
+      list = [...linkedProducts, ...otherProducts];
+    } else if (supplierId) {
+      // Fallback to legacy supplier_id field
       const supplierFiltered = list.filter(p => p.supplier_id === supplierId);
       if (supplierFiltered.length > 0) list = supplierFiltered;
     }
@@ -42,8 +63,8 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
       const q = search.toLowerCase();
       list = list.filter(p => p.name.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q));
     }
-    return list.slice(0, 15);
-  }, [products, supplierId, search]);
+    return list.slice(0, 20);
+  }, [products, supplierId, supplierProducts, search]);
 
   const addLine = () => setLines(prev => [...prev, { product_id: '', qty: '', unit_cost: '' }]);
   const removeLine = (idx) => setLines(prev => prev.filter((_, i) => i !== idx));
@@ -87,6 +108,7 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
     // Create line items
     const poLines = validLines.map(l => {
       const product = products.find(p => p.id === l.product_id);
+      const sp = spByProductId[l.product_id];
       const qty = Number(l.qty);
       const unitCost = Number(l.unit_cost);
       return {
@@ -97,7 +119,7 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
         ordered_qty: qty,
         received_qty: 0,
         unit_cost: unitCost,
-        uom: product?.purchase_uom || product?.stock_uom || 'pcs',
+        uom: sp?.purchase_uom_label || sp?.purchase_uom || product?.purchase_uom || product?.stock_uom || 'pcs',
         line_total: Math.round(qty * unitCost * 100) / 100,
       };
     });
@@ -180,19 +202,35 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
                           <Select value={line.product_id} onValueChange={v => {
                             const p = products.find(pr => pr.id === v);
                             updateLine(idx, 'product_id', v);
-                            if (p?.cost_avg && !line.unit_cost) updateLine(idx, 'unit_cost', String(p.cost_avg));
+                            // Auto-fill from SupplierProduct if available
+                            const sp = spByProductId[v];
+                            if (sp) {
+                              if (!line.unit_cost) updateLine(idx, 'unit_cost', String(sp.last_purchase_price || p?.cost_avg || 0));
+                            } else if (p?.cost_avg && !line.unit_cost) {
+                              updateLine(idx, 'unit_cost', String(p.cost_avg));
+                            }
                           }}>
                             <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
                             <SelectContent>
                               <div className="px-2 pb-2">
                                 <Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="h-7 text-xs" />
                               </div>
-                              {filteredProducts.map(p => (
-                                <SelectItem key={p.id} value={p.id}>{p.sku} — {p.name}</SelectItem>
-                              ))}
+                              {filteredProducts.map(p => {
+                                const sp = spByProductId[p.id];
+                                return (
+                                  <SelectItem key={p.id} value={p.id}>
+                                    {p.sku} — {p.name}
+                                    {sp && <span className="text-muted-foreground ml-1">({sp.supplier_description || sp.purchase_uom_label || ''})</span>}
+                                  </SelectItem>
+                                );
+                              })}
                             </SelectContent>
                           </Select>
-                          {product && <p className="text-[10px] text-muted-foreground mt-0.5">{product.purchase_uom || product.stock_uom || ''}</p>}
+                          {product && (
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                              {spByProductId[line.product_id]?.purchase_uom_label || product.purchase_uom || product.stock_uom || ''}
+                            </p>
+                          )}
                         </td>
                         <td className="px-3 py-2">
                           <Input type="number" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} placeholder="0" className="h-9 text-sm bg-background" min="0" />

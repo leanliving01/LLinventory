@@ -1,14 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Search, Package, X } from 'lucide-react';
+import { Search, Package, X, Merge, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
 import TablePagination from '@/components/shared/TablePagination';
+import MergeProductsModal from '@/components/catalog/MergeProductsModal';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -52,6 +53,9 @@ export default function Catalog() {
   const perms = getUserPermissions(user || {}, customRoles);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(15);
+  const [mergeSelection, setMergeSelection] = useState([]);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['catalog-products'],
@@ -107,6 +111,12 @@ export default function Catalog() {
             {filtered.length} of {products.length} products
           </p>
         </div>
+        {perms.catalog_edit && mergeSelection.length >= 2 && (
+          <Button onClick={() => setShowMergeModal(true)} className="gap-2">
+            <Merge className="w-4 h-4" />
+            Merge {mergeSelection.length} Products
+          </Button>
+        )}
       </div>
 
       <SyncStatusBanner syncKeys={['shopify_products']} />
@@ -184,6 +194,9 @@ export default function Catalog() {
           <table className="w-full">
             <thead>
               <tr className="bg-muted/50 border-b border-border">
+                {perms.catalog_edit && (
+                  <th className="w-10 px-3 py-3"></th>
+                )}
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">SKU</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Name</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Type</th>
@@ -195,12 +208,26 @@ export default function Catalog() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {pageProducts.map(p => (
+              {pageProducts.map(p => {
+                const isSelected = mergeSelection.includes(p.id);
+                return (
                 <tr
                   key={p.id}
-                  className="hover:bg-muted/30 transition-colors cursor-pointer"
+                  className={`hover:bg-muted/30 transition-colors cursor-pointer ${isSelected ? 'bg-primary/5' : ''}`}
                   onClick={() => navigate(`/catalog/${p.id}`)}
                 >
+                  {perms.catalog_edit && (
+                    <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => setMergeSelection(prev =>
+                          prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]
+                        )}
+                        className="rounded w-4 h-4"
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-2.5 text-sm font-mono font-medium">{p.sku}</td>
                   <td className="px-4 py-2.5 text-sm">{p.name}</td>
                   <td className="px-4 py-2.5 text-center">
@@ -222,10 +249,11 @@ export default function Catalog() {
                     </Badge>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {pageProducts.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={perms.catalog_edit ? 9 : 8} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     {products.length === 0 ? 'No products imported yet. Go to Settings → Cin7 Import to get started.' : 'No products match your filters.'}
                   </td>
                 </tr>
@@ -244,6 +272,17 @@ export default function Catalog() {
       )}
 
 
+      {showMergeModal && (
+        <MergeProductsModal
+          products={products.filter(p => mergeSelection.includes(p.id))}
+          onClose={() => setShowMergeModal(false)}
+          onMerged={() => {
+            setShowMergeModal(false);
+            setMergeSelection([]);
+            queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
+          }}
+        />
+      )}
     </div>
   );
 }
