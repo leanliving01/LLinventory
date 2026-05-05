@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Settings as SettingsIcon, Users, Database, Download, Building2, ChefHat, Bell, Ruler, Truck, Package } from 'lucide-react';
+import { Settings as SettingsIcon, Users, Database, Download, Building2, ChefHat, Bell, Ruler, Truck, Package, UserCog } from 'lucide-react';
 import SettingsOrgTab from '@/components/settings/SettingsOrgTab';
 import SettingsUsersTab from '@/components/settings/SettingsUsersTab';
 import SettingsCin7Tab from '@/components/settings/SettingsCin7Tab';
@@ -31,7 +31,7 @@ export default function SettingsPage() {
           <TabsTrigger value="org" className="gap-1.5"><Building2 className="w-3.5 h-3.5" />Organisation</TabsTrigger>
           {perms.user_management && <TabsTrigger value="users" className="gap-1.5"><Users className="w-3.5 h-3.5" />Users</TabsTrigger>}
           <TabsTrigger value="cin7" className="gap-1.5"><Database className="w-3.5 h-3.5" />Cin7 Import</TabsTrigger>
-          <TabsTrigger value="production" className="gap-1.5"><ChefHat className="w-3.5 h-3.5" />Production</TabsTrigger>
+          <TabsTrigger value="production" className="gap-1.5"><UserCog className="w-3.5 h-3.5" />Kitchen Team</TabsTrigger>
           <TabsTrigger value="logs" className="gap-1.5"><Download className="w-3.5 h-3.5" />Import Log</TabsTrigger>
           <TabsTrigger value="alerts" className="gap-1.5"><Bell className="w-3.5 h-3.5" />Alerts</TabsTrigger>
           <TabsTrigger value="uom" className="gap-1.5"><Ruler className="w-3.5 h-3.5" />Units</TabsTrigger>

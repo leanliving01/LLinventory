@@ -4,167 +4,175 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Utensils, Flame, ChefHat, Plus, Trash2, Loader2 } from 'lucide-react';
+import { Plus, Search, Users, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import TeamMemberRow from './TeamMemberRow';
+import TeamMemberEditModal from './TeamMemberEditModal';
 
-const STATION_META = {
-  prep: { label: 'Prep', icon: Utensils, color: 'bg-blue-100 text-blue-700' },
-  cook: { label: 'Cook', icon: Flame, color: 'bg-amber-100 text-amber-700' },
-  portion: { label: 'Portion', icon: ChefHat, color: 'bg-green-100 text-green-700' },
-};
-
-const STATION_IDS = ['prep', 'cook', 'portion'];
+const STATION_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'prep', label: 'Prep' },
+  { id: 'cook', label: 'Cook' },
+  { id: 'portion', label: 'Portion' },
+];
 
 export default function SettingsProductionTab() {
   const queryClient = useQueryClient();
-  const [newName, setNewName] = useState('');
-  const [newStations, setNewStations] = useState([]);
-  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(null); // null = closed, 'new' = add, or member object
+  const [search, setSearch] = useState('');
+  const [stationFilter, setStationFilter] = useState('all');
+  const [showInactive, setShowInactive] = useState(false);
 
-  const { data: members = [], isLoading } = useQuery({
-    queryKey: ['team-members'],
-    queryFn: () => base44.entities.TeamMember.filter({ is_active: true }, 'name', 100),
+  const { data: allMembers = [], isLoading } = useQuery({
+    queryKey: ['team-members-all'],
+    queryFn: () => base44.entities.TeamMember.list('name', 200),
   });
 
-  // Support both old `station` (string) and new `stations` (array) field
   const getStations = (m) => {
     if (Array.isArray(m.stations) && m.stations.length > 0) return m.stations;
     if (m.station) return [m.station];
     return [];
   };
 
-  const membersByStation = useMemo(() => {
-    const grouped = { prep: [], cook: [], portion: [] };
-    members.forEach(m => {
-      const stations = getStations(m);
-      stations.forEach(s => {
-        if (grouped[s]) grouped[s].push(m);
-      });
+  const filtered = useMemo(() => {
+    return allMembers.filter(m => {
+      // Active filter
+      if (!showInactive && m.is_active === false) return false;
+      if (showInactive && m.is_active !== false) return false;
+      // Search
+      if (search && !m.name?.toLowerCase().includes(search.toLowerCase())) return false;
+      // Station filter
+      if (stationFilter !== 'all') {
+        const stations = getStations(m);
+        if (!stations.includes(stationFilter)) return false;
+      }
+      return true;
     });
-    return grouped;
-  }, [members]);
+  }, [allMembers, search, stationFilter, showInactive]);
 
-  const toggleNewStation = (stationId) => {
-    setNewStations(prev =>
-      prev.includes(stationId) ? prev.filter(s => s !== stationId) : [...prev, stationId]
-    );
-  };
+  const activeCount = allMembers.filter(m => m.is_active !== false).length;
+  const managerCount = allMembers.filter(m => m.is_active !== false && m.is_manager).length;
+  const inactiveCount = allMembers.filter(m => m.is_active === false).length;
 
-  const handleAddMember = async () => {
-    if (!newName.trim()) return;
-    if (newStations.length === 0) {
-      toast.error('Select at least one station');
-      return;
+  const handleSave = async (data, memberId) => {
+    if (memberId) {
+      await base44.entities.TeamMember.update(memberId, data);
+      toast.success(`${data.name} updated`);
+    } else {
+      await base44.entities.TeamMember.create({ ...data, is_active: true });
+      toast.success(`${data.name} added to the team`);
     }
-    setSaving(true);
-    await base44.entities.TeamMember.create({ name: newName.trim(), stations: newStations, is_active: true });
+    queryClient.invalidateQueries({ queryKey: ['team-members-all'] });
     queryClient.invalidateQueries({ queryKey: ['team-members'] });
-    const stationLabels = newStations.map(s => STATION_META[s].label).join(', ');
-    setNewName('');
-    setNewStations([]);
-    toast.success(`${newName.trim()} added to ${stationLabels}`);
-    setSaving(false);
+    queryClient.invalidateQueries({ queryKey: ['floor-team-members'] });
+    setEditing(null);
   };
 
-  const handleRemoveMember = async (member) => {
-    await base44.entities.TeamMember.update(member.id, { is_active: false });
+  const handleToggleActive = async (member) => {
+    const newActive = member.is_active === false ? true : false;
+    await base44.entities.TeamMember.update(member.id, { is_active: newActive });
+    queryClient.invalidateQueries({ queryKey: ['team-members-all'] });
     queryClient.invalidateQueries({ queryKey: ['team-members'] });
-    toast.success(`${member.name} removed`);
+    queryClient.invalidateQueries({ queryKey: ['floor-team-members'] });
+    toast.success(newActive ? `${member.name} reactivated` : `${member.name} deactivated`);
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      {/* Team Members */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-border">
-          <h3 className="text-sm font-semibold">Kitchen Team</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Assign team members to one or more stations. They'll select their name when starting a task.</p>
+    <div className="space-y-4 max-w-3xl">
+      {/* Stats strip */}
+      <div className="flex gap-4">
+        <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-4 py-2.5">
+          <Users className="w-4 h-4 text-primary" />
+          <span className="text-sm font-semibold">{activeCount}</span>
+          <span className="text-xs text-muted-foreground">Active</span>
         </div>
-
-        {/* Add member */}
-        <div className="px-6 py-4 border-b border-border space-y-3">
-          <div className="flex items-center gap-3">
-            <Input
-              placeholder="Team member name"
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              className="flex-1"
-              onKeyDown={e => e.key === 'Enter' && handleAddMember()}
-            />
-            <Button onClick={handleAddMember} disabled={saving || !newName.trim() || newStations.length === 0} size="sm" className="gap-1.5">
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-              Add
-            </Button>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-xs text-muted-foreground">Stations:</span>
-            {STATION_IDS.map(sid => {
-              const meta = STATION_META[sid];
-              const Icon = meta.icon;
-              const checked = newStations.includes(sid);
-              return (
-                <label
-                  key={sid}
-                  className={cn(
-                    "flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-lg border transition-all text-sm",
-                    checked ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/30"
-                  )}
-                >
-                  <Checkbox
-                    checked={checked}
-                    onCheckedChange={() => toggleNewStation(sid)}
-                  />
-                  <Icon className="w-3.5 h-3.5" />
-                  <span className="font-medium">{meta.label}</span>
-                </label>
-              );
-            })}
-          </div>
+        <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-4 py-2.5">
+          <ShieldCheck className="w-4 h-4 text-purple-600" />
+          <span className="text-sm font-semibold">{managerCount}</span>
+          <span className="text-xs text-muted-foreground">Managers</span>
         </div>
-
-        {/* Members by station */}
-        <div className="divide-y divide-border">
-          {STATION_IDS.map(station => {
-            const meta = STATION_META[station];
-            const stationMembers = membersByStation[station] || [];
-            return (
-              <div key={station} className="px-6 py-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Badge className={meta.color}>{meta.label}</Badge>
-                  <span className="text-xs text-muted-foreground">{stationMembers.length} members</span>
-                </div>
-                {stationMembers.length === 0 ? (
-                  <p className="text-xs text-muted-foreground ml-1">No team members assigned</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {stationMembers.map(m => {
-                      const otherStations = getStations(m).filter(s => s !== station);
-                      return (
-                        <div key={m.id} className="flex items-center gap-1.5 bg-muted px-3 py-1.5 rounded-lg text-sm">
-                          <span>{m.name}</span>
-                          {otherStations.length > 0 && (
-                            <span className="text-[10px] text-muted-foreground">
-                              (+{otherStations.map(s => STATION_META[s].label).join(', ')})
-                            </span>
-                          )}
-                          <button
-                            onClick={() => handleRemoveMember(m)}
-                            className="text-muted-foreground hover:text-destructive transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        {inactiveCount > 0 && (
+          <button
+            onClick={() => setShowInactive(!showInactive)}
+            className="flex items-center gap-2 bg-card border border-border rounded-lg px-4 py-2.5 hover:bg-muted/50 transition-colors"
+          >
+            <span className="text-sm font-semibold text-muted-foreground">{inactiveCount}</span>
+            <span className="text-xs text-muted-foreground">{showInactive ? 'Showing inactive' : 'Inactive'}</span>
+          </button>
+        )}
       </div>
+
+      {/* Toolbar */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search team members..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <div className="flex gap-1 bg-muted rounded-lg p-0.5">
+          {STATION_FILTERS.map(f => (
+            <button
+              key={f.id}
+              onClick={() => setStationFilter(f.id)}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                stationFilter === f.id
+                  ? 'bg-card text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <Button onClick={() => setEditing('new')} className="gap-1.5">
+          <Plus className="w-4 h-4" /> Add Member
+        </Button>
+      </div>
+
+      {/* Member list */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-border bg-muted/30">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {showInactive ? 'Inactive Members' : 'Kitchen Team'}
+            </h3>
+            <span className="text-xs text-muted-foreground">{filtered.length} member{filtered.length !== 1 ? 's' : ''}</span>
+          </div>
+        </div>
+        {isLoading ? (
+          <div className="px-6 py-8 text-center text-sm text-muted-foreground">Loading team...</div>
+        ) : filtered.length === 0 ? (
+          <div className="px-6 py-8 text-center text-sm text-muted-foreground">
+            {search || stationFilter !== 'all'
+              ? 'No members match your filters'
+              : showInactive
+                ? 'No inactive members'
+                : 'No team members yet — add your first one above'}
+          </div>
+        ) : (
+          filtered.map(m => (
+            <TeamMemberRow
+              key={m.id}
+              member={m}
+              onEdit={() => setEditing(m)}
+              onToggleActive={() => handleToggleActive(m)}
+            />
+          ))
+        )}
+      </div>
+
+      {/* Edit / Add modal */}
+      {editing && (
+        <TeamMemberEditModal
+          member={editing === 'new' ? null : editing}
+          onSave={handleSave}
+          onCancel={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }
