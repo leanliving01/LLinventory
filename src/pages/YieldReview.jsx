@@ -14,7 +14,7 @@ import YieldRunPicker from '@/components/yield-review/YieldRunPicker';
 
 const HELP_ITEMS = [
   { title: 'Prep & Cooking yields', text: 'This page shows yield data from completed production tasks — Prep (trim/wash loss) and Cooking (shrinkage). Portioning is excluded.' },
-  { title: 'Data flow', text: 'Each row is one completed task. Picked = what the picker pulled from storage. Consumed = what staff recorded using. Output = what was produced. Yield % = output / picked × 100.' },
+  { title: 'Data flow', text: 'Each row is one completed task with a recorded yield. Picked = what the picker pulled from storage. Consumed = what staff recorded using. Output = the explicit yield recorded in notes. Yield % = output ÷ consumed × 100. Tasks without a yield note are not shown.' },
   { title: 'Rolling average', text: 'The Avg (30) column shows the rolling average yield from the last 30 yield records for that product at that station.' },
   { title: 'Click for history', text: 'Click any product row to open the yield history drawer. Records below 80% are highlighted red.' },
   { title: 'Filter by run', text: 'Use the run pills to filter yield records to a specific production run.' },
@@ -109,12 +109,17 @@ function buildYieldLines(tasks, consumptions, yieldRecords, pickLines, pickLists
       }
     }
 
-    // Parse output from task notes if available (e.g. "Yield: 0.8 kg (planned 0.08)")
+    // Parse output from task notes — only tasks with an explicit "Yield: X kg" note
+    // have a measured output. Intermediate steps (searing, seasoning, building) have
+    // no measured output and should not appear as yield lines.
     let outputKg = null;
     if (task.notes) {
       const yieldMatch = task.notes.match(/Yield:\s*([\d.]+)\s*kg/);
       if (yieldMatch) outputKg = parseFloat(yieldMatch[1]);
     }
+
+    // Skip tasks without an explicit yield note — no measured output
+    if (outputKg == null) continue;
 
     // Skip tasks with no weight-based consumption — no meaningful yield to calculate
     if (weightConsumptions.length === 0) continue;
@@ -122,11 +127,8 @@ function buildYieldLines(tasks, consumptions, yieldRecords, pickLines, pickLists
     // Skip if nothing was actually consumed — no meaningful yield
     if (totalConsumedKg <= 0) continue;
 
-    // Output: prefer parsed yield note, else use consumed (for prep where consumed IS the output)
-    const effectiveOutputKg = outputKg != null ? outputKg : totalConsumedKg;
-
     // Yield % = Output / Consumed × 100
-    const yieldPct = (effectiveOutputKg / totalConsumedKg) * 100;
+    const yieldPct = (outputKg / totalConsumedKg) * 100;
 
     // Rolling average
     const histKey = `${task.product_id}__${task.station}`;
@@ -148,7 +150,7 @@ function buildYieldLines(tasks, consumptions, yieldRecords, pickLines, pickLists
       picked_qty: totalPickedKg,
       consumed_qty: totalConsumedKg,
       required_qty: totalRequiredKg,
-      output_qty: effectiveOutputKg,
+      output_qty: outputKg,
       wastage_qty: totalWastageKg,
       uom: 'kg',
       actual_yield_pct: yieldPct,
