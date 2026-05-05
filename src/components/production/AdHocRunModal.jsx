@@ -9,6 +9,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { groupMealsForProduction, VARIANT_CODES } from '@/lib/productionGrouping';
 import { writeAuditLog } from '@/lib/auditLog';
+import { generateCookingRunsForRun } from '@/lib/cookingRunGenerator';
 import AdHocRunTable from './AdHocRunTable';
 
 export default function AdHocRunModal({ open, onOpenChange }) {
@@ -89,15 +90,19 @@ export default function AdHocRunModal({ open, onOpenChange }) {
     const linesWithRun = lines.map(l => ({ ...l, run_id: created.id }));
     await base44.entities.ProductionRunLine.bulkCreate(linesWithRun);
 
+    // Generate draft cooking runs for WIP products needed by these meals
+    const cookingRunCount = await generateCookingRunsForRun(created.id, linesWithRun, today);
+
     writeAuditLog({
       action: 'create',
       entity_type: 'ProductionRun',
       entity_id: created.id,
-      description: `Created ad-hoc run ${runNumber} — ${lines.length} meals, ${totalUnits} units`,
+      description: `Created ad-hoc run ${runNumber} — ${lines.length} meals, ${totalUnits} units, ${cookingRunCount} cooking runs`,
     });
 
     queryClient.invalidateQueries({ queryKey: ['production-runs'] });
-    toast.success(`Ad-hoc run created — ${lines.length} meals, ${totalUnits} units`);
+    queryClient.invalidateQueries({ queryKey: ['wip-cooking-runs'] });
+    toast.success(`Ad-hoc run created — ${lines.length} meals, ${totalUnits} units, ${cookingRunCount} cooking run${cookingRunCount !== 1 ? 's' : ''} queued`);
     setCreating(false);
     setQuantities({});
     setSearch('');

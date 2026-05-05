@@ -158,6 +158,51 @@ export default function ProductionRunDetail() {
       return;
     }
 
+    // Check: If this run needs WIP products but has ZERO cooking runs, block start.
+    // Walk Portion BOMs to see if any component has a Cook BOM (= WIP product).
+    if (linkedCookRuns.length === 0) {
+      const [checkBoms, checkComps] = await Promise.all([
+        base44.entities.Bom.filter({ is_active: true }, '-created_date', 500),
+        base44.entities.BomComponent.list('-created_date', 2000),
+      ]);
+      const checkCompsByBom = {};
+      checkComps.forEach(c => {
+        if (!checkCompsByBom[c.bom_id]) checkCompsByBom[c.bom_id] = [];
+        checkCompsByBom[c.bom_id].push(c);
+      });
+      const cookBomProductIds = new Set(checkBoms.filter(b => b.bom_type === 'cook').map(b => b.product_id));
+
+      const missingWipProducts = [];
+      const seenWip = new Set();
+      for (const line of lines) {
+        const portionBom = checkBoms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
+        if (!portionBom) continue;
+        const comps = checkCompsByBom[portionBom.id] || [];
+        for (const c of comps) {
+          if (cookBomProductIds.has(c.input_product_id) && !seenWip.has(c.input_product_id)) {
+            seenWip.add(c.input_product_id);
+            missingWipProducts.push({ name: c.input_product_name || c.input_product_id, sku: c.input_product_sku || '' });
+          }
+        }
+      }
+
+      if (missingWipProducts.length > 0) {
+        setCookingGate({
+          title: 'No Cooking Runs Found',
+          description: 'This run requires bulk cooked products but no cooking runs exist for it. Go to WIP Planning to generate and release cooking runs first.',
+          itemLabel: 'Bulk products needing cooking runs',
+          items: missingWipProducts.map(p => ({
+            name: p.name,
+            detail: p.sku,
+            badge: 'missing',
+            badgeClass: 'bg-red-100 text-red-700',
+          })),
+        });
+        setStarting(false);
+        return;
+      }
+    }
+
     // ── Original stock guardrail (raw materials) ──
     // If pick list is already confirmed, ingredients have been physically picked
     // and stock already consumed — skip the stock guardrail entirely
