@@ -45,16 +45,19 @@ export default function WipInventory() {
   const [selectedBatch, setSelectedBatch] = useState(null);
   const queryClient = useQueryClient();
 
-  const { data: batches = [], isLoading } = useQuery({
+  const { data: allBatches = [], isLoading } = useQuery({
     queryKey: ['wip-batches'],
     queryFn: () => base44.entities.WipBatch.list('-created_date', 500),
   });
 
+  // Core rule: a batch with 0 kg remaining is fully consumed — it's no longer bulk cooked inventory.
+  // Only batches with stock on hand belong here.
+  const batches = useMemo(() => {
+    return allBatches.filter(b => (b.qty_kg || 0) > 0 && b.quality_status !== 'written_off');
+  }, [allBatches]);
+
   const filtered = useMemo(() => {
     return batches.filter(b => {
-      // Hide zero-available batches unless viewing written_off or all
-      if (statusFilter !== 'written_off' && statusFilter !== 'all' && (b.qty_kg || 0) <= 0) return false;
-      if (statusFilter === 'active' && b.quality_status === 'written_off') return false;
       if (statusFilter !== 'active' && statusFilter !== 'all' && b.quality_status !== statusFilter) return false;
       if (search) {
         const q = search.toLowerCase();
@@ -69,7 +72,7 @@ export default function WipInventory() {
   // Aggregate by product — track original and remaining
   const productSummary = useMemo(() => {
     const map = {};
-    batches.filter(b => b.quality_status !== 'written_off' && (b.qty_kg || 0) > 0).forEach(b => {
+    batches.forEach(b => {
       const key = b.bulk_product_id;
       if (!map[key]) map[key] = { name: b.bulk_product_name, sku: b.bulk_product_sku, totalKg: 0, originalKg: 0, batchCount: 0, totalValue: 0 };
       map[key].totalKg += b.qty_kg || 0;
@@ -124,7 +127,7 @@ export default function WipInventory() {
         <div className="w-px h-8 bg-border" />
         <div>
           <p className="text-[10px] text-muted-foreground uppercase font-semibold">Batches</p>
-          <p className="text-lg font-bold tabular-nums">{batches.filter(b => b.quality_status !== 'written_off').length}</p>
+          <p className="text-lg font-bold tabular-nums">{batches.length}</p>
         </div>
       </div>
 
@@ -140,7 +143,7 @@ export default function WipInventory() {
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex gap-2">
-          {['active', 'fresh', 'use_today', 'written_off', 'all'].map(s => (
+          {['active', 'fresh', 'use_today', 'all'].map(s => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
