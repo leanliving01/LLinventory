@@ -11,6 +11,7 @@ import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
 import TablePagination from '@/components/shared/TablePagination';
 import MergeProductsModal from '@/components/catalog/MergeProductsModal';
 import DuplicateAuditModal from '@/components/catalog/DuplicateAuditModal';
+import RawMaterialGroupedTable from '@/components/catalog/RawMaterialGroupedTable';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -199,6 +200,13 @@ export default function Catalog() {
       {/* Table */}
       {isLoading ? (
         <div className="text-center py-12 text-sm text-muted-foreground">Loading catalog...</div>
+      ) : typeFilter === 'raw' ? (
+        <RawMaterialGroupedTable
+          products={filtered}
+          showCheckbox={perms.catalog_edit}
+          mergeSelection={mergeSelection}
+          setMergeSelection={setMergeSelection}
+        />
       ) : (
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           <table className="w-full">
