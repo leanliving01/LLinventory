@@ -136,7 +136,6 @@ const navItems = [
       { label: 'WIP Planning & QC', path: '/production/wip-planning', icon: ClipboardCheck },
       // Portioning removed — handled by ProductionTasks on the Kanban
       { label: 'Yield Review', path: '/production/yield-review', icon: Gauge },
-      { label: 'Supplier Yield', path: '/production/supplier-yield', icon: TrendingUp },
     ]
   },
   { 
