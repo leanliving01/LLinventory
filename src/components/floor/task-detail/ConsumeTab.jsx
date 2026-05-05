@@ -249,11 +249,11 @@ export default function ConsumeTab({ task, bom, components, onRef, allTasks, all
       {/* Consumables for this step */}
       {scaledComponents.length > 0 && (
         <>
-          {hasPrevStep && (
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              {task.station === 'portion' ? 'Ingredients for Portioning' : 'Additional Ingredients for This Step'}
-            </p>
-          )}
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            {hasPrevStep
+              ? (task.station === 'portion' ? 'Ingredients for Portioning' : 'Additional Ingredients for This Step')
+              : 'Raw Ingredients to Consume'}
+          </p>
 
           {/* Auto-consume button */}
           <Button variant="outline" size="sm" onClick={autoConsume} className="w-full gap-2">

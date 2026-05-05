@@ -117,7 +117,9 @@ export default function FloorTaskDetail({ task, taskLogs, onStatusChange, onBack
             <div className="text-2xl font-bold tabular-nums">
               {task.qty != null ? (Number.isInteger(task.qty) ? task.qty : Number(task.qty).toFixed(2)) : '—'}
             </div>
-            <span className="text-[10px] text-muted-foreground">{task.qty_uom || (task.station === 'portion' ? 'pcs' : 'units')}</span>
+            <span className="text-[10px] text-muted-foreground">
+              {task.station === 'portion' ? 'pcs' : `${task.qty_uom || 'kg'} target output`}
+            </span>
             {prevStepInfo.hasPreviousStep && prevStepInfo.items.length > 0 && (
               <div className="text-xs text-blue-600 dark:text-blue-400 tabular-nums mt-0.5">
                 From {prevStepInfo.previousStation}: {prevStepInfo.items.map(it =>

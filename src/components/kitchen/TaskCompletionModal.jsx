@@ -152,17 +152,18 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
     const prefilledWaste = {};
     componentRows.forEach(r => {
       const saved = existingConsumption.find(e => e.bom_component_id === r.id);
-      if (saved && saved.consumed_qty > 0) {
+      if (saved) {
+        // Use saved values from ConsumeTab — even if consumed_qty is 0
         prefilled[r.id] = saved.consumed_qty;
         prefilledWaste[r.id] = saved.wastage_qty || 0;
       } else {
+        // No ConsumeTab data — default to required
         prefilled[r.id] = r.required;
+        prefilledWaste[r.id] = 0;
       }
     });
     setActuals(prefilled);
-    if (Object.values(prefilledWaste).some(v => v > 0)) {
-      setWastage(prefilledWaste);
-    }
+    setWastage(prefilledWaste);
     setSeeded(true);
   }, [componentRows, isPortioning, existingConsumption, seeded]);
 
