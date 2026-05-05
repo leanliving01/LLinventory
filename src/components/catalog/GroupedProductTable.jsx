@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
 import { getProductSubcategory } from '@/lib/productSubcategories';
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { Droppable, Draggable } from '@hello-pangea/dnd';
 
 const GROUP_COLORS = [
   'bg-red-100 text-red-700',
@@ -169,35 +169,11 @@ export default function GroupedProductTable({ products, showCheckbox, mergeSelec
       .map(([category, items]) => ({ category, items }));
   }, [products]);
 
-  // Build a flat lookup: productId → current category
-  const productCategoryMap = useMemo(() => {
-    const map = {};
-    for (const { category, items } of grouped) {
-      for (const p of items) map[p.id] = category;
-    }
-    return map;
-  }, [grouped]);
-
   const toggle = (cat) => setExpanded(prev => ({ ...prev, [cat]: !prev[cat] }));
 
   const handleNavigate = useCallback((id) => navigate(`/catalog/${id}`), [navigate]);
 
-  const handleDragEnd = useCallback((result) => {
-    const { draggableId, source, destination } = result;
-    if (!destination) return;
-    if (source.droppableId === destination.droppableId) return;
-
-    const productId = draggableId;
-    const fromCategory = source.droppableId;
-    const toCategory = destination.droppableId;
-
-    if (onProductReclassify) {
-      onProductReclassify(productId, fromCategory, toCategory);
-    }
-  }, [onProductReclassify]);
-
   return (
-    <DragDropContext onDragEnd={handleDragEnd}>
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         {/* Table header */}
         <table className="w-full">
@@ -246,6 +222,5 @@ export default function GroupedProductTable({ products, showCheckbox, mergeSelec
           </div>
         )}
       </div>
-    </DragDropContext>
   );
 }
