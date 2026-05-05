@@ -39,7 +39,7 @@ function toKg(qty, uom) {
  * Yield % = output / picked × 100 (or output / consumed if no pick data).
  * Portioning excluded.
  */
-function buildYieldLines(tasks, consumptions, yieldRecords, pickLines) {
+function buildYieldLines(tasks, consumptions, yieldRecords, pickLines, pickLists) {
   // Group consumptions by task_id
   const consumptionsByTask = {};
   for (const c of consumptions) {
@@ -47,15 +47,19 @@ function buildYieldLines(tasks, consumptions, yieldRecords, pickLines) {
     consumptionsByTask[c.task_id].push(c);
   }
 
-  // Group pick lines by run_id + product_id for lookup
-  // PickLine is per raw ingredient per run — we sum by run to get total picked for the run
-  const pickByRunProduct = {};
+  // Build run_id → pick_list_id lookup from PickList entities
+  const pickListByRunId = {};
+  for (const pl of pickLists) {
+    if (pl.production_run_id) pickListByRunId[pl.production_run_id] = pl.id;
+  }
+
+  // Group pick lines by (pick_list_id + product_id) for per-run ingredient lookup
+  const pickByListProduct = {};
   for (const pl of pickLines) {
     if (!pl.pick_list_id) continue;
-    const key = `${pl.product_id}`;
-    if (!pickByRunProduct[key]) pickByRunProduct[key] = { required: 0, picked: 0, uom: pl.required_uom || 'kg' };
-    pickByRunProduct[key].required += pl.required_qty || 0;
-    pickByRunProduct[key].picked += pl.actual_qty_picked || 0;
+    const key = `${pl.pick_list_id}__${pl.product_id}`;
+    if (!pickByListProduct[key]) pickByListProduct[key] = { picked: 0, uom: pl.required_uom || 'kg' };
+    pickByListProduct[key].picked += pl.actual_qty_picked || 0;
   }
 
   // Group historical yield records by product+station for rolling average
@@ -80,6 +84,9 @@ function buildYieldLines(tasks, consumptions, yieldRecords, pickLines) {
       weightUoms.includes((tc.uom || '').toLowerCase())
     );
 
+    // Find the pick list for this task's run
+    const pickListId = pickListByRunId[task.run_id];
+
     // Aggregate all weight-based consumptions into totals (normalised to kg)
     let totalRequiredKg = 0;
     let totalConsumedKg = 0;
@@ -91,10 +98,13 @@ function buildYieldLines(tasks, consumptions, yieldRecords, pickLines) {
       totalConsumedKg += toKg(tc.consumed_qty || 0, tc.uom);
       totalWastageKg += toKg(tc.wastage_qty || 0, tc.uom);
 
-      // Look up picked qty for this ingredient
-      const pickInfo = pickByRunProduct[tc.input_product_id];
-      if (pickInfo) {
-        totalPickedKg += toKg(pickInfo.picked, pickInfo.uom);
+      // Look up picked qty for this ingredient in THIS run's pick list
+      if (pickListId) {
+        const pickKey = `${pickListId}__${tc.input_product_id}`;
+        const pickInfo = pickByListProduct[pickKey];
+        if (pickInfo) {
+          totalPickedKg += toKg(pickInfo.picked, pickInfo.uom);
+        }
       }
     }
 
@@ -108,15 +118,11 @@ function buildYieldLines(tasks, consumptions, yieldRecords, pickLines) {
     // If we have no weight consumptions and no yield note, skip
     if (weightConsumptions.length === 0 && outputKg == null) continue;
 
-    // Determine the input basis for yield calculation:
-    // Prefer picked qty (what actually came from storage), fall back to consumed, then required
-    const inputKg = totalPickedKg > 0 ? totalPickedKg : (totalConsumedKg > 0 ? totalConsumedKg : totalRequiredKg);
-
-    // Determine output: prefer parsed yield note, else use consumed (for prep where consumed IS the output)
+    // Output: prefer parsed yield note, else use consumed (for prep where consumed IS the output)
     const effectiveOutputKg = outputKg != null ? outputKg : totalConsumedKg;
 
-    // Yield = output / input
-    const yieldPct = inputKg > 0 ? (effectiveOutputKg / inputKg) * 100 : 0;
+    // Yield % = Output / Consumed × 100
+    const yieldPct = totalConsumedKg > 0 ? (effectiveOutputKg / totalConsumedKg) * 100 : 0;
 
     // Rolling average
     const histKey = `${task.product_id}__${task.station}`;
@@ -191,6 +197,12 @@ export default function YieldReview() {
     enabled: tasks.length > 0,
   });
 
+  // Load pick lists (to map run_id → pick_list_id)
+  const { data: pickLists = [] } = useQuery({
+    queryKey: ['yield-pick-lists'],
+    queryFn: () => base44.entities.PickList.list('-created_date', 200),
+  });
+
   // Load pick lines for picked qty lookup
   const { data: pickLines = [] } = useQuery({
     queryKey: ['yield-pick-lines'],
@@ -207,8 +219,8 @@ export default function YieldReview() {
   const allLines = useMemo(() => {
     if (tasks.length === 0) return [];
     const relevantConsumptions = consumptions.filter(c => taskIds.includes(c.task_id));
-    return buildYieldLines(tasks, relevantConsumptions, yieldRecords, pickLines);
-  }, [tasks, consumptions, taskIds, yieldRecords, pickLines]);
+    return buildYieldLines(tasks, relevantConsumptions, yieldRecords, pickLines, pickLists);
+  }, [tasks, consumptions, taskIds, yieldRecords, pickLines, pickLists]);
 
   // Apply filters
   const filtered = useMemo(() => {
