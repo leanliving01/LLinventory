@@ -13,6 +13,7 @@ import MergeProductsModal from '@/components/catalog/MergeProductsModal';
 import DuplicateAuditModal from '@/components/catalog/DuplicateAuditModal';
 import GroupedProductTable from '@/components/catalog/GroupedProductTable';
 import { SUBCATEGORIZED_TYPES } from '@/lib/productSubcategories';
+import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -65,6 +66,32 @@ export default function Catalog() {
     queryKey: ['catalog-products'],
     queryFn: () => base44.entities.Product.list('-created_date', 500),
   });
+
+  // Raw materials use pick_category as the grouping field; other types use subcategory override
+  const RAW_PICK_CATEGORIES = ['Meats', 'Vegetables', 'Starches', 'Spices & Seasoning', 'Sauces & Condiments', 'Dairy & Eggs', 'Oils & Fats', 'Dry Goods', 'Packaging', 'Other'];
+
+  const handleProductReclassify = async (productId, fromCategory, toCategory) => {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+
+    const updateData = {};
+    if (product.type === 'raw') {
+      // For raw materials, the subcategory IS the pick_category
+      // Check if toCategory is a valid pick_category
+      if (RAW_PICK_CATEGORIES.includes(toCategory)) {
+        updateData.pick_category = toCategory;
+      } else {
+        updateData.pick_category = toCategory;
+      }
+    } else {
+      // For other types, set the subcategory override
+      updateData.subcategory = toCategory;
+    }
+
+    await base44.entities.Product.update(productId, updateData);
+    queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
+    toast.success(`Moved "${product.name}" from "${fromCategory}" → "${toCategory}"`);
+  };
 
   const filtered = useMemo(() => {
     return products.filter(p => {
@@ -207,6 +234,7 @@ export default function Catalog() {
           showCheckbox={perms.catalog_edit}
           mergeSelection={mergeSelection}
           setMergeSelection={setMergeSelection}
+          onProductReclassify={perms.catalog_edit ? handleProductReclassify : undefined}
         />
       ) : (
         <div className="bg-card border border-border rounded-xl overflow-hidden">
