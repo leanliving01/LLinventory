@@ -35,7 +35,7 @@ export default function TypeDropChips({ typeCounts, currentTypeFilter, isDraggin
   const types = Object.keys(typeCounts).sort((a, b) => (typeCounts[b] || 0) - (typeCounts[a] || 0));
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-2 items-start">
       {types.map(type => {
         const count = typeCounts[type] || 0;
         const isActive = currentTypeFilter === type;
@@ -49,6 +49,7 @@ export default function TypeDropChips({ typeCounts, currentTypeFilter, isDraggin
                 <div
                   ref={provided.innerRef}
                   {...provided.droppableProps}
+                  style={{ display: 'inline-block' }}
                 >
                   <button
                     onClick={() => onTypeClick(type)}
@@ -73,6 +74,21 @@ export default function TypeDropChips({ typeCounts, currentTypeFilter, isDraggin
             </Droppable>
           );
         }
+
+        // Plain chip when not inside a DragDropContext
+        return (
+          <button
+            key={type}
+            onClick={() => onTypeClick(type)}
+            className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${
+              isActive
+                ? (TYPE_COLORS[type]?.replace(/border-\S+/, '') || '') + ' ring-2 ring-primary/30'
+                : (TYPE_COLORS[type]?.replace(/border-\S+/, '') || '') + ' opacity-70 hover:opacity-100'
+            }`}
+          >
+            {TYPE_LABELS[type] || type} ({count})
+          </button>
+        );
       })}
     </div>
   );
