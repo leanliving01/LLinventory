@@ -121,11 +121,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = useCallback(async (email, password) => {
     setAuthError(null);
-    const loginCall = supabase.auth.signInWithPassword({ email, password });
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Connection timed out. Check your internet and try again.')), 20000)
-    );
-    const { data, error } = await Promise.race([loginCall, timeout]);
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     return data;
   }, []);
