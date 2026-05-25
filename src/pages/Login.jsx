@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -8,13 +8,18 @@ import { AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 const FLOOR_ROLES = ['kitchen', 'picker_packer', 'stock_controller', 'floor_operator'];
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Navigate as soon as AuthContext confirms user is set
+  useEffect(() => {
+    if (user) navigate('/', { replace: true });
+  }, [user, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -23,14 +28,7 @@ export default function Login() {
     setLoading(true);
     try {
       await login(email.trim().toLowerCase(), password);
-      // onAuthStateChange in AuthContext sets the user — let App.jsx handle redirect
-      // But we also navigate here for immediate feedback
-      // The user object is set async; navigate after a tick
-      setTimeout(() => {
-        // AuthContext will have updated user by now via onAuthStateChange
-        // Redirect based on role is handled by App.jsx's auth guard
-        navigate('/', { replace: true });
-      }, 100);
+      // Navigation handled by useEffect above when user state is set
     } catch (err) {
       setError(
         err.message === 'Invalid login credentials'
