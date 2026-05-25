@@ -20,7 +20,7 @@ export default function Suppliers() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
-  const [categoryFilter, setCategoryFilter] = useState('production'); // 'production' = food+packaging, 'all', or specific category
+  const [categoryFilter, setCategoryFilter] = useState('all'); // 'production' = food+packaging, 'all', or specific category
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [page, setPage] = useState(0);

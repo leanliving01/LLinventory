@@ -7,11 +7,15 @@ const FLOOR_ROLES = ['kitchen', 'picker_packer', 'stock_controller', 'floor_oper
 
 async function fetchUserProfile(session) {
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000); // 3s max for role lookup
     const { data: userRole } = await supabase
       .from('user_roles')
       .select('role, display_name')
       .eq('email', session.user.email)
+      .abortSignal(controller.signal)
       .maybeSingle();
+    clearTimeout(timer);
 
     if (userRole) {
       return {
@@ -23,7 +27,7 @@ async function fetchUserProfile(session) {
         permissions: [],
       };
     }
-  } catch { /* fall through to default */ }
+  } catch { /* table missing or network — fall through to default */ }
 
   // No user_roles record — treat as admin (management users / bootstrap)
   return {
