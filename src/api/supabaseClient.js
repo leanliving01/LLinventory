@@ -15,7 +15,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // hang on "loading" indefinitely when the project is cold-starting or the
 // network is flaky. The error path in each method returns [] so the UI
 // degrades gracefully instead of spinning forever.
-function withTimeout(queryBuilder, ms = 25000) {
+function withTimeout(queryBuilder, ms = 60000) {
   return new Promise((resolve) => {
     const controller = new AbortController();
     const timer = setTimeout(() => {
