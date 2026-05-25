@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx supabase *)",
+      "Bash(curl -s -X POST \"https://cpzkmzcohujpybcocipe.supabase.co/functions/v1/sync-shopify-orders\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNwemttemNvaHVqcHliY29jaXBlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzQwOTk5NSwiZXhwIjoyMDkyOTg1OTk1fQ.tjELz6arwmJrzmm2lv5mQ8VBF40nVGeOrtHD_a4YyEs\" -H \"Content-Type: application/json\" -d \"{\\\\\"mode\\\\\":\\\\\"start\\\\\"}\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(p.scripts.dev\\)\")"
+    ]
+  }
+}

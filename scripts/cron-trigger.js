@@ -1,0 +1,82 @@
+#!/usr/bin/env node
+/**
+ * External cron trigger for Lean Living sync edge functions.
+ * Run every 5 minutes via Render/Railway/GitHub Actions.
+ *
+ * Required env vars:
+ *   SUPABASE_URL            — e.g. https://xxxx.supabase.co
+ *   SUPABASE_SERVICE_ROLE_KEY — service role key (keep secret)
+ *
+ * GitHub Actions schedule example (every 5 min):
+ *   on:
+ *     schedule:
+ *       - cron: '*/5 * * * *'
+ *   jobs:
+ *     sync:
+ *       runs-on: ubuntu-latest
+ *       steps:
+ *         - uses: actions/checkout@v4
+ *         - run: node scripts/cron-trigger.js
+ *           env:
+ *             SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+ *             SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+ */
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SUPABASE_URL || !SERVICE_KEY) {
+  console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  process.exit(1);
+}
+
+const FUNCTIONS_URL = `${SUPABASE_URL}/functions/v1`;
+
+async function invoke(fnName, body = {}) {
+  const res = await fetch(`${FUNCTIONS_URL}/${fnName}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SERVICE_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  return { status: res.status, ok: res.ok, data };
+}
+
+async function run() {
+  const now = new Date();
+  console.log(`[cron-trigger] ${now.toISOString()} — running sync checks`);
+
+  // Shopify orders — every 5 min
+  try {
+    const r = await invoke('sync-shopify-orders', { mode: 'start' });
+    console.log(`[shopify-orders] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);
+  } catch (e) {
+    console.error('[shopify-orders] Error:', e.message);
+  }
+
+  // Xero invoices — every 4 hours (guard: the function itself checks for concurrent runs)
+  try {
+    const r = await invoke('sync-xero-invoices', { mode: 'start' });
+    console.log(`[xero-invoices] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);
+  } catch (e) {
+    console.error('[xero-invoices] Error:', e.message);
+  }
+
+  // Daily reconciliation — only fire once per day (at 02:00 SAST = 00:00 UTC)
+  // Run this cron trigger every 5 min; the reconcile-daily function is idempotent.
+  if (now.getUTCHours() === 0 && now.getUTCMinutes() < 5) {
+    try {
+      const r = await invoke('reconcile-daily', {});
+      console.log(`[reconcile-daily] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);
+    } catch (e) {
+      console.error('[reconcile-daily] Error:', e.message);
+    }
+  }
+}
+
+run().catch(e => { console.error('Fatal:', e); process.exit(1); });

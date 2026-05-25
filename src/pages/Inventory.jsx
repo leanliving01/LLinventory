@@ -1,0 +1,173 @@
+import React, { useState, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Save, Search, Plus, ClipboardCheck } from 'lucide-react';
+import { format } from 'date-fns';
+import { toast } from 'sonner';
+import CSVStockImport from '@/components/stock/CSVStockImport';
+import NewProductionTable from '@/components/stock/NewProductionTable';
+import StockTakeTable from '@/components/stock/StockTakeTable';
+import { PACKAGE_TYPES, GOAL_PACKAGE_TYPES, LOW_CARB_PACKAGE_TYPES, groupSkusByMeal } from '@/lib/mealGrouping';
+
+export default function Inventory() {
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState('new-production');
+  const [search, setSearch] = useState('');
+  const [stockValues, setStockValues] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  const { data: skus = [] } = useQuery({
+    queryKey: ['skus'],
+    queryFn: () => base44.entities.SKU.list('-sku_code', 200),
+  });
+
+  const { data: meals = [] } = useQuery({
+    queryKey: ['meals'],
+    queryFn: () => base44.entities.Meal.list('-created_date', 50),
+  });
+
+  const { data: stockSnapshots = [] } = useQuery({
+    queryKey: ['latestStock'],
+    queryFn: () => base44.entities.StockSnapshot.list('-created_date', 500),
+  });
+
+  const latestStockBySkuId = useMemo(() => {
+    const map = {};
+    stockSnapshots.forEach(snap => {
+      if (!map[snap.sku_id] || new Date(snap.created_date) > new Date(map[snap.sku_id].created_date)) {
+        map[snap.sku_id] = snap;
+      }
+    });
+    return map;
+  }, [stockSnapshots]);
+
+  const mealRows = useMemo(() => {
+    const groups = groupSkusByMeal(skus, meals);
+    const filtered = search
+      ? groups.filter(g => g.mealName.toLowerCase().includes(search.toLowerCase()))
+      : groups;
+
+    return filtered.map(group => {
+      const stockByType = {};
+      PACKAGE_TYPES.forEach(pt => {
+        const sku = group.skusByType[pt];
+        if (!sku) return;
+        stockByType[pt] = latestStockBySkuId[sku.id]?.stock_on_hand;
+      });
+      return { ...group, stockByType };
+    });
+  }, [skus, meals, search, latestStockBySkuId]);
+
+  const handleStockChange = (skuId, value) => {
+    setStockValues(prev => ({ ...prev, [skuId]: value }));
+  };
+
+  const handleSaveAll = async () => {
+    const entries = Object.entries(stockValues).filter(([_, v]) => v !== '' && v !== undefined);
+    if (entries.length === 0) {
+      toast.error('No stock values to save');
+      return;
+    }
+
+    setSaving(true);
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const isProduction = activeTab === 'new-production';
+
+    const records = entries.map(([skuId, value]) => {
+      const sku = skus.find(s => s.id === skuId);
+      const currentStock = latestStockBySkuId[skuId]?.stock_on_hand || 0;
+      const finalStock = isProduction ? currentStock + Number(value) : Number(value);
+
+      return {
+        snapshot_date: today,
+        sku_id: skuId,
+        sku_display_name: sku?.display_name || '',
+        package_type: sku?.package_type || '',
+        stock_on_hand: finalStock,
+        entry_type: isProduction ? 'manual' : 'adjustment',
+        notes: isProduction ? `Production add: +${value}` : `Stock take: counted ${value}`,
+      };
+    });
+
+    await base44.entities.StockSnapshot.bulkCreate(records);
+    queryClient.invalidateQueries({ queryKey: ['latestStock'] });
+    setStockValues({});
+    toast.success(
+      isProduction
+        ? `Added production for ${entries.length} SKUs`
+        : `Stock take saved for ${entries.length} SKUs`
+    );
+    setSaving(false);
+  };
+
+  const saveCount = Object.values(stockValues).filter(v => v !== '' && v !== undefined).length;
+
+  const goalRows = mealRows.filter(r => GOAL_PACKAGE_TYPES.some(pt => r.skusByType[pt]));
+  const lowCarbRows = mealRows.filter(r => LOW_CARB_PACKAGE_TYPES.some(pt => r.skusByType[pt]));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Manage stock levels — {format(new Date(), 'dd MMM yyyy')}
+          </p>
+        </div>
+        <Button
+          onClick={handleSaveAll}
+          disabled={saving || saveCount === 0}
+          className="gap-2"
+        >
+          <Save className="w-4 h-4" />
+          Save All ({saveCount})
+        </Button>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setStockValues({}); }} className="space-y-4">
+        <TabsList className="bg-muted">
+          <TabsTrigger value="new-production" className="gap-2">
+            <Plus className="w-3.5 h-3.5" />
+            New Production
+          </TabsTrigger>
+          <TabsTrigger value="stock-take" className="gap-2">
+            <ClipboardCheck className="w-3.5 h-3.5" />
+            Stock Take
+          </TabsTrigger>
+        </TabsList>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search meals..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+        </div>
+
+        <TabsContent value="new-production" className="space-y-4 mt-0">
+          <p className="text-sm text-muted-foreground bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2">
+            Enter the number of meals <strong>produced</strong> — these will be <strong>added</strong> to current stock.
+          </p>
+          <NewProductionTable title="Goal-Related Meals" mealRows={goalRows} packageTypes={GOAL_PACKAGE_TYPES} stockValues={stockValues} onStockChange={handleStockChange} />
+          <NewProductionTable title="Low Carb Meals" mealRows={lowCarbRows} packageTypes={LOW_CARB_PACKAGE_TYPES} stockValues={stockValues} onStockChange={handleStockChange} />
+        </TabsContent>
+
+        <TabsContent value="stock-take" className="space-y-4 mt-0">
+          <p className="text-sm text-muted-foreground bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+            Enter the <strong>actual count</strong> of meals on hand — this will <strong>replace</strong> the current stock level.
+          </p>
+          <CSVStockImport skus={skus} />
+          <StockTakeTable title="Goal-Related Meals" mealRows={goalRows} packageTypes={GOAL_PACKAGE_TYPES} stockValues={stockValues} onStockChange={handleStockChange} />
+          <StockTakeTable title="Low Carb Meals" mealRows={lowCarbRows} packageTypes={LOW_CARB_PACKAGE_TYPES} stockValues={stockValues} onStockChange={handleStockChange} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
