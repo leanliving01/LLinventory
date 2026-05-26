@@ -209,8 +209,11 @@ Deno.serve(async (req) => {
     }
   }
 
-  if (toInsert.length) await supabase.from('purchase_orders').insert(toInsert);
-  for (const u of toUpdate) await supabase.from('purchase_orders').update(u.payload).eq('id', u.id);
+  const allPoRows = [
+    ...toInsert,
+    ...toUpdate.map(u => ({ id: u.id, ...u.payload })),
+  ];
+  if (allPoRows.length) await supabase.from('purchase_orders').upsert(allPoRows, { onConflict: 'id' });
 
   // Bulk replace line items
   const affectedPoIds = Array.from(poIdMap.values());

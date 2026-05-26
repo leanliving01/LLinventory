@@ -221,8 +221,11 @@ Deno.serve(async (req) => {
     }
   }
 
-  if (toInsert.length) await supabase.from('purchase_invoices').insert(toInsert);
-  for (const u of toUpdate) await supabase.from('purchase_invoices').update(u.payload).eq('id', u.id);
+  const allInvoiceRows = [
+    ...toInsert,
+    ...toUpdate.map(u => ({ id: u.id, ...u.payload })),
+  ];
+  if (allInvoiceRows.length) await supabase.from('purchase_invoices').upsert(allInvoiceRows, { onConflict: 'id' });
 
   // Bulk delete + bulk insert line items for this page's invoices
   const affectedInvoiceIds = Array.from(invoiceIdMap.values());

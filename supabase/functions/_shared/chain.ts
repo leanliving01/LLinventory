@@ -33,12 +33,12 @@ export function chainNext(
       console.error(`chainNext to ${functionName} failed:`, err);
     });
 
-    // Race the fetch against a 1.5s grace period — gives the request enough
+    // Race the fetch against a 3s grace period — gives the request enough
     // time to be sent over the wire and accepted by the next Edge Function
-    // worker, then we let the parent worker shut down.
+    // worker (cold starts can take ~2s), then we let the parent worker shut down.
     await Promise.race([
       fetchPromise,
-      new Promise(r => setTimeout(r, 1500)),
+      new Promise(r => setTimeout(r, 3000)),
     ]);
   })();
 }

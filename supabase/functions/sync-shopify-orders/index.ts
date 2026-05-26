@@ -220,33 +220,26 @@ Deno.serve(async (req) => {
     }
   }
 
-  if (toInsert.length) await supabase.from('shopify_orders').insert(toInsert);
-  for (const u of toUpdate) await supabase.from('shopify_orders').update(u.payload).eq('id', u.id);
+  // Bulk upsert shopify_orders (single query instead of N sequential updates)
+  const allOrderRows = [
+    ...toInsert,
+    ...toUpdate.map(u => ({ id: u.id, ...u.payload })),
+  ];
+  if (allOrderRows.length) await supabase.from('shopify_orders').upsert(allOrderRows, { onConflict: 'id' });
 
-  // Sync into sales_orders
-  if (salesToInsert.length) {
-    const { error: siErr } = await supabase.from('sales_orders').insert(salesToInsert);
-    if (siErr) console.error('sales_orders insert error:', siErr.message);
+  // Bulk upsert sales_orders
+  const allSalesRows = [
+    ...salesToInsert,
+    ...salesToUpdate.map(u => ({ id: u.id, ...u.payload })),
+  ];
+  if (allSalesRows.length) {
+    const { error: siErr } = await supabase.from('sales_orders').upsert(allSalesRows, { onConflict: 'id' });
+    if (siErr) console.error('sales_orders upsert error:', siErr.message);
   }
-  for (const u of salesToUpdate) await supabase.from('sales_orders').update(u.payload).eq('id', u.id);
 
-  // Build sales_order_id map (shopify_order_id → sales_order internal id)
-  const salesInsertedIds = new Map<string, string>();
-  for (const r of salesToInsert) salesInsertedIds.set(r.shopify_order_id as string, r.id as string);
-  for (const r of salesToUpdate) salesInsertedIds.set(
-    orders.find(o => existingSalesById.get(String(o.id))?.id === r.id)?.id?.toString() || '',
-    r.id,
-  );
-
-  // Build a clean map: shopify_order_id (string) → sales_order internal id
+  // Build salesIdMap: shopify_order_id → our sales_order id
   const salesIdMap = new Map<string, string>();
-  for (const [shopifyId, salesId] of salesInsertedIds) if (shopifyId) salesIdMap.set(shopifyId, salesId);
-  for (const r of salesToUpdate) {
-    const shopifyId = orders.find(o => existingSalesById.get(String(o.id))?.id === r.id)?.id;
-    if (shopifyId) salesIdMap.set(String(shopifyId), r.id);
-  }
-
-  // Rebuild from existingSalesById for update cases
+  for (const r of salesToInsert) salesIdMap.set(r.shopify_order_id as string, r.id as string);
   for (const o of orders) {
     const ex = existingSalesById.get(String(o.id));
     if (ex) salesIdMap.set(String(o.id), ex.id);
