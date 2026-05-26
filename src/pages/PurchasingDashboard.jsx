@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { format, differenceInDays, isBefore, parseISO, startOfToday } from 'date-fns';
-import { Truck, Receipt, FileText, PackageCheck, AlertTriangle, TrendingUp, CheckCircle2, Clock, DollarSign, ArrowRight, Plus } from 'lucide-react';
+import { Truck, Receipt, FileText, PackageCheck, AlertTriangle, TrendingUp, CheckCircle2, Clock, DollarSign, ArrowRight, Plus, RefreshCw, ArrowLeftRight, Upload } from 'lucide-react';
 import SyncHealthIndicator from '@/components/shared/SyncHealthIndicator';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,9 @@ import PurchasingActivityFeed from '@/components/purchasing/PurchasingActivityFe
 import PurchasingAgingChart from '@/components/purchasing/PurchasingAgingChart';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
 import CreateBlindReceiptModal from '@/components/grn/CreateBlindReceiptModal';
+import InvoiceScanDialog from '@/components/purchasing/InvoiceScanDialog';
 import PaymentsDueWidget from '@/components/purchasing/PaymentsDueWidget';
+import { toast } from 'sonner';
 
 const HELP_ITEMS = [
   { title: 'Purchasing overview', text: 'This dashboard aggregates all procurement data — open POs, pending GRNs, unmatched invoices, shortages, price movements — into a single command center.' },
@@ -24,8 +26,11 @@ const HELP_ITEMS = [
 export default function PurchasingDashboard() {
   const qOpts = { staleTime: 60000 };
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [showCreatePO, setShowCreatePO] = useState(false);
   const [showBlindReceipt, setShowBlindReceipt] = useState(false);
+  const [showInvoiceScan, setShowInvoiceScan] = useState(false);
+  const [syncingXero, setSyncingXero] = useState(false);
 
   const { data: pos = [] } = useQuery({
     queryKey: ['pdash-pos'],
@@ -101,6 +106,12 @@ export default function PurchasingDashboard() {
       return hasGRN && hasInvoice && variance <= 0.02;
     }).length;
 
+    const today = new Date().toISOString().slice(0, 10);
+    const overdueInvoices = invoices.filter(i =>
+      !['paid', 'credit_applied'].includes(i.payment_status) &&
+      i.due_date_calculated && i.due_date_calculated < today
+    );
+
     return {
       openPOCount: openPOs.length,
       openPOValue,
@@ -116,6 +127,7 @@ export default function PurchasingDashboard() {
       pendingReturnValue,
       fullyMatchedCount: fullyMatched,
       totalActivePOs: receivedPOs.length,
+      overdueInvoiceCount: overdueInvoices.length,
     };
   }, [pos, grns, invoices, shortages, priceHistory, returns]);
 
@@ -188,10 +200,39 @@ export default function PurchasingDashboard() {
         <Button variant="outline" onClick={() => setShowBlindReceipt(true)} className="gap-2">
           <PackageCheck className="w-4 h-4" /> Blind Receipt
         </Button>
+        <Button variant="outline" onClick={() => setShowInvoiceScan(true)} className="gap-2">
+          <Upload className="w-4 h-4" /> Upload Invoice
+        </Button>
         <Button variant="outline" asChild>
           <Link to="/purchasing/grns" className="gap-2 flex items-center">
             <Truck className="w-4 h-4" /> Receive Against PO
           </Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to="/purchasing/returns?new=1" className="gap-2 flex items-center">
+            <ArrowLeftRight className="w-4 h-4" /> New Return
+          </Link>
+        </Button>
+        <Button
+          variant="outline"
+          className="gap-2"
+          disabled={syncingXero}
+          onClick={async () => {
+            setSyncingXero(true);
+            try {
+              const res = await base44.functions.invoke('syncXeroPurchaseOrders', {});
+              if (res.data?.error) throw new Error(res.data.error);
+              queryClient.invalidateQueries({ queryKey: ['pdash-pos'] });
+              queryClient.invalidateQueries({ queryKey: ['pdash-grns'] });
+              toast.success('Xero sync triggered');
+            } catch (err) {
+              toast.error(`Xero sync failed: ${err.message}`);
+            } finally {
+              setSyncingXero(false);
+            }
+          }}
+        >
+          <RefreshCw className={`w-4 h-4 ${syncingXero ? 'animate-spin' : ''}`} /> Sync from Xero
         </Button>
       </div>
 
@@ -217,6 +258,12 @@ export default function PurchasingDashboard() {
         <CreateBlindReceiptModal
           onCreated={() => { setShowBlindReceipt(false); queryClient.invalidateQueries({ queryKey: ['pdash-pos'] }); queryClient.invalidateQueries({ queryKey: ['pdash-grns'] }); }}
           onCancel={() => setShowBlindReceipt(false)}
+        />
+      )}
+      {showInvoiceScan && (
+        <InvoiceScanDialog
+          onSaved={() => { setShowInvoiceScan(false); queryClient.invalidateQueries({ queryKey: ['pdash-invoices'] }); }}
+          onClose={() => setShowInvoiceScan(false)}
         />
       )}
     </div>

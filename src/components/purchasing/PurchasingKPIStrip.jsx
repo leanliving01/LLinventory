@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Receipt, PackageCheck, FileText, AlertTriangle, TrendingUp, ArrowLeftRight, CheckCircle2, Clock } from 'lucide-react';
+import { Receipt, PackageCheck, FileText, AlertTriangle, TrendingUp, ArrowLeftRight, CheckCircle2, Clock, CalendarX } from 'lucide-react';
 
 function KPICard({ icon: Icon, label, value, subValue, color, linkTo, linkLabel }) {
   return (
@@ -22,7 +22,7 @@ function KPICard({ icon: Icon, label, value, subValue, color, linkTo, linkLabel 
 
 export default function PurchasingKPIStrip({ kpis }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
       <KPICard
         icon={Receipt}
         label="Open POs"
@@ -94,6 +94,15 @@ export default function PurchasingKPIStrip({ kpis }) {
         color="text-green-600"
         linkTo="/purchasing/three-way-match"
         linkLabel="Reconciliation →"
+      />
+      <KPICard
+        icon={CalendarX}
+        label="Overdue Invoices"
+        value={kpis.overdueInvoiceCount || 0}
+        subValue={kpis.overdueInvoiceCount > 0 ? 'Past due date — unpaid' : 'None overdue'}
+        color={kpis.overdueInvoiceCount > 0 ? 'text-red-600' : 'text-green-600'}
+        linkTo="/purchasing/invoices"
+        linkLabel="View invoices →"
       />
     </div>
   );

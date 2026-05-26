@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { X, Loader2, CreditCard, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { resolveTaxRate } from '@/lib/taxResolution';
 
 export default function CreditNoteModal({ po, onCreated, onCancel }) {
   const [saving, setSaving] = useState(false);
@@ -25,7 +26,21 @@ export default function CreditNoteModal({ po, onCreated, onCancel }) {
     queryFn: () => base44.entities.PurchaseInvoice.filter({ purchase_order_id: po.id }),
   });
 
+  const { data: supplierList = [] } = useQuery({
+    queryKey: ['supplier-single', po.supplier_id],
+    queryFn: () => base44.entities.Supplier.filter({ id: po.supplier_id }, 'name', 1),
+    enabled: !!po.supplier_id,
+  });
+
+  const { data: taxRates = [] } = useQuery({
+    queryKey: ['tax-rates'],
+    queryFn: () => base44.entities.TaxRate.filter({ active: true }, 'name', 20),
+    staleTime: 300000,
+  });
+
   const linkedInvoice = useMemo(() => existingInvoices.find(i => !i.is_credit_note), [existingInvoices]);
+  const poSupplier = useMemo(() => supplierList[0] || null, [supplierList]);
+  const creditTaxRate = useMemo(() => resolveTaxRate(null, poSupplier, taxRates), [poSupplier, taxRates]);
 
   const getCredit = (lineId, field) => {
     const line = poLines.find(l => l.id === lineId);
@@ -51,7 +66,7 @@ export default function CreditNoteModal({ po, onCreated, onCancel }) {
     .filter(l => l.credit_qty > 0);
 
   const creditSubtotal = creditLines.reduce((s, l) => s + l.credit_qty * l.credit_unit_cost, 0);
-  const creditTax = Math.round(creditSubtotal * 0.15 * 100) / 100;
+  const creditTax = Math.round(creditSubtotal * creditTaxRate * 100) / 100;
   const creditTotal = creditSubtotal + creditTax;
 
   const handleCreate = async () => {
@@ -238,7 +253,7 @@ export default function CreditNoteModal({ po, onCreated, onCancel }) {
           {creditSubtotal > 0 && (
             <div className="bg-muted/50 rounded-lg p-4 space-y-1 text-sm">
               <div className="flex justify-between"><span className="text-muted-foreground">Credit Subtotal</span><span className="text-destructive">- R {creditSubtotal.toFixed(2)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">VAT (15%)</span><span className="text-destructive">- R {creditTax.toFixed(2)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">VAT ({Math.round(creditTaxRate * 100)}%)</span><span className="text-destructive">- R {creditTax.toFixed(2)}</span></div>
               <div className="flex justify-between font-bold text-base pt-1 border-t border-border"><span>Credit Total</span><span className="text-destructive">- R {creditTotal.toFixed(2)}</span></div>
             </div>
           )}

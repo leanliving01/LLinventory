@@ -74,6 +74,7 @@ import ProductReviewQueue from '@/pages/ProductReviewQueue';
 import PriceVarianceDashboard from '@/pages/PriceVarianceDashboard';
 import ThreeWayMatch from '@/pages/ThreeWayMatch';
 import PurchasingDashboard from '@/pages/PurchasingDashboard';
+import PurchaseWorkspace from '@/pages/PurchaseWorkspace';
 import FoodCostDashboard from '@/pages/FoodCostDashboard';
 import SupplierScorecard from '@/pages/SupplierScorecard';
 import ActivityLog from '@/pages/ActivityLog';
@@ -207,6 +208,7 @@ const AuthenticatedApp = () => {
         <Route path="/purchasing/price-variance" element={<PriceVarianceDashboard />} />
         <Route path="/purchasing/three-way-match" element={<ThreeWayMatch />} />
         <Route path="/purchasing/dashboard" element={<PurchasingDashboard />} />
+        <Route path="/purchasing/workspace/:id" element={<PurchaseWorkspace />} />
         <Route path="/purchasing/scorecard" element={<SupplierScorecard />} />
         <Route path="/purchasing/pack-bom" element={<PackBomManager />} />
         <Route path="/purchasing/pack-bom/:packBomId" element={<PackBomDetail />} />

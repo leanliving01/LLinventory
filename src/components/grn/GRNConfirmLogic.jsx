@@ -3,21 +3,78 @@ import { writeAuditLog } from '@/lib/auditLog';
 import { toast } from 'sonner';
 
 /**
+ * Pre-flight validation for GRN confirmation.
+ * Returns an array of error messages. An empty array means validation passed.
+ * No DB writes happen here — safe to call before confirmGRN.
+ */
+export function validateGRNLines(grn, lines) {
+  const errors = [];
+
+  if (!grn.location_id) {
+    errors.push('A delivery location must be selected.');
+  }
+
+  const stockLines = lines.filter(l => !l.item_type || l.item_type === 'stock');
+  const hasAnyQty = lines.some(l => parseFloat(l.received_qty) > 0);
+  if (!hasAnyQty) {
+    errors.push('No quantities have been entered. Enter received quantities before confirming this GRN.');
+  }
+
+  lines.forEach((l, idx) => {
+    const lineNum = idx + 1;
+    const receivedQty = parseFloat(l.received_qty);
+
+    if (!l.product_id) {
+      errors.push(`Product mapping is missing on line ${lineNum}. Map the product before confirming this GRN.`);
+      return;
+    }
+
+    if ((!l.item_type || l.item_type === 'stock') && receivedQty > 0) {
+      if (!l.purchase_uom) {
+        errors.push(`Purchase unit of measure is missing on line ${lineNum} (${l.product_name || 'unknown product'}). This GRN cannot be confirmed.`);
+      }
+      if (!l.conversion_factor || parseFloat(l.conversion_factor) <= 0) {
+        errors.push(`Product ${l.product_name || 'on line ' + lineNum} cannot be received because the purchase UOM has no conversion rate to the stock UOM. Update the supplier product record first.`);
+      }
+      if (!l.unit_cost && parseFloat(l.unit_cost) !== 0) {
+        errors.push(`Product ${l.product_name || 'on line ' + lineNum} cannot be received because no unit cost has been entered. Enter a cost before confirming.`);
+      }
+    }
+  });
+
+  if (!grn.location_id && stockLines.some(l => parseFloat(l.received_qty) > 0)) {
+    // Already added above, but add per-line message for stock items
+    errors.push('Receiving location is required for stock items.');
+  }
+
+  return [...new Set(errors)]; // deduplicate
+}
+
+/**
  * Confirms a GRN:
- * 1. Saves all GRN lines (recalculates internal_qty, variance, line_total)
- * 2. Creates StockMovement records for each stock-type line
- * 3. Updates StockOnHand per product/location
- * 4. Updates Product.cost_avg (weighted average) and cost_current
- * 5. Creates SupplierShortage records for short lines
- * 6. Updates PO status if linked
- * 7. Marks GRN as confirmed
+ * 1. Validates lines (throws if validation fails — no partial writes)
+ * 2. Saves all GRN lines (recalculates internal_qty, variance, line_total)
+ * 3. Creates StockMovement records for each stock-type line
+ * 4. Updates StockOnHand per product/location
+ * 5. Updates Product.cost_avg (weighted average) and cost_current
+ * 6. Creates SupplierShortage records for short lines
+ * 7. Updates PO status if linked
+ * 8. Marks GRN as confirmed
  */
 export async function confirmGRN(grn, lines, userName) {
+  // Pre-flight validation — no DB writes happen if this fails
+  const validationErrors = validateGRNLines(grn, lines);
+  if (validationErrors.length > 0) {
+    const err = new Error('GRN validation failed');
+    err.validationErrors = validationErrors;
+    throw err;
+  }
   // 1. Persist lines and compute derived fields
   const persistedLines = [];
   let totalValue = 0;
   let hasShortages = false;
   let hasRejections = false;
+  let hasPriceVariance = false;
 
   for (const line of lines) {
     const receivedQty = parseFloat(line.received_qty) || 0;
@@ -167,6 +224,7 @@ export async function confirmGRN(grn, lines, userName) {
 
     // Flag the GRN line
     if (isFlagged && line.id) {
+      hasPriceVariance = true;
       await base44.entities.GRNLine.update(line.id, { price_variance_flagged: true });
     }
   }
@@ -217,6 +275,7 @@ export async function confirmGRN(grn, lines, userName) {
     total_received_value: Math.round(totalValue * 100) / 100,
     has_shortages: hasShortages,
     has_rejections: hasRejections,
+    has_price_variance: hasPriceVariance,
   });
 
   writeAuditLog({

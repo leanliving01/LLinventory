@@ -8,23 +8,20 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { X, Truck, User, Mail, Phone, CreditCard, MapPin, Save, Loader2, Pencil, FileText, Tag, Factory } from 'lucide-react';
+import { X, Truck, User, Mail, Phone, CreditCard, MapPin, Save, Loader2, Pencil, FileText, Tag, Factory, AlertTriangle, Percent } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import SupplierProductsTab from '@/components/purchasing/SupplierProductsTab';
-import { computePaymentTermsLabel, formatZAR } from '@/lib/utils';
+import { computePaymentTermsLabel, formatPaymentTerms, formatZAR } from '@/lib/utils';
 
-const PAYMENT_TERM_PRESETS = [
-  { label: 'Immediate / COD',         basis: 'invoice_date',            days: 0,  cutoffDay: null },
-  { label: '7 days from invoice',     basis: 'invoice_date',            days: 7,  cutoffDay: null },
-  { label: '14 days from invoice',    basis: 'invoice_date',            days: 14, cutoffDay: null },
-  { label: '30 days from invoice',    basis: 'invoice_date',            days: 30, cutoffDay: null },
-  { label: '7 days EOM',              basis: 'end_of_month_of_invoice', days: 7,  cutoffDay: null },
-  { label: '30 days EOM',             basis: 'end_of_month_of_invoice', days: 30, cutoffDay: null },
-  { label: '20th of following month', basis: 'specific_day_of_month',   days: 0,  cutoffDay: 20 },
+const PAYMENT_TERM_TYPE_OPTIONS = [
+  { value: 'immediate',              label: 'Immediate' },
+  { value: 'days_after_invoice',     label: 'Days after invoice date' },
+  { value: 'day_of_invoice_month',   label: 'Day of invoice month' },
+  { value: 'day_of_following_month', label: 'Day of month following invoice' },
 ];
 
 function ReadOnlyField({ icon: Icon, label, value }) {
@@ -74,26 +71,56 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
     tax_id: supplier.tax_id || '',
     category: supplier.category || 'other',
     is_production_supplier: supplier.is_production_supplier || false,
+    // New structured payment terms (v2)
+    payment_term_type: supplier.payment_term_type || '',
+    payment_term_value: supplier.payment_term_value != null ? String(supplier.payment_term_value) : '',
+    // Legacy fields kept for backward compatibility
     payment_terms_basis: supplier.payment_terms_basis || '',
     payment_terms_days: supplier.payment_terms_days != null ? String(supplier.payment_terms_days) : '',
     payment_terms_cutoff_day: supplier.payment_terms_cutoff_day != null ? String(supplier.payment_terms_cutoff_day) : '',
+    // Tax rate
+    default_tax_rate_id: supplier.default_tax_rate_id || '',
   });
 
   const setField = (key) => (value) => setForm(prev => ({ ...prev, [key]: value }));
 
-  const applyTermsPreset = (p) => setForm(prev => ({
-    ...prev,
-    payment_terms_basis: p.basis,
-    payment_terms_days: String(p.days),
-    payment_terms_cutoff_day: p.cutoffDay != null ? String(p.cutoffDay) : '',
-  }));
+  // When payment_term_type changes, clear the value if switching to immediate
+  const handleTermTypeChange = (newType) => {
+    setForm(prev => ({
+      ...prev,
+      payment_term_type: newType,
+      payment_term_value: newType === 'immediate' ? '' : prev.payment_term_value,
+    }));
+  };
 
-  const termsPreview = computePaymentTermsLabel(
-    form.payment_terms_basis, form.payment_terms_days, form.payment_terms_cutoff_day
-  );
-  const supplierTermsDisplay = supplier.payment_terms_label ||
-    computePaymentTermsLabel(supplier.payment_terms_basis, supplier.payment_terms_days, supplier.payment_terms_cutoff_day) ||
-    supplier.payment_terms || '—';
+  // Derive legacy fields from new term type for backward compat on save
+  const deriveLegacyTerms = (type, value) => {
+    const v = parseInt(value) || 0;
+    switch (type) {
+      case 'immediate':              return { basis: 'invoice_date', days: 0, cutoff: null };
+      case 'days_after_invoice':     return { basis: 'invoice_date', days: v, cutoff: null };
+      case 'day_of_invoice_month':   return { basis: 'end_of_month_of_invoice', days: 0, cutoff: v };
+      case 'day_of_following_month': return { basis: 'specific_day_of_month', days: 0, cutoff: v };
+      default:                       return { basis: '', days: null, cutoff: null };
+    }
+  };
+
+  const termsPreviewNew = form.payment_term_type
+    ? formatPaymentTerms(form.payment_term_type, form.payment_term_value)
+    : computePaymentTermsLabel(form.payment_terms_basis, form.payment_terms_days, form.payment_terms_cutoff_day);
+
+  const supplierTermsDisplay = supplier.payment_term_type
+    ? formatPaymentTerms(supplier.payment_term_type, supplier.payment_term_value)
+    : (supplier.payment_terms_label ||
+        computePaymentTermsLabel(supplier.payment_terms_basis, supplier.payment_terms_days, supplier.payment_terms_cutoff_day) ||
+        supplier.payment_terms || '—');
+
+  // Tax rates for dropdown
+  const { data: taxRates = [] } = useQuery({
+    queryKey: ['tax-rates'],
+    queryFn: () => base44.entities.TaxRate.filter({ active: true }, 'name', 20),
+    staleTime: 300000,
+  });
 
   // Fetch POs for this supplier
   const { data: supplierPOs = [] } = useQuery({
@@ -106,11 +133,18 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
 
   const handleSave = async () => {
     setSaving(true);
+    const legacy = deriveLegacyTerms(form.payment_term_type, form.payment_term_value);
     await base44.entities.Supplier.update(supplier.id, {
       ...form,
-      payment_terms_days: form.payment_terms_days ? parseInt(form.payment_terms_days) : null,
-      payment_terms_cutoff_day: form.payment_terms_cutoff_day ? parseInt(form.payment_terms_cutoff_day) : null,
-      payment_terms_label: termsPreview || null,
+      // New payment term fields
+      payment_term_type: form.payment_term_type || null,
+      payment_term_value: form.payment_term_value ? parseInt(form.payment_term_value) : null,
+      // Legacy fields (backward compat — kept in sync)
+      payment_terms_basis: legacy.basis || form.payment_terms_basis || null,
+      payment_terms_days: legacy.days ?? (form.payment_terms_days ? parseInt(form.payment_terms_days) : null),
+      payment_terms_cutoff_day: legacy.cutoff ?? (form.payment_terms_cutoff_day ? parseInt(form.payment_terms_cutoff_day) : null),
+      payment_terms_label: termsPreviewNew || null,
+      default_tax_rate_id: form.default_tax_rate_id || null,
     });
     onUpdated?.();
     toast.success('Supplier updated');
@@ -187,28 +221,63 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
                     </p>
                   </div>
                 </div>
-                {/* Structured payment terms */}
+                {/* Payment terms — Dext-style: [N] [Type dropdown] */}
                 <div className="flex items-start gap-3">
                   <CreditCard className="w-4 h-4 text-muted-foreground mt-2.5 shrink-0" />
                   <div className="flex-1 space-y-2">
                     <label className="text-[10px] uppercase text-muted-foreground font-semibold block">Payment Terms</label>
-                    <div className="flex flex-wrap gap-1">
-                      {PAYMENT_TERM_PRESETS.map(p => (
-                        <button key={p.label} type="button" onClick={() => applyTermsPreset(p)}
-                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-                            form.payment_terms_basis === p.basis &&
-                            String(form.payment_terms_days) === String(p.days) &&
-                            String(form.payment_terms_cutoff_day || '') === String(p.cutoffDay || '')
-                              ? 'bg-primary text-primary-foreground border-primary'
-                              : 'bg-background border-border hover:border-primary/50'
-                          }`}>
-                          {p.label}
-                        </button>
-                      ))}
+                    <div className="flex gap-2 items-center flex-wrap">
+                      {form.payment_term_type !== 'immediate' && (
+                        <Input
+                          type="number"
+                          min={1}
+                          max={form.payment_term_type === 'days_after_invoice' ? 365 : 31}
+                          placeholder={form.payment_term_type === 'days_after_invoice' ? 'Days' : 'Day'}
+                          value={form.payment_term_value}
+                          onChange={e => setField('payment_term_value')(e.target.value)}
+                          className="h-8 text-sm w-20"
+                        />
+                      )}
+                      <Select value={form.payment_term_type || ''} onValueChange={handleTermTypeChange}>
+                        <SelectTrigger className="h-8 text-sm flex-1 min-w-[180px]">
+                          <SelectValue placeholder="Select payment term type…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PAYMENT_TERM_TYPE_OPTIONS.map(o => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                    {termsPreview && (
-                      <p className="text-xs text-muted-foreground italic">→ {termsPreview}</p>
+                    {termsPreviewNew && (
+                      <p className="text-xs text-muted-foreground italic">→ {termsPreviewNew}</p>
                     )}
+                    {!form.payment_term_type && (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        No payment terms set — due dates won't auto-calculate for this supplier.
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* Default tax rate */}
+                <div className="flex items-start gap-3">
+                  <Percent className="w-4 h-4 text-muted-foreground mt-2.5 shrink-0" />
+                  <div className="flex-1">
+                    <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Default VAT for purchases</label>
+                    <Select value={form.default_tax_rate_id || '_none'} onValueChange={v => setField('default_tax_rate_id')(v === '_none' ? '' : v)}>
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue placeholder="Use system default" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">Use system default</SelectItem>
+                        {taxRates.map(r => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.name} ({(r.rate * 100).toFixed(0)}%)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -242,6 +311,12 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
                 <ReadOnlyField icon={Mail} label="Email" value={supplier.email} />
                 <ReadOnlyField icon={Phone} label="Phone" value={supplier.phone} />
                 <ReadOnlyField icon={CreditCard} label="Payment Terms" value={supplierTermsDisplay} />
+                {!supplier.payment_term_type && (
+                  <div className="flex items-center gap-2 ml-7 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                    No payment terms configured. Due dates won't auto-calculate.
+                  </div>
+                )}
                 <ReadOnlyField icon={MapPin} label="Billing Address" value={supplier.billing_address} />
                 <ReadOnlyField icon={MapPin} label="Shipping Address" value={supplier.shipping_address} />
                 {supplier.tax_id && <ReadOnlyField icon={CreditCard} label="VAT Number" value={supplier.tax_id} />}

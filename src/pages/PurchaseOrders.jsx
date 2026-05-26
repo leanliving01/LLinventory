@@ -11,9 +11,12 @@ import PODetailDrawer from '@/components/purchasing/PODetailDrawer';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
 import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
+import SmartFolderNav from '@/components/purchasing/SmartFolderNav';
+import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
+import { dueDateColour } from '@/lib/utils';
 
 const STATUS_COLORS = {
   draft: 'bg-gray-100 text-gray-600',
@@ -54,6 +57,7 @@ export default function PurchaseOrders() {
   });
 
   const [needsAttentionOnly, setNeedsAttentionOnly] = useState(false);
+  const [activeFolder, setActiveFolder] = useState(null);
 
   const { data: pos = [], isLoading } = useQuery({
     queryKey: ['purchase-orders'],
@@ -81,6 +85,28 @@ export default function PurchaseOrders() {
     queryFn: () => base44.entities.PurchaseOrderLine.list('created_date', 5000),
   });
 
+  // Data for SmartFolderNav (shared queryKeys with dashboard = served from React Query cache)
+  const { data: grns = [] } = useQuery({
+    queryKey: ['pdash-grns'],
+    queryFn: () => base44.entities.GoodsReceivedNote.list('-received_date', 500),
+    staleTime: 60000,
+  });
+  const { data: invoices = [] } = useQuery({
+    queryKey: ['pdash-invoices'],
+    queryFn: () => base44.entities.PurchaseInvoice.list('-invoice_date', 500),
+    staleTime: 60000,
+  });
+  const { data: returns = [] } = useQuery({
+    queryKey: ['pdash-returns'],
+    queryFn: () => base44.entities.SupplierReturn.list('-created_date', 200),
+    staleTime: 60000,
+  });
+  const { data: creditNotes = [] } = useQuery({
+    queryKey: ['supplier-credit-notes'],
+    queryFn: () => base44.entities.SupplierCreditNote.list('-created_date', 200),
+    staleTime: 60000,
+  });
+
   const posNeedingAttention = useMemo(() => {
     const poIds = new Set();
     allLines.forEach(l => {
@@ -103,21 +129,64 @@ export default function PurchaseOrders() {
   }, [pos]);
 
   const filtered = useMemo(() => {
-    let result = pos.filter(po => {
-      // Status filter
-      if (statusFilter === 'open' && ['received', 'paid', 'cancelled'].includes(po.status)) return false;
-      if (statusFilter !== 'open' && statusFilter !== 'all' && po.status !== statusFilter) return false;
+    // Build lookup maps for folder filtering
+    const grnByPoId = {};
+    grns.forEach(g => {
+      if (!grnByPoId[g.purchase_order_id]) grnByPoId[g.purchase_order_id] = [];
+      grnByPoId[g.purchase_order_id].push(g);
+    });
+    const invoiceByPoId = {};
+    invoices.forEach(i => {
+      if (!invoiceByPoId[i.purchase_order_id]) invoiceByPoId[i.purchase_order_id] = [];
+      invoiceByPoId[i.purchase_order_id].push(i);
+    });
+    const priceVariancePoIds = new Set(
+      grns.filter(g => g.has_price_variance).map(g => g.purchase_order_id).filter(Boolean)
+    );
 
-      // Text search
+    let result = pos.filter(po => {
+      // Folder filter takes precedence over status chips
+      if (activeFolder) {
+        const approved = ['approved', 'confirmed'];
+        const postReceive = ['received', 'invoiced'];
+        switch (activeFolder) {
+          case 'all_active':         if (['cancelled', 'paid'].includes(po.status)) return false; break;
+          case 'draft':              if (po.status !== 'draft') return false; break;
+          case 'awaiting_approval':  if (po.status !== 'awaiting_approval') return false; break;
+          case 'approved':           if (!approved.includes(po.status)) return false; break;
+          case 'awaiting_grn':
+            if (!approved.includes(po.status)) return false;
+            if ((grnByPoId[po.id] || []).some(g => g.status === 'confirmed')) return false;
+            break;
+          case 'partially_received': if (po.status !== 'partially_received') return false; break;
+          case 'received':           if (po.status !== 'received') return false; break;
+          case 'awaiting_invoice':
+            if (!postReceive.includes(po.status)) return false;
+            if ((invoiceByPoId[po.id] || []).some(i => !i.is_credit_note)) return false;
+            break;
+          case 'invoiced':           if (po.status !== 'invoiced') return false; break;
+          case 'paid':               if (po.status !== 'paid') return false; break;
+          case 'needs_review':       if (!posNeedingAttention.has(po.id)) return false; break;
+          case 'price_variance':     if (!priceVariancePoIds.has(po.id)) return false; break;
+          case 'credit_notes':       return false; // credit notes don't map 1:1 to POs; show nothing for now
+          case 'returns_pending':    return false; // returns don't map 1:1 to POs; show nothing for now
+          default: break;
+        }
+      } else {
+        // Status filter
+        if (statusFilter === 'open' && ['received', 'paid', 'cancelled'].includes(po.status)) return false;
+        if (statusFilter !== 'open' && statusFilter !== 'all' && po.status !== statusFilter) return false;
+        // Needs attention filter
+        if (needsAttentionOnly && !posNeedingAttention.has(po.id)) return false;
+      }
+
+      // Text search (always applied)
       if (filters.search) {
         const q = filters.search.toLowerCase();
         if (!(po.po_number || '').toLowerCase().includes(q) &&
             !(po.supplier_name || '').toLowerCase().includes(q) &&
             !(po.supplier_invoice_number || '').toLowerCase().includes(q)) return false;
       }
-
-      // Needs attention filter
-      if (needsAttentionOnly && !posNeedingAttention.has(po.id)) return false;
 
       // Supplier filter
       if (filters.supplierId !== 'all' && po.supplier_id !== filters.supplierId) return false;
@@ -152,7 +221,7 @@ export default function PurchaseOrders() {
     });
 
     return result;
-  }, [pos, filters, statusFilter, needsAttentionOnly, posNeedingAttention]);
+  }, [pos, grns, invoices, filters, statusFilter, needsAttentionOnly, posNeedingAttention, activeFolder]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -173,6 +242,13 @@ export default function PurchaseOrders() {
     });
     return c;
   }, [pos]);
+
+  const dueDateClass = (dateStr) => {
+    const colour = dueDateColour(dateStr);
+    if (colour === 'red') return 'text-red-600 font-semibold';
+    if (colour === 'amber') return 'text-amber-600';
+    return 'text-green-700';
+  };
 
   return (
     <div className="space-y-4">
@@ -201,8 +277,8 @@ export default function PurchaseOrders() {
         <SyncStatusBanner syncKeys={['xero_purchase_orders']} title="Xero PO Sync" />
       )}
 
-      {/* Needs Attention banner */}
-      {posNeedingAttention.size > 0 && (
+      {/* Needs Attention banner (only when no folder active) */}
+      {!activeFolder && posNeedingAttention.size > 0 && (
         <button
           onClick={() => { setNeedsAttentionOnly(!needsAttentionOnly); setPage(1); }}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all w-full ${
@@ -217,115 +293,144 @@ export default function PurchaseOrders() {
         </button>
       )}
 
-      {/* Status chips */}
-      <div className="flex gap-2 flex-wrap">
-        {[
-          { key: 'open', label: `Open (${statusCounts.open || 0})` },
-          { key: 'draft', label: `Draft (${statusCounts.draft || 0})` },
-          { key: 'confirmed', label: `Confirmed (${statusCounts.confirmed || 0})` },
-          { key: 'partially_received', label: `Partial (${statusCounts.partially_received || 0})` },
-          { key: 'received', label: `Received (${statusCounts.received || 0})` },
-          { key: 'invoiced', label: `Invoiced (${statusCounts.invoiced || 0})` },
-          { key: 'paid', label: `Paid (${statusCounts.paid || 0})` },
-          { key: 'cancelled', label: `Cancelled (${statusCounts.cancelled || 0})` },
-          { key: 'all', label: 'All' },
-        ].map(chip => (
-          <button
-            key={chip.key}
-            onClick={() => { setStatusFilter(statusFilter === chip.key ? 'all' : chip.key); setPage(1); }}
-            className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
-              statusFilter === chip.key
-                ? 'bg-primary/10 text-primary ring-2 ring-primary/30'
-                : 'bg-muted text-muted-foreground hover:bg-muted/80'
-            }`}
-          >
-            {chip.label}
-          </button>
-        ))}
-      </div>
+      {/* Status chips (only when no folder active) */}
+      {!activeFolder && (
+        <div className="flex gap-2 flex-wrap">
+          {[
+            { key: 'open', label: `Open (${statusCounts.open || 0})` },
+            { key: 'draft', label: `Draft (${statusCounts.draft || 0})` },
+            { key: 'confirmed', label: `Confirmed (${statusCounts.confirmed || 0})` },
+            { key: 'partially_received', label: `Partial (${statusCounts.partially_received || 0})` },
+            { key: 'received', label: `Received (${statusCounts.received || 0})` },
+            { key: 'invoiced', label: `Invoiced (${statusCounts.invoiced || 0})` },
+            { key: 'paid', label: `Paid (${statusCounts.paid || 0})` },
+            { key: 'cancelled', label: `Cancelled (${statusCounts.cancelled || 0})` },
+            { key: 'all', label: 'All' },
+          ].map(chip => (
+            <button
+              key={chip.key}
+              onClick={() => { setStatusFilter(statusFilter === chip.key ? 'all' : chip.key); setPage(1); }}
+              className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
+                statusFilter === chip.key
+                  ? 'bg-primary/10 text-primary ring-2 ring-primary/30'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              }`}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Filters */}
       <POFilters filters={filters} onChange={handleFiltersChange} suppliers={supplierOptions} />
 
-      {/* Table */}
-      {isLoading ? (
-        <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>
-      ) : (
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-muted/50 border-b border-border">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">PO #</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Supplier</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Date</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Expected</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Total</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Payment</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Source</th>
-                <th className="w-10"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {paginatedPOs.map(po => (
-                <tr key={po.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => setSelectedPO(po)}>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-2">
-                      {posNeedingAttention.has(po.id) ? (
-                        <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" title="Needs qty adjustment" />
-                      ) : (
-                        <Receipt className="w-4 h-4 text-primary shrink-0" />
-                      )}
-                      <span className="text-sm font-mono font-medium">{po.po_number}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-2.5 text-sm">{po.supplier_name || '—'}</td>
-                  <td className="px-4 py-2.5 text-sm text-muted-foreground">{po.order_date || '—'}</td>
-                  <td className="px-4 py-2.5 text-sm text-muted-foreground">{po.expected_date || '—'}</td>
-                  <td className="px-4 py-2.5 text-sm text-right font-medium">R {(po.total || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</td>
-                  <td className="px-4 py-2.5 text-center">
-                    <Badge className={`text-[10px] ${STATUS_COLORS[po.status] || 'bg-gray-100 text-gray-600'}`}>
-                      {STATUS_LABELS[po.status] || po.status}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-2.5 text-center">
-                    <Badge variant="outline" className={`text-[10px] ${po.payment_status === 'overdue' ? 'border-red-300 text-red-600' : po.payment_status === 'paid' ? 'border-green-300 text-green-700' : ''}`}>
-                      {po.payment_status || 'unpaid'}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-2.5 text-center">
-                    {po.source === 'xero' ? (
-                      <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-600">Xero</Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[10px]">Manual</Badge>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
-                    {pos.length === 0 ? 'No purchase orders yet. Click "New PO" to create one.' : 'No orders match your filter.'}
-                  </td>
-                </tr>
+      {/* Main layout: SmartFolderNav + table */}
+      <div className="flex gap-4 items-start">
+        <SmartFolderNav
+          pos={pos}
+          grns={grns}
+          invoices={invoices}
+          returns={returns}
+          creditNotes={creditNotes}
+          posNeedingAttention={posNeedingAttention}
+          activeFolder={activeFolder}
+          onFolderSelect={key => { setActiveFolder(key); setPage(1); }}
+        />
+
+        <div className="flex-1 min-w-0">
+          {/* Table */}
+          {isLoading ? (
+            <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>
+          ) : (
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-muted/50 border-b border-border">
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">PO #</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Supplier</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Date</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Due Date</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Total</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Invoice</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Source</th>
+                    <th className="w-10"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {paginatedPOs.map(po => (
+                    <tr key={po.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => setSelectedPO(po)}>
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2">
+                          {posNeedingAttention.has(po.id) ? (
+                            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" title="Needs qty adjustment" />
+                          ) : (
+                            <Receipt className="w-4 h-4 text-primary shrink-0" />
+                          )}
+                          <span className="text-sm font-mono font-medium">{po.po_number}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-sm">{po.supplier_name || '—'}</td>
+                      <td className="px-4 py-2.5 text-sm text-muted-foreground">{po.order_date || '—'}</td>
+                      <td className="px-4 py-2.5 text-sm">
+                        {po.due_date_calculated ? (
+                          <span className={dueDateClass(po.due_date_calculated)}>
+                            {po.due_date_calculated}
+                            {po.due_date_overridden && <span className="text-[10px] text-muted-foreground ml-1">(override)</span>}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-sm text-right font-medium">R {(po.total || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-2.5 text-center">
+                        <Badge className={`text-[10px] ${STATUS_COLORS[po.status] || 'bg-gray-100 text-gray-600'}`}>
+                          {STATUS_LABELS[po.status] || po.status}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <Badge variant="outline" className={`text-[10px] ${po.payment_status === 'overdue' ? 'border-red-300 text-red-600' : po.payment_status === 'paid' ? 'border-green-300 text-green-700' : ''}`}>
+                          {po.payment_status || 'unpaid'}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        {po.source === 'xero' ? (
+                          <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-600">Xero</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px]">Manual</Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                      </td>
+                    </tr>
+                  ))}
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                        {activeFolder === 'credit_notes' ? (
+                          <>Credit notes are managed inside individual PO workspaces. <Link to="/purchasing/invoices" className="text-primary hover:underline">View Invoices →</Link></>
+                        ) : activeFolder === 'returns_pending' ? (
+                          <>Supplier returns are tracked on the Returns page. <Link to="/purchasing/returns" className="text-primary hover:underline">View Returns →</Link></>
+                        ) : pos.length === 0 ? 'No purchase orders yet. Click "New PO" to create one.' : 'No orders match your filter.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              {filtered.length > 0 && (
+                <POPagination
+                  page={safePage}
+                  totalPages={totalPages}
+                  totalItems={filtered.length}
+                  pageSize={pageSize}
+                  onPageChange={setPage}
+                  onPageSizeChange={v => { setPageSize(v); setPage(1); }}
+                />
               )}
-            </tbody>
-          </table>
-          {filtered.length > 0 && (
-            <POPagination
-              page={safePage}
-              totalPages={totalPages}
-              totalItems={filtered.length}
-              pageSize={pageSize}
-              onPageChange={setPage}
-              onPageSizeChange={v => { setPageSize(v); setPage(1); }}
-            />
+            </div>
           )}
         </div>
-      )}
+      </div>
 
       {showCreate && (
         <CreatePOModal
@@ -344,7 +449,6 @@ export default function PurchaseOrders() {
           onClose={() => setSelectedPO(null)}
           onUpdated={() => {
             queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
-            // Re-fetch selected PO
             base44.entities.PurchaseOrder.filter({ id: selectedPO.id }).then(res => {
               const refreshed = res[0];
               if (!refreshed) { toast.error('Could not refresh PO — it may have been deleted.'); return; }

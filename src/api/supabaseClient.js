@@ -111,6 +111,11 @@ const ENTITY_TABLE_MAP = {
   AuditLog:                 'audit_logs',
   ImportLog:                'import_logs',
   BugReport:                'bug_reports',
+  TaxRate:                  'tax_rates',
+  DocNumberSequence:        'doc_number_sequences',
+  SupplierCreditNote:       'supplier_credit_notes',
+  SupplierCreditNoteMatch:  'supplier_credit_note_matches',
+  InvoicePOMatchSuggestion: 'invoice_po_match_suggestions',
 };
 
 function applyFilters(query, filters) {

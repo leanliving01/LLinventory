@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import {
   X, Save, Loader2, Pencil, Star, Package, Truck, ArrowRightLeft,
-  TrendingUp, DollarSign, Clock
+  TrendingUp, DollarSign, Clock, ExternalLink, Percent
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -42,6 +42,13 @@ export default function SupplierProductDrawer({ sp, onClose, onUpdated, canEdit 
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ ...sp });
   const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
+
+  // Tax rates for dropdown
+  const { data: taxRates = [] } = useQuery({
+    queryKey: ['tax-rates'],
+    queryFn: () => base44.entities.TaxRate.filter({ active: true }, 'name', 20),
+    staleTime: 300000,
+  });
 
   // Price history
   const { data: priceHistory = [] } = useQuery({
@@ -110,7 +117,7 @@ export default function SupplierProductDrawer({ sp, onClose, onUpdated, canEdit 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
           {editing ? (
-            <EditForm form={form} set={set} effectiveQty={effectiveQty} />
+            <EditForm form={form} set={set} effectiveQty={effectiveQty} taxRates={taxRates} />
           ) : (
             <ReadView sp={sp} effectiveQty={effectiveQty} />
           )}
@@ -179,6 +186,22 @@ function ReadView({ sp, effectiveQty }) {
         <ReadRow icon={Package} label="Supplier SKU" value={sp.supplier_sku} />
         <ReadRow icon={Package} label="Supplier Description" value={sp.supplier_description} />
         <ReadRow icon={Package} label="Xero Item Code" value={sp.xero_item_code} />
+        {sp.supplier_product_url && (
+          <div className="flex items-start gap-3">
+            <ExternalLink className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+            <div>
+              <p className="text-[10px] uppercase text-muted-foreground font-semibold">Supplier Product URL</p>
+              <a
+                href={sp.supplier_product_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-primary hover:underline break-all"
+              >
+                {sp.supplier_product_url}
+              </a>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="space-y-3">
@@ -225,7 +248,7 @@ function ReadView({ sp, effectiveQty }) {
   );
 }
 
-function EditForm({ form, set, effectiveQty }) {
+function EditForm({ form, set, effectiveQty, taxRates = [] }) {
   return (
     <div className="space-y-5">
       <div className="space-y-3">
@@ -238,6 +261,15 @@ function EditForm({ form, set, effectiveQty }) {
         </Field>
         <Field label="Xero Item Code">
           <Input value={form.xero_item_code || ''} onChange={e => set('xero_item_code', e.target.value)} className="h-8 text-sm" />
+        </Field>
+        <Field label="Supplier Product URL (website link)">
+          <Input
+            type="url"
+            placeholder="https://supplier.com/product/..."
+            value={form.supplier_product_url || ''}
+            onChange={e => set('supplier_product_url', e.target.value)}
+            className="h-8 text-sm"
+          />
         </Field>
       </div>
 
@@ -323,6 +355,23 @@ function EditForm({ form, set, effectiveQty }) {
         <Field label="Notes">
           <Textarea value={form.notes || ''} onChange={e => set('notes', e.target.value)} className="h-16 text-sm" />
         </Field>
+        {taxRates.length > 0 && (
+          <Field label="Default VAT for this product">
+            <Select value={form.default_tax_rate_id || '_none'} onValueChange={v => set('default_tax_rate_id', v === '_none' ? '' : v)}>
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue placeholder="Use supplier / system default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_none">Use supplier / system default</SelectItem>
+                {taxRates.map(r => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name} ({(r.rate * 100).toFixed(0)}%)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
       </div>
     </div>
   );
