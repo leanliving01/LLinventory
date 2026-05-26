@@ -225,7 +225,14 @@ Deno.serve(async (req) => {
     ...toInsert,
     ...toUpdate.map(u => ({ id: u.id, ...u.payload })),
   ];
-  if (allOrderRows.length) await supabase.from('shopify_orders').upsert(allOrderRows, { onConflict: 'id' });
+  if (allOrderRows.length) {
+    const { error: soErr } = await supabase.from('shopify_orders').upsert(allOrderRows, { onConflict: 'id' });
+    if (soErr) {
+      await markError(supabase, SOURCE_KEY, `shopify_orders upsert: ${soErr.message}`);
+      if (syncLogId) await finishSyncLog(supabase, syncLogId, 'failed', { records_fetched: totalProcessed });
+      return json({ status: 'error', error: `DB error: ${soErr.message}`, processedThisPage: 0, totalProcessed, hasMore: false });
+    }
+  }
 
   // Bulk upsert sales_orders
   const allSalesRows = [

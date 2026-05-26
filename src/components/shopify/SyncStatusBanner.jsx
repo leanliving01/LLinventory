@@ -142,8 +142,8 @@ export default function SyncStatusBanner({ showAll = false, syncKeys: customKeys
     if (sinceDate) payload.sinceDate = sinceDate;
     try {
       const res = await base44.functions.invoke(config.fn, payload);
-      if (res.data?.status === 'error') {
-        toast.error(`${config.label}: ${res.data.error || 'sync failed'}`);
+      if (res.data?.status === 'error' || res.data?.error) {
+        toast.error(`${config.label}: ${res.data?.error || res.data?.status || 'sync failed'}`);
       } else if (res.data?.status === 'completed') {
         toast.success(`${config.label}: ${res.data.totalProcessed || 0} records synced`);
       } else {
