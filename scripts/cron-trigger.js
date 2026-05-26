@@ -51,7 +51,7 @@ async function run() {
   const now = new Date();
   console.log(`[cron-trigger] ${now.toISOString()} — running sync checks`);
 
-  // Shopify orders — every 5 min
+  // Shopify orders — every 15 min
   try {
     const r = await invoke('sync-shopify-orders', { mode: 'start' });
     console.log(`[shopify-orders] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);

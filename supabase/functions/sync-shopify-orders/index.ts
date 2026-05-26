@@ -87,6 +87,9 @@ Deno.serve(async (req) => {
   let syncLogId: string | null = null;
 
   if (mode === 'start') {
+    if (priorState?.sync_status === 'running' && !body.fullResync) {
+      return json({ status: 'error', error: 'Sync already in progress — wait for it to finish or cancel it first.', processedThisPage: 0, totalProcessed: priorState.records_synced || 0, hasMore: false });
+    }
     if (!body.fullResync && priorState?.last_sync_at) updatedAtMin = priorState.last_sync_at;
     syncLogId = await startSyncLog(supabase, SOURCE_KEY, body.fullResync ? 'manual' : 'scheduled');
     await markRunning(supabase, SOURCE_KEY, JSON.stringify({ pageInfo: null, since: updatedAtMin || null, logId: syncLogId }), 0);
@@ -121,7 +124,7 @@ Deno.serve(async (req) => {
   if (res.status === 429) {
     const retryAfter = res.retryAfter || 4;
     await markError(supabase, SOURCE_KEY, `rate_limited: retry in ${retryAfter}s`);
-    await markRunning(supabase, SOURCE_KEY, pageInfo || 'first', 0);
+    await markRunning(supabase, SOURCE_KEY, JSON.stringify({ pageInfo: pageInfo || null, since: updatedAtMin || null, logId: syncLogId }), 0);
     EdgeRuntime.waitUntil(chainNext(FN_NAME, { mode: 'continue' }, retryAfter));
     return json({ status: 'rate_limited', processedThisPage: 0, totalProcessed, hasMore: true, rateLimit: { retryAfterSeconds: retryAfter } });
   }

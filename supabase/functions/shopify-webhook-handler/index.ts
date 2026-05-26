@@ -210,7 +210,7 @@ Deno.serve(async (req) => {
     processed: true,
     created_date: now,
     updated_date: now,
-  }).then(() => {/* ignore if table doesn't exist yet */});
+  });
 
   return json({ status: 'ok', shopify_order_id: shopifyOrderId, topic });
 });
