@@ -4,11 +4,12 @@ import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Search, X, ChevronRight, Truck, Plus, Utensils, Package, MoreHorizontal } from 'lucide-react';
+import { Search, X, ChevronRight, Truck, Plus, Utensils, Package, MoreHorizontal, ShoppingBag } from 'lucide-react';
 
 const CATEGORY_META = {
   food:      { label: 'Food', color: 'bg-green-100 text-green-700', icon: Utensils },
   packaging: { label: 'Packaging', color: 'bg-blue-100 text-blue-700', icon: Package },
+  resale:    { label: 'Resale', color: 'bg-purple-100 text-purple-700', icon: ShoppingBag },
   other:     { label: 'Other', color: 'bg-gray-100 text-gray-500', icon: MoreHorizontal },
 };
 import SupplierDetailDrawer from '@/components/suppliers/SupplierDetailDrawer';
@@ -20,7 +21,7 @@ export default function Suppliers() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
-  const [categoryFilter, setCategoryFilter] = useState('production'); // 'production' = food+packaging, 'all', or specific category
+  const [categoryFilter, setCategoryFilter] = useState('all'); // 'production' = food+packaging, 'all', or specific category
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [page, setPage] = useState(0);
@@ -74,7 +75,7 @@ export default function Suppliers() {
   const inactiveCount = suppliers.filter(s => s.status !== 'active').length;
 
   const categoryCounts = useMemo(() => {
-    const c = { food: 0, packaging: 0, other: 0 };
+    const c = { food: 0, packaging: 0, resale: 0, other: 0 };
     suppliers.forEach(s => {
       const cat = s.category || 'other';
       if (c[cat] !== undefined) c[cat]++; else c.other++;
@@ -132,6 +133,7 @@ export default function Suppliers() {
           { key: 'production', label: `Production (${categoryCounts.production})`, color: 'bg-primary/10 text-primary' },
           { key: 'food', label: `Food (${categoryCounts.food})`, color: 'bg-green-100 text-green-700' },
           { key: 'packaging', label: `Packaging (${categoryCounts.packaging})`, color: 'bg-blue-100 text-blue-700' },
+          { key: 'resale', label: `Resale (${categoryCounts.resale})`, color: 'bg-purple-100 text-purple-700' },
           { key: 'other', label: `Other (${categoryCounts.other})`, color: 'bg-gray-100 text-gray-500' },
           { key: 'all', label: `All (${suppliers.length})`, color: 'bg-muted text-muted-foreground' },
         ].map(chip => (

@@ -208,6 +208,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
                       <SelectContent>
                         <SelectItem value="food">Food — raw ingredients</SelectItem>
                         <SelectItem value="packaging">Packaging — containers, labels</SelectItem>
+                        <SelectItem value="resale">Resale — supplements, finished goods</SelectItem>
                         <SelectItem value="other">Other — services, software</SelectItem>
                       </SelectContent>
                     </Select>
@@ -329,7 +330,11 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
                 <ReadOnlyField icon={MapPin} label="Billing Address" value={liveSupplier.billing_address} />
                 <ReadOnlyField icon={MapPin} label="Shipping Address" value={liveSupplier.shipping_address} />
                 {liveSupplier.tax_id && <ReadOnlyField icon={CreditCard} label="VAT Number" value={liveSupplier.tax_id} />}
-                <ReadOnlyField icon={Tag} label="Category" value={liveSupplier.category ? liveSupplier.category.charAt(0).toUpperCase() + liveSupplier.category.slice(1) : 'Other'} />
+                <ReadOnlyField icon={Tag} label="Category" value={
+                  liveSupplier.category === 'food' ? 'Food' :
+                  liveSupplier.category === 'packaging' ? 'Packaging' :
+                  liveSupplier.category === 'resale' ? 'Resale' : 'Other'
+                } />
                 {liveSupplier.is_production_supplier && (
                   <div className="flex items-center gap-2">
                     <Factory className="w-4 h-4 text-green-600" />
