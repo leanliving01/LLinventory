@@ -40,6 +40,7 @@ function ReadRow({ icon: Icon, label, value }) {
 export default function SupplierProductDrawer({ sp, onClose, onUpdated, canEdit }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [liveSp, setLiveSp] = useState(sp);
   const [form, setForm] = useState({ ...sp });
   const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
 
@@ -74,7 +75,8 @@ export default function SupplierProductDrawer({ sp, onClose, onUpdated, canEdit 
         lead_time_days: parseInt(form.lead_time_days) || 1,
         price_variance_threshold: parseFloat(form.price_variance_threshold) || 0.1,
       };
-      await base44.entities.SupplierProduct.update(sp.id, data);
+      const updated = await base44.entities.SupplierProduct.update(sp.id, data);
+      setLiveSp(updated);
       toast.success('Supplier product updated');
       setEditing(false);
       onUpdated?.();
@@ -94,16 +96,16 @@ export default function SupplierProductDrawer({ sp, onClose, onUpdated, canEdit 
         {/* Header */}
         <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-start justify-between z-10 shrink-0">
           <div>
-            <Badge className={`text-[10px] mb-1 ${sp.active !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-              {sp.active !== false ? 'Active' : 'Inactive'}
+            <Badge className={`text-[10px] mb-1 ${liveSp.active !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+              {liveSp.active !== false ? 'Active' : 'Inactive'}
             </Badge>
             <h2 className="text-lg font-bold flex items-center gap-2">
               <Package className="w-5 h-5 text-primary" />
-              {sp.product_name || 'Supplier Product'}
+              {liveSp.product_name || 'Supplier Product'}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {sp.supplier_name} · {sp.product_sku}
-              {sp.is_default_supplier && <Star className="inline w-3 h-3 text-amber-500 fill-amber-500 ml-1" />}
+              {liveSp.supplier_name} · {liveSp.product_sku}
+              {liveSp.is_default_supplier && <Star className="inline w-3 h-3 text-amber-500 fill-amber-500 ml-1" />}
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -123,7 +125,7 @@ export default function SupplierProductDrawer({ sp, onClose, onUpdated, canEdit 
           {editing ? (
             <EditForm form={form} set={set} effectiveQty={effectiveQty} taxRates={taxRates} />
           ) : (
-            <ReadView sp={sp} effectiveQty={effectiveQty} />
+            <ReadView sp={liveSp} effectiveQty={effectiveQty} />
           )}
 
           {/* Price History */}

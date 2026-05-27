@@ -61,6 +61,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
   const perms = getUserPermissions(user || {}, customRoles);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [liveSupplier, setLiveSupplier] = useState(supplier);
   const [form, setForm] = useState({
     name: supplier.name || '',
     contact_name: supplier.contact_name || '',
@@ -109,11 +110,11 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
     ? formatPaymentTerms(form.payment_term_type, form.payment_term_value)
     : computePaymentTermsLabel(form.payment_terms_basis, form.payment_terms_days, form.payment_terms_cutoff_day);
 
-  const supplierTermsDisplay = supplier.payment_term_type
-    ? formatPaymentTerms(supplier.payment_term_type, supplier.payment_term_value)
-    : (supplier.payment_terms_label ||
-        computePaymentTermsLabel(supplier.payment_terms_basis, supplier.payment_terms_days, supplier.payment_terms_cutoff_day) ||
-        supplier.payment_terms || '—');
+  const supplierTermsDisplay = liveSupplier.payment_term_type
+    ? formatPaymentTerms(liveSupplier.payment_term_type, liveSupplier.payment_term_value)
+    : (liveSupplier.payment_terms_label ||
+        computePaymentTermsLabel(liveSupplier.payment_terms_basis, liveSupplier.payment_terms_days, liveSupplier.payment_terms_cutoff_day) ||
+        liveSupplier.payment_terms || '—');
 
   // Tax rates for dropdown
   const { data: taxRates = [] } = useQuery({
@@ -135,7 +136,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
     setSaving(true);
     try {
       const legacy = deriveLegacyTerms(form.payment_term_type, form.payment_term_value);
-      await base44.entities.Supplier.update(supplier.id, {
+      const updated = await base44.entities.Supplier.update(supplier.id, {
         ...form,
         payment_term_type: form.payment_term_type || null,
         payment_term_value: form.payment_term_value ? parseInt(form.payment_term_value) : null,
@@ -145,6 +146,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
         payment_terms_label: termsPreviewNew || null,
         default_tax_rate_id: form.default_tax_rate_id || null,
       });
+      setLiveSupplier(updated);
       onUpdated?.();
       toast.success('Supplier updated');
       setEditing(false);
@@ -162,12 +164,12 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
         {/* Header */}
         <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-start justify-between z-10 shrink-0">
           <div>
-            <Badge className={`text-[10px] mb-1 ${supplier.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-              {supplier.status || 'active'}
+            <Badge className={`text-[10px] mb-1 ${liveSupplier.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+              {liveSupplier.status || 'active'}
             </Badge>
             <h2 className="text-lg font-bold flex items-center gap-2">
               <Truck className="w-5 h-5 text-primary" />
-              {editing ? form.name : supplier.name}
+              {editing ? form.name : liveSupplier.name}
             </h2>
           </div>
           <div className="flex items-center gap-1">
@@ -310,27 +312,27 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
               </div>
             ) : (
               <div className="space-y-3">
-                <ReadOnlyField icon={User} label="Contact Name" value={supplier.contact_name} />
-                <ReadOnlyField icon={Mail} label="Email" value={supplier.email} />
-                <ReadOnlyField icon={Phone} label="Phone" value={supplier.phone} />
+                <ReadOnlyField icon={User} label="Contact Name" value={liveSupplier.contact_name} />
+                <ReadOnlyField icon={Mail} label="Email" value={liveSupplier.email} />
+                <ReadOnlyField icon={Phone} label="Phone" value={liveSupplier.phone} />
                 <ReadOnlyField icon={CreditCard} label="Payment Terms" value={supplierTermsDisplay} />
-                {!supplier.payment_term_type && (
+                {!liveSupplier.payment_term_type && (
                   <div className="flex items-center gap-2 ml-7 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
                     <AlertTriangle className="w-3 h-3 shrink-0" />
                     No payment terms configured. Due dates won't auto-calculate.
                   </div>
                 )}
-                <ReadOnlyField icon={MapPin} label="Billing Address" value={supplier.billing_address} />
-                <ReadOnlyField icon={MapPin} label="Shipping Address" value={supplier.shipping_address} />
-                {supplier.tax_id && <ReadOnlyField icon={CreditCard} label="VAT Number" value={supplier.tax_id} />}
-                <ReadOnlyField icon={Tag} label="Category" value={supplier.category ? supplier.category.charAt(0).toUpperCase() + supplier.category.slice(1) : 'Other'} />
-                {supplier.is_production_supplier && (
+                <ReadOnlyField icon={MapPin} label="Billing Address" value={liveSupplier.billing_address} />
+                <ReadOnlyField icon={MapPin} label="Shipping Address" value={liveSupplier.shipping_address} />
+                {liveSupplier.tax_id && <ReadOnlyField icon={CreditCard} label="VAT Number" value={liveSupplier.tax_id} />}
+                <ReadOnlyField icon={Tag} label="Category" value={liveSupplier.category ? liveSupplier.category.charAt(0).toUpperCase() + liveSupplier.category.slice(1) : 'Other'} />
+                {liveSupplier.is_production_supplier && (
                   <div className="flex items-center gap-2">
                     <Factory className="w-4 h-4 text-green-600" />
                     <span className="text-sm text-green-700 font-medium">Production Supplier</span>
                   </div>
                 )}
-                {!supplier.contact_name && !supplier.email && !supplier.phone && (
+                {!liveSupplier.contact_name && !liveSupplier.email && !liveSupplier.phone && (
                   <p className="text-xs text-muted-foreground italic">No contact details on file — click the pencil to add them</p>
                 )}
               </div>
@@ -399,9 +401,9 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
           {/* Supplier Product Catalog (new SupplierProduct entity) */}
           <SupplierProductsTab supplierId={supplier.id} canEdit={perms.supplier_product_edit} />
 
-          {supplier.cin7_id && (
+          {liveSupplier.cin7_id && (
             <div className="pt-2 border-t border-border">
-              <p className="text-[10px] text-muted-foreground">Cin7 ID: <span className="font-mono">{supplier.cin7_id}</span></p>
+              <p className="text-[10px] text-muted-foreground">Cin7 ID: <span className="font-mono">{liveSupplier.cin7_id}</span></p>
             </div>
           )}
         </div>
