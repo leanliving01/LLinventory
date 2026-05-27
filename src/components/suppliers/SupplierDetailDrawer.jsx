@@ -158,11 +158,10 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative z-10 h-full w-full max-w-lg bg-card shadow-xl flex flex-col">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
+      <div className="h-full w-full max-w-lg bg-card shadow-xl flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-start justify-between z-10 shrink-0">
+        <div className="bg-card border-b border-border px-6 py-4 flex items-start justify-between shrink-0">
           <div>
             <Badge className={`text-[10px] mb-1 ${liveSupplier.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
               {liveSupplier.status || 'active'}
@@ -410,7 +409,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
 
         {/* Footer — save when editing */}
         {editing && (
-          <div className="sticky bottom-0 z-10 bg-card border-t border-border px-6 py-3 shrink-0 flex gap-3">
+          <div className="bg-card border-t border-border px-6 py-3 shrink-0 flex gap-3">
             <Button variant="outline" className="flex-1" onClick={() => setEditing(false)}>Cancel</Button>
             <Button className="flex-1 gap-2" onClick={handleSave} disabled={saving || !form.name.trim()}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
