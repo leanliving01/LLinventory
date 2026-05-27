@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { X, Plus, Loader2, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import PackColorPicker from '@/components/recipes/PackColorPicker';
-import { getSubcategories } from '@/lib/bomSubcategories';
+import { getSubcategories, parseSubcategories, stringifySubcategories } from '@/lib/bomSubcategories';
 
 const LAYER_OPTIONS = [
   { value: 'prep', label: 'Prep', desc: 'Pre-processing step (e.g. prep work)' },
@@ -113,19 +113,26 @@ export default function CreateBomModal({ onCreated, onCancel, defaults }) {
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">Subcategory</label>
               <div className="flex flex-wrap gap-2">
-                {getSubcategories(bomType).map(sub => (
-                  <button
-                    key={sub}
-                    onClick={() => setSubcategory(subcategory === sub ? '' : sub)}
-                    className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-all ${
-                      subcategory === sub
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border text-muted-foreground hover:bg-muted/30'
-                    }`}
-                  >
-                    {sub}
-                  </button>
-                ))}
+                {getSubcategories(bomType).map(sub => {
+                  const active = parseSubcategories(subcategory).includes(sub);
+                  return (
+                    <button
+                      key={sub}
+                      onClick={() => {
+                        const current = parseSubcategories(subcategory);
+                        const next = active ? current.filter(s => s !== sub) : [...current, sub];
+                        setSubcategory(stringifySubcategories(next));
+                      }}
+                      className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-all ${
+                        active
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground hover:bg-muted/30'
+                      }`}
+                    >
+                      {sub}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}

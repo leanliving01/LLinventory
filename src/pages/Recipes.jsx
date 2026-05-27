@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Search, X, ChevronRight, Plus, ChevronDown, FolderOpen } from 'lucide-react';
 import CreateBomModal from '@/components/recipes/CreateBomModal';
 import TablePagination from '@/components/shared/TablePagination';
-import { getSubcategories } from '@/lib/bomSubcategories';
+import { getSubcategories, parseSubcategories } from '@/lib/bomSubcategories';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -60,7 +60,11 @@ export default function Recipes() {
   const filtered = useMemo(() => {
     return boms.filter(b => {
       if (layerFilter !== 'all' && b.bom_type !== layerFilter) return false;
-      if (subcategoryFilter !== 'all' && (b.subcategory || 'Uncategorised') !== subcategoryFilter) return false;
+      if (subcategoryFilter !== 'all') {
+        const subs = parseSubcategories(b.subcategory);
+        const effectiveSubs = subs.length > 0 ? subs : ['Uncategorised'];
+        if (!effectiveSubs.includes(subcategoryFilter)) return false;
+      }
       if (activeFilter !== 'all') {
         const isActive = b.is_active !== false;
         if (activeFilter === 'active' && !isActive) return false;
@@ -83,8 +87,12 @@ export default function Recipes() {
     const layerBoms = boms.filter(b => b.bom_type === layerFilter);
     const counts = {};
     layerBoms.forEach(b => {
-      const sub = b.subcategory || 'Uncategorised';
-      counts[sub] = (counts[sub] || 0) + 1;
+      const subs = parseSubcategories(b.subcategory);
+      if (subs.length === 0) {
+        counts['Uncategorised'] = (counts['Uncategorised'] || 0) + 1;
+      } else {
+        subs.forEach(sub => { counts[sub] = (counts[sub] || 0) + 1; });
+      }
     });
     // Include defined subcategories + any existing ones not in the list
     const allSubs = [...defined];
@@ -223,7 +231,9 @@ export default function Recipes() {
                       {LAYER_LABELS[b.bom_type]}
                     </Badge>
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{b.subcategory || '—'}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                    {parseSubcategories(b.subcategory).join(', ') || '—'}
+                  </td>
                   <td className="px-4 py-2.5 text-sm text-center tabular-nums">
                     {b.yield_qty} {b.yield_uom}
                   </td>

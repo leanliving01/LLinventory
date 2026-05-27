@@ -45,3 +45,18 @@ export const BOM_SUBCATEGORIES = {
 export function getSubcategories(bomType) {
   return BOM_SUBCATEGORIES[bomType] || [];
 }
+
+/**
+ * Parse a comma-separated subcategory string into an array.
+ * Handles both legacy single values ("Men's Weight Loss / BYO") and
+ * multi values ("Men's Weight Loss / BYO,Low Carb").
+ */
+export function parseSubcategories(str) {
+  if (!str) return [];
+  return str.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+/** Serialise an array of subcategory strings back to a comma-separated string. */
+export function stringifySubcategories(arr) {
+  return arr.join(',');
+}

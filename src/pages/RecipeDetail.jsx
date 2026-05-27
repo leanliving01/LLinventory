@@ -14,7 +14,7 @@ import AddComponentModal from '@/components/recipes/AddComponentModal';
 import OperationsEditor from '@/components/recipes/OperationsEditor';
 import RecipeFilesEditor from '@/components/recipes/RecipeFilesEditor';
 import ConfirmActionModal from '@/components/recipes/ConfirmActionModal';
-import { getSubcategories } from '@/lib/bomSubcategories';
+import { getSubcategories, parseSubcategories, stringifySubcategories } from '@/lib/bomSubcategories';
 import RecipeComponentTable from '@/components/recipes/RecipeComponentTable';
 
 const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack', prep: 'Prep' };
@@ -289,12 +289,19 @@ export default function RecipeDetail() {
               <div className="pt-2">
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">Subcategory</span>
                 <div className="flex flex-wrap gap-1.5">
-                  {getSubcategories(bomType).map(sub => (
-                    <button key={sub} onClick={() => setField('subcategory', subcategory === sub ? '' : sub)}
-                      className={`text-[11px] px-2.5 py-1 rounded-full font-medium border transition-all ${
-                        subcategory === sub ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/30'
-                      }`}>{sub}</button>
-                  ))}
+                  {getSubcategories(bomType).map(sub => {
+                    const active = parseSubcategories(subcategory).includes(sub);
+                    return (
+                      <button key={sub} onClick={() => {
+                        const current = parseSubcategories(subcategory);
+                        const next = active ? current.filter(s => s !== sub) : [...current, sub];
+                        setField('subcategory', stringifySubcategories(next));
+                      }}
+                        className={`text-[11px] px-2.5 py-1 rounded-full font-medium border transition-all ${
+                          active ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/30'
+                        }`}>{sub}</button>
+                    );
+                  })}
                 </div>
               </div>
             )}
