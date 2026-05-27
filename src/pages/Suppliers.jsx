@@ -270,7 +270,10 @@ export default function Suppliers() {
         <SupplierDetailDrawer
           supplier={selectedSupplier}
           onClose={() => setSelectedSupplier(null)}
-          onUpdated={() => queryClient.invalidateQueries({ queryKey: ['suppliers-list'] })}
+          onUpdated={(updated) => {
+            if (updated) setSelectedSupplier(updated);
+            queryClient.invalidateQueries({ queryKey: ['suppliers-list'] });
+          }}
         />
       )}
 

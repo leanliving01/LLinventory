@@ -147,7 +147,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
         default_tax_rate_id: form.default_tax_rate_id || null,
       });
       setLiveSupplier(updated);
-      onUpdated?.();
+      onUpdated?.(updated);
       toast.success('Supplier updated');
       setEditing(false);
     } catch (err) {
@@ -160,7 +160,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-lg bg-card shadow-xl flex flex-col">
+      <div className="relative z-10 h-full w-full max-w-lg bg-card shadow-xl flex flex-col">
         {/* Header */}
         <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-start justify-between z-10 shrink-0">
           <div>
@@ -410,7 +410,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
 
         {/* Footer — save when editing */}
         {editing && (
-          <div className="sticky bottom-0 bg-card border-t border-border px-6 py-3 shrink-0 flex gap-3">
+          <div className="sticky bottom-0 z-10 bg-card border-t border-border px-6 py-3 shrink-0 flex gap-3">
             <Button variant="outline" className="flex-1" onClick={() => setEditing(false)}>Cancel</Button>
             <Button className="flex-1 gap-2" onClick={handleSave} disabled={saving || !form.name.trim()}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
