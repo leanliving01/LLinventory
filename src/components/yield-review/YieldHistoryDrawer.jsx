@@ -39,7 +39,7 @@ export default function YieldHistoryDrawer({ productId, productName, station, on
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative w-full max-w-lg bg-card border-l border-border h-full overflow-y-auto shadow-xl">
+      <div className="relative z-10 w-full max-w-lg bg-card border-l border-border h-full overflow-y-auto shadow-xl">
         <div className="sticky top-0 bg-card border-b border-border px-5 py-4 flex items-center justify-between z-10">
           <div>
             <h3 className="text-lg font-bold">{productName}</h3>

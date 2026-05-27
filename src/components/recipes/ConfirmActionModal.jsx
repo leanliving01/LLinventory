@@ -31,7 +31,7 @@ export default function ConfirmActionModal({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={e => e.stopPropagation()}>
       <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
-      <div className="relative bg-card rounded-2xl border border-border w-full max-w-md shadow-xl">
+      <div className="relative z-10 bg-card rounded-2xl border border-border w-full max-w-md shadow-xl">
         <div className="px-6 pt-6 pb-2 flex items-start gap-4">
           <div className={cn('w-10 h-10 rounded-full flex items-center justify-center shrink-0', iconBg)}>
             <IconComp className="w-5 h-5" />

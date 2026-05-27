@@ -47,7 +47,7 @@ export default function PickListEditModal({ pickLine, onSave, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30" onClick={onCancel} />
-      <div className="relative bg-card rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+      <div className="relative z-10 bg-card rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-bold">Edit Released Quantity</h3>
           <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-4 h-4" /></Button>

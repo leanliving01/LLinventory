@@ -21,7 +21,7 @@ export default function EditRunLineModal({ line, onSave, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
-      <div className="relative bg-card rounded-xl shadow-xl border border-border w-full max-w-sm p-6">
+      <div className="relative z-10 bg-card rounded-xl shadow-xl border border-border w-full max-w-sm p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-sm">Edit Planned Quantity</h3>
           <Button variant="ghost" size="icon" onClick={onCancel} className="h-7 w-7">

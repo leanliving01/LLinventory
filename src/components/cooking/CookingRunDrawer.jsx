@@ -233,7 +233,7 @@ export default function CookingRunDrawer({ run, onClose, onUpdated }) {
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-end">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative w-full max-w-2xl bg-card shadow-xl flex flex-col">
+      <div className="relative z-10 w-full max-w-2xl bg-card shadow-xl flex flex-col">
         {/* Header */}
         <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-start justify-between z-10 shrink-0">
           <div>

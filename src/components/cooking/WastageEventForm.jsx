@@ -49,7 +49,7 @@ export default function WastageEventForm({ cookingRunId, rawCostPerKg, onCreated
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/20" onClick={onCancel} />
-      <div className="relative bg-card rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+      <div className="relative z-10 bg-card rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-bold flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-500" /> Log Wastage

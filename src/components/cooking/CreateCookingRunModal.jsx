@@ -69,7 +69,7 @@ export default function CreateCookingRunModal({ onCreated, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30" onClick={onCancel} />
-      <div className="relative bg-card rounded-xl shadow-xl w-full max-w-lg p-6 space-y-5">
+      <div className="relative z-10 bg-card rounded-xl shadow-xl w-full max-w-lg p-6 space-y-5">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold flex items-center gap-2">
             <CookingPot className="w-5 h-5 text-primary" /> New Cooking Run
