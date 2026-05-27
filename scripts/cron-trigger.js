@@ -1,26 +1,10 @@
 #!/usr/bin/env node
-/**
- * External cron trigger for Lean Living sync edge functions.
- * Run every 5 minutes via Render/Railway/GitHub Actions.
- *
- * Required env vars:
- *   SUPABASE_URL            — e.g. https://xxxx.supabase.co
- *   SUPABASE_SERVICE_ROLE_KEY — service role key (keep secret)
- *
- * GitHub Actions schedule example (every 5 min):
- *   on:
- *     schedule:
- *       - cron: '*/5 * * * *'
- *   jobs:
- *     sync:
- *       runs-on: ubuntu-latest
- *       steps:
- *         - uses: actions/checkout@v4
- *         - run: node scripts/cron-trigger.js
- *           env:
- *             SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
- *             SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
- */
+// External cron trigger for Lean Living sync edge functions.
+// Runs every 15 min via GitHub Actions (sync-cron.yml).
+//
+// Required env vars:
+//   SUPABASE_URL              — e.g. https://xxxx.supabase.co
+//   SUPABASE_SERVICE_ROLE_KEY — service role key (keep secret)
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
