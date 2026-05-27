@@ -88,7 +88,15 @@ Deno.serve(async (req) => {
 
   if (mode === 'start') {
     if (priorState?.sync_status === 'running' && !body.fullResync) {
-      return json({ status: 'error', error: 'Sync already in progress — wait for it to finish or cancel it first.', processedThisPage: 0, totalProcessed: priorState.records_synced || 0, hasMore: false });
+      // Auto-clear if the running lock is stale (>30 min) — prevents permanent deadlock
+      const staleCutoff = new Date(Date.now() - 30 * 60 * 1000);
+      const lockedAt = priorState.updated_date ? new Date(priorState.updated_date) : null;
+      if (!lockedAt || lockedAt < staleCutoff) {
+        console.log('[sync-shopify-orders] Stale running lock detected — auto-clearing and restarting');
+        await markCancelled(supabase, SOURCE_KEY);
+      } else {
+        return json({ status: 'error', error: 'Sync already in progress — wait for it to finish or cancel it first.', processedThisPage: 0, totalProcessed: priorState.records_synced || 0, hasMore: false });
+      }
     }
     if (body.sinceDate) {
       // Explicit date window from UI (e.g. "Sync last 30 days")

@@ -11,6 +11,7 @@ export interface SyncStateRow {
   records_synced: number;
   records_failed: number;
   error_message: string | null;
+  updated_date: string | null;
 }
 
 export async function getSyncState(sb: Sb, sourceKey: string): Promise<SyncStateRow | null> {
