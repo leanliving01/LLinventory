@@ -68,7 +68,7 @@ function mapFulfilmentStatus(s: string | null): string {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders() });
 
-  let body: { mode?: 'start' | 'continue' | 'cancel'; fullResync?: boolean } = {};
+  let body: { mode?: 'start' | 'continue' | 'cancel'; fullResync?: boolean; sinceDate?: string } = {};
   try { body = await req.json(); } catch { /* empty body ok */ }
   const mode = body.mode || 'start';
   const supabase = getSupabase();
@@ -90,7 +90,16 @@ Deno.serve(async (req) => {
     if (priorState?.sync_status === 'running' && !body.fullResync) {
       return json({ status: 'error', error: 'Sync already in progress — wait for it to finish or cancel it first.', processedThisPage: 0, totalProcessed: priorState.records_synced || 0, hasMore: false });
     }
-    if (!body.fullResync && priorState?.last_sync_at) updatedAtMin = priorState.last_sync_at;
+    if (body.sinceDate) {
+      // Explicit date window from UI (e.g. "Sync last 30 days")
+      updatedAtMin = body.sinceDate;
+    } else if (!body.fullResync && priorState?.last_sync_at) {
+      // Apply a 5-minute look-back buffer to catch orders that fell in the gap
+      // between the previous Shopify API call and when markComplete saved the timestamp.
+      const lookback = new Date(priorState.last_sync_at);
+      lookback.setMinutes(lookback.getMinutes() - 5);
+      updatedAtMin = lookback.toISOString();
+    }
     syncLogId = await startSyncLog(supabase, SOURCE_KEY, body.fullResync ? 'manual' : 'scheduled');
     await markRunning(supabase, SOURCE_KEY, JSON.stringify({ pageInfo: null, since: updatedAtMin || null, logId: syncLogId }), 0);
   } else {
@@ -344,7 +353,7 @@ Deno.serve(async (req) => {
 
   const hasMore = !!res.nextPageInfo;
   if (!hasMore) {
-    await markComplete(supabase, SOURCE_KEY, 0);
+    await markComplete(supabase, SOURCE_KEY, processedThisPage);
     if (syncLogId) await finishSyncLog(supabase, syncLogId, 'completed', { records_fetched: newTotal });
     return json({ status: 'completed', processedThisPage, totalProcessed: newTotal, hasMore: false });
   }
