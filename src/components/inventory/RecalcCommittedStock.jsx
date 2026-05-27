@@ -18,8 +18,8 @@ export default function RecalcCommittedStock() {
     setRunning(true);
     setDryRunResult(null);
     try {
-      const res = await base44.functions.invoke('recalcCommittedStockFast', { dry_run: dryRun });
-      const data = res.data;
+      const res = await base44.functions.invoke('recalc-committed-stock', { dry_run: dryRun });
+      const data = res.data || res;
 
       if (dryRun) {
         setDryRunResult(data);

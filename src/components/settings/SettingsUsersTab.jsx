@@ -8,17 +8,19 @@ import { Users, UserPlus, Pencil, X, Loader2, Shield, ChevronDown, ChevronUp, Ma
 import { toast } from 'sonner';
 import UserPermissionsEditor from './UserPermissionsEditor';
 import CustomRolesManager, { useCustomRoles } from './CustomRolesManager';
-import { ROLE_DEFAULTS, PERMISSION_KEYS, getUserPermissions } from '@/lib/permissions';
+import { ROLE_DEFAULTS, PERMISSION_KEYS, getUserPermissions, ROLE_META } from '@/lib/permissions';
 
 const roleColors = {
-  admin: 'bg-red-100 text-red-700',
-  ops_manager: 'bg-blue-100 text-blue-700',
-  kitchen_manager: 'bg-blue-100 text-blue-700',
-  kitchen: 'bg-green-100 text-green-700',
-  stock_controller: 'bg-orange-100 text-orange-700',
-  picker_packer: 'bg-amber-100 text-amber-700',
-  floor_operator: 'bg-purple-100 text-purple-700',
-  viewer: 'bg-gray-100 text-gray-700',
+  admin:             'bg-red-100 text-red-700',
+  director:          'bg-red-100 text-red-700',
+  ops_manager:       'bg-blue-100 text-blue-700',
+  financial_manager: 'bg-indigo-100 text-indigo-700',
+  kitchen_manager:   'bg-blue-100 text-blue-700',
+  kitchen:           'bg-green-100 text-green-700',
+  stock_controller:  'bg-orange-100 text-orange-700',
+  picker_packer:     'bg-amber-100 text-amber-700',
+  floor_operator:    'bg-purple-100 text-purple-700',
+  viewer:            'bg-gray-100 text-gray-700',
 };
 
 export default function SettingsUsersTab() {
@@ -129,8 +131,7 @@ export default function SettingsUsersTab() {
 
   // Get display name for a role (built-in or custom)
   const getRoleLabel = (roleKey) => {
-    const builtIn = { admin: 'Admin', ops_manager: 'Ops Manager', kitchen_manager: 'Kitchen Mgr', kitchen: 'Kitchen Staff', stock_controller: 'Stock Controller', picker_packer: 'Pick/Pack', floor_operator: 'Floor Op', viewer: 'Viewer' };
-    if (builtIn[roleKey]) return builtIn[roleKey];
+    if (ROLE_META[roleKey]) return ROLE_META[roleKey].label;
     const custom = customRoles.find(r => r.key === roleKey);
     return custom?.name || roleKey.replace(/_/g, ' ');
   };
@@ -221,7 +222,6 @@ export default function SettingsUsersTab() {
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${roleColors[user.role] || 'bg-indigo-100 text-indigo-700'}`}>
                     {getRoleLabel(user.role || 'viewer')}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">{countPerms(user)}/{PERMISSION_KEYS.length}</span>
                   {isAdmin && (
                     <Button
                       variant={editingUserId === user.id ? 'secondary' : 'ghost'}
@@ -281,11 +281,10 @@ export default function SettingsUsersTab() {
 
 /** Compact matrix showing default permissions per role template (including custom) */
 function RoleDefaultsMatrix({ customRoles = [] }) {
-  const builtInRoles = ['admin', 'ops_manager', 'kitchen_manager', 'kitchen', 'stock_controller', 'picker_packer', 'floor_operator', 'viewer'];
-  const builtInLabels = { admin: 'Admin', ops_manager: 'Ops Mgr', kitchen_manager: 'Kitchen Mgr', kitchen: 'Kitchen', stock_controller: 'Stock Ctrl', picker_packer: 'Pick/Pack', floor_operator: 'Floor Op', viewer: 'Viewer' };
+  const builtInRoles = ['admin', 'director', 'financial_manager', 'ops_manager', 'kitchen_manager', 'kitchen', 'stock_controller', 'picker_packer', 'floor_operator', 'viewer'];
 
   const allRoles = [...builtInRoles, ...customRoles.map(r => r.key)];
-  const getLabel = (key) => builtInLabels[key] || customRoles.find(r => r.key === key)?.name || key;
+  const getLabel = (key) => ROLE_META[key]?.label || customRoles.find(r => r.key === key)?.name || key;
   const getPerms = (roleKey) => ROLE_DEFAULTS[roleKey] || customRoles.find(r => r.key === roleKey)?.permissions || {};
 
   return (

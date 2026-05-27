@@ -43,6 +43,26 @@ async function run() {
     console.error('[shopify-orders] Error:', e.message);
   }
 
+  // Demand decomposition — every 15 min (decomposes new orders into component SKUs)
+  // Runs after the order sync so fresh orders are picked up immediately.
+  try {
+    const r = await invoke('recalc-demand', {});
+    console.log(`[recalc-demand] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);
+  } catch (e) {
+    console.error('[recalc-demand] Error:', e.message);
+  }
+
+  // Committed stock recalculation — every 60 min (fires on the :00 tick of each hour)
+  // Cron runs every 15 min, so the :00 minute window (0–14) catches exactly one run per hour.
+  if (now.getUTCMinutes() < 15) {
+    try {
+      const r = await invoke('recalc-committed-stock', {});
+      console.log(`[recalc-committed-stock] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);
+    } catch (e) {
+      console.error('[recalc-committed-stock] Error:', e.message);
+    }
+  }
+
   // Xero invoices — every 4 hours (guard: the function itself checks for concurrent runs)
   try {
     const r = await invoke('sync-xero-invoices', { mode: 'start' });
@@ -52,8 +72,7 @@ async function run() {
   }
 
   // Daily reconciliation — only fire once per day (at 02:00 SAST = 00:00 UTC)
-  // Run this cron trigger every 5 min; the reconcile-daily function is idempotent.
-  if (now.getUTCHours() === 0 && now.getUTCMinutes() < 5) {
+  if (now.getUTCHours() === 0 && now.getUTCMinutes() < 15) {
     try {
       const r = await invoke('reconcile-daily', {});
       console.log(`[reconcile-daily] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);

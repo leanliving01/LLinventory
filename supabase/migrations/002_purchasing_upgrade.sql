@@ -148,24 +148,6 @@ ALTER TABLE suppliers
   ADD COLUMN IF NOT EXISTS payment_term_value integer,
   ADD COLUMN IF NOT EXISTS default_tax_rate_id text;
 
--- Backfill new columns from old structured payment terms where set
-UPDATE suppliers SET
-  payment_term_type = CASE payment_terms_basis
-    WHEN 'invoice_date'              THEN
-      CASE WHEN COALESCE(payment_terms_days, 0) = 0 THEN 'immediate' ELSE 'days_after_invoice' END
-    WHEN 'end_of_month_of_invoice'   THEN 'day_of_invoice_month'
-    WHEN 'specific_day_of_month'     THEN 'day_of_following_month'
-    ELSE NULL
-  END,
-  payment_term_value = CASE payment_terms_basis
-    WHEN 'invoice_date'            THEN payment_terms_days
-    WHEN 'end_of_month_of_invoice' THEN payment_terms_cutoff_day
-    WHEN 'specific_day_of_month'   THEN payment_terms_cutoff_day
-    ELSE NULL
-  END
-WHERE payment_terms_basis IS NOT NULL
-  AND payment_term_type IS NULL;
-
 -- ---------------------------------------------------------------------------
 -- supplier_products — add URL field + tax rate FK (Sections 6, 8)
 -- ---------------------------------------------------------------------------

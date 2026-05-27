@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, PlayCircle, StopCircle, CheckCircle2, AlertCircle, Clock, Webhook } from 'lucide-react';
+import { RefreshCw, PlayCircle, StopCircle, CheckCircle2, AlertCircle, Clock, Webhook, FileText, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
 import SyncHealthIndicator from '@/components/shared/SyncHealthIndicator';
 import { differenceInMinutes, format } from 'date-fns';
@@ -22,17 +22,31 @@ function StatusBadge({ state }) {
   return <Badge className="bg-green-100 text-green-700 text-[10px]">Idle</Badge>;
 }
 
+const LOG_STATUS = {
+  running:                  { icon: Loader2, color: 'bg-blue-100 text-blue-700', spin: true },
+  completed:                { icon: CheckCircle2, color: 'bg-green-100 text-green-700' },
+  completed_with_warnings:  { icon: AlertCircle, color: 'bg-amber-100 text-amber-700' },
+  failed:                   { icon: AlertCircle, color: 'bg-red-100 text-red-700' },
+};
+
 export default function SettingsSyncTab() {
   const queryClient = useQueryClient();
   const [triggering, setTriggering] = useState({});
   const [registeringWebhooks, setRegisteringWebhooks] = useState(false);
   const [webhookResult, setWebhookResult] = useState(null);
+  const [showLogs, setShowLogs] = useState(false);
 
   const { data: syncStates = [], refetch } = useQuery({
     queryKey: ['sync-states'],
     queryFn: () => base44.entities.SyncState.list('source_key', 20),
     refetchInterval: 15000,
     staleTime: 5000,
+  });
+
+  const { data: importLogs = [] } = useQuery({
+    queryKey: ['importLogs'],
+    queryFn: () => base44.entities.ImportLog.list('-created_date', 20),
+    enabled: showLogs,
   });
 
   const stateByKey = Object.fromEntries(syncStates.map(s => [s.source_key, s]));
@@ -176,7 +190,7 @@ export default function SettingsSyncTab() {
       <div className="bg-muted/40 rounded-lg border border-border p-4 text-sm space-y-2">
         <p className="font-medium">Automatic Schedule</p>
         <ul className="text-xs text-muted-foreground space-y-1">
-          <li>• <strong>Shopify Orders:</strong> Every 5 minutes via external cron (Render/Railway/GitHub Actions)</li>
+          <li>• <strong>Shopify Orders:</strong> Every 15 minutes via GitHub Actions cron</li>
           <li>• <strong>Xero Bills:</strong> Every 4 hours via scheduled trigger</li>
           <li>• <strong>Shopify Products:</strong> Triggered on demand or nightly</li>
           <li>• <strong>Daily reconciliation:</strong> 02:00 SAST — re-syncs last 7 days from Shopify</li>
@@ -184,6 +198,71 @@ export default function SettingsSyncTab() {
         <p className="text-xs text-muted-foreground pt-1">
           External cron script: <code className="font-mono bg-muted px-1 rounded text-[11px]">scripts/cron-trigger.js</code>
         </p>
+      </div>
+
+      {/* Import History */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <button
+          className="w-full px-5 py-3.5 flex items-center justify-between hover:bg-muted/30 transition-colors"
+          onClick={() => setShowLogs(v => !v)}
+        >
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm font-semibold">Import History</span>
+          </div>
+          {showLogs ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </button>
+        {showLogs && (
+          <div className="border-t border-border p-4 space-y-3">
+            {importLogs.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No imports have been run yet</p>
+            ) : (
+              importLogs.map(log => {
+                const sc = LOG_STATUS[log.status] || LOG_STATUS.completed;
+                const Icon = sc.icon;
+                return (
+                  <div key={log.id} className="bg-muted/30 rounded-lg border border-border p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold capitalize">{log.import_type}</span>
+                        <Badge className={sc.color + ' text-[10px]'}>
+                          <Icon className={`w-3 h-3 mr-1 ${sc.spin ? 'animate-spin' : ''}`} />
+                          {log.status.replace(/_/g, ' ')}
+                        </Badge>
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {log.started_at ? format(new Date(log.started_at), 'dd/MM/yyyy HH:mm') : '—'}
+                      </span>
+                    </div>
+                    <div className="flex gap-4 text-xs text-muted-foreground">
+                      <span>Total: <span className="font-medium text-foreground">{log.total_records || 0}</span></span>
+                      <span>Created: <span className="font-medium text-green-600">{log.created_count || 0}</span></span>
+                      <span>Updated: <span className="font-medium text-blue-600">{log.updated_count || 0}</span></span>
+                      {log.skipped_count > 0 && <span>Skipped: <span className="font-medium">{log.skipped_count}</span></span>}
+                      {log.error_count > 0 && <span>Errors: <span className="font-medium text-red-600">{log.error_count}</span></span>}
+                    </div>
+                    {log.warnings?.length > 0 && (
+                      <details className="mt-2">
+                        <summary className="text-xs text-amber-600 cursor-pointer">{log.warnings.length} warning(s)</summary>
+                        <ul className="mt-1 text-xs text-muted-foreground space-y-0.5 max-h-32 overflow-y-auto">
+                          {log.warnings.map((w, i) => <li key={i}>· {w}</li>)}
+                        </ul>
+                      </details>
+                    )}
+                    {log.errors?.length > 0 && (
+                      <details className="mt-2">
+                        <summary className="text-xs text-red-500 cursor-pointer">{log.errors.length} error(s)</summary>
+                        <ul className="mt-1 text-xs text-red-400 space-y-0.5 max-h-32 overflow-y-auto">
+                          {log.errors.map((e, i) => <li key={i}>· {e}</li>)}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

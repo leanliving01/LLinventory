@@ -3,18 +3,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Save, Loader2, RotateCcw } from 'lucide-react';
-import { PERMISSION_GROUPS, PERMISSION_KEYS, ROLE_DEFAULTS } from '@/lib/permissions';
+import { PERMISSION_GROUPS, PERMISSION_KEYS, ROLE_DEFAULTS, ROLE_META } from '@/lib/permissions';
 
 const BUILT_IN_ROLES = [
-  { value: 'admin', label: 'Admin' },
-  { value: 'ops_manager', label: 'Ops Manager' },
-  { value: 'kitchen_manager', label: 'Kitchen Manager' },
-  { value: 'kitchen', label: 'Kitchen Staff' },
-  { value: 'stock_controller', label: 'Stock Controller' },
-  { value: 'picker_packer', label: 'Picker / Packer' },
-  { value: 'floor_operator', label: 'Floor Operator' },
-  { value: 'viewer', label: 'Viewer' },
-];
+  'admin', 'director', 'financial_manager', 'ops_manager',
+  'kitchen_manager', 'kitchen', 'stock_controller',
+  'picker_packer', 'floor_operator', 'viewer',
+].map(value => ({ value, label: ROLE_META[value]?.label || value }));
 
 export default function UserPermissionsEditor({ role, permissions, onSave, saving, customRoles = [] }) {
   const [currentRole, setCurrentRole] = useState(role || 'viewer');
@@ -71,7 +66,7 @@ export default function UserPermissionsEditor({ role, permissions, onSave, savin
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-start gap-3 flex-wrap">
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">Role Template</label>
           <Select value={currentRole} onValueChange={handleRoleChange}>
@@ -86,8 +81,11 @@ export default function UserPermissionsEditor({ role, permissions, onSave, savin
               )}
             </SelectContent>
           </Select>
+          {ROLE_META[currentRole]?.description && (
+            <p className="text-xs text-muted-foreground mt-1">{ROLE_META[currentRole].description}</p>
+          )}
         </div>
-        <div className="flex items-end gap-2 mt-auto">
+        <div className="flex items-end gap-2 pb-0.5 mt-auto">
           <Button variant="outline" size="sm" onClick={resetToDefaults} className="gap-1.5">
             <RotateCcw className="w-3.5 h-3.5" /> Reset to Defaults
           </Button>

@@ -148,6 +148,16 @@ const ALL = ALL_KEYS; // shorthand for admin
 export const ROLE_DEFAULTS = {
   admin: p(...ALL),
 
+  director: p(...ALL),
+
+  financial_manager: p(
+    'dashboard_view', 'dashboard_kpis', 'dashboard_revenue', 'dashboard_costs',
+    'catalog_view',
+    'po_view', 'po_approve', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'supplier_scorecard', 'price_variance_view', 'three_way_match_view', 'xero_invoice_sync',
+    'reports_view', 'reports_costs', 'food_cost_view', 'food_cost_run', 'forecasting',
+    'settings', 'activity_log_view',
+  ),
+
   ops_manager: p(
     'dashboard_view', 'dashboard_kpis', 'dashboard_revenue', 'dashboard_production', 'dashboard_costs', 'dashboard_shortages',
     'catalog_view', 'catalog_edit', 'category_manage', 'recipes_view', 'recipes_edit',
@@ -214,6 +224,20 @@ export const ROLE_DEFAULTS = {
 
 /** Built-in role keys */
 export const BUILT_IN_ROLES = Object.keys(ROLE_DEFAULTS);
+
+/** Human-readable labels and descriptions for every built-in role */
+export const ROLE_META = {
+  admin:             { label: 'Admin',              description: 'Full system access including technical settings' },
+  director:          { label: 'Director',           description: 'Full business access — all data, all reports' },
+  ops_manager:       { label: 'Operations Manager', description: 'Production, inventory, purchasing, suppliers' },
+  financial_manager: { label: 'Financial Manager',  description: 'Purchasing approvals, invoicing, cost reports' },
+  kitchen_manager:   { label: 'Kitchen Manager',    description: 'Production runs, WIP, team management' },
+  kitchen:           { label: 'Kitchen Staff',      description: 'Execute runs, record wastage, view recipes' },
+  stock_controller:  { label: 'Stock Controller',   description: 'Inventory, receiving, stock takes, GRN' },
+  picker_packer:     { label: 'Picker / Packer',    description: 'Pick lists and sales view only' },
+  floor_operator:    { label: 'Floor Operator',     description: 'Runs, recipes, receiving, transfers, wastage' },
+  viewer:            { label: 'Viewer',             description: 'Read-only access across all modules' },
+};
 
 /**
  * Parse stored permissions JSON, falling back to role defaults.
