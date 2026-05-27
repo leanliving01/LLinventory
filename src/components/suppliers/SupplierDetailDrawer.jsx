@@ -133,23 +133,26 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
 
   const handleSave = async () => {
     setSaving(true);
-    const legacy = deriveLegacyTerms(form.payment_term_type, form.payment_term_value);
-    await base44.entities.Supplier.update(supplier.id, {
-      ...form,
-      // New payment term fields
-      payment_term_type: form.payment_term_type || null,
-      payment_term_value: form.payment_term_value ? parseInt(form.payment_term_value) : null,
-      // Legacy fields (backward compat — kept in sync)
-      payment_terms_basis: legacy.basis || form.payment_terms_basis || null,
-      payment_terms_days: legacy.days ?? (form.payment_terms_days ? parseInt(form.payment_terms_days) : null),
-      payment_terms_cutoff_day: legacy.cutoff ?? (form.payment_terms_cutoff_day ? parseInt(form.payment_terms_cutoff_day) : null),
-      payment_terms_label: termsPreviewNew || null,
-      default_tax_rate_id: form.default_tax_rate_id || null,
-    });
-    onUpdated?.();
-    toast.success('Supplier updated');
-    setSaving(false);
-    setEditing(false);
+    try {
+      const legacy = deriveLegacyTerms(form.payment_term_type, form.payment_term_value);
+      await base44.entities.Supplier.update(supplier.id, {
+        ...form,
+        payment_term_type: form.payment_term_type || null,
+        payment_term_value: form.payment_term_value ? parseInt(form.payment_term_value) : null,
+        payment_terms_basis: legacy.basis || form.payment_terms_basis || null,
+        payment_terms_days: legacy.days ?? (form.payment_terms_days ? parseInt(form.payment_terms_days) : null),
+        payment_terms_cutoff_day: legacy.cutoff ?? (form.payment_terms_cutoff_day ? parseInt(form.payment_terms_cutoff_day) : null),
+        payment_terms_label: termsPreviewNew || null,
+        default_tax_rate_id: form.default_tax_rate_id || null,
+      });
+      onUpdated?.();
+      toast.success('Supplier updated');
+      setEditing(false);
+    } catch (err) {
+      toast.error(`Save failed: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

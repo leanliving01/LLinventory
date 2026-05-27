@@ -60,25 +60,29 @@ export default function SupplierProductDrawer({ sp, onClose, onUpdated, canEdit 
 
   const handleSave = async () => {
     setSaving(true);
-    // Compute effective_internal_qty
-    const cf = parseFloat(form.conversion_factor) || 1;
-    const yf = parseFloat(form.yield_factor) || 1;
-    const data = {
-      ...form,
-      conversion_factor: cf,
-      yield_factor: yf,
-      effective_internal_qty: Math.round(cf * yf * 1000) / 1000,
-      purchase_uom_qty: parseFloat(form.purchase_uom_qty) || 1,
-      last_purchase_price: parseFloat(form.last_purchase_price) || 0,
-      min_order_qty: parseFloat(form.min_order_qty) || 0,
-      lead_time_days: parseInt(form.lead_time_days) || 1,
-      price_variance_threshold: parseFloat(form.price_variance_threshold) || 0.1,
-    };
-    await base44.entities.SupplierProduct.update(sp.id, data);
-    toast.success('Supplier product updated');
-    setSaving(false);
-    setEditing(false);
-    onUpdated?.();
+    try {
+      const cf = parseFloat(form.conversion_factor) || 1;
+      const yf = parseFloat(form.yield_factor) || 1;
+      const data = {
+        ...form,
+        conversion_factor: cf,
+        yield_factor: yf,
+        effective_internal_qty: Math.round(cf * yf * 1000) / 1000,
+        purchase_uom_qty: parseFloat(form.purchase_uom_qty) || 1,
+        last_purchase_price: parseFloat(form.last_purchase_price) || 0,
+        min_order_qty: parseFloat(form.min_order_qty) || 0,
+        lead_time_days: parseInt(form.lead_time_days) || 1,
+        price_variance_threshold: parseFloat(form.price_variance_threshold) || 0.1,
+      };
+      await base44.entities.SupplierProduct.update(sp.id, data);
+      toast.success('Supplier product updated');
+      setEditing(false);
+      onUpdated?.();
+    } catch (err) {
+      toast.error(`Save failed: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const effectiveQty = ((form.conversion_factor || 1) * (form.yield_factor || 1)).toFixed(3);
