@@ -61,6 +61,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
   const perms = getUserPermissions(user || {}, customRoles);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [liveSupplier, setLiveSupplier] = useState(supplier);
   const [form, setForm] = useState({
     name: supplier.name || '',
@@ -134,6 +135,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError('');
     try {
       const legacy = deriveLegacyTerms(form.payment_term_type, form.payment_term_value);
       const updated = await base44.entities.Supplier.update(supplier.id, {
@@ -151,7 +153,10 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
       toast.success('Supplier updated');
       setEditing(false);
     } catch (err) {
-      toast.error(`Save failed: ${err.message}`);
+      const msg = err.message || 'Unknown error';
+      setSaveError(msg);
+      toast.error(`Save failed: ${msg}`);
+      console.error('[SupplierDetailDrawer] save failed:', err);
     } finally {
       setSaving(false);
     }
@@ -409,12 +414,19 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
 
         {/* Footer — save when editing */}
         {editing && (
-          <div className="bg-card border-t border-border px-6 py-3 shrink-0 flex gap-3">
-            <Button variant="outline" className="flex-1" onClick={() => setEditing(false)}>Cancel</Button>
-            <Button className="flex-1 gap-2" onClick={handleSave} disabled={saving || !form.name.trim()}>
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {saving ? 'Saving...' : 'Save'}
-            </Button>
+          <div className="bg-card border-t border-border px-6 py-3 shrink-0 space-y-2">
+            {saveError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
+                Save failed: {saveError}
+              </p>
+            )}
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => { setEditing(false); setSaveError(''); }}>Cancel</Button>
+              <Button className="flex-1 gap-2" onClick={handleSave} disabled={saving || !form.name.trim()}>
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {saving ? 'Saving...' : 'Save'}
+              </Button>
+            </div>
           </div>
         )}
       </div>
