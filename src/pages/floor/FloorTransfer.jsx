@@ -56,67 +56,72 @@ export default function FloorTransfer() {
     if (validLines.length === 0) { toast.error('Add items with quantities'); return; }
     setSaving(true);
 
-    // Create stock movements
-    const movements = validLines.map(line => ({
-      product_id: line.product.id,
-      product_sku: line.product.sku,
-      product_name: line.product.name,
-      from_location_id: fromZone.id,
-      to_location_id: toZone.id,
-      qty: Number(line.qty),
-      uom: line.product.stock_uom || 'pcs',
-      reason: 'transfer',
-      ref_type: 'transfer',
-      ref_number: `${fromZone.name} → ${toZone.name}`,
-      notes: `Floor transfer: ${fromZone.name} → ${toZone.name}`,
-    }));
-    await base44.entities.StockMovement.bulkCreate(movements);
+    try {
+      // Create stock movements
+      const movements = validLines.map(line => ({
+        product_id: line.product.id,
+        product_sku: line.product.sku,
+        product_name: line.product.name,
+        from_location_id: fromZone.id,
+        to_location_id: toZone.id,
+        qty: Number(line.qty),
+        uom: line.product.stock_uom || 'pcs',
+        reason: 'transfer',
+        ref_type: 'transfer',
+        ref_number: `${fromZone.name} → ${toZone.name}`,
+        notes: `Floor transfer: ${fromZone.name} → ${toZone.name}`,
+      }));
+      await base44.entities.StockMovement.bulkCreate(movements);
 
-    // Update StockOnHand
-    const stockRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
-    for (const line of validLines) {
-      const qty = Number(line.qty);
+      // Update StockOnHand
+      const stockRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
+      for (const line of validLines) {
+        const qty = Number(line.qty);
 
-      // Decrement from
-      const fromStock = stockRecords.find(s => s.product_id === line.product.id && s.location_id === fromZone.id);
-      if (fromStock) {
-        const newOnHand = Math.max(0, (fromStock.qty_on_hand || 0) - qty);
-        await base44.entities.StockOnHand.update(fromStock.id, {
-          qty_on_hand: newOnHand,
-          qty_available: newOnHand - (fromStock.qty_committed || 0),
-          last_updated_at: new Date().toISOString(),
-        });
+        // Decrement from
+        const fromStock = stockRecords.find(s => s.product_id === line.product.id && s.location_id === fromZone.id);
+        if (fromStock) {
+          const newOnHand = Math.max(0, (fromStock.qty_on_hand || 0) - qty);
+          await base44.entities.StockOnHand.update(fromStock.id, {
+            qty_on_hand: newOnHand,
+            qty_available: newOnHand - (fromStock.qty_committed || 0),
+            last_updated_at: new Date().toISOString(),
+          });
+        }
+
+        // Increment to
+        const toStock = stockRecords.find(s => s.product_id === line.product.id && s.location_id === toZone.id);
+        if (toStock) {
+          const newOnHand = (toStock.qty_on_hand || 0) + qty;
+          await base44.entities.StockOnHand.update(toStock.id, {
+            qty_on_hand: newOnHand,
+            qty_available: newOnHand - (toStock.qty_committed || 0),
+            last_updated_at: new Date().toISOString(),
+          });
+        } else {
+          await base44.entities.StockOnHand.create({
+            product_id: line.product.id,
+            product_sku: line.product.sku,
+            product_name: line.product.name,
+            location_id: toZone.id,
+            location_name: toZone.name,
+            qty_on_hand: qty,
+            qty_committed: 0,
+            qty_available: qty,
+            uom: line.product.stock_uom || 'pcs',
+            last_updated_at: new Date().toISOString(),
+          });
+        }
       }
 
-      // Increment to
-      const toStock = stockRecords.find(s => s.product_id === line.product.id && s.location_id === toZone.id);
-      if (toStock) {
-        const newOnHand = (toStock.qty_on_hand || 0) + qty;
-        await base44.entities.StockOnHand.update(toStock.id, {
-          qty_on_hand: newOnHand,
-          qty_available: newOnHand - (toStock.qty_committed || 0),
-          last_updated_at: new Date().toISOString(),
-        });
-      } else {
-        await base44.entities.StockOnHand.create({
-          product_id: line.product.id,
-          product_sku: line.product.sku,
-          product_name: line.product.name,
-          location_id: toZone.id,
-          location_name: toZone.name,
-          qty_on_hand: qty,
-          qty_committed: 0,
-          qty_available: qty,
-          uom: line.product.stock_uom || 'pcs',
-          last_updated_at: new Date().toISOString(),
-        });
-      }
+      queryClient.invalidateQueries({ queryKey: ['floor-stock'] });
+      toast.success(`${validLines.length} items transferred: ${fromZone.name} → ${toZone.name}`);
+      setDone(true);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
     }
-
-    queryClient.invalidateQueries({ queryKey: ['floor-stock'] });
-    toast.success(`${validLines.length} items transferred: ${fromZone.name} → ${toZone.name}`);
-    setDone(true);
-    setSaving(false);
   };
 
   // Done screen

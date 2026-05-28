@@ -37,7 +37,6 @@ export default function BomTab({ bom, components, operations, taskQty }) {
           </div>
         </div>
       </div>
-
       {/* Steps with their assigned ingredients */}
       {operations && operations.length > 0 ? (
         <div className="space-y-3">
@@ -113,7 +112,7 @@ export default function BomTab({ bom, components, operations, taskQty }) {
         </div>
       ) : components && components.length > 0 ? (
         /* Fallback: no operations defined, just show flat list */
-        <div className="bg-card border rounded-2xl overflow-hidden">
+        (<div className="bg-card border rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b bg-muted/30 flex items-center gap-2">
             <Package className="w-4 h-4 text-muted-foreground" />
             <h3 className="font-bold text-sm">Components</h3>
@@ -132,7 +131,7 @@ export default function BomTab({ bom, components, operations, taskQty }) {
               </div>
             ))}
           </div>
-        </div>
+        </div>)
       ) : null}
     </div>
   );

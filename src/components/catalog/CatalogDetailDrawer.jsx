@@ -40,11 +40,17 @@ function InventoryToggle({ product }) {
 
   const handleToggle = async (checked) => {
     setSaving(true);
-    setTracked(checked);
-    await base44.entities.Product.update(product.id, { inventory_tracked: checked });
-    queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
-    toast.success(checked ? 'Now tracking inventory' : 'Marked as non-inventory');
-    setSaving(false);
+
+    try {
+      setTracked(checked);
+      await base44.entities.Product.update(product.id, { inventory_tracked: checked });
+      queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
+      toast.success(checked ? 'Now tracking inventory' : 'Marked as non-inventory');
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

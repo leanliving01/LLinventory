@@ -69,43 +69,54 @@ export default function OperationsEditor({ bomId }) {
     if (!newStep.name.trim()) return;
     setSaving(true);
 
-    // Calculate position: insert after the given index
-    const position = afterIndex != null ? afterIndex + 1 : sorted.length;
-    
-    // Shift everything after the insert point
-    const shiftsNeeded = sorted.filter((_, i) => i >= position);
-    for (const op of shiftsNeeded.reverse()) {
-      await base44.entities.BomOperation.update(op.id, { step_no: (sorted.indexOf(op) + 1) + 1 });
+    try {
+      // Calculate position: insert after the given index
+      const position = afterIndex != null ? afterIndex + 1 : sorted.length;
+
+      // Shift everything after the insert point
+      const shiftsNeeded = sorted.filter((_, i) => i >= position);
+      for (const op of shiftsNeeded.reverse()) {
+        await base44.entities.BomOperation.update(op.id, { step_no: (sorted.indexOf(op) + 1) + 1 });
+      }
+
+      await base44.entities.BomOperation.create({
+        bom_id: bomId,
+        step_no: position + 1,
+        name: newStep.name.trim(),
+        station: newStep.station,
+        cycle_time_min: newStep.cycle_time_min ? Number(newStep.cycle_time_min) : undefined,
+        notes: newStep.notes || undefined,
+      });
+
+      setNewStep({ name: '', station: 'cook', cycle_time_min: '', notes: '' });
+      setAddingNew(false);
+      setInsertAfter(null);
+      invalidate();
+      toast.success('Step added');
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
     }
-
-    await base44.entities.BomOperation.create({
-      bom_id: bomId,
-      step_no: position + 1,
-      name: newStep.name.trim(),
-      station: newStep.station,
-      cycle_time_min: newStep.cycle_time_min ? Number(newStep.cycle_time_min) : undefined,
-      notes: newStep.notes || undefined,
-    });
-
-    setNewStep({ name: '', station: 'cook', cycle_time_min: '', notes: '' });
-    setAddingNew(false);
-    setInsertAfter(null);
-    invalidate();
-    toast.success('Step added');
-    setSaving(false);
   };
 
   const doDelete = async () => {
     if (!confirmDelete) return;
     setSaving(true);
-    await base44.entities.BomOperation.delete(confirmDelete.id);
-    // Re-number remaining
-    const remaining = sorted.filter(s => s.id !== confirmDelete.id);
-    await Promise.all(remaining.map((op, i) => base44.entities.BomOperation.update(op.id, { step_no: i + 1 })));
-    invalidate();
-    toast.success('Step removed');
-    setConfirmDelete(null);
-    setSaving(false);
+
+    try {
+      await base44.entities.BomOperation.delete(confirmDelete.id);
+      // Re-number remaining
+      const remaining = sorted.filter(s => s.id !== confirmDelete.id);
+      await Promise.all(remaining.map((op, i) => base44.entities.BomOperation.update(op.id, { step_no: i + 1 })));
+      invalidate();
+      toast.success('Step removed');
+      setConfirmDelete(null);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const startEdit = (op) => {
@@ -121,16 +132,22 @@ export default function OperationsEditor({ bomId }) {
   const saveEdit = async () => {
     if (!editForm.name.trim()) { toast.error('Step name is required'); return; }
     setSaving(true);
-    await base44.entities.BomOperation.update(editingId, {
-      name: editForm.name.trim(),
-      station: editForm.station,
-      cycle_time_min: editForm.cycle_time_min ? Number(editForm.cycle_time_min) : null,
-      notes: editForm.notes || null,
-    });
-    setEditingId(null);
-    invalidate();
-    toast.success('Step updated');
-    setSaving(false);
+
+    try {
+      await base44.entities.BomOperation.update(editingId, {
+        name: editForm.name.trim(),
+        station: editForm.station,
+        cycle_time_min: editForm.cycle_time_min ? Number(editForm.cycle_time_min) : null,
+        notes: editForm.notes || null,
+      });
+      setEditingId(null);
+      invalidate();
+      toast.success('Step updated');
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const showInsertForm = insertAfter !== null || addingNew;

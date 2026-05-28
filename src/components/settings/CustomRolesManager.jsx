@@ -56,35 +56,41 @@ export default function CustomRolesManager() {
   const handleSave = async () => {
     if (!roleName.trim()) { toast.error('Enter a role name'); return; }
     setSaving(true);
-    const slug = slugify(roleName.trim());
-    const settingKey = `custom_role_${slug}`;
-    const roleData = { name: roleName.trim(), key: slug, permissions: perms };
 
-    if (editingId) {
-      await base44.entities.Setting.update(editingId, {
-        value: JSON.stringify(roleData),
-        label: roleName.trim(),
-      });
-    } else {
-      // Check for duplicate key
-      const existing = customRoleSettings.find(s => s.key === settingKey);
-      if (existing) {
-        toast.error('A role with that name already exists');
-        setSaving(false);
-        return;
+    try {
+      const slug = slugify(roleName.trim());
+      const settingKey = `custom_role_${slug}`;
+      const roleData = { name: roleName.trim(), key: slug, permissions: perms };
+
+      if (editingId) {
+        await base44.entities.Setting.update(editingId, {
+          value: JSON.stringify(roleData),
+          label: roleName.trim(),
+        });
+      } else {
+        // Check for duplicate key
+        const existing = customRoleSettings.find(s => s.key === settingKey);
+        if (existing) {
+          toast.error('A role with that name already exists');
+          setSaving(false);
+          return;
+        }
+        await base44.entities.Setting.create({
+          key: settingKey,
+          value: JSON.stringify(roleData),
+          group: 'org',
+          label: roleName.trim(),
+        });
       }
-      await base44.entities.Setting.create({
-        key: settingKey,
-        value: JSON.stringify(roleData),
-        group: 'org',
-        label: roleName.trim(),
-      });
-    }
 
-    queryClient.invalidateQueries({ queryKey: ['custom-roles'] });
-    toast.success(editingId ? 'Role updated' : 'Role created');
-    setShowForm(false);
-    setSaving(false);
+      queryClient.invalidateQueries({ queryKey: ['custom-roles'] });
+      toast.success(editingId ? 'Role updated' : 'Role created');
+      setShowForm(false);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (setting) => {

@@ -112,7 +112,6 @@ export default function TaskDetailView({ task, onStatusChange, onBack, loading, 
           <p className="text-sm text-white/80 truncate">{task.name} — {task.station?.toUpperCase()}</p>
         </div>
       </div>
-
       {/* Quantity + Timer strip */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-card">
         <div>
@@ -139,7 +138,6 @@ export default function TaskDetailView({ task, onStatusChange, onBack, loading, 
           </div>
         )}
       </div>
-
       {/* Action buttons */}
       <div className="px-4 py-3 flex gap-3 border-b border-border bg-card">
         {isPending && (
@@ -190,7 +188,6 @@ export default function TaskDetailView({ task, onStatusChange, onBack, loading, 
           </Button>
         )}
       </div>
-
       {/* Portioning: Actual Yield input (always visible for portion station) */}
       {isPortioning && (
         <div className="px-4 py-4 border-b border-border bg-card">
@@ -220,7 +217,6 @@ export default function TaskDetailView({ task, onStatusChange, onBack, loading, 
           )}
         </div>
       )}
-
       {/* Collapsible sections */}
       <div className="flex-1 overflow-y-auto">
         {/* Section: Ingredients */}
@@ -247,7 +243,7 @@ export default function TaskDetailView({ task, onStatusChange, onBack, loading, 
               </div>
             ) : isPortioning ? (
               /* PORTIONING VIEW: Show ingredients with auto-calculated amounts */
-              <div className="space-y-2">
+              (<div className="space-y-2">
                 {(actualYield ? portionCalculated : ingredients).map(ing => (
                   <div key={ing.id} className="bg-muted/50 rounded-xl p-3 flex items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -270,10 +266,10 @@ export default function TaskDetailView({ task, onStatusChange, onBack, loading, 
                     Enter actual plates above to see calculated consumption
                   </p>
                 )}
-              </div>
+              </div>)
             ) : (
               /* PREP / COOK VIEW: Show ingredients with consumed + wastage input */
-              <div className="space-y-3">
+              (<div className="space-y-3">
                 {ingredients.map(ing => {
                   const consumedVal = consumed[ing.id] ?? '';
                   return (
@@ -316,7 +312,7 @@ export default function TaskDetailView({ task, onStatusChange, onBack, loading, 
                     </div>
                   );
                 })}
-              </div>
+              </div>)
             )}
           </div>
         )}

@@ -69,33 +69,39 @@ export default function PackingRuleForm({ rule, products, onClose, defaultTrigge
 
     setSaving(true);
 
-    // Also keep legacy fields pointing to the first material for backward compat
-    const first = validMaterials[0];
-    const data = {
-      name: name.trim(),
-      trigger,
-      materials: JSON.stringify(validMaterials),
-      // Legacy fields (first material)
-      material_product_id: first.product_id,
-      material_sku: first.sku,
-      material_name: first.name,
-      deduction_mode: first.deduction_mode,
-      qty_per_deduction: Number(first.qty_per_deduction),
-      per_x_items: first.deduction_mode === 'per_x_items' ? Number(first.per_x_items) : 1,
-      notes: notes.trim() || undefined,
-      is_active: rule?.is_active ?? true,
-    };
+    try {
+      // Also keep legacy fields pointing to the first material for backward compat
+      const first = validMaterials[0];
+      const data = {
+        name: name.trim(),
+        trigger,
+        materials: JSON.stringify(validMaterials),
+        // Legacy fields (first material)
+        material_product_id: first.product_id,
+        material_sku: first.sku,
+        material_name: first.name,
+        deduction_mode: first.deduction_mode,
+        qty_per_deduction: Number(first.qty_per_deduction),
+        per_x_items: first.deduction_mode === 'per_x_items' ? Number(first.per_x_items) : 1,
+        notes: notes.trim() || undefined,
+        is_active: rule?.is_active ?? true,
+      };
 
-    if (isEditing) {
-      await base44.entities.PackingMaterialRule.update(rule.id, data);
-      toast.success(`Updated "${name}"`);
-    } else {
-      await base44.entities.PackingMaterialRule.create(data);
-      toast.success(`Created "${name}"`);
+      if (isEditing) {
+        await base44.entities.PackingMaterialRule.update(rule.id, data);
+        toast.success(`Updated "${name}"`);
+      } else {
+        await base44.entities.PackingMaterialRule.create(data);
+        toast.success(`Created "${name}"`);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['packing-material-rules'] });
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
     }
 
-    queryClient.invalidateQueries({ queryKey: ['packing-material-rules'] });
-    setSaving(false);
     onClose();
   };
 

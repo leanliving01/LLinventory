@@ -15,10 +15,16 @@ export default function DemandAudit() {
 
   const handlePreview = async () => {
     setLoading(true);
-    setPreviewData(null);
-    const res = await base44.functions.invoke('recalcCommittedDemand', { action: 'preview' });
-    setPreviewData(res.data);
-    setLoading(false);
+
+    try {
+      setPreviewData(null);
+      const res = await base44.functions.invoke('recalcCommittedDemand', { action: 'preview' });
+      setPreviewData(res.data);
+    } catch (err) {
+      toast.error('Operation failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCommit = async () => {

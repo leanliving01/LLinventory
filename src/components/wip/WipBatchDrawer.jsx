@@ -67,64 +67,70 @@ export default function WipBatchDrawer({ batch, onClose, onUpdated }) {
     if (!qcResult) { toast.error('Select a result'); return; }
     setSaving(true);
 
-    const today = new Date().toISOString().slice(0, 10);
-    const qcOption = QC_RESULT_OPTIONS.find(o => o.value === qcResult);
-    await base44.entities.WipQualityCheck.create({
-      wip_batch_id: batch.id,
-      check_date: today,
-      check_time: new Date().toISOString(),
-      checked_by_name: user?.full_name || '',
-      result: qcOption?.qcResult || 'approved',
-      notes: qcNotes || null,
-    });
-
-    // Update batch status
-    const statusMap = {
-      approved_full: 'fresh',
-      approved_use_today: 'use_today',
-      quarantine: 'quarantine',
-      write_off: 'written_off',
-    };
-    const newStatus = statusMap[qcResult] || batch.quality_status;
-    const updateData = {
-      quality_status: newStatus,
-      last_qc_date: today,
-      last_qc_by: user?.full_name || '',
-    };
-
-    // If write_off from QC, create WipWriteOff
-    if (qcResult === 'write_off') {
-      updateData.qty_kg = 0;
-      updateData.total_carrying_value = 0;
-      const woLine = {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const qcOption = QC_RESULT_OPTIONS.find(o => o.value === qcResult);
+      await base44.entities.WipQualityCheck.create({
         wip_batch_id: batch.id,
-        bulk_product_name: batch.bulk_product_name,
-        qty_kg: batch.qty_kg,
-        carrying_cost_per_kg: batch.carrying_cost_per_kg || 0,
-        total_value: (batch.qty_kg || 0) * (batch.carrying_cost_per_kg || 0),
-      };
-      const existingWOs = await base44.entities.WipWriteOff.list('-created_date', 1);
-      const nextWO = existingWOs.length > 0
-        ? (parseInt((existingWOs[0].write_off_number || '').replace(/\D/g, '') || '0') + 1) : 1;
-      const woNumber = `WO-${new Date().getFullYear()}-${String(nextWO).padStart(4, '0')}`;
-      await base44.entities.WipWriteOff.create({
-        write_off_number: woNumber,
-        write_off_type: 'manual',
-        status: 'confirmed',
-        write_off_date: new Date().toISOString().slice(0, 10),
-        total_qty_kg: batch.qty_kg,
-        total_value: (batch.qty_kg || 0) * (batch.carrying_cost_per_kg || 0),
-        reason: 'quality_deterioration',
-        notes: qcNotes || 'Written off via quality check',
-        approved_by_name: user?.full_name || '',
-        confirmed_at: new Date().toISOString(),
-        lines: JSON.stringify([woLine]),
+        check_date: today,
+        check_time: new Date().toISOString(),
+        checked_by_name: user?.full_name || '',
+        result: qcOption?.qcResult || 'approved',
+        notes: qcNotes || null,
       });
+
+      // Update batch status
+      const statusMap = {
+        approved_full: 'fresh',
+        approved_use_today: 'use_today',
+        quarantine: 'quarantine',
+        write_off: 'written_off',
+      };
+      const newStatus = statusMap[qcResult] || batch.quality_status;
+      const updateData = {
+        quality_status: newStatus,
+        last_qc_date: today,
+        last_qc_by: user?.full_name || '',
+      };
+
+      // If write_off from QC, create WipWriteOff
+      if (qcResult === 'write_off') {
+        updateData.qty_kg = 0;
+        updateData.total_carrying_value = 0;
+        const woLine = {
+          wip_batch_id: batch.id,
+          bulk_product_name: batch.bulk_product_name,
+          qty_kg: batch.qty_kg,
+          carrying_cost_per_kg: batch.carrying_cost_per_kg || 0,
+          total_value: (batch.qty_kg || 0) * (batch.carrying_cost_per_kg || 0),
+        };
+        const existingWOs = await base44.entities.WipWriteOff.list('-created_date', 1);
+        const nextWO = existingWOs.length > 0
+          ? (parseInt((existingWOs[0].write_off_number || '').replace(/\D/g, '') || '0') + 1) : 1;
+        const woNumber = `WO-${new Date().getFullYear()}-${String(nextWO).padStart(4, '0')}`;
+        await base44.entities.WipWriteOff.create({
+          write_off_number: woNumber,
+          write_off_type: 'manual',
+          status: 'confirmed',
+          write_off_date: new Date().toISOString().slice(0, 10),
+          total_qty_kg: batch.qty_kg,
+          total_value: (batch.qty_kg || 0) * (batch.carrying_cost_per_kg || 0),
+          reason: 'quality_deterioration',
+          notes: qcNotes || 'Written off via quality check',
+          approved_by_name: user?.full_name || '',
+          confirmed_at: new Date().toISOString(),
+          lines: JSON.stringify([woLine]),
+        });
+      }
+
+      await base44.entities.WipBatch.update(batch.id, updateData);
+      toast.success('Quality check recorded');
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
     }
 
-    await base44.entities.WipBatch.update(batch.id, updateData);
-    toast.success('Quality check recorded');
-    setSaving(false);
     setQcResult('');
     setQcNotes('');
     queryClient.invalidateQueries({ queryKey: ['wip-qc', batch.id] });
@@ -138,45 +144,52 @@ export default function WipBatchDrawer({ batch, onClose, onUpdated }) {
     if (qty > batch.qty_kg) { toast.error('Cannot write off more than remaining quantity'); return; }
 
     setSaving(true);
-    const costPerKg = batch.carrying_cost_per_kg || 0;
-    const value = qty * costPerKg;
 
-    const woLine = {
-      wip_batch_id: batch.id,
-      bulk_product_name: batch.bulk_product_name,
-      qty_kg: qty,
-      carrying_cost_per_kg: costPerKg,
-      total_value: Math.round(value * 100) / 100,
-    };
-    // Generate write-off number
-    const existingWOs = await base44.entities.WipWriteOff.list('-created_date', 1);
-    const nextWO = existingWOs.length > 0
-      ? (parseInt((existingWOs[0].write_off_number || '').replace(/\D/g, '') || '0') + 1) : 1;
-    const woNumber = `WO-${new Date().getFullYear()}-${String(nextWO).padStart(4, '0')}`;
-    await base44.entities.WipWriteOff.create({
-      write_off_number: woNumber,
-      write_off_type: 'manual',
-      status: 'confirmed',
-      write_off_date: new Date().toISOString().slice(0, 10),
-      total_qty_kg: qty,
-      total_value: Math.round(value * 100) / 100,
-      reason: writeOffReason,
-      notes: writeOffNotes || null,
-      approved_by_name: user?.full_name || '',
-      confirmed_at: new Date().toISOString(),
-      lines: JSON.stringify([woLine]),
-    });
+    try {
+      const costPerKg = batch.carrying_cost_per_kg || 0;
+      const value = qty * costPerKg;
 
-    const newQty = Math.round((batch.qty_kg - qty) * 100) / 100;
-    const isFullWriteOff = newQty <= 0;
-    await base44.entities.WipBatch.update(batch.id, {
-      qty_kg: Math.max(0, newQty),
-      total_carrying_value: Math.round(Math.max(0, newQty) * costPerKg * 100) / 100,
-      quality_status: isFullWriteOff ? 'written_off' : batch.quality_status,
-    });
+      const woLine = {
+        wip_batch_id: batch.id,
+        bulk_product_name: batch.bulk_product_name,
+        qty_kg: qty,
+        carrying_cost_per_kg: costPerKg,
+        total_value: Math.round(value * 100) / 100,
+      };
+      // Generate write-off number
+      const existingWOs = await base44.entities.WipWriteOff.list('-created_date', 1);
+      const nextWO = existingWOs.length > 0
+        ? (parseInt((existingWOs[0].write_off_number || '').replace(/\D/g, '') || '0') + 1) : 1;
+      const woNumber = `WO-${new Date().getFullYear()}-${String(nextWO).padStart(4, '0')}`;
+      await base44.entities.WipWriteOff.create({
+        write_off_number: woNumber,
+        write_off_type: 'manual',
+        status: 'confirmed',
+        write_off_date: new Date().toISOString().slice(0, 10),
+        total_qty_kg: qty,
+        total_value: Math.round(value * 100) / 100,
+        reason: writeOffReason,
+        notes: writeOffNotes || null,
+        approved_by_name: user?.full_name || '',
+        confirmed_at: new Date().toISOString(),
+        lines: JSON.stringify([woLine]),
+      });
 
-    toast.success(`${qty} kg written off (R ${value.toFixed(2)})`);
-    setSaving(false);
+      const newQty = Math.round((batch.qty_kg - qty) * 100) / 100;
+      const isFullWriteOff = newQty <= 0;
+      await base44.entities.WipBatch.update(batch.id, {
+        qty_kg: Math.max(0, newQty),
+        total_carrying_value: Math.round(Math.max(0, newQty) * costPerKg * 100) / 100,
+        quality_status: isFullWriteOff ? 'written_off' : batch.quality_status,
+      });
+
+      toast.success(`${qty} kg written off (R ${value.toFixed(2)})`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     setWriteOffQty('');
     setWriteOffReason('');
     setWriteOffNotes('');

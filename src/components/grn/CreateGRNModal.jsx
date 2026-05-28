@@ -48,67 +48,73 @@ export default function CreateGRNModal({ onCreated, onCancel }) {
     if (!form.location_id) { toast.error('Select a receiving location'); return; }
     setSaving(true);
 
-    // Generate GRN number
-    const today = format(new Date(), 'yyyyMMdd');
-    const existing = await base44.entities.GoodsReceivedNote.list('-created_date', 1);
-    const lastNum = existing.length > 0
-      ? parseInt((existing[0].grn_number || '').split('-').pop() || '0')
-      : 0;
-    const grnNumber = `GRN-${today}-${String(lastNum + 1).padStart(3, '0')}`;
+    try {
+      // Generate GRN number
+      const today = format(new Date(), 'yyyyMMdd');
+      const existing = await base44.entities.GoodsReceivedNote.list('-created_date', 1);
+      const lastNum = existing.length > 0
+        ? parseInt((existing[0].grn_number || '').split('-').pop() || '0')
+        : 0;
+      const grnNumber = `GRN-${today}-${String(lastNum + 1).padStart(3, '0')}`;
 
-    const grn = await base44.entities.GoodsReceivedNote.create({
-      grn_number: grnNumber,
-      supplier_id: form.supplier_id,
-      supplier_name: selectedSupplier?.name || '',
-      location_id: form.location_id,
-      location_name: selectedLocation?.name || '',
-      purchase_order_id: form.purchase_order_id || undefined,
-      received_date: form.received_date,
-      status: 'draft',
-      notes: form.notes,
-    });
+      const grn = await base44.entities.GoodsReceivedNote.create({
+        grn_number: grnNumber,
+        supplier_id: form.supplier_id,
+        supplier_name: selectedSupplier?.name || '',
+        location_id: form.location_id,
+        location_name: selectedLocation?.name || '',
+        purchase_order_id: form.purchase_order_id || undefined,
+        received_date: form.received_date,
+        status: 'draft',
+        notes: form.notes,
+      });
 
-    // If linked to PO, pre-populate lines from PO lines
-    if (form.purchase_order_id) {
-      const poLines = await base44.entities.PurchaseOrderLine.filter(
-        { purchase_order_id: form.purchase_order_id }, 'product_name', 100
-      );
-      if (poLines.length > 0) {
-        // Fetch supplier products to get conversion data
-        const sps = await base44.entities.SupplierProduct.filter(
-          { supplier_id: form.supplier_id, active: true }, 'product_name', 200
+      // If linked to PO, pre-populate lines from PO lines
+      if (form.purchase_order_id) {
+        const poLines = await base44.entities.PurchaseOrderLine.filter(
+          { purchase_order_id: form.purchase_order_id }, 'product_name', 100
         );
-        const spMap = {};
-        sps.forEach(sp => { spMap[sp.product_id] = sp; });
+        if (poLines.length > 0) {
+          // Fetch supplier products to get conversion data
+          const sps = await base44.entities.SupplierProduct.filter(
+            { supplier_id: form.supplier_id, active: true }, 'product_name', 200
+          );
+          const spMap = {};
+          sps.forEach(sp => { spMap[sp.product_id] = sp; });
 
-        const grnLines = poLines.map(pl => {
-          const sp = pl.supplier_product_id ? sps.find(s => s.id === pl.supplier_product_id) : spMap[pl.product_id];
-          return {
-            grn_id: grn.id,
-            po_line_id: pl.id,
-            supplier_product_id: sp?.id || pl.supplier_product_id || null,
-            product_id: pl.product_id,
-            product_name: pl.product_name || '',
-            product_sku: pl.product_sku || '',
-            expected_qty: pl.ordered_qty || 0,
-            received_qty: pl.ordered_qty || 0, // Pre-fill with expected
-            variance_qty: 0,
-            purchase_uom: sp?.purchase_uom || pl.purchase_uom || pl.uom || '',
-            conversion_factor: sp?.conversion_factor || 1,
-            yield_factor: sp?.yield_factor || 1,
-            unit_cost: pl.unit_cost || sp?.last_purchase_price || 0,
-            line_total: (pl.ordered_qty || 0) * (pl.unit_cost || 0),
-            condition: 'accepted',
-            item_type: 'stock',
-          };
-        });
-        await base44.entities.GRNLine.bulkCreate(grnLines);
-        await base44.entities.GoodsReceivedNote.update(grn.id, { total_lines: grnLines.length });
+          const grnLines = poLines.map(pl => {
+            const sp = pl.supplier_product_id ? sps.find(s => s.id === pl.supplier_product_id) : spMap[pl.product_id];
+            return {
+              grn_id: grn.id,
+              po_line_id: pl.id,
+              supplier_product_id: sp?.id || pl.supplier_product_id || null,
+              product_id: pl.product_id,
+              product_name: pl.product_name || '',
+              product_sku: pl.product_sku || '',
+              expected_qty: pl.ordered_qty || 0,
+              received_qty: pl.ordered_qty || 0, // Pre-fill with expected
+              variance_qty: 0,
+              purchase_uom: sp?.purchase_uom || pl.purchase_uom || pl.uom || '',
+              conversion_factor: sp?.conversion_factor || 1,
+              yield_factor: sp?.yield_factor || 1,
+              unit_cost: pl.unit_cost || sp?.last_purchase_price || 0,
+              line_total: (pl.ordered_qty || 0) * (pl.unit_cost || 0),
+              condition: 'accepted',
+              item_type: 'stock',
+            };
+          });
+          await base44.entities.GRNLine.bulkCreate(grnLines);
+          await base44.entities.GoodsReceivedNote.update(grn.id, { total_lines: grnLines.length });
+        }
       }
+
+      toast.success(`GRN ${grnNumber} created`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
     }
 
-    toast.success(`GRN ${grnNumber} created`);
-    setSaving(false);
     onCreated(grn);
   };
 

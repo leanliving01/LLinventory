@@ -79,68 +79,74 @@ export default function Wastage() {
     }
 
     setSaving(true);
-    const today = format(new Date(), 'yyyy-MM-dd');
 
-    // UoM conversion factors to stock UoM
-    const convertToStockUom = (qty, entryUom, stockUom) => {
-      if (entryUom === stockUom || !entryUom) return qty;
-      if (entryUom === 'g' && stockUom === 'kg') return qty / 1000;
-      if (entryUom === 'kg' && stockUom === 'g') return qty * 1000;
-      if (entryUom === 'ml' && stockUom === 'L') return qty / 1000;
-      if (entryUom === 'L' && stockUom === 'ml') return qty * 1000;
-      return qty; // fallback — same unit or unknown
-    };
+    try {
+      const today = format(new Date(), 'yyyy-MM-dd');
 
-    // Build movements with converted quantities stored for SOH update
-    const enrichedEntries = validEntries.map(([productId, entry]) => {
-      const product = products.find(p => p.id === productId);
-      const stockUom = product?.stock_uom || 'pcs';
-      const entryUom = entry.uom || stockUom;
-      const convertedQty = convertToStockUom(Number(entry.qty), entryUom, stockUom);
-      return { productId, entry, product, stockUom, entryUom, convertedQty };
-    });
+      // UoM conversion factors to stock UoM
+      const convertToStockUom = (qty, entryUom, stockUom) => {
+        if (entryUom === stockUom || !entryUom) return qty;
+        if (entryUom === 'g' && stockUom === 'kg') return qty / 1000;
+        if (entryUom === 'kg' && stockUom === 'g') return qty * 1000;
+        if (entryUom === 'ml' && stockUom === 'L') return qty / 1000;
+        if (entryUom === 'L' && stockUom === 'ml') return qty * 1000;
+        return qty; // fallback — same unit or unknown
+      };
 
-    const movements = enrichedEntries.map(({ productId, entry, product, stockUom, entryUom, convertedQty }) => ({
-      product_id: productId,
-      product_sku: product?.sku || '',
-      product_name: product?.name || '',
-      qty: convertedQty,
-      uom: stockUom,
-      reason: entry.type === 'usable' ? 'wastage_usable' : 'wastage_unusable',
-      ref_type: 'wastage_log',
-      ref_number: `Wastage ${today}`,
-      notes: entry.notes || `End-of-day wastage ${today}` + (entryUom !== stockUom ? ` (entered as ${entry.qty} ${entryUom})` : ''),
-    }));
+      // Build movements with converted quantities stored for SOH update
+      const enrichedEntries = validEntries.map(([productId, entry]) => {
+        const product = products.find(p => p.id === productId);
+        const stockUom = product?.stock_uom || 'pcs';
+        const entryUom = entry.uom || stockUom;
+        const convertedQty = convertToStockUom(Number(entry.qty), entryUom, stockUom);
+        return { productId, entry, product, stockUom, entryUom, convertedQty };
+      });
 
-    await base44.entities.StockMovement.bulkCreate(movements);
+      const movements = enrichedEntries.map(({ productId, entry, product, stockUom, entryUom, convertedQty }) => ({
+        product_id: productId,
+        product_sku: product?.sku || '',
+        product_name: product?.name || '',
+        qty: convertedQty,
+        uom: stockUom,
+        reason: entry.type === 'usable' ? 'wastage_usable' : 'wastage_unusable',
+        ref_type: 'wastage_log',
+        ref_number: `Wastage ${today}`,
+        notes: entry.notes || `End-of-day wastage ${today}` + (entryUom !== stockUom ? ` (entered as ${entry.qty} ${entryUom})` : ''),
+      }));
 
-    // Decrement StockOnHand for all product types
-    const stockRecords = await base44.entities.StockOnHand.list('-updated_date', 1000);
-    const stockByProduct = {};
-    stockRecords.forEach(s => { if (!stockByProduct[s.product_id]) stockByProduct[s.product_id] = s; });
+      await base44.entities.StockMovement.bulkCreate(movements);
 
-    for (const { productId, convertedQty } of enrichedEntries) {
-      const existing = stockByProduct[productId];
-      if (existing) {
-        const newOnHand = Math.max(0, (existing.qty_on_hand || 0) - convertedQty);
-        await base44.entities.StockOnHand.update(existing.id, {
-          qty_on_hand: newOnHand,
-          qty_available: newOnHand - (existing.qty_committed || 0),
-          last_updated_at: new Date().toISOString(),
-        });
+      // Decrement StockOnHand for all product types
+      const stockRecords = await base44.entities.StockOnHand.list('-updated_date', 1000);
+      const stockByProduct = {};
+      stockRecords.forEach(s => { if (!stockByProduct[s.product_id]) stockByProduct[s.product_id] = s; });
+
+      for (const { productId, convertedQty } of enrichedEntries) {
+        const existing = stockByProduct[productId];
+        if (existing) {
+          const newOnHand = Math.max(0, (existing.qty_on_hand || 0) - convertedQty);
+          await base44.entities.StockOnHand.update(existing.id, {
+            qty_on_hand: newOnHand,
+            qty_available: newOnHand - (existing.qty_committed || 0),
+            last_updated_at: new Date().toISOString(),
+          });
+        }
       }
-    }
 
-    queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
-    writeAuditLog({
-      action: 'create',
-      entity_type: 'StockMovement',
-      description: `Recorded ${validEntries.length} end-of-day wastage entries (${productType})`,
-      new_value: { entries: validEntries.length, type: productType },
-    });
-    setEntries({});
-    toast.success(`Recorded ${validEntries.length} wastage entries — stock updated`);
-    setSaving(false);
+      queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+      writeAuditLog({
+        action: 'create',
+        entity_type: 'StockMovement',
+        description: `Recorded ${validEntries.length} end-of-day wastage entries (${productType})`,
+        new_value: { entries: validEntries.length, type: productType },
+      });
+      setEntries({});
+      toast.success(`Recorded ${validEntries.length} wastage entries — stock updated`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

@@ -51,28 +51,34 @@ export default function ParLevelsTab() {
     if (entries.length === 0) return;
 
     setSaving(true);
-    const today = format(new Date(), 'yyyy-MM-dd');
 
-    for (const [skuId, value] of entries) {
-      const existing = parBySkuId[skuId];
-      const sku = skus.find(s => s.id === skuId);
-      if (existing) {
-        await base44.entities.ParLevel.update(existing.id, { par_level: Number(value) });
-      } else {
-        await base44.entities.ParLevel.create({
-          sku_id: skuId,
-          sku_display_name: sku?.display_name || '',
-          package_type: sku?.package_type || '',
-          par_level: Number(value),
-          effective_from: today,
-        });
+    try {
+      const today = format(new Date(), 'yyyy-MM-dd');
+
+      for (const [skuId, value] of entries) {
+        const existing = parBySkuId[skuId];
+        const sku = skus.find(s => s.id === skuId);
+        if (existing) {
+          await base44.entities.ParLevel.update(existing.id, { par_level: Number(value) });
+        } else {
+          await base44.entities.ParLevel.create({
+            sku_id: skuId,
+            sku_display_name: sku?.display_name || '',
+            package_type: sku?.package_type || '',
+            par_level: Number(value),
+            effective_from: today,
+          });
+        }
       }
-    }
 
-    queryClient.invalidateQueries({ queryKey: ['parLevels'] });
-    setEdits({});
-    toast.success(`Updated par levels for ${entries.length} SKUs`);
-    setSaving(false);
+      queryClient.invalidateQueries({ queryKey: ['parLevels'] });
+      setEdits({});
+      toast.success(`Updated par levels for ${entries.length} SKUs`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const editCount = Object.values(edits).filter(v => v !== '' && v !== undefined).length;

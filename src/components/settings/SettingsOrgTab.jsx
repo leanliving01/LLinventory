@@ -41,23 +41,29 @@ export default function SettingsOrgTab() {
 
   const handleSave = async () => {
     setSaving(true);
-    const settingsByKey = {};
-    settings.forEach(s => { settingsByKey[s.key] = s; });
 
-    for (const field of ORG_FIELDS) {
-      const val = formValues[field.key] || '';
-      const existing = settingsByKey[field.key];
-      if (existing) {
-        if (existing.value !== val) {
-          await base44.entities.Setting.update(existing.id, { value: val });
+    try {
+      const settingsByKey = {};
+      settings.forEach(s => { settingsByKey[s.key] = s; });
+
+      for (const field of ORG_FIELDS) {
+        const val = formValues[field.key] || '';
+        const existing = settingsByKey[field.key];
+        if (existing) {
+          if (existing.value !== val) {
+            await base44.entities.Setting.update(existing.id, { value: val });
+          }
+        } else if (val) {
+          await base44.entities.Setting.create({ key: field.key, value: val, group: field.group, label: field.label });
         }
-      } else if (val) {
-        await base44.entities.Setting.create({ key: field.key, value: val, group: field.group, label: field.label });
       }
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+      toast.success('Organisation settings saved');
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
     }
-    queryClient.invalidateQueries({ queryKey: ['settings'] });
-    toast.success('Organisation settings saved');
-    setSaving(false);
   };
 
   const set = (key, value) => setFormValues(prev => ({ ...prev, [key]: value }));

@@ -29,20 +29,27 @@ export default function WastageEventForm({ cookingRunId, rawCostPerKg, onCreated
     if (reason === 'other' && !description.trim()) { toast.error('Describe the reason'); return; }
 
     setSaving(true);
-    const qtyKg = Number(qty);
-    await base44.entities.ProductionWastageEvent.create({
-      cooking_run_id: cookingRunId,
-      qty_kg: qtyKg,
-      reason_code: reason,
-      description: description || null,
-      recorded_by_name: user?.full_name || '',
-      recorded_at: new Date().toISOString(),
-      raw_cost_at_event: rawCostPerKg,
-      total_cost: Math.round(qtyKg * rawCostPerKg * 100) / 100,
-      review_status: 'pending',
-    });
-    toast.success(`${qtyKg} kg wastage logged`);
-    setSaving(false);
+
+    try {
+      const qtyKg = Number(qty);
+      await base44.entities.ProductionWastageEvent.create({
+        cooking_run_id: cookingRunId,
+        qty_kg: qtyKg,
+        reason_code: reason,
+        description: description || null,
+        recorded_by_name: user?.full_name || '',
+        recorded_at: new Date().toISOString(),
+        raw_cost_at_event: rawCostPerKg,
+        total_cost: Math.round(qtyKg * rawCostPerKg * 100) / 100,
+        review_status: 'pending',
+      });
+      toast.success(`${qtyKg} kg wastage logged`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     onCreated();
   };
 

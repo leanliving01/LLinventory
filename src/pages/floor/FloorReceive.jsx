@@ -117,89 +117,94 @@ export default function FloorReceive() {
     if (validLines.length === 0) { toast.error('Add items with quantities'); return; }
     setSaving(true);
 
-    // 1. Create receipt stock movements
-    const movements = validLines.map(line => ({
-      product_id: line.product.id,
-      product_sku: line.product.sku || '',
-      product_name: line.product.name || '',
-      to_location_id: zone.id,
-      qty: Number(line.qty),
-      uom: line.product.stock_uom || 'pcs',
-      reason: 'receipt',
-      unit_cost_at_movement: Number(line.unit_cost) || 0,
-      ref_type: selectedPO && selectedPO.id !== '_adhoc' ? 'purchase_order' : 'manual',
-      ref_id: selectedPO && selectedPO.id !== '_adhoc' ? selectedPO.id : undefined,
-      ref_number: selectedPO ? `PO ${selectedPO.po_number}` : `Receipt to ${zone.name}`,
-      notes: `Floor receive into ${zone.name}${selectedPO ? ` (PO ${selectedPO.po_number})` : ''}`,
-    }));
-    await base44.entities.StockMovement.bulkCreate(movements);
+    try {
+      // 1. Create receipt stock movements
+      const movements = validLines.map(line => ({
+        product_id: line.product.id,
+        product_sku: line.product.sku || '',
+        product_name: line.product.name || '',
+        to_location_id: zone.id,
+        qty: Number(line.qty),
+        uom: line.product.stock_uom || 'pcs',
+        reason: 'receipt',
+        unit_cost_at_movement: Number(line.unit_cost) || 0,
+        ref_type: selectedPO && selectedPO.id !== '_adhoc' ? 'purchase_order' : 'manual',
+        ref_id: selectedPO && selectedPO.id !== '_adhoc' ? selectedPO.id : undefined,
+        ref_number: selectedPO ? `PO ${selectedPO.po_number}` : `Receipt to ${zone.name}`,
+        notes: `Floor receive into ${zone.name}${selectedPO ? ` (PO ${selectedPO.po_number})` : ''}`,
+      }));
+      await base44.entities.StockMovement.bulkCreate(movements);
 
-    // 2. Update StockOnHand
-    const stockRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
-    for (const line of validLines) {
-      const qty = Number(line.qty);
-      const existing = stockRecords.find(s => s.product_id === line.product.id && s.location_id === zone.id);
-      if (existing) {
-        const newOnHand = (existing.qty_on_hand || 0) + qty;
-        await base44.entities.StockOnHand.update(existing.id, {
-          qty_on_hand: newOnHand,
-          qty_available: newOnHand - (existing.qty_committed || 0),
-          last_updated_at: new Date().toISOString(),
-        });
-      } else {
-        await base44.entities.StockOnHand.create({
-          product_id: line.product.id,
-          product_sku: line.product.sku || '',
-          product_name: line.product.name || '',
-          location_id: zone.id,
-          location_name: zone.name,
-          qty_on_hand: qty,
-          qty_committed: 0,
-          qty_available: qty,
-          uom: line.product.stock_uom || 'pcs',
-          last_updated_at: new Date().toISOString(),
-        });
-      }
-
-      // 3. Update cost_avg (weighted average)
-      const unitCost = Number(line.unit_cost);
-      if (unitCost > 0) {
-        const product = productMap[line.product.id];
-        if (product) {
-          const allStock = stockRecords.filter(s => s.product_id === line.product.id);
-          const totalExisting = allStock.reduce((s, r) => s + (r.qty_on_hand || 0), 0);
-          const existingCost = product.cost_avg || 0;
-          const totalQty = totalExisting + qty;
-          const newAvg = totalQty > 0 ? ((totalExisting * existingCost) + (qty * unitCost)) / totalQty : unitCost;
-          await base44.entities.Product.update(product.id, { cost_avg: Math.round(newAvg * 100) / 100 });
-        }
-      }
-    }
-
-    // 4. Update PO line received_qty and PO status
-    if (selectedPO && selectedPO.id !== '_adhoc') {
+      // 2. Update StockOnHand
+      const stockRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
       for (const line of validLines) {
-        if (line.po_line_id) {
-          const poLine = poLines.find(pl => pl.id === line.po_line_id);
-          if (poLine) {
-            const newReceived = (poLine.received_qty || 0) + Number(line.qty);
-            await base44.entities.PurchaseOrderLine.update(poLine.id, { received_qty: newReceived });
+        const qty = Number(line.qty);
+        const existing = stockRecords.find(s => s.product_id === line.product.id && s.location_id === zone.id);
+        if (existing) {
+          const newOnHand = (existing.qty_on_hand || 0) + qty;
+          await base44.entities.StockOnHand.update(existing.id, {
+            qty_on_hand: newOnHand,
+            qty_available: newOnHand - (existing.qty_committed || 0),
+            last_updated_at: new Date().toISOString(),
+          });
+        } else {
+          await base44.entities.StockOnHand.create({
+            product_id: line.product.id,
+            product_sku: line.product.sku || '',
+            product_name: line.product.name || '',
+            location_id: zone.id,
+            location_name: zone.name,
+            qty_on_hand: qty,
+            qty_committed: 0,
+            qty_available: qty,
+            uom: line.product.stock_uom || 'pcs',
+            last_updated_at: new Date().toISOString(),
+          });
+        }
+
+        // 3. Update cost_avg (weighted average)
+        const unitCost = Number(line.unit_cost);
+        if (unitCost > 0) {
+          const product = productMap[line.product.id];
+          if (product) {
+            const allStock = stockRecords.filter(s => s.product_id === line.product.id);
+            const totalExisting = allStock.reduce((s, r) => s + (r.qty_on_hand || 0), 0);
+            const existingCost = product.cost_avg || 0;
+            const totalQty = totalExisting + qty;
+            const newAvg = totalQty > 0 ? ((totalExisting * existingCost) + (qty * unitCost)) / totalQty : unitCost;
+            await base44.entities.Product.update(product.id, { cost_avg: Math.round(newAvg * 100) / 100 });
           }
         }
       }
-      // Check if all lines fully received
-      const updatedLines = await base44.entities.PurchaseOrderLine.filter({ purchase_order_id: selectedPO.id }, 'product_name', 100);
-      const allFullyReceived = updatedLines.every(pl => (pl.received_qty || 0) >= (pl.ordered_qty || 0));
-      await base44.entities.PurchaseOrder.update(selectedPO.id, {
-        status: allFullyReceived ? 'received' : 'partially_received',
-      });
-    }
 
-    queryClient.invalidateQueries({ queryKey: ['floor-stock'] });
-    queryClient.invalidateQueries({ queryKey: ['open-pos-floor'] });
-    toast.success(`${validLines.length} items received into ${zone.name}`);
-    setDone(true);
-    setSaving(false);
+      // 4. Update PO line received_qty and PO status
+      if (selectedPO && selectedPO.id !== '_adhoc') {
+        for (const line of validLines) {
+          if (line.po_line_id) {
+            const poLine = poLines.find(pl => pl.id === line.po_line_id);
+            if (poLine) {
+              const newReceived = (poLine.received_qty || 0) + Number(line.qty);
+              await base44.entities.PurchaseOrderLine.update(poLine.id, { received_qty: newReceived });
+            }
+          }
+        }
+        // Check if all lines fully received
+        const updatedLines = await base44.entities.PurchaseOrderLine.filter({ purchase_order_id: selectedPO.id }, 'product_name', 100);
+        const allFullyReceived = updatedLines.every(pl => (pl.received_qty || 0) >= (pl.ordered_qty || 0));
+        await base44.entities.PurchaseOrder.update(selectedPO.id, {
+          status: allFullyReceived ? 'received' : 'partially_received',
+        });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['floor-stock'] });
+      queryClient.invalidateQueries({ queryKey: ['open-pos-floor'] });
+      toast.success(`${validLines.length} items received into ${zone.name}`);
+      setDone(true);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Done screen

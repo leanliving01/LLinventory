@@ -91,56 +91,62 @@ export default function CreateReturnModal({ onCreated, onCancel }) {
     }
     setSaving(true);
 
-    const supplier = suppliers.find(s => s.id === supplierId);
-    // Generate return number
-    const existing = await base44.entities.SupplierReturn.list('-created_date', 1);
-    const lastNum = existing.length > 0
-      ? parseInt((existing[0].return_number || '').split('-').pop() || '0')
-      : 0;
-    const today = format(new Date(), 'yyyyMMdd');
-    const returnNumber = `RET-${today}-${String(lastNum + 1).padStart(3, '0')}`;
+    try {
+      const supplier = suppliers.find(s => s.id === supplierId);
+      // Generate return number
+      const existing = await base44.entities.SupplierReturn.list('-created_date', 1);
+      const lastNum = existing.length > 0
+        ? parseInt((existing[0].return_number || '').split('-').pop() || '0')
+        : 0;
+      const today = format(new Date(), 'yyyyMMdd');
+      const returnNumber = `RET-${today}-${String(lastNum + 1).padStart(3, '0')}`;
 
-    const ret = await base44.entities.SupplierReturn.create({
-      return_number: returnNumber,
-      grn_id: grnId,
-      supplier_id: supplierId,
-      supplier_name: supplier?.name || '',
-      return_date: returnDate,
-      status: 'pending_return',
-      total_return_value: Math.round(totalReturnValue * 100) / 100,
-      notes,
-    });
+      const ret = await base44.entities.SupplierReturn.create({
+        return_number: returnNumber,
+        grn_id: grnId,
+        supplier_id: supplierId,
+        supplier_name: supplier?.name || '',
+        return_date: returnDate,
+        status: 'pending_return',
+        total_return_value: Math.round(totalReturnValue * 100) / 100,
+        notes,
+      });
 
-    // Create return lines
-    const returnLines = selectedLines.map(l => {
-      const returnQty = parseFloat(l.return_qty) || 0;
-      const cf = parseFloat(l.conversion_factor) || 1;
-      const yf = parseFloat(l.yield_factor) || 1;
-      return {
-        return_id: ret.id,
-        grn_line_id: l.grn_line_id,
-        supplier_product_id: l.supplier_product_id,
-        product_id: l.product_id,
-        product_name: l.product_name,
-        product_sku: l.product_sku,
-        return_qty: returnQty,
-        return_value: Math.round(returnQty * (parseFloat(l.unit_cost) || 0) * 100) / 100,
-        internal_qty_returned: Math.round(returnQty * cf * yf * 1000) / 1000,
-        reason: l.reason,
-        reason_detail: l.reason_detail,
-      };
-    });
-    await base44.entities.SupplierReturnLine.bulkCreate(returnLines);
+      // Create return lines
+      const returnLines = selectedLines.map(l => {
+        const returnQty = parseFloat(l.return_qty) || 0;
+        const cf = parseFloat(l.conversion_factor) || 1;
+        const yf = parseFloat(l.yield_factor) || 1;
+        return {
+          return_id: ret.id,
+          grn_line_id: l.grn_line_id,
+          supplier_product_id: l.supplier_product_id,
+          product_id: l.product_id,
+          product_name: l.product_name,
+          product_sku: l.product_sku,
+          return_qty: returnQty,
+          return_value: Math.round(returnQty * (parseFloat(l.unit_cost) || 0) * 100) / 100,
+          internal_qty_returned: Math.round(returnQty * cf * yf * 1000) / 1000,
+          reason: l.reason,
+          reason_detail: l.reason_detail,
+        };
+      });
+      await base44.entities.SupplierReturnLine.bulkCreate(returnLines);
 
-    writeAuditLog({
-      action: 'create',
-      entity_type: 'SupplierReturn',
-      entity_id: ret.id,
-      description: `Created return ${returnNumber}: ${returnLines.length} lines, R ${totalReturnValue.toFixed(2)}`,
-    });
+      writeAuditLog({
+        action: 'create',
+        entity_type: 'SupplierReturn',
+        entity_id: ret.id,
+        description: `Created return ${returnNumber}: ${returnLines.length} lines, R ${totalReturnValue.toFixed(2)}`,
+      });
 
-    toast.success(`Return ${returnNumber} created`);
-    setSaving(false);
+      toast.success(`Return ${returnNumber} created`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     onCreated(ret);
   };
 

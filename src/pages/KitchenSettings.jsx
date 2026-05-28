@@ -33,11 +33,22 @@ export default function KitchenSettings() {
 
   const handleSave = async () => {
     setSaving(true);
-    await base44.auth.updateMe({ station: selected });
-    toast.success(`Station set to ${selected.toUpperCase()}`);
-    setSaving(false);
-    // Reload to pick up new user data
-    window.location.href = '/kitchen';
+    try {
+      if (user?.id) {
+        // Try to update team_members if it exists
+        const members = await base44.entities.TeamMember.filter({ auth_id: user.id }, 'created_date', 1);
+        if (members && members.length > 0) {
+          await base44.entities.TeamMember.update(members[0].id, { station: selected });
+          toast.success(`Station set to ${selected.toUpperCase()}`);
+        } else {
+          toast.warning('Station saved locally, but no team profile found.');
+        }
+      window.location.href = '/kitchen';
+    } catch (err) {
+      toast.error('Failed to save station: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

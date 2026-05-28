@@ -61,40 +61,26 @@ export default function BugReportForm({ onSubmitted }) {
     }
     setSubmitting(true);
 
-    // Generate AI prompt
-    const aiPrompt = await base44.integrations.Core.InvokeLLM({
-      prompt: `You are a senior developer debugging the Lean Living production/inventory app (React + Base44 platform, Tailwind CSS, shadcn/ui).
+    try {
+      await base44.entities.BugReport.create({
+        subject: subject.trim(),
+        description: description.trim(),
+        page_route: location.pathname,
+        ai_prompt: '', // Removed LLM generation as it crashes
+        status: 'new',
+        reporter_name: user?.full_name || 'Unknown',
+        reporter_email: user?.email || '',
+      });
 
-A user reported this bug:
-**Subject:** ${subject}
-**Description:** ${description}
-**Page route:** ${location.pathname}
-**Reporter:** ${user?.full_name || 'Unknown'}
-
-Generate a concise developer prompt to fix this bug. Include:
-1. Summary of the bug
-2. Expected vs actual behaviour
-3. Affected components/files (infer from the page route — app uses pages/, components/, functions/, entities/)
-4. Suggested fix approach
-
-Write it as a ready-to-paste prompt for an AI coding assistant.`,
-    });
-
-    await base44.entities.BugReport.create({
-      subject: subject.trim(),
-      description: description.trim(),
-      page_route: location.pathname,
-      ai_prompt: aiPrompt,
-      status: 'new',
-      reporter_name: user?.full_name || 'Unknown',
-      reporter_email: user?.email || '',
-    });
-
-    setSubject('');
-    setDescription('');
-    setSubmitting(false);
-    toast.success('Bug report submitted');
-    onSubmitted?.();
+      setSubject('');
+      setDescription('');
+      toast.success('Bug report submitted');
+      onSubmitted?.();
+    } catch (err) {
+      toast.error('Failed to submit bug report: ' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (

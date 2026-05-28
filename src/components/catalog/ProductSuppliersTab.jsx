@@ -191,27 +191,34 @@ function AddSupplierForm({ productId, productName, productSku, stockUom, supplie
   const handleSave = async () => {
     if (!form.supplier_id) { toast.error('Select a supplier'); return; }
     setSaving(true);
-    const cf = parseFloat(form.conversion_factor) || 1;
-    await base44.entities.SupplierProduct.create({
-      supplier_id: form.supplier_id,
-      supplier_name: selectedSupplier?.name || '',
-      product_id: productId,
-      product_name: productName,
-      product_sku: productSku,
-      supplier_sku: form.supplier_sku,
-      supplier_description: form.supplier_description,
-      purchase_uom: form.purchase_uom,
-      purchase_uom_label: form.purchase_uom_label,
-      conversion_factor: cf,
-      conversion_uom: stockUom || 'kg',
-      yield_factor: 1.0,
-      effective_internal_qty: cf,
-      last_purchase_price: parseFloat(form.last_purchase_price) || 0,
-      is_default_supplier: form.is_default_supplier,
-      active: true,
-    });
-    toast.success('Supplier linked');
-    setSaving(false);
+
+    try {
+      const cf = parseFloat(form.conversion_factor) || 1;
+      await base44.entities.SupplierProduct.create({
+        supplier_id: form.supplier_id,
+        supplier_name: selectedSupplier?.name || '',
+        product_id: productId,
+        product_name: productName,
+        product_sku: productSku,
+        supplier_sku: form.supplier_sku,
+        supplier_description: form.supplier_description,
+        purchase_uom: form.purchase_uom,
+        purchase_uom_label: form.purchase_uom_label,
+        conversion_factor: cf,
+        conversion_uom: stockUom || 'kg',
+        yield_factor: 1.0,
+        effective_internal_qty: cf,
+        last_purchase_price: parseFloat(form.last_purchase_price) || 0,
+        is_default_supplier: form.is_default_supplier,
+        active: true,
+      });
+      toast.success('Supplier linked');
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     onCreated();
   };
 

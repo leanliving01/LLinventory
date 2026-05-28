@@ -34,21 +34,28 @@ export default function ProductEquipmentTab({ productId, productName, productSku
     }
     const eq = equipment.find(e => e.id === form.equipment_id);
     setSaving(true);
-    await base44.entities.EquipmentCapacity.create({
-      equipment_id: form.equipment_id,
-      equipment_name: eq?.name || '',
-      product_id: productId,
-      product_name: productName,
-      product_sku: productSku,
-      max_capacity: Number(form.max_capacity),
-      capacity_uom: form.capacity_uom,
-      cycle_time_min: form.cycle_time_min ? Number(form.cycle_time_min) : undefined,
-      notes: form.notes,
-    });
-    queryClient.invalidateQueries({ queryKey: ['equipment-capacities', productId] });
-    setForm({ equipment_id: '', max_capacity: '', capacity_uom: 'kg', cycle_time_min: '', notes: '' });
-    setAdding(false);
-    setSaving(false);
+
+    try {
+      await base44.entities.EquipmentCapacity.create({
+        equipment_id: form.equipment_id,
+        equipment_name: eq?.name || '',
+        product_id: productId,
+        product_name: productName,
+        product_sku: productSku,
+        max_capacity: Number(form.max_capacity),
+        capacity_uom: form.capacity_uom,
+        cycle_time_min: form.cycle_time_min ? Number(form.cycle_time_min) : undefined,
+        notes: form.notes,
+      });
+      queryClient.invalidateQueries({ queryKey: ['equipment-capacities', productId] });
+      setForm({ equipment_id: '', max_capacity: '', capacity_uom: 'kg', cycle_time_min: '', notes: '' });
+      setAdding(false);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     toast.success('Equipment capacity rule added');
   };
 

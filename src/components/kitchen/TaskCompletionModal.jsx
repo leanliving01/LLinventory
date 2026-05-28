@@ -279,12 +279,11 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
             </div>
           ) : isPortioning ? (
             /* ===== PORTIONING FLOW ===== */
-            <>
+            (<>
               {/* From Cook Step — show what's available from cooking */}
               {prevStepInfo.hasPreviousStep && (
                 <PreviousStepCard previousStation={prevStepInfo.previousStation} items={prevStepInfo.items} compact />
               )}
-
               {/* Step 1: Bulk leftover */}
               {bulkRows.length > 0 && (
                 <div>
@@ -342,7 +341,6 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                   </div>
                 </div>
               )}
-
               {/* Step 2: Plates produced */}
               <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-xl p-4">
                 <div className="flex items-center justify-between gap-4">
@@ -371,7 +369,6 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                   </div>
                 )}
               </div>
-
               {/* Auto-calculated packaging breakdown */}
               {otherRows.length > 0 && plates > 0 && (
                 <div>
@@ -410,7 +407,6 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                   </div>
                 </div>
               )}
-
               {/* Variance Note */}
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
@@ -423,15 +419,14 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                   className="h-20"
                 />
               </div>
-            </>
+            </>)
           ) : (
             /* ===== PREP / COOK FLOW ===== */
-            <>
+            (<>
               {/* From Previous Step context (cook-after-prep) */}
               {prevStepInfo.hasPreviousStep && (
                 <PreviousStepCard previousStation={prevStepInfo.previousStation} items={prevStepInfo.items} compact />
               )}
-
               {/* Actual Yield */}
               <div className={`rounded-xl p-4 ${yieldRequired && actualYield === '' ? 'bg-red-50 dark:bg-red-950 border-2 border-red-400 dark:border-red-600' : 'bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800'}`}>
                 <div className="flex items-center justify-between gap-4">
@@ -470,12 +465,10 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                   This yield will cascade to the next station — {task.station === 'prep' ? 'cook' : 'portioning'} will see the actual amount available.
                 </p>
               </div>
-
               <p className="text-sm text-muted-foreground">
                 Confirm actual quantities consumed for <strong>{task.meal_name || task.name}</strong>.
                 Record any unusable waste (peels, skins, off-cuts).
               </p>
-
               <div className="space-y-3">
                 {componentRows.map(row => {
                   const actual = actuals[row.id] ?? row.picked;
@@ -531,7 +524,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
                   );
                 })}
               </div>
-            </>
+            </>)
           )}
         </div>
 

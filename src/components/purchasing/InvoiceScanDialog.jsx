@@ -156,8 +156,8 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
       if (mappedLines.length > 0) {
         await Promise.all(mappedLines.map(({ line, productId }) => {
           const product = products.find(p => p.id === productId);
-          return base44.entities.InvoiceLine.create({
-            invoice_id: invoice.id,
+          return base44.entities.PurchaseInvoiceLine.create({
+            purchase_invoice_id: invoice.id,
             product_id: productId,
             product_name: product?.name || line.description,
             product_sku: product?.sku || '',

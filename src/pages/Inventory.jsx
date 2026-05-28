@@ -73,34 +73,40 @@ export default function Inventory() {
     }
 
     setSaving(true);
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const isProduction = activeTab === 'new-production';
 
-    const records = entries.map(([skuId, value]) => {
-      const sku = skus.find(s => s.id === skuId);
-      const currentStock = latestStockBySkuId[skuId]?.stock_on_hand || 0;
-      const finalStock = isProduction ? currentStock + Number(value) : Number(value);
+    try {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const isProduction = activeTab === 'new-production';
 
-      return {
-        snapshot_date: today,
-        sku_id: skuId,
-        sku_display_name: sku?.display_name || '',
-        package_type: sku?.package_type || '',
-        stock_on_hand: finalStock,
-        entry_type: isProduction ? 'manual' : 'adjustment',
-        notes: isProduction ? `Production add: +${value}` : `Stock take: counted ${value}`,
-      };
-    });
+      const records = entries.map(([skuId, value]) => {
+        const sku = skus.find(s => s.id === skuId);
+        const currentStock = latestStockBySkuId[skuId]?.stock_on_hand || 0;
+        const finalStock = isProduction ? currentStock + Number(value) : Number(value);
 
-    await base44.entities.StockSnapshot.bulkCreate(records);
-    queryClient.invalidateQueries({ queryKey: ['latestStock'] });
-    setStockValues({});
-    toast.success(
-      isProduction
-        ? `Added production for ${entries.length} SKUs`
-        : `Stock take saved for ${entries.length} SKUs`
-    );
-    setSaving(false);
+        return {
+          snapshot_date: today,
+          sku_id: skuId,
+          sku_display_name: sku?.display_name || '',
+          package_type: sku?.package_type || '',
+          stock_on_hand: finalStock,
+          entry_type: isProduction ? 'manual' : 'adjustment',
+          notes: isProduction ? `Production add: +${value}` : `Stock take: counted ${value}`,
+        };
+      });
+
+      await base44.entities.StockSnapshot.bulkCreate(records);
+      queryClient.invalidateQueries({ queryKey: ['latestStock'] });
+      setStockValues({});
+      toast.success(
+        isProduction
+          ? `Added production for ${entries.length} SKUs`
+          : `Stock take saved for ${entries.length} SKUs`
+      );
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const saveCount = Object.values(stockValues).filter(v => v !== '' && v !== undefined).length;

@@ -40,42 +40,48 @@ export default function CreateProductFromLineModal({ line, invoice, onCreated, o
     if (!form.sku.trim()) { toast.error('Enter a SKU'); return; }
     setSaving(true);
 
-    // 1. Create Product
-    const product = await base44.entities.Product.create({
-      name: form.name.trim(),
-      sku: form.sku.trim(),
-      type: form.type,
-      item_type: form.item_type,
-      stock_uom: form.stock_uom,
-      purchasable: form.purchasable,
-      status: 'active',
-      cost_current: parseFloat(form.last_purchase_price) || 0,
-    });
+    try {
+      // 1. Create Product
+      const product = await base44.entities.Product.create({
+        name: form.name.trim(),
+        sku: form.sku.trim(),
+        type: form.type,
+        item_type: form.item_type,
+        stock_uom: form.stock_uom,
+        purchasable: form.purchasable,
+        status: 'active',
+        cost_current: parseFloat(form.last_purchase_price) || 0,
+      });
 
-    // 2. Create SupplierProduct
-    const cf = parseFloat(form.conversion_factor) || 1;
-    const yf = parseFloat(form.yield_factor) || 1;
-    const sp = await base44.entities.SupplierProduct.create({
-      supplier_id: invoice.supplier_id,
-      supplier_name: invoice.supplier_name,
-      product_id: product.id,
-      product_name: product.name,
-      product_sku: product.sku,
-      xero_item_code: form.xero_item_code,
-      supplier_description: line.xero_description || '',
-      purchase_uom: form.purchase_uom,
-      purchase_uom_qty: 1,
-      conversion_uom: form.stock_uom,
-      conversion_factor: cf,
-      yield_factor: yf,
-      effective_internal_qty: Math.round(cf * yf * 1000) / 1000,
-      last_purchase_price: parseFloat(form.last_purchase_price) || 0,
-      is_default_supplier: true,
-      active: true,
-    });
+      // 2. Create SupplierProduct
+      const cf = parseFloat(form.conversion_factor) || 1;
+      const yf = parseFloat(form.yield_factor) || 1;
+      const sp = await base44.entities.SupplierProduct.create({
+        supplier_id: invoice.supplier_id,
+        supplier_name: invoice.supplier_name,
+        product_id: product.id,
+        product_name: product.name,
+        product_sku: product.sku,
+        xero_item_code: form.xero_item_code,
+        supplier_description: line.xero_description || '',
+        purchase_uom: form.purchase_uom,
+        purchase_uom_qty: 1,
+        conversion_uom: form.stock_uom,
+        conversion_factor: cf,
+        yield_factor: yf,
+        effective_internal_qty: Math.round(cf * yf * 1000) / 1000,
+        last_purchase_price: parseFloat(form.last_purchase_price) || 0,
+        is_default_supplier: true,
+        active: true,
+      });
 
-    toast.success(`Created product "${product.name}" and linked to ${invoice.supplier_name}`);
-    setSaving(false);
+      toast.success(`Created product "${product.name}" and linked to ${invoice.supplier_name}`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     onCreated(line, sp, product);
   };
 

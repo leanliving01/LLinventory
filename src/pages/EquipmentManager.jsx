@@ -52,22 +52,29 @@ export default function EquipmentManager() {
       return;
     }
     setSaving(true);
-    await base44.entities.Equipment.create({
-      name: form.name,
-      equipment_type: form.equipment_type,
-      default_capacity: form.default_capacity ? Number(form.default_capacity) : undefined,
-      default_capacity_uom: form.default_capacity_uom,
-      tray_count: form.tray_count ? Number(form.tray_count) : undefined,
-      per_tray_capacity: form.per_tray_capacity ? Number(form.per_tray_capacity) : undefined,
-      per_tray_uom: form.per_tray_uom,
-      notes: form.notes,
-      status: 'active',
-    });
-    queryClient.invalidateQueries({ queryKey: ['equipment-all'] });
-    queryClient.invalidateQueries({ queryKey: ['equipment-list'] });
-    setForm({ name: '', equipment_type: '', default_capacity: '', default_capacity_uom: 'kg', tray_count: '', per_tray_capacity: '', per_tray_uom: 'kg', notes: '' });
-    setAdding(false);
-    setSaving(false);
+
+    try {
+      await base44.entities.Equipment.create({
+        name: form.name,
+        equipment_type: form.equipment_type,
+        default_capacity: form.default_capacity ? Number(form.default_capacity) : undefined,
+        default_capacity_uom: form.default_capacity_uom,
+        tray_count: form.tray_count ? Number(form.tray_count) : undefined,
+        per_tray_capacity: form.per_tray_capacity ? Number(form.per_tray_capacity) : undefined,
+        per_tray_uom: form.per_tray_uom,
+        notes: form.notes,
+        status: 'active',
+      });
+      queryClient.invalidateQueries({ queryKey: ['equipment-all'] });
+      queryClient.invalidateQueries({ queryKey: ['equipment-list'] });
+      setForm({ name: '', equipment_type: '', default_capacity: '', default_capacity_uom: 'kg', tray_count: '', per_tray_capacity: '', per_tray_uom: 'kg', notes: '' });
+      setAdding(false);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     toast.success('Equipment added');
   };
 
@@ -129,20 +136,27 @@ export default function EquipmentManager() {
     }
     setConfirmEdit(false);
     setSaving(true);
-    await base44.entities.Equipment.update(editingId, {
-      name: editForm.name,
-      equipment_type: editForm.equipment_type,
-      default_capacity: editForm.default_capacity ? Number(editForm.default_capacity) : null,
-      default_capacity_uom: editForm.default_capacity_uom,
-      tray_count: editForm.tray_count ? Number(editForm.tray_count) : null,
-      per_tray_capacity: editForm.per_tray_capacity ? Number(editForm.per_tray_capacity) : null,
-      per_tray_uom: editForm.per_tray_uom,
-      notes: editForm.notes,
-    });
-    queryClient.invalidateQueries({ queryKey: ['equipment-all'] });
-    queryClient.invalidateQueries({ queryKey: ['equipment-list'] });
-    setEditingId(null);
-    setSaving(false);
+
+    try {
+      await base44.entities.Equipment.update(editingId, {
+        name: editForm.name,
+        equipment_type: editForm.equipment_type,
+        default_capacity: editForm.default_capacity ? Number(editForm.default_capacity) : null,
+        default_capacity_uom: editForm.default_capacity_uom,
+        tray_count: editForm.tray_count ? Number(editForm.tray_count) : null,
+        per_tray_capacity: editForm.per_tray_capacity ? Number(editForm.per_tray_capacity) : null,
+        per_tray_uom: editForm.per_tray_uom,
+        notes: editForm.notes,
+      });
+      queryClient.invalidateQueries({ queryKey: ['equipment-all'] });
+      queryClient.invalidateQueries({ queryKey: ['equipment-list'] });
+      setEditingId(null);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     toast.success('Equipment updated');
   };
 

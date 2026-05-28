@@ -70,25 +70,31 @@ export default function StockEntry() {
     }
 
     setSaving(true);
-    const today = format(new Date(), 'yyyy-MM-dd');
 
-    const records = entries.map(([skuId, value]) => {
-      const sku = skus.find(s => s.id === skuId);
-      return {
-        snapshot_date: today,
-        sku_id: skuId,
-        sku_display_name: sku?.display_name || '',
-        package_type: sku?.package_type || '',
-        stock_on_hand: Number(value),
-        entry_type: 'manual',
-      };
-    });
+    try {
+      const today = format(new Date(), 'yyyy-MM-dd');
 
-    await base44.entities.StockSnapshot.bulkCreate(records);
-    queryClient.invalidateQueries({ queryKey: ['latestStock'] });
-    setStockValues({});
-    toast.success(`Saved stock for ${entries.length} SKUs`);
-    setSaving(false);
+      const records = entries.map(([skuId, value]) => {
+        const sku = skus.find(s => s.id === skuId);
+        return {
+          snapshot_date: today,
+          sku_id: skuId,
+          sku_display_name: sku?.display_name || '',
+          package_type: sku?.package_type || '',
+          stock_on_hand: Number(value),
+          entry_type: 'manual',
+        };
+      });
+
+      await base44.entities.StockSnapshot.bulkCreate(records);
+      queryClient.invalidateQueries({ queryKey: ['latestStock'] });
+      setStockValues({});
+      toast.success(`Saved stock for ${entries.length} SKUs`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const saveCount = Object.values(stockValues).filter(v => v !== '' && v !== undefined).length;

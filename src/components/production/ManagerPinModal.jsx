@@ -127,7 +127,7 @@ export default function ManagerPinModal({ onVerified, onCancel }) {
             </div>
           ) : (
             /* Step 2: Enter PIN */
-            <div className="space-y-4">
+            (<div className="space-y-4">
               <div className="flex items-center gap-3">
                 <button onClick={() => { setSelectedManager(null); setPin(''); setError(''); }} className="text-sm text-primary hover:underline">
                   ← Change
@@ -138,7 +138,6 @@ export default function ManagerPinModal({ onVerified, onCancel }) {
                 </div>
                 <div className="w-16" />
               </div>
-
               {/* PIN display dots */}
               <div className="flex justify-center gap-4 py-4">
                 {[0, 1, 2, 3].map(i => (
@@ -153,14 +152,12 @@ export default function ManagerPinModal({ onVerified, onCancel }) {
                   />
                 ))}
               </div>
-
               {/* Error */}
               {error && (
                 <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 text-center">
                   <p className="text-sm text-red-600 font-medium">{error}</p>
                 </div>
               )}
-
               {/* Verifying spinner */}
               {verifying && (
                 <div className="flex items-center justify-center gap-2 py-2">
@@ -168,7 +165,6 @@ export default function ManagerPinModal({ onVerified, onCancel }) {
                   <span className="text-sm text-muted-foreground">Verifying...</span>
                 </div>
               )}
-
               {/* Number pad — big tap targets for kitchen use */}
               <div className="grid grid-cols-3 gap-2">
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => (
@@ -197,7 +193,6 @@ export default function ManagerPinModal({ onVerified, onCancel }) {
                   ←
                 </button>
               </div>
-
               {/* Hidden input for physical keyboard */}
               <input
                 ref={inputRef}
@@ -208,7 +203,7 @@ export default function ManagerPinModal({ onVerified, onCancel }) {
                 onChange={() => {}}
                 autoFocus
               />
-            </div>
+            </div>)
           )}
         </div>
       </div>

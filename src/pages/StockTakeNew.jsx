@@ -80,59 +80,65 @@ export default function StockTakeNew() {
     if (!locationId) { toast.error('Select a location before saving — adjustments must be applied to a specific location'); return; }
 
     setSaving(true);
-    const varianceRows = [];
 
-    for (const [productId, countedStr] of entries) {
-      const counted = Number(countedStr);
-      const product = products.find(p => p.id === productId);
-      const systemQty = stockMap[productId]?.qty_on_hand || 0;
-      const variance = counted - systemQty;
+    try {
+      const varianceRows = [];
 
-      varianceRows.push({
-        product_id: productId,
-        product_sku: product?.sku || '',
-        product_name: product?.name || '',
-        system_qty: systemQty,
-        counted_qty: counted,
-        variance,
-        uom: product?.stock_uom || 'pcs',
-      });
+      for (const [productId, countedStr] of entries) {
+        const counted = Number(countedStr);
+        const product = products.find(p => p.id === productId);
+        const systemQty = stockMap[productId]?.qty_on_hand || 0;
+        const variance = counted - systemQty;
 
-      if (variance !== 0) {
-        // Create adjustment movement
-        await base44.entities.StockMovement.create({
+        varianceRows.push({
           product_id: productId,
           product_sku: product?.sku || '',
           product_name: product?.name || '',
-          qty: Math.abs(variance),
+          system_qty: systemQty,
+          counted_qty: counted,
+          variance,
           uom: product?.stock_uom || 'pcs',
-          reason: 'stocktake_adjustment',
-          ref_type: 'stock_take',
-          ref_number: `Count ${format(new Date(), 'dd MMM yyyy')}`,
-          to_location_id: variance > 0 ? (locationId || undefined) : undefined,
-          from_location_id: variance < 0 ? (locationId || undefined) : undefined,
-          notes: `Stock take: system ${systemQty}, counted ${counted}, adj ${variance > 0 ? '+' : ''}${variance}`,
         });
 
-        // Atomically apply the variance as a delta (counted - system = adjustment needed)
-        if (locationId) {
-          await adjustStockOnHand(productId, locationId, variance);
+        if (variance !== 0) {
+          // Create adjustment movement
+          await base44.entities.StockMovement.create({
+            product_id: productId,
+            product_sku: product?.sku || '',
+            product_name: product?.name || '',
+            qty: Math.abs(variance),
+            uom: product?.stock_uom || 'pcs',
+            reason: 'stocktake_adjustment',
+            ref_type: 'stock_take',
+            ref_number: `Count ${format(new Date(), 'dd MMM yyyy')}`,
+            to_location_id: variance > 0 ? (locationId || undefined) : undefined,
+            from_location_id: variance < 0 ? (locationId || undefined) : undefined,
+            notes: `Stock take: system ${systemQty}, counted ${counted}, adj ${variance > 0 ? '+' : ''}${variance}`,
+          });
+
+          // Atomically apply the variance as a delta (counted - system = adjustment needed)
+          if (locationId) {
+            await adjustStockOnHand(productId, locationId, variance);
+          }
         }
       }
+
+      const adjustments = varianceRows.filter(r => r.variance !== 0);
+      queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+      writeAuditLog({
+        action: 'create',
+        entity_type: 'StockMovement',
+        description: `Stock take: ${entries.length} products counted, ${adjustments.length} adjustments (${productType})`,
+      });
+
+      setVarianceData(varianceRows);
+      setShowVariance(true);
+      toast.success(`Stock take saved — ${adjustments.length} adjustments out of ${entries.length} products`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
     }
-
-    const adjustments = varianceRows.filter(r => r.variance !== 0);
-    queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
-    writeAuditLog({
-      action: 'create',
-      entity_type: 'StockMovement',
-      description: `Stock take: ${entries.length} products counted, ${adjustments.length} adjustments (${productType})`,
-    });
-
-    setVarianceData(varianceRows);
-    setShowVariance(true);
-    toast.success(`Stock take saved — ${adjustments.length} adjustments out of ${entries.length} products`);
-    setSaving(false);
   };
 
   if (showVariance) {

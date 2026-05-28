@@ -54,28 +54,34 @@ export default function StockAdjustmentModal({ product, onClose }) {
     if (!numQty || numQty <= 0 || !locationId) return;
     setSaving(true);
 
-    const loc = locations.find(l => l.id === locationId);
-    const uom = product.stock_uom || 'pcs';
+    try {
+      const loc = locations.find(l => l.id === locationId);
+      const uom = product.stock_uom || 'pcs';
 
-    // Create append-only stock movement
-    await base44.entities.StockMovement.create({
-      product_id: product.id,
-      product_sku: product.sku,
-      product_name: product.name,
-      qty: numQty,
-      uom,
-      reason,
-      ...(direction === 'in' ? { to_location_id: locationId } : { from_location_id: locationId }),
-      notes: notes || `Manual adjustment from product page`,
-    });
+      // Create append-only stock movement
+      await base44.entities.StockMovement.create({
+        product_id: product.id,
+        product_sku: product.sku,
+        product_name: product.name,
+        qty: numQty,
+        uom,
+        reason,
+        ...(direction === 'in' ? { to_location_id: locationId } : { from_location_id: locationId }),
+        notes: notes || `Manual adjustment from product page`,
+      });
 
-    // Atomically adjust StockOnHand
-    const delta = direction === 'in' ? numQty : -numQty;
-    await adjustStockOnHand(product.id, locationId, delta);
+      // Atomically adjust StockOnHand
+      const delta = direction === 'in' ? numQty : -numQty;
+      await adjustStockOnHand(product.id, locationId, delta);
 
-    queryClient.invalidateQueries({ queryKey: ['product-stock', product.id] });
-    queryClient.invalidateQueries({ queryKey: ['product-movements', product.id] });
-    setSaving(false);
+      queryClient.invalidateQueries({ queryKey: ['product-stock', product.id] });
+      queryClient.invalidateQueries({ queryKey: ['product-movements', product.id] });
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     onClose();
   };
 

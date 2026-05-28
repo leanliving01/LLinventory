@@ -144,59 +144,64 @@ export default function FloorStockTake() {
     if (entries.length === 0) { toast.error('No counts to save'); return; }
     setSaving(true);
 
-    const rows = [];
-    for (const [productId, countedStr] of entries) {
-      const counted = Number(countedStr);
-      const product = products.find(p => p.id === productId);
-      const systemQty = stockMap[productId]?.qty_on_hand || 0;
-      const variance = counted - systemQty;
-      rows.push({ product, systemQty, counted, variance });
+    try {
+      const rows = [];
+      for (const [productId, countedStr] of entries) {
+        const counted = Number(countedStr);
+        const product = products.find(p => p.id === productId);
+        const systemQty = stockMap[productId]?.qty_on_hand || 0;
+        const variance = counted - systemQty;
+        rows.push({ product, systemQty, counted, variance });
 
-      if (variance !== 0) {
-        await base44.entities.StockMovement.create({
-          product_id: productId,
-          product_sku: product?.sku || '',
-          product_name: product?.name || '',
-          qty: Math.abs(variance),
-          uom: product?.stock_uom || 'pcs',
-          reason: 'stocktake_adjustment',
-          ref_type: 'stock_take',
-          ref_number: `Count ${format(new Date(), 'dd MMM')} — ${zone.name}`,
-          to_location_id: variance > 0 ? zone.id : undefined,
-          from_location_id: variance < 0 ? zone.id : undefined,
-          notes: `Floor stock take: system ${systemQty}, counted ${counted}, adj ${variance > 0 ? '+' : ''}${variance}`,
-        });
-
-        const existing = stockRecords.find(s => s.product_id === productId && s.location_id === zone.id);
-        if (existing) {
-          await base44.entities.StockOnHand.update(existing.id, {
-            qty_on_hand: counted,
-            qty_available: counted - (existing.qty_committed || 0),
-            last_updated_at: new Date().toISOString(),
-          });
-        } else if (counted > 0) {
-          await base44.entities.StockOnHand.create({
+        if (variance !== 0) {
+          await base44.entities.StockMovement.create({
             product_id: productId,
             product_sku: product?.sku || '',
             product_name: product?.name || '',
-            location_id: zone.id,
-            location_name: zone.name,
-            qty_on_hand: counted,
-            qty_committed: 0,
-            qty_available: counted,
+            qty: Math.abs(variance),
             uom: product?.stock_uom || 'pcs',
-            last_updated_at: new Date().toISOString(),
+            reason: 'stocktake_adjustment',
+            ref_type: 'stock_take',
+            ref_number: `Count ${format(new Date(), 'dd MMM')} — ${zone.name}`,
+            to_location_id: variance > 0 ? zone.id : undefined,
+            from_location_id: variance < 0 ? zone.id : undefined,
+            notes: `Floor stock take: system ${systemQty}, counted ${counted}, adj ${variance > 0 ? '+' : ''}${variance}`,
           });
+
+          const existing = stockRecords.find(s => s.product_id === productId && s.location_id === zone.id);
+          if (existing) {
+            await base44.entities.StockOnHand.update(existing.id, {
+              qty_on_hand: counted,
+              qty_available: counted - (existing.qty_committed || 0),
+              last_updated_at: new Date().toISOString(),
+            });
+          } else if (counted > 0) {
+            await base44.entities.StockOnHand.create({
+              product_id: productId,
+              product_sku: product?.sku || '',
+              product_name: product?.name || '',
+              location_id: zone.id,
+              location_name: zone.name,
+              qty_on_hand: counted,
+              qty_committed: 0,
+              qty_available: counted,
+              uom: product?.stock_uom || 'pcs',
+              last_updated_at: new Date().toISOString(),
+            });
+          }
         }
       }
-    }
 
-    queryClient.invalidateQueries({ queryKey: ['floor-stock-count'] });
-    const adjustments = rows.filter(r => r.variance !== 0);
-    setVarianceRows(rows);
-    setShowResult(true);
-    toast.success(`${entries.length} counted, ${adjustments.length} adjustments saved`);
-    setSaving(false);
+      queryClient.invalidateQueries({ queryKey: ['floor-stock-count'] });
+      const adjustments = rows.filter(r => r.variance !== 0);
+      setVarianceRows(rows);
+      setShowResult(true);
+      toast.success(`${entries.length} counted, ${adjustments.length} adjustments saved`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Step 0: Zone picker

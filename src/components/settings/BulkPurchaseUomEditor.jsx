@@ -84,26 +84,32 @@ export default function BulkPurchaseUomEditor({ onBack }) {
     if (entries.length === 0) return;
 
     setSaving(true);
-    let saved = 0;
 
-    for (const [productId, changes] of entries) {
-      const updateData = {};
-      if (changes.purchase_uom !== undefined) updateData.purchase_uom = changes.purchase_uom;
-      if (changes.purchase_to_stock_factor !== undefined) {
-        const val = parseFloat(changes.purchase_to_stock_factor);
-        if (!isNaN(val) && val > 0) updateData.purchase_to_stock_factor = val;
+    try {
+      let saved = 0;
+
+      for (const [productId, changes] of entries) {
+        const updateData = {};
+        if (changes.purchase_uom !== undefined) updateData.purchase_uom = changes.purchase_uom;
+        if (changes.purchase_to_stock_factor !== undefined) {
+          const val = parseFloat(changes.purchase_to_stock_factor);
+          if (!isNaN(val) && val > 0) updateData.purchase_to_stock_factor = val;
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          await base44.entities.Product.update(productId, updateData);
+          saved++;
+        }
       }
 
-      if (Object.keys(updateData).length > 0) {
-        await base44.entities.Product.update(productId, updateData);
-        saved++;
-      }
+      setEdits({});
+      queryClient.invalidateQueries({ queryKey: ['bulk-uom-products'] });
+      toast.success(`Updated purchase UoM for ${saved} product${saved !== 1 ? 's' : ''}`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
     }
-
-    setEdits({});
-    queryClient.invalidateQueries({ queryKey: ['bulk-uom-products'] });
-    toast.success(`Updated purchase UoM for ${saved} product${saved !== 1 ? 's' : ''}`);
-    setSaving(false);
   };
 
   const missingCount = products.filter(p => !p.purchase_uom).length;

@@ -32,6 +32,7 @@ function withTimeout(queryBuilder, ms = 60000) {
 
 // Entity name → Supabase table name
 const ENTITY_TABLE_MAP = {
+  User:                     'users',
   Location:                 'locations',
   UnitOfMeasure:            'units_of_measure',
   ProductCategory:          'product_categories',
@@ -264,17 +265,23 @@ export const base44 = {
   functions: {
     invoke: async (fnName, payload) => {
       const EDGE_FUNCTIONS = {
-        xeroAuth:                 'xero-auth',
-        syncXeroInvoices:         'sync-xero-invoices',
-        syncXeroPurchaseOrders:   'sync-xero-purchase-orders',
-        bulkSyncProducts:         'sync-shopify-products',
-        bulkSyncOrders:           'sync-shopify-orders',
-        recalcCommittedDemand:    'recalc-demand',
-        'recalc-demand':          'recalc-demand',
-        'recalc-committed-stock': 'recalc-committed-stock',
-        bulkSyncCustomers:        'sync-shopify-customers',
-        reconcileShopify:         'reconcile-shopify',
-        costRollup:               'cost-rollup',
+        xeroAuth:                    'xero-auth',
+        syncXeroInvoices:            'sync-xero-invoices',
+        syncXeroPurchaseOrders:      'sync-xero-purchase-orders',
+        reconcileShopify:            'reconcile-shopify',
+        costRollup:                  'cost-rollup',
+        syncShopifyProducts:         'sync-shopify-products',
+        syncHistoricalOrders:        'sync-historical-orders',
+        calculateParRecommendations: 'calculate-par-recs',
+        autoLinkPOLines:             'auto-link-po-lines',
+        aiResolvePOMatches:          'ai-resolve-po-matches',
+        cin7Import:                  'cin7-import',
+        cin7BomImport:               'cin7-bom-import',
+        bulkSyncOrders:              'sync-shopify-orders',
+        recalcCommittedDemand:       'recalc-demand',
+        'recalc-demand':             'recalc-demand',
+        'recalc-committed-stock':    'recalc-committed-stock',
+        bulkSyncCustomers:           'sync-shopify-customers',
       };
       const edgeFn = EDGE_FUNCTIONS[fnName];
       if (edgeFn) {

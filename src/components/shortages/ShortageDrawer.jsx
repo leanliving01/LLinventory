@@ -50,20 +50,27 @@ export default function ShortageDrawer({ shortage, onClose, onUpdated, canResolv
   const handleResolve = async () => {
     if (!form.status) { toast.error('Select a resolution'); return; }
     setSaving(true);
-    await base44.entities.SupplierShortage.update(shortage.id, {
-      status: form.status,
-      resolution_date: form.resolution_date,
-      resolution_notes: form.resolution_notes,
-      credit_note_number: form.credit_note_number || undefined,
-    });
-    writeAuditLog({
-      action: 'resolve',
-      entity_type: 'SupplierShortage',
-      entity_id: shortage.id,
-      description: `Resolved shortage: ${shortage.product_name} — ${form.status.replace('_', ' ')}`,
-    });
-    toast.success('Shortage resolved');
-    setSaving(false);
+
+    try {
+      await base44.entities.SupplierShortage.update(shortage.id, {
+        status: form.status,
+        resolution_date: form.resolution_date,
+        resolution_notes: form.resolution_notes,
+        credit_note_number: form.credit_note_number || undefined,
+      });
+      writeAuditLog({
+        action: 'resolve',
+        entity_type: 'SupplierShortage',
+        entity_id: shortage.id,
+        description: `Resolved shortage: ${shortage.product_name} — ${form.status.replace('_', ' ')}`,
+      });
+      toast.success('Shortage resolved');
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     onUpdated?.();
     onClose();
   };

@@ -20,23 +20,29 @@ export default function EditMealNameDialog({ open, onClose, mealGroup, onSaved }
 
     setSaving(true);
 
-    // 1. Update the Meal entity name
-    if (mealGroup.mealId) {
-      await base44.entities.Meal.update(mealGroup.mealId, { meal_name: trimmed });
+    try {
+      // 1. Update the Meal entity name
+      if (mealGroup.mealId) {
+        await base44.entities.Meal.update(mealGroup.mealId, { meal_name: trimmed });
+      }
+
+      // 2. Update all SKUs for this meal
+      const allSkus = Object.values(mealGroup.skusByType);
+      for (const sku of allSkus) {
+        const displayName = `${trimmed} (${sku.package_type === 'LOW_CARB' ? 'LC' : sku.package_type} ${sku.portion_size_grams}g)`;
+        await base44.entities.SKU.update(sku.id, {
+          meal_name: trimmed,
+          display_name: displayName,
+        });
+      }
+
+      toast.success(`Updated "${mealGroup.mealName}" → "${trimmed}" across ${allSkus.length} SKUs`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
     }
 
-    // 2. Update all SKUs for this meal
-    const allSkus = Object.values(mealGroup.skusByType);
-    for (const sku of allSkus) {
-      const displayName = `${trimmed} (${sku.package_type === 'LOW_CARB' ? 'LC' : sku.package_type} ${sku.portion_size_grams}g)`;
-      await base44.entities.SKU.update(sku.id, {
-        meal_name: trimmed,
-        display_name: displayName,
-      });
-    }
-
-    toast.success(`Updated "${mealGroup.mealName}" → "${trimmed}" across ${allSkus.length} SKUs`);
-    setSaving(false);
     onSaved();
     onClose();
   };

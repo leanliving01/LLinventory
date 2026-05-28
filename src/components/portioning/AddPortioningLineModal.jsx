@@ -55,18 +55,25 @@ export default function AddPortioningLineModal({ portioningRunId, onCreated, onC
     }
 
     setSaving(true);
-    await base44.entities.PortioningRunLine.create({
-      portioning_run_id: portioningRunId,
-      bulk_product_id: bulkProductId,
-      bulk_product_name: selectedProduct.name,
-      bulk_product_sku: selectedProduct.sku,
-      planned_qty_kg: Number(plannedKg),
-      opening_qty_kg: selectedProduct.totalKg,
-      qc_override_reason: needsQcOverride ? qcOverrideReason : null,
-      recording_method: 'direct_used',
-    });
-    toast.success('Line added');
-    setSaving(false);
+
+    try {
+      await base44.entities.PortioningRunLine.create({
+        portioning_run_id: portioningRunId,
+        bulk_product_id: bulkProductId,
+        bulk_product_name: selectedProduct.name,
+        bulk_product_sku: selectedProduct.sku,
+        planned_qty_kg: Number(plannedKg),
+        opening_qty_kg: selectedProduct.totalKg,
+        qc_override_reason: needsQcOverride ? qcOverrideReason : null,
+        recording_method: 'direct_used',
+      });
+      toast.success('Line added');
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     onCreated();
   };
 

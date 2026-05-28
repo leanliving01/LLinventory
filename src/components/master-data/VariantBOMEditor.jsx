@@ -43,20 +43,26 @@ export default function VariantBOMEditor({ packageProduct, familyColors }) {
   const handleAddLine = async () => {
     if (!addSkuId) return;
     setSaving(true);
-    const sku = skus.find(s => s.id === addSkuId);
-    const today = format(new Date(), 'yyyy-MM-dd');
-    await base44.entities.PackageBOMLine.create({
-      package_product_id: packageProduct.id,
-      sku_id: addSkuId,
-      sku_display_name: sku?.display_name || sku?.meal_name || '',
-      quantity_per_pack: Number(addQty),
-      effective_from: today,
-    });
-    queryClient.invalidateQueries({ queryKey: ['bomLines', packageProduct.id] });
-    setAddSkuId('');
-    setAddQty(1);
-    toast.success(`Added ${sku?.display_name || 'SKU'} to BOM`);
-    setSaving(false);
+
+    try {
+      const sku = skus.find(s => s.id === addSkuId);
+      const today = format(new Date(), 'yyyy-MM-dd');
+      await base44.entities.PackageBOMLine.create({
+        package_product_id: packageProduct.id,
+        sku_id: addSkuId,
+        sku_display_name: sku?.display_name || sku?.meal_name || '',
+        quantity_per_pack: Number(addQty),
+        effective_from: today,
+      });
+      queryClient.invalidateQueries({ queryKey: ['bomLines', packageProduct.id] });
+      setAddSkuId('');
+      setAddQty(1);
+      toast.success(`Added ${sku?.display_name || 'SKU'} to BOM`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleRemoveLine = async (line) => {

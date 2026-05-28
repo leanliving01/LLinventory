@@ -55,10 +55,9 @@ export default function ProductCookBomCard({ product, onTypeChanged }) {
         <ChefHat className="w-5 h-5 text-orange-500" />
         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Cook Recipe</h3>
       </div>
-
       {cookBom ? (
         /* Cook BOM exists */
-        <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 flex items-center justify-between">
+        (<div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
               <Check className="w-4 h-4 text-green-600" />
@@ -75,10 +74,10 @@ export default function ProductCookBomCard({ product, onTypeChanged }) {
               <ExternalLink className="w-3.5 h-3.5" /> View Recipe
             </Button>
           </Link>
-        </div>
+        </div>)
       ) : isWip ? (
         /* Product is wip_bulk but no BOM yet */
-        <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4 flex items-center justify-between">
+        (<div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
               Marked as Bulk Cooked — no Cook Recipe yet
@@ -92,10 +91,10 @@ export default function ProductCookBomCard({ product, onTypeChanged }) {
               <Plus className="w-3.5 h-3.5" /> Create Recipe
             </Button>
           </Link>
-        </div>
+        </div>)
       ) : (
         /* Product is raw — offer to promote */
-        <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+        (<div className="bg-muted/50 rounded-lg p-4 space-y-3">
           <p className="text-sm text-muted-foreground">
             This item is currently typed as <Badge variant="outline" className="mx-1 text-[10px]">{product.type}</Badge>.
             If it's something you <strong>cook from raw ingredients</strong> during production (e.g. roasted vegetables, mixed sauces), 
@@ -113,7 +112,7 @@ export default function ProductCookBomCard({ product, onTypeChanged }) {
               Mark as Bulk Cooked
             </Button>
           </div>
-        </div>
+        </div>)
       )}
     </div>
   );

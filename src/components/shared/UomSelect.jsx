@@ -26,18 +26,24 @@ export default function UomSelect({ value, onValueChange, placeholder = 'Select'
   const handleAdd = async () => {
     if (!newCode.trim()) return;
     setSaving(true);
-    await base44.entities.UnitOfMeasure.create({
-      code: newCode.trim(),
-      name: newName.trim() || newCode.trim(),
-      category: newCategory,
-      is_default: false,
-    });
-    queryClient.invalidateQueries({ queryKey: ['uom-list'] });
-    onValueChange(newCode.trim());
-    setShowAdd(false);
-    setNewCode('');
-    setNewName('');
-    setSaving(false);
+
+    try {
+      await base44.entities.UnitOfMeasure.create({
+        code: newCode.trim(),
+        name: newName.trim() || newCode.trim(),
+        category: newCategory,
+        is_default: false,
+      });
+      queryClient.invalidateQueries({ queryKey: ['uom-list'] });
+      onValueChange(newCode.trim());
+      setShowAdd(false);
+      setNewCode('');
+      setNewName('');
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const uomCodes = uoms.map(u => u.code);

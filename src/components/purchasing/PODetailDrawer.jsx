@@ -358,7 +358,7 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
 
             {editing ? (
               /* ===== EDIT MODE ===== */
-              <div className="border border-border rounded-lg overflow-hidden">
+              (<div className="border border-border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-muted/50 border-b border-border">
@@ -432,10 +432,10 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                     })}
                   </tbody>
                 </table>
-              </div>
+              </div>)
             ) : (
               /* ===== READ MODE — inline editable ===== */
-              <div className="border border-border rounded-lg overflow-hidden">
+              (<div className="border border-border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-muted/50 border-b border-border">
@@ -522,7 +522,7 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                     </div>
                   </div>
                 )}
-              </div>
+              </div>)
             )}
           </div>
 
@@ -597,7 +597,6 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
           )}
         </div>
       </div>
-
       {showReceive && (
         <ReceiveAgainstPOModal
           po={po}

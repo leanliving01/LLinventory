@@ -57,53 +57,59 @@ export default function Receiving() {
     if (validLines.length === 0) { toast.error('Add at least one product with quantity'); return; }
 
     setSaving(true);
-    const loc = locations.find(l => l.id === locationId);
 
-    // 1. Create receipt stock movements
-    const supplierName = supplierId ? suppliers.find(s => s.id === supplierId)?.name || '' : '';
-    const movements = validLines.map(line => {
-      const product = products.find(p => p.id === line.product_id);
-      return {
-        product_id: line.product_id,
-        product_sku: product?.sku || '',
-        product_name: product?.name || '',
-        to_location_id: locationId,
-        qty: Number(line.qty),
-        uom: product?.stock_uom || 'pcs',
-        reason: 'receipt',
-        ref_type: 'manual',
-        ref_number: supplierName ? `Receipt from ${supplierName}` : `Receipt to ${loc?.name}`,
-        unit_cost_at_movement: Number(line.unit_cost) || product?.cost_avg || 0,
-        notes: `Receipt to ${loc?.name}${supplierName ? ` from ${supplierName}` : ''}`,
-      };
-    });
+    try {
+      const loc = locations.find(l => l.id === locationId);
 
-    await base44.entities.StockMovement.bulkCreate(movements);
-
-    // 2 + 3. Atomically update StockOnHand with weighted-average cost
-    for (const line of validLines) {
-      const qty = Number(line.qty);
-      const unitCost = Number(line.unit_cost) || 0;
-      await adjustStockOnHand(line.product_id, locationId, qty, unitCost || null);
-
-      if (unitCost) {
+      // 1. Create receipt stock movements
+      const supplierName = supplierId ? suppliers.find(s => s.id === supplierId)?.name || '' : '';
+      const movements = validLines.map(line => {
         const product = products.find(p => p.id === line.product_id);
-        if (product) {
-          await base44.entities.Product.update(product.id, { cost_avg: Math.round(unitCost * 100) / 100 });
+        return {
+          product_id: line.product_id,
+          product_sku: product?.sku || '',
+          product_name: product?.name || '',
+          to_location_id: locationId,
+          qty: Number(line.qty),
+          uom: product?.stock_uom || 'pcs',
+          reason: 'receipt',
+          ref_type: 'manual',
+          ref_number: supplierName ? `Receipt from ${supplierName}` : `Receipt to ${loc?.name}`,
+          unit_cost_at_movement: Number(line.unit_cost) || product?.cost_avg || 0,
+          notes: `Receipt to ${loc?.name}${supplierName ? ` from ${supplierName}` : ''}`,
+        };
+      });
+
+      await base44.entities.StockMovement.bulkCreate(movements);
+
+      // 2 + 3. Atomically update StockOnHand with weighted-average cost
+      for (const line of validLines) {
+        const qty = Number(line.qty);
+        const unitCost = Number(line.unit_cost) || 0;
+        await adjustStockOnHand(line.product_id, locationId, qty, unitCost || null);
+
+        if (unitCost) {
+          const product = products.find(p => p.id === line.product_id);
+          if (product) {
+            await base44.entities.Product.update(product.id, { cost_avg: Math.round(unitCost * 100) / 100 });
+          }
         }
       }
-    }
 
-    queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
-    queryClient.invalidateQueries({ queryKey: ['active-products'] });
-    writeAuditLog({
-      action: 'create',
-      entity_type: 'StockMovement',
-      description: `Received ${validLines.length} products into ${loc?.name}`,
-    });
-    toast.success(`Received ${validLines.length} products into ${loc?.name} — stock & costs updated`);
-    setLines([{ product_id: '', qty: '', unit_cost: '' }]);
-    setSaving(false);
+      queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+      queryClient.invalidateQueries({ queryKey: ['active-products'] });
+      writeAuditLog({
+        action: 'create',
+        entity_type: 'StockMovement',
+        description: `Received ${validLines.length} products into ${loc?.name}`,
+      });
+      toast.success(`Received ${validLines.length} products into ${loc?.name} — stock & costs updated`);
+      setLines([{ product_id: '', qty: '', unit_cost: '' }]);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const totalLineValue = validLines.reduce((sum, l) => {

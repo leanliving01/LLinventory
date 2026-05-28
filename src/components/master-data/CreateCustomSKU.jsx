@@ -27,35 +27,41 @@ export default function CreateCustomSKU({ onClose }) {
 
     setSaving(true);
 
-    // Check if meal exists, create if not
-    const meals = await base44.entities.Meal.filter({ meal_name: form.meal_name });
-    let mealId;
-    if (meals.length > 0) {
-      mealId = meals[0].id;
-    } else {
-      const familyType = form.package_type === 'LOW_CARB' ? 'low_carb' : 'goal_related';
-      const newMeal = await base44.entities.Meal.create({
+    try {
+      // Check if meal exists, create if not
+      const meals = await base44.entities.Meal.filter({ meal_name: form.meal_name });
+      let mealId;
+      if (meals.length > 0) {
+        mealId = meals[0].id;
+      } else {
+        const familyType = form.package_type === 'LOW_CARB' ? 'low_carb' : 'goal_related';
+        const newMeal = await base44.entities.Meal.create({
+          meal_name: form.meal_name,
+          family_type: familyType,
+          is_active: true,
+        });
+        mealId = newMeal.id;
+        queryClient.invalidateQueries({ queryKey: ['meals'] });
+      }
+
+      await base44.entities.SKU.create({
+        sku_code: form.sku_code,
+        meal_id: mealId,
         meal_name: form.meal_name,
-        family_type: familyType,
+        package_type: form.package_type,
+        portion_size_grams: form.portion_size_grams ? Number(form.portion_size_grams) : undefined,
+        display_name: form.display_name || `${form.meal_name} (${PACKAGE_LABELS[form.package_type]})`,
         is_active: true,
       });
-      mealId = newMeal.id;
-      queryClient.invalidateQueries({ queryKey: ['meals'] });
+
+      queryClient.invalidateQueries({ queryKey: ['skus'] });
+      toast.success(`Created custom SKU: ${form.sku_code}`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
     }
 
-    await base44.entities.SKU.create({
-      sku_code: form.sku_code,
-      meal_id: mealId,
-      meal_name: form.meal_name,
-      package_type: form.package_type,
-      portion_size_grams: form.portion_size_grams ? Number(form.portion_size_grams) : undefined,
-      display_name: form.display_name || `${form.meal_name} (${PACKAGE_LABELS[form.package_type]})`,
-      is_active: true,
-    });
-
-    queryClient.invalidateQueries({ queryKey: ['skus'] });
-    toast.success(`Created custom SKU: ${form.sku_code}`);
-    setSaving(false);
     onClose();
   };
 

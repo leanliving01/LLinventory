@@ -95,10 +95,16 @@ export default function DuplicateAuditModal({ onClose, onMergesComplete }) {
 
   const runAudit = async () => {
     setLoading(true);
-    const res = await base44.functions.invoke('auditDuplicateProducts', { type_filter: 'raw' });
-    setAuditData(res.data);
-    setClusters(res.data.clusters || []);
-    setLoading(false);
+
+    try {
+      const res = await base44.functions.invoke('auditDuplicateProducts', { type_filter: 'raw' });
+      setAuditData(res.data);
+      setClusters(res.data.clusters || []);
+    } catch (err) {
+      toast.error('Operation failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleMerge = async (cluster) => {

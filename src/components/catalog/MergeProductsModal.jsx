@@ -19,21 +19,34 @@ export default function MergeProductsModal({ products, onClose, onMerged }) {
 
   const handlePreview = async () => {
     setLoading(true);
-    const res = await base44.functions.invoke('mergeProducts', {
-      product_ids: products.map(p => p.id),
-      preview: true,
-    });
-    setPlan(res.data.plan);
-    setLoading(false);
+
+    try {
+      const res = await base44.functions.invoke('mergeProducts', {
+        product_ids: products.map(p => p.id),
+        preview: true,
+      });
+      setPlan(res.data.plan);
+    } catch (err) {
+      toast.error('Operation failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleExecute = async () => {
     setLoading(true);
-    const res = await base44.functions.invoke('mergeProducts', {
-      product_ids: products.map(p => p.id),
-      preview: false,
-    });
-    setLoading(false);
+
+    try {
+      const res = await base44.functions.invoke('mergeProducts', {
+        product_ids: products.map(p => p.id),
+        preview: false,
+      });
+    } catch (err) {
+      toast.error('Operation failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+
     setExecuted(true);
     toast.success(`Merged ${res.data.results.archived_duplicates} duplicate(s) into ${res.data.plan.canonical.sku}`);
     setTimeout(() => onMerged(), 1500);

@@ -135,15 +135,22 @@ export default function ReorderReport() {
   const saveEdit = async () => {
     if (!editingId) return;
     setSaving(true);
-    await base44.entities.Product.update(editingId, {
-      min_before_reorder: Number(editValues.min_before_reorder) || 0,
-      reorder_qty: Number(editValues.reorder_qty) || 0,
-      lead_time_days: Number(editValues.lead_time_days) || 0,
-    });
-    queryClient.invalidateQueries({ queryKey: ['products-reorder'] });
-    setEditingId(null);
-    setEditValues({});
-    setSaving(false);
+
+    try {
+      await base44.entities.Product.update(editingId, {
+        min_before_reorder: Number(editValues.min_before_reorder) || 0,
+        reorder_qty: Number(editValues.reorder_qty) || 0,
+        lead_time_days: Number(editValues.lead_time_days) || 0,
+      });
+      queryClient.invalidateQueries({ queryKey: ['products-reorder'] });
+      setEditingId(null);
+      setEditValues({});
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     toast.success('Product updated');
   };
 

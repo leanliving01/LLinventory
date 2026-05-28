@@ -54,70 +54,77 @@ export default function CreateWriteOffForm({ user, onCreated, onCancel }) {
     if (!reason) { toast.error('Select a reason'); return; }
 
     setSaving(true);
-    const product = selectedProduct;
-    const qtyNum = Number(qty);
-    const unitCost = product.cost_avg || product.cost_current || 0;
-    const totalValue = qtyNum * unitCost;
 
-    // Generate write-off number
-    const existing = await base44.entities.StockWriteOff.list('-created_date', 1);
-    const lastNum = existing.length > 0
-      ? parseInt((existing[0].write_off_number || '').replace(/\D/g, '') || '0')
-      : 0;
-    const woNumber = `SWO-${new Date().getFullYear()}-${String(lastNum + 1).padStart(4, '0')}`;
+    try {
+      const product = selectedProduct;
+      const qtyNum = Number(qty);
+      const unitCost = product.cost_avg || product.cost_current || 0;
+      const totalValue = qtyNum * unitCost;
 
-    // Create write-off record
-    const wo = await base44.entities.StockWriteOff.create({
-      write_off_number: woNumber,
-      write_off_date: writeOffDate,
-      effective_date: effectiveDate,
-      product_id: product.id,
-      product_sku: product.sku,
-      product_name: product.name,
-      qty: qtyNum,
-      uom: product.stock_uom || 'pcs',
-      unit_cost: unitCost,
-      total_value: totalValue,
-      reason,
-      notes,
-      status: 'confirmed',
-      confirmed_by_name: user?.full_name || '',
-      confirmed_at: new Date().toISOString(),
-    });
+      // Generate write-off number
+      const existing = await base44.entities.StockWriteOff.list('-created_date', 1);
+      const lastNum = existing.length > 0
+        ? parseInt((existing[0].write_off_number || '').replace(/\D/g, '') || '0')
+        : 0;
+      const woNumber = `SWO-${new Date().getFullYear()}-${String(lastNum + 1).padStart(4, '0')}`;
 
-    // Create stock movement
-    const movement = await base44.entities.StockMovement.create({
-      product_id: product.id,
-      product_sku: product.sku,
-      product_name: product.name,
-      qty: qtyNum,
-      uom: product.stock_uom || 'pcs',
-      reason: 'write_off',
-      ref_type: 'manual',
-      ref_id: wo.id,
-      ref_number: woNumber,
-      unit_cost_at_movement: unitCost,
-      notes: `Stock write-off: ${REASONS.find(r => r.value === reason)?.label || reason}${notes ? ' — ' + notes : ''}`,
-    });
+      // Create write-off record
+      const wo = await base44.entities.StockWriteOff.create({
+        write_off_number: woNumber,
+        write_off_date: writeOffDate,
+        effective_date: effectiveDate,
+        product_id: product.id,
+        product_sku: product.sku,
+        product_name: product.name,
+        qty: qtyNum,
+        uom: product.stock_uom || 'pcs',
+        unit_cost: unitCost,
+        total_value: totalValue,
+        reason,
+        notes,
+        status: 'confirmed',
+        confirmed_by_name: user?.full_name || '',
+        confirmed_at: new Date().toISOString(),
+      });
 
-    // Update write-off with movement ID
-    await base44.entities.StockWriteOff.update(wo.id, { stock_movement_id: movement.id });
+      // Create stock movement
+      const movement = await base44.entities.StockMovement.create({
+        product_id: product.id,
+        product_sku: product.sku,
+        product_name: product.name,
+        qty: qtyNum,
+        uom: product.stock_uom || 'pcs',
+        reason: 'write_off',
+        ref_type: 'manual',
+        ref_id: wo.id,
+        ref_number: woNumber,
+        unit_cost_at_movement: unitCost,
+        notes: `Stock write-off: ${REASONS.find(r => r.value === reason)?.label || reason}${notes ? ' — ' + notes : ''}`,
+      });
 
-    // Atomically deduct from the most-stocked location for this product
-    const stockRecords = await base44.entities.StockOnHand.filter({ product_id: product.id }, '-qty_on_hand', 5);
-    if (stockRecords.length > 0) {
-      await adjustStockOnHand(product.id, stockRecords[0].location_id, -qtyNum);
+      // Update write-off with movement ID
+      await base44.entities.StockWriteOff.update(wo.id, { stock_movement_id: movement.id });
+
+      // Atomically deduct from the most-stocked location for this product
+      const stockRecords = await base44.entities.StockOnHand.filter({ product_id: product.id }, '-qty_on_hand', 5);
+      if (stockRecords.length > 0) {
+        await adjustStockOnHand(product.id, stockRecords[0].location_id, -qtyNum);
+      }
+
+      writeAuditLog({
+        action: 'create',
+        entity_type: 'StockWriteOff',
+        entity_id: wo.id,
+        description: `Stock write-off ${woNumber}: ${qtyNum} ${product.stock_uom || 'pcs'} of ${product.name} — R ${totalValue.toFixed(2)}`,
+      });
+
+      toast.success(`Write-off ${woNumber} confirmed — stock adjusted`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
     }
 
-    writeAuditLog({
-      action: 'create',
-      entity_type: 'StockWriteOff',
-      entity_id: wo.id,
-      description: `Stock write-off ${woNumber}: ${qtyNum} ${product.stock_uom || 'pcs'} of ${product.name} — R ${totalValue.toFixed(2)}`,
-    });
-
-    toast.success(`Write-off ${woNumber} confirmed — stock adjusted`);
-    setSaving(false);
     onCreated?.();
   };
 

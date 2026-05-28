@@ -18,9 +18,16 @@ export default function EditSkuCodeDialog({ open, onClose, sku, onSaved }) {
       return;
     }
     setSaving(true);
-    await base44.entities.SKU.update(sku.id, { sku_code: trimmed });
-    toast.success(`SKU code updated: ${sku.sku_code} → ${trimmed}`);
-    setSaving(false);
+
+    try {
+      await base44.entities.SKU.update(sku.id, { sku_code: trimmed });
+      toast.success(`SKU code updated: ${sku.sku_code} → ${trimmed}`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     onSaved();
     onClose();
   };

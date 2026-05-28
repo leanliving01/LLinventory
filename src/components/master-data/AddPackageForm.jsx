@@ -32,14 +32,21 @@ export default function AddPackageForm({ onClose }) {
       return;
     }
     setSaving(true);
-    await base44.entities.PackageProduct.create({
-      ...form,
-      pack_size: Number(form.pack_size),
-      is_active: true,
-    });
-    queryClient.invalidateQueries({ queryKey: ['packageProducts'] });
-    toast.success(`Created package: ${form.name}`);
-    setSaving(false);
+
+    try {
+      await base44.entities.PackageProduct.create({
+        ...form,
+        pack_size: Number(form.pack_size),
+        is_active: true,
+      });
+      queryClient.invalidateQueries({ queryKey: ['packageProducts'] });
+      toast.success(`Created package: ${form.name}`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     onClose();
   };
 

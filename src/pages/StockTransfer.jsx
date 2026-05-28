@@ -48,79 +48,85 @@ export default function StockTransfer() {
     if (validLines.length === 0) { toast.error('Add at least one product with quantity'); return; }
 
     setSaving(true);
-    const fromLoc = locations.find(l => l.id === fromLocation);
-    const toLoc = locations.find(l => l.id === toLocation);
 
-    const movements = validLines.map(line => {
-      const product = products.find(p => p.id === line.product_id);
-      return {
-        product_id: line.product_id,
-        product_sku: product?.sku || '',
-        product_name: product?.name || '',
-        from_location_id: fromLocation,
-        to_location_id: toLocation,
-        qty: Number(line.qty),
-        uom: product?.stock_uom || 'pcs',
-        reason: 'transfer',
-        ref_type: 'transfer',
-        ref_number: `${fromLoc?.name} → ${toLoc?.name}`,
-        notes: line.notes || `Transfer ${fromLoc?.name} → ${toLoc?.name}`,
-      };
-    });
+    try {
+      const fromLoc = locations.find(l => l.id === fromLocation);
+      const toLoc = locations.find(l => l.id === toLocation);
 
-    await base44.entities.StockMovement.bulkCreate(movements);
-
-    // Update StockOnHand for both locations
-    const stockRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
-    for (const line of validLines) {
-      const qty = Number(line.qty);
-      const product = products.find(p => p.id === line.product_id);
-
-      // Decrement from location
-      const fromStock = stockRecords.find(s => s.product_id === line.product_id && s.location_id === fromLocation);
-      if (fromStock) {
-        const newOnHand = Math.max(0, (fromStock.qty_on_hand || 0) - qty);
-        await base44.entities.StockOnHand.update(fromStock.id, {
-          qty_on_hand: newOnHand,
-          qty_available: newOnHand - (fromStock.qty_committed || 0),
-          last_updated_at: new Date().toISOString(),
-        });
-      }
-
-      // Increment to location
-      const toStock = stockRecords.find(s => s.product_id === line.product_id && s.location_id === toLocation);
-      if (toStock) {
-        const newOnHand = (toStock.qty_on_hand || 0) + qty;
-        await base44.entities.StockOnHand.update(toStock.id, {
-          qty_on_hand: newOnHand,
-          qty_available: newOnHand - (toStock.qty_committed || 0),
-          last_updated_at: new Date().toISOString(),
-        });
-      } else {
-        await base44.entities.StockOnHand.create({
+      const movements = validLines.map(line => {
+        const product = products.find(p => p.id === line.product_id);
+        return {
           product_id: line.product_id,
           product_sku: product?.sku || '',
           product_name: product?.name || '',
-          location_id: toLocation,
-          location_name: toLoc?.name || '',
-          qty_on_hand: qty,
-          qty_committed: 0,
-          qty_available: qty,
+          from_location_id: fromLocation,
+          to_location_id: toLocation,
+          qty: Number(line.qty),
           uom: product?.stock_uom || 'pcs',
-          last_updated_at: new Date().toISOString(),
-        });
-      }
-    }
+          reason: 'transfer',
+          ref_type: 'transfer',
+          ref_number: `${fromLoc?.name} → ${toLoc?.name}`,
+          notes: line.notes || `Transfer ${fromLoc?.name} → ${toLoc?.name}`,
+        };
+      });
 
-    queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
-    writeAuditLog({
-      action: 'create',
-      entity_type: 'StockMovement',
-      description: `Transfer: ${validLines.length} products from ${fromLoc?.name} to ${toLoc?.name}`,
-    });
-    toast.success(`Transferred ${validLines.length} products from ${fromLoc?.name} → ${toLoc?.name}`);
-    setLines([{ product_id: '', qty: '', notes: '' }]);
-    setSaving(false);
+      await base44.entities.StockMovement.bulkCreate(movements);
+
+      // Update StockOnHand for both locations
+      const stockRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
+      for (const line of validLines) {
+        const qty = Number(line.qty);
+        const product = products.find(p => p.id === line.product_id);
+
+        // Decrement from location
+        const fromStock = stockRecords.find(s => s.product_id === line.product_id && s.location_id === fromLocation);
+        if (fromStock) {
+          const newOnHand = Math.max(0, (fromStock.qty_on_hand || 0) - qty);
+          await base44.entities.StockOnHand.update(fromStock.id, {
+            qty_on_hand: newOnHand,
+            qty_available: newOnHand - (fromStock.qty_committed || 0),
+            last_updated_at: new Date().toISOString(),
+          });
+        }
+
+        // Increment to location
+        const toStock = stockRecords.find(s => s.product_id === line.product_id && s.location_id === toLocation);
+        if (toStock) {
+          const newOnHand = (toStock.qty_on_hand || 0) + qty;
+          await base44.entities.StockOnHand.update(toStock.id, {
+            qty_on_hand: newOnHand,
+            qty_available: newOnHand - (toStock.qty_committed || 0),
+            last_updated_at: new Date().toISOString(),
+          });
+        } else {
+          await base44.entities.StockOnHand.create({
+            product_id: line.product_id,
+            product_sku: product?.sku || '',
+            product_name: product?.name || '',
+            location_id: toLocation,
+            location_name: toLoc?.name || '',
+            qty_on_hand: qty,
+            qty_committed: 0,
+            qty_available: qty,
+            uom: product?.stock_uom || 'pcs',
+            last_updated_at: new Date().toISOString(),
+          });
+        }
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+      writeAuditLog({
+        action: 'create',
+        entity_type: 'StockMovement',
+        description: `Transfer: ${validLines.length} products from ${fromLoc?.name} to ${toLoc?.name}`,
+      });
+      toast.success(`Transferred ${validLines.length} products from ${fromLoc?.name} → ${toLoc?.name}`);
+      setLines([{ product_id: '', qty: '', notes: '' }]);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

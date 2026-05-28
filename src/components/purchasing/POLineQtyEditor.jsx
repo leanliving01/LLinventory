@@ -26,19 +26,26 @@ export default function POLineQtyEditor({ line, onUpdated }) {
 
   const handleSave = async () => {
     setSaving(true);
-    const newQty = Number(qty);
-    const newCost = Number(unitCost);
-    const lineTotal = Math.round(newQty * newCost * 100) / 100;
 
-    await base44.entities.PurchaseOrderLine.update(line.id, {
-      ordered_qty: newQty,
-      unit_cost: newCost,
-      uom,
-      line_total: lineTotal,
-    });
+    try {
+      const newQty = Number(qty);
+      const newCost = Number(unitCost);
+      const lineTotal = Math.round(newQty * newCost * 100) / 100;
 
-    toast.success('Line updated');
-    setSaving(false);
+      await base44.entities.PurchaseOrderLine.update(line.id, {
+        ordered_qty: newQty,
+        unit_cost: newCost,
+        uom,
+        line_total: lineTotal,
+      });
+
+      toast.success('Line updated');
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     setEditing(false);
     queryClient.invalidateQueries({ queryKey: ['po-lines', line.purchase_order_id] });
     if (onUpdated) onUpdated();

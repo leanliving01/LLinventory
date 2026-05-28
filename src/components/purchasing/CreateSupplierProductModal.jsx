@@ -60,26 +60,33 @@ export default function CreateSupplierProductModal({ preselectedSupplierId, onCr
       return;
     }
     setSaving(true);
-    const cf = parseFloat(form.conversion_factor) || 1;
-    const yf = parseFloat(form.yield_factor) || 1;
-    const data = {
-      ...form,
-      supplier_name: selectedSupplier?.name || '',
-      product_name: selectedProduct?.name || '',
-      product_sku: selectedProduct?.sku || '',
-      conversion_factor: cf,
-      yield_factor: yf,
-      conversion_uom: form.conversion_uom || selectedProduct?.stock_uom || '',
-      effective_internal_qty: Math.round(cf * yf * 1000) / 1000,
-      purchase_uom_qty: parseFloat(form.purchase_uom_qty) || 1,
-      last_purchase_price: parseFloat(form.last_purchase_price) || 0,
-      min_order_qty: parseFloat(form.min_order_qty) || 0,
-      lead_time_days: parseInt(form.lead_time_days) || 1,
-      active: true,
-    };
-    await base44.entities.SupplierProduct.create(data);
-    toast.success('Supplier product link created');
-    setSaving(false);
+
+    try {
+      const cf = parseFloat(form.conversion_factor) || 1;
+      const yf = parseFloat(form.yield_factor) || 1;
+      const data = {
+        ...form,
+        supplier_name: selectedSupplier?.name || '',
+        product_name: selectedProduct?.name || '',
+        product_sku: selectedProduct?.sku || '',
+        conversion_factor: cf,
+        yield_factor: yf,
+        conversion_uom: form.conversion_uom || selectedProduct?.stock_uom || '',
+        effective_internal_qty: Math.round(cf * yf * 1000) / 1000,
+        purchase_uom_qty: parseFloat(form.purchase_uom_qty) || 1,
+        last_purchase_price: parseFloat(form.last_purchase_price) || 0,
+        min_order_qty: parseFloat(form.min_order_qty) || 0,
+        lead_time_days: parseInt(form.lead_time_days) || 1,
+        active: true,
+      };
+      await base44.entities.SupplierProduct.create(data);
+      toast.success('Supplier product link created');
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+
     onCreated();
   };
 

@@ -34,35 +34,41 @@ export default function CreateCookingRunModal({ onCreated, onCancel }) {
     }
     setSaving(true);
 
-    // Generate run number
-    const existing = await base44.entities.CookingRun.list('-created_date', 1);
-    let nextNum = 1;
-    if (existing.length > 0) {
-      const parts = (existing[0].run_number || '').split('-');
-      const seq = parseInt(parts[parts.length - 1] || '0', 10);
-      nextNum = (isNaN(seq) ? 0 : seq) + 1;
+    try {
+      // Generate run number
+      const existing = await base44.entities.CookingRun.list('-created_date', 1);
+      let nextNum = 1;
+      if (existing.length > 0) {
+        const parts = (existing[0].run_number || '').split('-');
+        const seq = parseInt(parts[parts.length - 1] || '0', 10);
+        nextNum = (isNaN(seq) ? 0 : seq) + 1;
+      }
+      const runNumber = `COOK-${new Date().getFullYear()}-${String(nextNum).padStart(4, '0')}`;
+
+      const data = {
+        run_number: runNumber,
+        run_date: runDate,
+        status: 'draft',
+        run_type: 'standard',
+        bulk_product_id: bulkProductId,
+        bulk_product_name: selectedProduct?.name || '',
+        bulk_product_sku: selectedProduct?.sku || '',
+        target_output_kg: Number(targetKg),
+        cook_bom_id: matchingBom?.id || null,
+        bom_expected_yield_pct: matchingBom ? (matchingBom.yield_qty || 100) : null,
+        raw_product_id: selectedProduct?.primary_yield_ingredient_id || null,
+        raw_product_name: selectedProduct?.primary_yield_ingredient_name || null,
+        raw_cost_per_kg: selectedProduct?.cost_avg || 0,
+      };
+
+      const created = await base44.entities.CookingRun.create(data);
+      toast.success(`Cooking run ${runNumber} created`);
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
     }
-    const runNumber = `COOK-${new Date().getFullYear()}-${String(nextNum).padStart(4, '0')}`;
 
-    const data = {
-      run_number: runNumber,
-      run_date: runDate,
-      status: 'draft',
-      run_type: 'standard',
-      bulk_product_id: bulkProductId,
-      bulk_product_name: selectedProduct?.name || '',
-      bulk_product_sku: selectedProduct?.sku || '',
-      target_output_kg: Number(targetKg),
-      cook_bom_id: matchingBom?.id || null,
-      bom_expected_yield_pct: matchingBom ? (matchingBom.yield_qty || 100) : null,
-      raw_product_id: selectedProduct?.primary_yield_ingredient_id || null,
-      raw_product_name: selectedProduct?.primary_yield_ingredient_name || null,
-      raw_cost_per_kg: selectedProduct?.cost_avg || 0,
-    };
-
-    const created = await base44.entities.CookingRun.create(data);
-    toast.success(`Cooking run ${runNumber} created`);
-    setSaving(false);
     onCreated(created);
   };
 
