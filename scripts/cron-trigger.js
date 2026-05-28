@@ -52,26 +52,23 @@ async function run() {
     console.error('[recalc-demand] Error:', e.message);
   }
 
-  // Committed stock recalculation — every 60 min (fires on the :00 tick of each hour)
-  // Uses SQL RPC directly (more reliable than edge function).
-  if (now.getUTCMinutes() < 15) {
-    try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/recalc_committed_stock`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${SERVICE_KEY}`,
-          'apikey': SERVICE_KEY,
-        },
-        body: '{}',
-      });
-      const text = await res.text();
-      let data;
-      try { data = JSON.parse(text); } catch { data = { raw: text }; }
-      console.log(`[recalc-committed-stock] ${res.status} — rows_written=${data?.rows_written ?? '?'} skus=${data?.unique_skus ?? '?'}`);
-    } catch (e) {
-      console.error('[recalc-committed-stock] Error:', e.message);
-    }
+  // Committed stock recalculation — every 15 min (same cadence as order sync)
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/recalc_committed_stock`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SERVICE_KEY}`,
+        'apikey': SERVICE_KEY,
+      },
+      body: '{}',
+    });
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    console.log(`[recalc-committed-stock] ${res.status} — rows_written=${data?.rows_written ?? '?'} skus=${data?.unique_skus ?? '?'}`);
+  } catch (e) {
+    console.error('[recalc-committed-stock] Error:', e.message);
   }
 
   // Xero invoices — every 4 hours (guard: the function itself checks for concurrent runs)
