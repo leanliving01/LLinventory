@@ -24,8 +24,6 @@ Deno.serve(async (req) => {
   const paidOrderIds = (paidOrders || []).map((o: { id: string }) => o.id);
 
   // 2. Load all active BOMs so package parent lines can be decomposed inline.
-  //    recalc-committed-stock is self-contained — it does not depend on
-  //    recalc-demand having created component rows first.
   const { data: boms } = await supabase
     .from('pack_boms')
     .select('package_sku, multiplier, component_skus, disabled_skus, sku_overrides')
@@ -50,9 +48,6 @@ Deno.serve(async (req) => {
   }
 
   // 3. Sum committed quantities per SKU across all paid_unfulfilled orders.
-  //    - Standalone lines (supplements, solo items): count SKU qty directly.
-  //    - Package parent lines: decompose via BOM into component meal SKUs.
-  //    - Skip is_package_component rows — those are derived rows we don't double-count.
   const committedBySku: Record<string, number> = {};
 
   if (paidOrderIds.length > 0) {
@@ -71,7 +66,6 @@ Deno.serve(async (req) => {
         const qty = Number(l.qty || 0);
 
         if (l.is_package_parent) {
-          // Decompose meal pack into component SKUs using the current BOM
           const bom = bomMap.get(l.sku);
           if (bom) {
             for (const compSku of bom.component_skus) {
@@ -81,7 +75,6 @@ Deno.serve(async (req) => {
             }
           }
         } else {
-          // Standalone item — commit the SKU directly
           committedBySku[l.sku] = (committedBySku[l.sku] || 0) + qty;
         }
       }
@@ -101,66 +94,79 @@ Deno.serve(async (req) => {
     });
   }
 
-  // 5. Load all stock_on_hand rows that have a product_sku
+  // 5. Load products table to get sku → product_id mapping.
+  //    This is more reliable than matching by product_sku on stock_on_hand
+  //    (that column can be null for migrated rows).
+  const { data: products } = await supabase
+    .from('products')
+    .select('id, sku');
+
+  const skuToProductId = new Map<string, string>();
+  for (const p of products || []) {
+    if (p.sku) skuToProductId.set(p.sku, p.id);
+  }
+
+  // Convert committedBySku → committedByProductId
+  const committedByProductId: Record<string, number> = {};
+  for (const [sku, qty] of Object.entries(committedBySku)) {
+    const pid = skuToProductId.get(sku);
+    if (pid) committedByProductId[pid] = qty;
+  }
+
+  // 6. Load ALL stock_on_hand rows
   const { data: allSoh } = await supabase
     .from('stock_on_hand')
-    .select('id, product_sku, qty_on_hand, qty_committed');
+    .select('id, product_id, qty_on_hand, qty_committed');
 
   if (!allSoh?.length) {
     return json({
       status: 'completed',
       orders_processed: paidOrderIds.length,
       unique_skus: uniqueSkus,
-      stock_rows_updated: 0,
+      rows_written: 0,
       elapsed_seconds: Number(((Date.now() - start) / 1000).toFixed(2)),
     });
   }
 
-  // 6. Build the update list — only rows where qty_committed actually changes
-  const updates: Array<{ id: string; qty_committed: number; qty_available: number; updated_date: string }> = [];
+  // 7. Build update list — only rows where qty_committed changes
+  const updates: Array<{ id: string; qty_committed: number; qty_available: number }> = [];
 
   for (const row of allSoh) {
-    if (!row.product_sku) continue;
-    const newCommitted = committedBySku[row.product_sku] || 0;
+    if (!row.product_id) continue;
+    const newCommitted = committedByProductId[row.product_id] || 0;
     const onHand = Number(row.qty_on_hand || 0);
     const newAvailable = Math.max(0, onHand - newCommitted);
 
-    if (Number(row.qty_committed) !== newCommitted) {
-      updates.push({
-        id: row.id,
-        qty_committed: newCommitted,
-        qty_available: newAvailable,
-        updated_date: now,
-      });
+    if (Number(row.qty_committed || 0) !== newCommitted) {
+      updates.push({ id: row.id, qty_committed: newCommitted, qty_available: newAvailable });
     }
   }
 
-  // 7. Write updates in batches of 500
-  let stockRowsUpdated = 0;
+  // 8. Write updates using UPDATE (not upsert) to avoid INSERT-path NOT NULL issues
+  let rowsWritten = 0;
   const errors: string[] = [];
-  const UPDATE_CHUNK = 500;
 
-  for (let i = 0; i < updates.length; i += UPDATE_CHUNK) {
-    const batch = updates.slice(i, i + UPDATE_CHUNK);
+  await Promise.all(updates.map(async (upd) => {
     const { error } = await supabase
       .from('stock_on_hand')
-      .upsert(batch, { onConflict: 'id' });
+      .update({ qty_committed: upd.qty_committed, qty_available: upd.qty_available, updated_date: now })
+      .eq('id', upd.id);
     if (error) {
-      errors.push(error.message);
+      errors.push(`id=${upd.id}: ${error.message}`);
     } else {
-      stockRowsUpdated += batch.length;
+      rowsWritten++;
     }
-  }
+  }));
 
   console.log(
-    `[recalc-committed-stock] orders=${paidOrderIds.length} skus=${uniqueSkus} updated=${stockRowsUpdated} errors=${errors.length} dry=${dryRun} elapsed=${((Date.now() - start) / 1000).toFixed(2)}s`
+    `[recalc-committed-stock] orders=${paidOrderIds.length} skus=${uniqueSkus} rows_written=${rowsWritten} errors=${errors.length} elapsed=${((Date.now() - start) / 1000).toFixed(2)}s`
   );
 
   return json({
     status: errors.length ? 'completed_with_errors' : 'completed',
     orders_processed: paidOrderIds.length,
     unique_skus: uniqueSkus,
-    stock_rows_updated: stockRowsUpdated,
+    rows_written: rowsWritten,
     errors: errors.length ? errors : undefined,
     elapsed_seconds: Number(((Date.now() - start) / 1000).toFixed(2)),
   });

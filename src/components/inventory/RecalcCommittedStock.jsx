@@ -43,10 +43,10 @@ export default function RecalcCommittedStock() {
         toast.success(`Dry run complete — ${data.unique_skus} SKUs computed in ${data.elapsed_seconds}s`);
       } else {
         toast.success(
-          `Committed stock recalculated — ${data.orders_processed} orders, ${data.unique_skus} SKUs updated in ${data.elapsed_seconds}s`
+          `Committed stock recalculated — ${data.orders_processed} orders, ${data.rows_written} rows written in ${data.elapsed_seconds}s`
         );
         if (data.errors?.length > 0) {
-          toast.warning(`${data.errors.length} error(s) encountered — check details`);
+          toast.warning(`${data.errors.length} write error(s): ${data.errors[0]}`);
         }
         queryClient.invalidateQueries({ queryKey: ['inv-overview-soh'] });
         queryClient.invalidateQueries({ queryKey: ['inv-overview-products'] });
