@@ -9,34 +9,34 @@ async function fetchUserProfile(session) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3000); // 3s max for role lookup
-    const { data: userRole } = await supabase
-      .from('user_roles')
-      .select('role, display_name')
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('role, full_name, permissions')
       .eq('email', session.user.email)
       .abortSignal(controller.signal)
       .maybeSingle();
     clearTimeout(timer);
 
-    if (userRole) {
+    if (userProfile) {
       return {
         id: session.user.id,
         email: session.user.email,
-        full_name: userRole.display_name || session.user.email.split('@')[0],
-        role: userRole.role,
+        full_name: userProfile.full_name || session.user.email.split('@')[0],
+        role: userProfile.role,
         station: null,
-        permissions: [],
+        permissions: userProfile.permissions || '',
       };
     }
   } catch { /* table missing or network — fall through to default */ }
 
-  // No user_roles record — treat as admin (management users / bootstrap)
+  // No user record — treat as admin (management users / bootstrap)
   return {
     id: session.user.id,
     email: session.user.email,
     full_name: session.user.email.split('@')[0],
     role: 'admin',
     station: null,
-    permissions: [],
+    permissions: '',
   };
 }
 

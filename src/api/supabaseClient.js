@@ -261,6 +261,31 @@ export async function adjustStockOnHand(productId, locationId, delta, newCostAvg
 export const base44 = {
   entities: entitiesProxy,
 
+  integrations: {
+    Core: {
+      UploadFile: async ({ file }) => {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${crypto.randomUUID()}.${fileExt}`;
+        const filePath = `${fileName}`;
+        
+        const { data, error } = await supabase.storage
+          .from('recipe-files')
+          .upload(filePath, file);
+          
+        if (error) {
+          console.error('[supabase] Upload error:', error.message);
+          throw new Error(error.message);
+        }
+        
+        const { data: { publicUrl } } = supabase.storage
+          .from('recipe-files')
+          .getPublicUrl(filePath);
+          
+        return { file_url: publicUrl };
+      }
+    }
+  },
+
   // Server-side functions — routes to Supabase Edge Functions where implemented
   functions: {
     invoke: async (fnName, payload) => {
