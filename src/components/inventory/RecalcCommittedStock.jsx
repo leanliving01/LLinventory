@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -10,6 +11,7 @@ import { RefreshCw, Eye, Loader2, CheckCircle2, AlertTriangle, X } from 'lucide-
 import { toast } from 'sonner';
 
 export default function RecalcCommittedStock() {
+  const queryClient = useQueryClient();
   const [running, setRunning] = useState(false);
   const [dryRunResult, setDryRunResult] = useState(null);
 
@@ -46,6 +48,9 @@ export default function RecalcCommittedStock() {
         if (data.errors?.length > 0) {
           toast.warning(`${data.errors.length} error(s) encountered — check details`);
         }
+        queryClient.invalidateQueries({ queryKey: ['inv-overview-soh'] });
+        queryClient.invalidateQueries({ queryKey: ['inv-overview-products'] });
+        queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
       }
     } catch (err) {
       toast.error('Recalculation failed: ' + (err.message || 'Unknown error'));
