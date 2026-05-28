@@ -17,13 +17,16 @@ export default function RecalcCommittedStock() {
     setRunning(true);
     setDryRunResult(null);
     try {
-      const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/recalc-committed-stock`;
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      if (!supabaseUrl || !anonKey) throw new Error(`Env vars missing: URL=${supabaseUrl ? 'ok' : 'MISSING'} KEY=${anonKey ? 'ok' : 'MISSING'}`);
+      const fnUrl = `${supabaseUrl}/functions/v1/recalc-committed-stock`;
       const res = await fetch(fnUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${anonKey}`,
+          'apikey': anonKey,
         },
         body: JSON.stringify({ dry_run: dryRun }),
       });
