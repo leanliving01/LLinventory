@@ -9,6 +9,7 @@ import { X, Loader2, PackageCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { confirmGRN } from '@/components/grn/GRNConfirmLogic';
+import { nextDocNumber } from '@/lib/docNumbering';
 
 export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel }) {
   const { user } = useAuth();
@@ -46,12 +47,7 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
   }, [lines, receiveQtys]);
 
   const generateGRNNumber = async () => {
-    const today = new Date().toISOString().split('T')[0];
-    const existing = await base44.entities.GoodsReceivedNote.list('-created_date', 1);
-    const lastNum = existing.length > 0
-      ? parseInt((existing[0].grn_number || '').split('-').pop() || '0', 10)
-      : 0;
-    return `GRN-${today}-${String(lastNum + 1).padStart(3, '0')}`;
+    return await nextDocNumber('GRN');
   };
 
   const handleReceive = async () => {

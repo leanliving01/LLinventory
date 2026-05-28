@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ArrowLeft, ChefHat, Flame, Utensils, Tablet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { nextDocNumber } from '@/lib/docNumbering';
 import KanbanColumn from '@/components/production/KanbanColumn';
 import KanbanPortionColumn from '@/components/production/KanbanPortionColumn';
 import HelpDrawer from '@/components/help/HelpDrawer';
@@ -409,10 +410,7 @@ export default function Kanban() {
         if (task.station === 'cook') {
           // Generate a batch number
           const now = new Date();
-          const year = now.getFullYear();
-          const existingBatches = await base44.entities.WipBatch.filter({ bulk_product_id: task.product_id }, '-created_date', 1);
-          const seq = existingBatches.length > 0 ? (existingBatches.length + 1) : 1;
-          const batchNumber = `WIP-${year}-${String(seq).padStart(4, '0')}`;
+          const batchNumber = await nextDocNumber('WIP');
 
           // Get product for shelf life
           const product = products.find(p => p.id === task.product_id);

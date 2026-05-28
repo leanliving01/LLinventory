@@ -43,6 +43,7 @@ export default function KitchenSettings() {
         } else {
           toast.warning('Station saved locally, but no team profile found.');
         }
+      }
       window.location.href = '/kitchen';
     } catch (err) {
       toast.error('Failed to save station: ' + err.message);

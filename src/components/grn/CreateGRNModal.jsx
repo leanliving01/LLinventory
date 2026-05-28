@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { X, Loader2, PackageCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { nextDocNumber } from '@/lib/docNumbering';
 
 export default function CreateGRNModal({ onCreated, onCancel }) {
   const [saving, setSaving] = useState(false);
@@ -48,16 +49,12 @@ export default function CreateGRNModal({ onCreated, onCancel }) {
     if (!form.location_id) { toast.error('Select a receiving location'); return; }
     setSaving(true);
 
+    let grn;
     try {
       // Generate GRN number
-      const today = format(new Date(), 'yyyyMMdd');
-      const existing = await base44.entities.GoodsReceivedNote.list('-created_date', 1);
-      const lastNum = existing.length > 0
-        ? parseInt((existing[0].grn_number || '').split('-').pop() || '0')
-        : 0;
-      const grnNumber = `GRN-${today}-${String(lastNum + 1).padStart(3, '0')}`;
+      const grnNumber = await nextDocNumber('GRN');
 
-      const grn = await base44.entities.GoodsReceivedNote.create({
+      grn = await base44.entities.GoodsReceivedNote.create({
         grn_number: grnNumber,
         supplier_id: form.supplier_id,
         supplier_name: selectedSupplier?.name || '',

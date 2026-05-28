@@ -56,6 +56,10 @@ export default function ReturnDrawer({ ret, onClose, onUpdated, canProcess }) {
     for (const line of lines) {
       if (!line.internal_qty_returned || line.internal_qty_returned <= 0) continue;
 
+      // Fetch the actual product to get its stock UoM
+      const productRes = await base44.entities.Product.filter({ id: line.product_id });
+      const stockUom = productRes[0]?.stock_uom || 'kg';
+
       // Stock movement OUT for the return
       await base44.entities.StockMovement.create({
         product_id: line.product_id,
@@ -63,7 +67,7 @@ export default function ReturnDrawer({ ret, onClose, onUpdated, canProcess }) {
         product_name: line.product_name || '',
         from_location_id: locationId,
         qty: line.internal_qty_returned,
-        uom: 'kg', // will be correct for most items
+        uom: stockUom,
         reason: 'supplier_return',
         ref_type: 'supplier_return',
         ref_id: ret.id,

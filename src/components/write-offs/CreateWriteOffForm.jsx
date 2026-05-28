@@ -9,6 +9,7 @@ import { Save, X, Search, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { writeAuditLog } from '@/lib/auditLog';
+import { nextDocNumber } from '@/lib/docNumbering';
 
 const REASONS = [
   { value: 'quality_deterioration', label: 'Quality Deterioration' },
@@ -62,11 +63,7 @@ export default function CreateWriteOffForm({ user, onCreated, onCancel }) {
       const totalValue = qtyNum * unitCost;
 
       // Generate write-off number
-      const existing = await base44.entities.StockWriteOff.list('-created_date', 1);
-      const lastNum = existing.length > 0
-        ? parseInt((existing[0].write_off_number || '').replace(/\D/g, '') || '0')
-        : 0;
-      const woNumber = `SWO-${new Date().getFullYear()}-${String(lastNum + 1).padStart(4, '0')}`;
+      const woNumber = await nextDocNumber('SWO');
 
       // Create write-off record
       const wo = await base44.entities.StockWriteOff.create({
@@ -105,10 +102,15 @@ export default function CreateWriteOffForm({ user, onCreated, onCancel }) {
       // Update write-off with movement ID
       await base44.entities.StockWriteOff.update(wo.id, { stock_movement_id: movement.id });
 
-      // Atomically deduct from the most-stocked location for this product
-      const stockRecords = await base44.entities.StockOnHand.filter({ product_id: product.id }, '-qty_on_hand', 5);
-      if (stockRecords.length > 0) {
-        await adjustStockOnHand(product.id, stockRecords[0].location_id, -qtyNum);
+      // Atomically deduct from the most-stocked location for this product, or a default location if none exists
+      const stockRecords = await base44.entities.StockOnHand.filter({ product_id: product.id }, '-qty_on_hand', 1);
+      let locId = stockRecords.length > 0 ? stockRecords[0].location_id : null;
+      if (!locId) {
+        const locations = await base44.entities.Location.filter({ is_stock_bearing: true }, 'name', 1);
+        if (locations.length > 0) locId = locations[0].id;
+      }
+      if (locId) {
+        await adjustStockOnHand(product.id, locId, -qtyNum);
       }
 
       writeAuditLog({

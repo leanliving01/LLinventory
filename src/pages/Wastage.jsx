@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { base44, adjustStockOnHand } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -117,19 +117,22 @@ export default function Wastage() {
       await base44.entities.StockMovement.bulkCreate(movements);
 
       // Decrement StockOnHand for all product types
-      const stockRecords = await base44.entities.StockOnHand.list('-updated_date', 1000);
-      const stockByProduct = {};
-      stockRecords.forEach(s => { if (!stockByProduct[s.product_id]) stockByProduct[s.product_id] = s; });
+      let defaultLocId = null;
 
       for (const { productId, convertedQty } of enrichedEntries) {
-        const existing = stockByProduct[productId];
-        if (existing) {
-          const newOnHand = Math.max(0, (existing.qty_on_hand || 0) - convertedQty);
-          await base44.entities.StockOnHand.update(existing.id, {
-            qty_on_hand: newOnHand,
-            qty_available: newOnHand - (existing.qty_committed || 0),
-            last_updated_at: new Date().toISOString(),
-          });
+        const stockRecords = await base44.entities.StockOnHand.filter({ product_id: productId }, '-qty_on_hand', 1);
+        let locId = stockRecords.length > 0 ? stockRecords[0].location_id : null;
+        
+        if (!locId) {
+          if (!defaultLocId) {
+            const locations = await base44.entities.Location.filter({ is_stock_bearing: true }, 'name', 1);
+            defaultLocId = locations[0]?.id;
+          }
+          locId = defaultLocId;
+        }
+        
+        if (locId) {
+          await adjustStockOnHand(productId, locId, -convertedQty);
         }
       }
 

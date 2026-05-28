@@ -172,26 +172,41 @@ export default function PickList() {
     });
   };
 
-  // ── Mark a line as picked (with qty) — optimistic ──
-  const handleMarkPicked = (pickLineId, actualQty) => {
+  // ── Mark a line as picked (with qty) — optimistic ⚡️
+  const handleMarkPicked = async (pickLineId, actualQty) => {
     const patch = { status: 'picked', actual_qty_picked: Number(actualQty), picked_at: new Date().toISOString() };
+    const prevData = queryClient.getQueryData(['pick-lines', pickList?.id]);
     optimisticUpdateLine(pickLineId, patch);
-    base44.entities.PickLine.update(pickLineId, patch);
+    try {
+      await base44.entities.PickLine.update(pickLineId, patch);
+    } catch (err) {
+      toast.error('Failed to save picked status');
+      queryClient.setQueryData(['pick-lines', pickList?.id], prevData);
+    }
   };
 
-  // ── Unpick a line — optimistic ──
-  const handleUnpick = (pickLineId) => {
+  // ⚡️ Unpick a line — optimistic ⚡️
+  const handleUnpick = async (pickLineId) => {
     const patch = { status: 'not_picked', actual_qty_picked: 0, picked_at: null };
+    const prevData = queryClient.getQueryData(['pick-lines', pickList?.id]);
     optimisticUpdateLine(pickLineId, patch);
-    base44.entities.PickLine.update(pickLineId, patch);
+    try {
+      await base44.entities.PickLine.update(pickLineId, patch);
+    } catch (err) {
+      toast.error('Failed to save unpick status');
+      queryClient.setQueryData(['pick-lines', pickList?.id], prevData);
+    }
   };
 
-  // ── Mark ALL unpicked lines at once — optimistic batch ──
-  const handleMarkAll = (linesToMark) => {
+  // ⚡️ Mark ALL unpicked lines at once — optimistic batch ⚡️
+  const handleMarkAll = async (linesToMark) => {
     const now = new Date().toISOString();
     // Build a lookup for qty overrides
     const qtyMap = {};
     linesToMark.forEach(({ id, qty }) => { qtyMap[id] = Number(qty); });
+
+    const prevData = queryClient.getQueryData(['pick-lines', pickList?.id]);
+
     // Optimistic: update cache instantly for all lines at once
     queryClient.setQueryData(['pick-lines', pickList?.id], (old) => {
       if (!old) return old;
@@ -200,10 +215,23 @@ export default function PickList() {
         : pl
       );
     });
-    // Persist all in parallel — fire-and-forget
-    Promise.all(linesToMark.map(({ id, qty }) =>
-      base44.entities.PickLine.update(id, { status: 'picked', actual_qty_picked: Number(qty), picked_at: now })
-    ));
+
+    try {
+      // Execute all DB writes in parallel
+      await Promise.all(
+        linesToMark.map(({ id }) =>
+          base44.entities.PickLine.update(id, {
+            status: 'picked',
+            actual_qty_picked: qtyMap[id],
+            picked_at: now
+          })
+        )
+      );
+      toast.success(`Picked ${linesToMark.length} items`);
+    } catch (err) {
+      toast.error('Failed to bulk pick items');
+      queryClient.setQueryData(['pick-lines', pickList?.id], prevData);
+    }
   };
 
   // ── Release all picked lines → production_pick stock movements ──

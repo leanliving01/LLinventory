@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { base44, adjustStockOnHand } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -72,46 +72,15 @@ export default function StockTransfer() {
 
       await base44.entities.StockMovement.bulkCreate(movements);
 
-      // Update StockOnHand for both locations
-      const stockRecords = await base44.entities.StockOnHand.list('-updated_date', 2000);
+      // Update StockOnHand for both locations atomically
       for (const line of validLines) {
         const qty = Number(line.qty);
-        const product = products.find(p => p.id === line.product_id);
-
+        
         // Decrement from location
-        const fromStock = stockRecords.find(s => s.product_id === line.product_id && s.location_id === fromLocation);
-        if (fromStock) {
-          const newOnHand = Math.max(0, (fromStock.qty_on_hand || 0) - qty);
-          await base44.entities.StockOnHand.update(fromStock.id, {
-            qty_on_hand: newOnHand,
-            qty_available: newOnHand - (fromStock.qty_committed || 0),
-            last_updated_at: new Date().toISOString(),
-          });
-        }
-
+        await adjustStockOnHand(line.product_id, fromLocation, -qty);
+        
         // Increment to location
-        const toStock = stockRecords.find(s => s.product_id === line.product_id && s.location_id === toLocation);
-        if (toStock) {
-          const newOnHand = (toStock.qty_on_hand || 0) + qty;
-          await base44.entities.StockOnHand.update(toStock.id, {
-            qty_on_hand: newOnHand,
-            qty_available: newOnHand - (toStock.qty_committed || 0),
-            last_updated_at: new Date().toISOString(),
-          });
-        } else {
-          await base44.entities.StockOnHand.create({
-            product_id: line.product_id,
-            product_sku: product?.sku || '',
-            product_name: product?.name || '',
-            location_id: toLocation,
-            location_name: toLoc?.name || '',
-            qty_on_hand: qty,
-            qty_committed: 0,
-            qty_available: qty,
-            uom: product?.stock_uom || 'pcs',
-            last_updated_at: new Date().toISOString(),
-          });
-        }
+        await adjustStockOnHand(line.product_id, toLocation, qty);
       }
 
       queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });

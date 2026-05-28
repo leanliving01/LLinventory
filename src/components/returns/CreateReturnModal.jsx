@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { X, Loader2, RotateCcw, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { nextDocNumber } from '@/lib/docNumbering';
 import { writeAuditLog } from '@/lib/auditLog';
 
 const REASONS = [
@@ -94,12 +95,7 @@ export default function CreateReturnModal({ onCreated, onCancel }) {
     try {
       const supplier = suppliers.find(s => s.id === supplierId);
       // Generate return number
-      const existing = await base44.entities.SupplierReturn.list('-created_date', 1);
-      const lastNum = existing.length > 0
-        ? parseInt((existing[0].return_number || '').split('-').pop() || '0')
-        : 0;
-      const today = format(new Date(), 'yyyyMMdd');
-      const returnNumber = `RET-${today}-${String(lastNum + 1).padStart(3, '0')}`;
+      const returnNumber = await nextDocNumber('RET');
 
       const ret = await base44.entities.SupplierReturn.create({
         return_number: returnNumber,
