@@ -1,19 +1,27 @@
 import { base44 } from '@/api/base44Client';
 
-/**
- * Production Floor Stock helpers.
- * Manages StockOnHand records for the virtual "Production" location,
- * giving visibility into WIP ingredients on the floor.
- */
-
 const PRODUCTION_LOCATION_ID = '__production_floor__';
 const PRODUCTION_LOCATION_NAME = 'Production Floor';
+
+// Per-session in-flight guard: prevents a double-click or retry from adding qty twice
+// before the first write resolves.
+const inflightAdds = new Set();
 
 /**
  * Increment (or create) a Production-floor SOH record for a product.
  */
 export async function addToProductionFloor(productId, productSku, productName, qty, uom) {
   if (!qty || qty <= 0) return;
+  if (inflightAdds.has(productId)) return;
+  inflightAdds.add(productId);
+  try {
+    return await _addToProductionFloor(productId, productSku, productName, qty, uom);
+  } finally {
+    inflightAdds.delete(productId);
+  }
+}
+
+async function _addToProductionFloor(productId, productSku, productName, qty, uom) {
 
   const existing = await base44.entities.StockOnHand.filter({
     product_id: productId,

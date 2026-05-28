@@ -266,8 +266,20 @@ export default function PickList() {
       const qty = freshLine.actual_qty_picked || freshLine.required_qty;
       if (qty <= 0) continue;
 
-      // Skip consumables — no stock movement
+      // Consumables: mark released + create audit movement (no SOH deduction — usage tracked only)
       if (pl.is_consumable) {
+        await base44.entities.StockMovement.create({
+          product_id: pl.product_id,
+          product_sku: pl.product_sku,
+          product_name: pl.product_name,
+          qty,
+          uom: freshLine.required_uom || pl.required_uom || 'units',
+          reason: 'wastage_consumable',
+          ref_type: 'pick_list',
+          ref_id: pickList.id,
+          ref_number: run?.run_number || '',
+          notes: `Consumable used in production run ${run?.run_number}`,
+        });
         await base44.entities.PickLine.update(pl.id, {
           status: 'released',
           released_at: releaseBatch,

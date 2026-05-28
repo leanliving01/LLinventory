@@ -246,7 +246,11 @@ export default function Kitchen() {
             t => t.station === nextStation && t.product_id === task.product_id && !t.archived && t.status !== 'done'
           );
           for (const dt of downstream) {
-            await base44.entities.ProductionTask.update(dt.id, { qty: actualYield });
+            if (dt.status === 'in_progress') {
+              toast.warning(`${nextStation} task already started — qty not auto-updated. Adjust manually if needed.`);
+            } else {
+              await base44.entities.ProductionTask.update(dt.id, { qty: actualYield });
+            }
           }
         }
       }

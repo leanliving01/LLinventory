@@ -536,7 +536,7 @@ export default function ProductionRunDetail() {
         product_sku: l.product_sku,
         product_name: l.product_name,
         qty: Number(actuals[l.id]),
-        uom: 'pcs',
+        uom: l.uom || 'pcs',
         reason: 'production_yield',
         ref_type: 'production_run',
         ref_id: runId,
@@ -550,8 +550,11 @@ export default function ProductionRunDetail() {
 
     // 3. Update StockOnHand — increment qty_on_hand for each product
     const stockRecords = await base44.entities.StockOnHand.list('-updated_date', 1000);
+    // Sort highest qty_on_hand first so we always update the primary (most-stocked) location row,
+    // matching the same convention used by recalc_committed_stock to avoid multi-row inflation.
+    const sortedStockRecords = [...stockRecords].sort((a, b) => (b.qty_on_hand || 0) - (a.qty_on_hand || 0));
     const stockByProduct = {};
-    stockRecords.forEach(s => {
+    sortedStockRecords.forEach(s => {
       if (!stockByProduct[s.product_id]) stockByProduct[s.product_id] = s;
     });
 
@@ -577,7 +580,7 @@ export default function ProductionRunDetail() {
           qty_on_hand: actualQty,
           qty_committed: 0,
           qty_available: actualQty,
-          uom: 'pcs',
+          uom: line.uom || 'pcs',
           last_updated_at: new Date().toISOString(),
         });
       }
