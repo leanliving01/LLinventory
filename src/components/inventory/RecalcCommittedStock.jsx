@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { supabase } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -18,8 +17,21 @@ export default function RecalcCommittedStock() {
     setRunning(true);
     setDryRunResult(null);
     try {
-      const { data, error: fnErr } = await supabase.functions.invoke('recalc-committed-stock', { body: { dry_run: dryRun } });
-      if (fnErr) throw new Error(fnErr.message);
+      const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/recalc-committed-stock`;
+      const res = await fetch(fnUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ dry_run: dryRun }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`${res.status}: ${txt}`);
+      }
+      const data = await res.json();
 
       if (dryRun) {
         setDryRunResult(data);

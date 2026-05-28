@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44, supabase } from '@/api/base44Client';
+import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Save, Loader2, AlertTriangle, RotateCcw, Package, RefreshCw } from 'lucide-react';
@@ -273,11 +273,16 @@ export default function PackBomDetail() {
                 try {
                   // Step 1: Reset demand_calculated for all orders with this package SKU
                   // and immediately re-decompose them with the updated BOM.
-                  await supabase.functions.invoke('recalc-demand', {
-                    body: { force_package_sku: packBom?.package_sku },
-                  });
+                  const fnBase = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+                  const headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+                    'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+                  };
+                  await fetch(`${fnBase}/recalc-demand`, { method: 'POST', headers, body: JSON.stringify({ force_package_sku: packBom?.package_sku }) });
                   // Step 2: Recalculate committed stock from the freshly decomposed lines.
-                  const { data: d = {} } = await supabase.functions.invoke('recalc-committed-stock', { body: {} });
+                  const csRes = await fetch(`${fnBase}/recalc-committed-stock`, { method: 'POST', headers, body: '{}' });
+                  const d = csRes.ok ? await csRes.json() : {};
                   toast.success(
                     `Stock commitment updated — ${d.orders_processed ?? '?'} orders, ${d.unique_skus ?? '?'} SKUs in ${d.elapsed_seconds ?? '?'}s. Remaining orders sync within 15 min.`
                   );
