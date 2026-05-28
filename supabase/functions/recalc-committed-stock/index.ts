@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
         .from('sales_order_lines')
         .select('sku, qty')
         .in('sales_order_id', chunk)
-        .eq('is_package_component', true)
+        .eq('is_package_parent', false)
         .eq('status', 'active');
 
       for (const l of lines || []) {
