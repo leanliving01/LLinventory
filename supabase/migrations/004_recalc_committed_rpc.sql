@@ -20,25 +20,30 @@ DECLARE
   new_committed  numeric;
   new_available  numeric;
   seen_products  text[]   := '{}';
+  missing_boms   text[]   := '{}';
+  bom_found      boolean;
 BEGIN
 
-  -- Step 1: Walk every active non-component line on paid_unfulfilled orders
+  -- Step 1: Walk every active non-component, non-bundle line on paid_unfulfilled orders
   FOR r IN
     SELECT sol.sku, sol.qty, sol.is_package_parent
     FROM   sales_order_lines sol
     JOIN   sales_orders so ON so.id = sol.sales_order_id
-    WHERE  so.lifecycle_state     = 'paid_unfulfilled'
+    WHERE  so.lifecycle_state       = 'paid_unfulfilled'
       AND  sol.is_package_component = false
       AND  sol.status               = 'active'
       AND  sol.sku IS NOT NULL
+      AND  COALESCE(sol.line_type, '') NOT IN ('bundle', 'bundle_child')
   LOOP
     IF r.is_package_parent THEN
+      bom_found := false;
       FOR bom_rec IN
         SELECT multiplier, component_skus, disabled_skus, sku_overrides
         FROM   pack_boms
         WHERE  package_sku = r.sku AND active = true
         LIMIT 1
       LOOP
+        bom_found := true;
         overrides := CASE
           WHEN bom_rec.sku_overrides IS NULL OR bom_rec.sku_overrides = '' OR bom_rec.sku_overrides = '{}'
           THEN '{}'::jsonb
@@ -62,6 +67,9 @@ BEGIN
           );
         END LOOP;
       END LOOP;
+      IF NOT bom_found AND NOT (r.sku = ANY(missing_boms)) THEN
+        missing_boms := missing_boms || r.sku;
+      END IF;
     ELSE
       v_committed := jsonb_set(
         v_committed,
@@ -117,9 +125,10 @@ BEGIN
   END LOOP;
 
   RETURN json_build_object(
-    'status',       'completed',
-    'rows_written', v_written,
-    'unique_skus',  (SELECT COUNT(*) FROM jsonb_object_keys(v_committed))
+    'status',        'completed',
+    'rows_written',  v_written,
+    'unique_skus',   (SELECT COUNT(*) FROM jsonb_object_keys(v_committed)),
+    'missing_boms',  missing_boms
   );
 END;
 $$;
@@ -131,31 +140,36 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  v_committed jsonb := '{}'::jsonb;
-  r           RECORD;
-  bom_rec     RECORD;
-  comp_sku    text;
-  meal_qty    numeric;
-  overrides   jsonb;
-  v_lines     int := 0;
+  v_committed  jsonb   := '{}'::jsonb;
+  r            RECORD;
+  bom_rec      RECORD;
+  comp_sku     text;
+  meal_qty     numeric;
+  overrides    jsonb;
+  v_lines      int     := 0;
+  missing_boms text[]  := '{}';
+  bom_found    boolean;
 BEGIN
   FOR r IN
     SELECT sol.sku, sol.qty, sol.is_package_parent
     FROM   sales_order_lines sol
     JOIN   sales_orders so ON so.id = sol.sales_order_id
-    WHERE  so.lifecycle_state     = 'paid_unfulfilled'
+    WHERE  so.lifecycle_state       = 'paid_unfulfilled'
       AND  sol.is_package_component = false
       AND  sol.status               = 'active'
       AND  sol.sku IS NOT NULL
+      AND  COALESCE(sol.line_type, '') NOT IN ('bundle', 'bundle_child')
   LOOP
     v_lines := v_lines + 1;
     IF r.is_package_parent THEN
+      bom_found := false;
       FOR bom_rec IN
         SELECT multiplier, component_skus, disabled_skus, sku_overrides
         FROM   pack_boms
         WHERE  package_sku = r.sku AND active = true
         LIMIT 1
       LOOP
+        bom_found := true;
         overrides := CASE
           WHEN bom_rec.sku_overrides IS NULL OR bom_rec.sku_overrides = '' OR bom_rec.sku_overrides = '{}'
           THEN '{}'::jsonb
@@ -179,6 +193,9 @@ BEGIN
           );
         END LOOP;
       END LOOP;
+      IF NOT bom_found AND NOT (r.sku = ANY(missing_boms)) THEN
+        missing_boms := missing_boms || r.sku;
+      END IF;
     ELSE
       v_committed := jsonb_set(
         v_committed,
@@ -193,7 +210,8 @@ BEGIN
     'status',               'dry_run',
     'committed_quantities', v_committed,
     'unique_skus',          (SELECT COUNT(*) FROM jsonb_object_keys(v_committed)),
-    'orders_scanned',       v_lines
+    'orders_scanned',       v_lines,
+    'missing_boms',         missing_boms
   );
 END;
 $$;

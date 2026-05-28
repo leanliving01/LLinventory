@@ -8,7 +8,7 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { RefreshCw, Eye, Loader2, CheckCircle2, AlertTriangle, X } from 'lucide-react';
+import { RefreshCw, Eye, Loader2, CheckCircle2, AlertTriangle, X, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function RecalcCommittedStock() {
@@ -28,9 +28,10 @@ export default function RecalcCommittedStock() {
       } else {
         const { data, error } = await supabase.rpc('recalc_committed_stock');
         if (error) throw new Error(error.message);
-        toast.success(
-          `Committed stock recalculated — ${data.rows_written} rows updated`
-        );
+        toast.success(`Committed stock recalculated — ${data.rows_written} rows updated`);
+        if (data.missing_boms?.length > 0) {
+          toast.warning(`${data.missing_boms.length} pack SKU(s) skipped — no active BOM: ${data.missing_boms.join(', ')}`);
+        }
         queryClient.invalidateQueries({ queryKey: ['inv-overview-soh'] });
         queryClient.invalidateQueries({ queryKey: ['inv-overview-products'] });
         queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
@@ -107,6 +108,17 @@ export default function RecalcCommittedStock() {
               <X className="w-3.5 h-3.5" />
             </Button>
           </div>
+
+          {/* Missing BOM warnings */}
+          {dryRunResult.missing_boms?.length > 0 && (
+            <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 flex items-start gap-2">
+              <TriangleAlert className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+              <div className="text-xs text-amber-800">
+                <span className="font-semibold">Missing active BOMs — these packs were skipped:</span>{' '}
+                {dryRunResult.missing_boms.join(', ')}
+              </div>
+            </div>
+          )}
 
           <div className="max-h-80 overflow-auto">
             <table className="w-full">
