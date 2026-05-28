@@ -53,11 +53,22 @@ async function run() {
   }
 
   // Committed stock recalculation — every 60 min (fires on the :00 tick of each hour)
-  // Cron runs every 15 min, so the :00 minute window (0–14) catches exactly one run per hour.
+  // Uses SQL RPC directly (more reliable than edge function).
   if (now.getUTCMinutes() < 15) {
     try {
-      const r = await invoke('recalc-committed-stock', {});
-      console.log(`[recalc-committed-stock] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/recalc_committed_stock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SERVICE_KEY}`,
+          'apikey': SERVICE_KEY,
+        },
+        body: '{}',
+      });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { raw: text }; }
+      console.log(`[recalc-committed-stock] ${res.status} — rows_written=${data?.rows_written ?? '?'} skus=${data?.unique_skus ?? '?'}`);
     } catch (e) {
       console.error('[recalc-committed-stock] Error:', e.message);
     }
