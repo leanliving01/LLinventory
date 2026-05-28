@@ -271,9 +271,17 @@ export default function PackBomDetail() {
                 e.preventDefault();
                 setRecalcRunning(true);
                 try {
-                  const res = await base44.functions.invoke('recalcCommittedStockFast', { dry_run: false });
-                  const d = res.data;
-                  toast.success(`Committed stock recalculated — ${d.orders_processed} orders, ${d.unique_skus} SKUs in ${d.elapsed_seconds}s`);
+                  // Step 1: Reset demand_calculated for all orders with this package SKU
+                  // and immediately re-decompose them with the updated BOM.
+                  await base44.functions.invoke('recalc-demand', {
+                    force_package_sku: packBom?.package_sku,
+                  });
+                  // Step 2: Recalculate committed stock from the freshly decomposed lines.
+                  const res = await base44.functions.invoke('recalc-committed-stock', {});
+                  const d = res?.data || res || {};
+                  toast.success(
+                    `Stock commitment updated — ${d.orders_processed ?? '?'} orders, ${d.unique_skus ?? '?'} SKUs in ${d.elapsed_seconds ?? '?'}s. Remaining orders sync within 15 min.`
+                  );
                   setShowRecalcPrompt(false);
                 } catch (err) {
                   toast.error('Recalculation failed: ' + (err.message || 'Unknown error'));

@@ -3,8 +3,29 @@ import { getSupabase, corsHeaders, json } from '../_shared/shopify.ts';
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders() });
 
+  let body: { force_package_sku?: string } = {};
+  try { body = await req.json(); } catch { /* empty body ok */ }
+
   const supabase = getSupabase();
   const now = new Date().toISOString();
+
+  // If a specific package SKU is provided, reset demand_calculated for all orders
+  // that contain this SKU so they get re-decomposed with the latest BOM.
+  if (body.force_package_sku) {
+    const { data: matchingLines } = await supabase
+      .from('shopify_order_lines')
+      .select('shopify_order_id')
+      .eq('sku', body.force_package_sku);
+
+    const idsToReset = [...new Set((matchingLines || []).map((l: { shopify_order_id: string }) => l.shopify_order_id))];
+    if (idsToReset.length) {
+      await supabase
+        .from('shopify_orders')
+        .update({ demand_calculated: false, updated_date: now })
+        .in('id', idsToReset);
+      console.log(`[recalc-demand] force_package_sku=${body.force_package_sku} — reset ${idsToReset.length} orders`);
+    }
+  }
 
   // 1. Load all active pack BOMs
   const { data: boms } = await supabase
