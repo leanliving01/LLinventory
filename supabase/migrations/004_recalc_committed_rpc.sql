@@ -10,15 +10,16 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  v_committed   jsonb    := '{}'::jsonb;
-  v_written     int      := 0;
-  r             RECORD;
-  bom_rec       RECORD;
-  comp_sku      text;
-  meal_qty      numeric;
-  overrides     jsonb;
-  new_committed numeric;
-  new_available numeric;
+  v_committed    jsonb    := '{}'::jsonb;
+  v_written      int      := 0;
+  r              RECORD;
+  bom_rec        RECORD;
+  comp_sku       text;
+  meal_qty       numeric;
+  overrides      jsonb;
+  new_committed  numeric;
+  new_available  numeric;
+  seen_products  text[]   := '{}';
 BEGIN
 
   -- Step 1: Walk every active non-component line on paid_unfulfilled orders
@@ -38,7 +39,6 @@ BEGIN
         WHERE  package_sku = r.sku AND active = true
         LIMIT 1
       LOOP
-        -- sku_overrides is stored as text; cast to jsonb safely
         overrides := CASE
           WHEN bom_rec.sku_overrides IS NULL OR bom_rec.sku_overrides = '' OR bom_rec.sku_overrides = '{}'
           THEN '{}'::jsonb
@@ -72,26 +72,47 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- Step 2: Update stock_on_hand rows via products JOIN
+  -- Step 2: Write to stock_on_hand — ONE row per product only.
+  --   Products have multiple location rows; the frontend sums qty_committed
+  --   across all rows. We write the total to the primary row (highest on-hand)
+  --   and zero out all other rows to avoid N× inflation.
   FOR r IN
     SELECT soh.id,
+           soh.product_id,
            soh.qty_on_hand,
            soh.qty_committed AS old_committed,
            p.sku
     FROM   stock_on_hand soh
     JOIN   products p ON p.id = soh.product_id
     WHERE  p.sku IS NOT NULL
+    ORDER  BY soh.product_id,
+              soh.qty_on_hand DESC NULLS LAST,
+              soh.id
   LOOP
-    new_committed := COALESCE((v_committed ->> r.sku)::numeric, 0);
-    new_available := GREATEST(0, COALESCE(r.qty_on_hand, 0) - new_committed);
+    IF r.product_id = ANY(seen_products) THEN
+      -- Secondary location row: zero out committed to prevent double-counting
+      IF COALESCE(r.old_committed, 0) != 0 THEN
+        UPDATE stock_on_hand
+           SET qty_committed = 0,
+               qty_available = GREATEST(0, COALESCE(r.qty_on_hand, 0)),
+               updated_date  = now()
+         WHERE id = r.id;
+        v_written := v_written + 1;
+      END IF;
+    ELSE
+      -- Primary row (most stock): write the total committed qty here
+      seen_products  := seen_products || r.product_id;
+      new_committed  := COALESCE((v_committed ->> r.sku)::numeric, 0);
+      new_available  := GREATEST(0, COALESCE(r.qty_on_hand, 0) - new_committed);
 
-    IF COALESCE(r.old_committed, 0) != new_committed THEN
-      UPDATE stock_on_hand
-         SET qty_committed = new_committed,
-             qty_available = new_available,
-             updated_date  = now()
-       WHERE id = r.id;
-      v_written := v_written + 1;
+      IF COALESCE(r.old_committed, 0) != new_committed THEN
+        UPDATE stock_on_hand
+           SET qty_committed = new_committed,
+               qty_available = new_available,
+               updated_date  = now()
+         WHERE id = r.id;
+        v_written := v_written + 1;
+      END IF;
     END IF;
   END LOOP;
 
