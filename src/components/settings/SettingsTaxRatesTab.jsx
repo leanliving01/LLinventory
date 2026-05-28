@@ -26,22 +26,32 @@ export default function SettingsTaxRatesTab() {
   const handleSetDefault = async (rate) => {
     if (rate.is_default) return;
     setSaving(rate.id + '_default');
-    // Clear default on all, set on this one
-    for (const r of taxRates.filter(r => r.is_default)) {
-      await base44.entities.TaxRate.update(r.id, { is_default: false });
+    try {
+      // Clear default on all, set on this one
+      for (const r of taxRates.filter(r => r.is_default)) {
+        await base44.entities.TaxRate.update(r.id, { is_default: false });
+      }
+      await base44.entities.TaxRate.update(rate.id, { is_default: true });
+      queryClient.invalidateQueries({ queryKey: ['tax-rates'] });
+      toast.success(`${rate.name} set as default`);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(null);
     }
-    await base44.entities.TaxRate.update(rate.id, { is_default: true });
-    queryClient.invalidateQueries({ queryKey: ['tax-rates'] });
-    toast.success(`${rate.name} set as default`);
-    setSaving(null);
   };
 
   const handleToggleActive = async (rate) => {
     setSaving(rate.id + '_active');
-    await base44.entities.TaxRate.update(rate.id, { active: !rate.active });
-    queryClient.invalidateQueries({ queryKey: ['tax-rates'] });
-    toast.success(`${rate.name} ${rate.active ? 'deactivated' : 'activated'}`);
-    setSaving(null);
+    try {
+      await base44.entities.TaxRate.update(rate.id, { active: !rate.active });
+      queryClient.invalidateQueries({ queryKey: ['tax-rates'] });
+      toast.success(`${rate.name} ${rate.active ? 'deactivated' : 'activated'}`);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(null);
+    }
   };
 
   const handleAdd = async () => {
@@ -52,20 +62,25 @@ export default function SettingsTaxRatesTab() {
       return;
     }
     setAdding(true);
-    await base44.entities.TaxRate.create({
-      name: newName.trim(),
-      rate: rateVal,
-      is_default: false,
-      applies_to_vat: newClaimable,
-      active: true,
-    });
-    queryClient.invalidateQueries({ queryKey: ['tax-rates'] });
-    toast.success(`Tax rate "${newName.trim()}" added`);
-    setNewName('');
-    setNewRate('');
-    setNewClaimable(true);
-    setShowAddForm(false);
-    setAdding(false);
+    try {
+      await base44.entities.TaxRate.create({
+        name: newName.trim(),
+        rate: rateVal,
+        is_default: false,
+        applies_to_vat: newClaimable,
+        active: true,
+      });
+      queryClient.invalidateQueries({ queryKey: ['tax-rates'] });
+      toast.success(`Tax rate "${newName.trim()}" added`);
+      setNewName('');
+      setNewRate('');
+      setNewClaimable(true);
+      setShowAddForm(false);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setAdding(false);
+    }
   };
 
   return (

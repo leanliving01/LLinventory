@@ -186,6 +186,8 @@ export default function ProductPurchaseUomEditor({ productId, stockUom }) {
       setNewRow(EMPTY_ROW);
       setAdding(false);
       toast.success('Purchasing unit added');
+    } catch (err) {
+      toast.error(err.message);
     } finally {
       setSaving(false);
     }
@@ -222,6 +224,8 @@ export default function ProductPurchaseUomEditor({ productId, stockUom }) {
       setEditingId(null);
       setEditRow(null);
       toast.success('Purchasing unit updated');
+    } catch (err) {
+      toast.error(err.message);
     } finally {
       setSaving(false);
     }
