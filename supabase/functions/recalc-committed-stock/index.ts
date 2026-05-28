@@ -23,7 +23,36 @@ Deno.serve(async (req) => {
 
   const paidOrderIds = (paidOrders || []).map((o: { id: string }) => o.id);
 
-  // 2. Sum committed component quantities per SKU across all paid_unfulfilled orders
+  // 2. Load all active BOMs so package parent lines can be decomposed inline.
+  //    recalc-committed-stock is self-contained — it does not depend on
+  //    recalc-demand having created component rows first.
+  const { data: boms } = await supabase
+    .from('pack_boms')
+    .select('package_sku, multiplier, component_skus, disabled_skus, sku_overrides')
+    .eq('active', true);
+
+  const bomMap = new Map<string, {
+    multiplier: number;
+    component_skus: string[];
+    disabled_skus: Set<string>;
+    sku_overrides: Record<string, number>;
+  }>();
+
+  for (const b of boms || []) {
+    let overrides: Record<string, number> = {};
+    try { overrides = typeof b.sku_overrides === 'string' ? JSON.parse(b.sku_overrides) : (b.sku_overrides || {}); } catch { /* */ }
+    bomMap.set(b.package_sku, {
+      multiplier: Number(b.multiplier) || 1,
+      component_skus: b.component_skus || [],
+      disabled_skus: new Set(b.disabled_skus || []),
+      sku_overrides: overrides,
+    });
+  }
+
+  // 3. Sum committed quantities per SKU across all paid_unfulfilled orders.
+  //    - Standalone lines (supplements, solo items): count SKU qty directly.
+  //    - Package parent lines: decompose via BOM into component meal SKUs.
+  //    - Skip is_package_component rows — those are derived rows we don't double-count.
   const committedBySku: Record<string, number> = {};
 
   if (paidOrderIds.length > 0) {
@@ -32,21 +61,36 @@ Deno.serve(async (req) => {
       const chunk = paidOrderIds.slice(i, i + CHUNK);
       const { data: lines } = await supabase
         .from('sales_order_lines')
-        .select('sku, qty')
+        .select('sku, qty, is_package_parent')
         .in('sales_order_id', chunk)
-        .eq('is_package_parent', false)
+        .eq('is_package_component', false)
         .eq('status', 'active');
 
       for (const l of lines || []) {
         if (!l.sku) continue;
-        committedBySku[l.sku] = (committedBySku[l.sku] || 0) + Number(l.qty || 0);
+        const qty = Number(l.qty || 0);
+
+        if (l.is_package_parent) {
+          // Decompose meal pack into component SKUs using the current BOM
+          const bom = bomMap.get(l.sku);
+          if (bom) {
+            for (const compSku of bom.component_skus) {
+              if (bom.disabled_skus.has(compSku)) continue;
+              const mealQty = (bom.sku_overrides[compSku] ?? bom.multiplier) * qty;
+              committedBySku[compSku] = (committedBySku[compSku] || 0) + mealQty;
+            }
+          }
+        } else {
+          // Standalone item — commit the SKU directly
+          committedBySku[l.sku] = (committedBySku[l.sku] || 0) + qty;
+        }
       }
     }
   }
 
   const uniqueSkus = Object.keys(committedBySku).length;
 
-  // 3. Dry run: return the computed quantities without writing
+  // 4. Dry run: return computed quantities without writing
   if (dryRun) {
     return json({
       status: 'dry_run',
@@ -57,7 +101,7 @@ Deno.serve(async (req) => {
     });
   }
 
-  // 4. Load all stock_on_hand rows that have a product_sku
+  // 5. Load all stock_on_hand rows that have a product_sku
   const { data: allSoh } = await supabase
     .from('stock_on_hand')
     .select('id, product_sku, qty_on_hand, qty_committed');
@@ -72,7 +116,7 @@ Deno.serve(async (req) => {
     });
   }
 
-  // 5. Build the update list — only rows where qty_committed actually changes
+  // 6. Build the update list — only rows where qty_committed actually changes
   const updates: Array<{ id: string; qty_committed: number; qty_available: number; updated_date: string }> = [];
 
   for (const row of allSoh) {
@@ -91,7 +135,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  // 6. Write updates in batches of 500
+  // 7. Write updates in batches of 500
   let stockRowsUpdated = 0;
   const errors: string[] = [];
   const UPDATE_CHUNK = 500;
