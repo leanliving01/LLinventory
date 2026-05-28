@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { supabase } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -18,8 +18,8 @@ export default function RecalcCommittedStock() {
     setRunning(true);
     setDryRunResult(null);
     try {
-      const res = await base44.functions.invoke('recalc-committed-stock', { dry_run: dryRun });
-      const data = res.data || res;
+      const { data, error: fnErr } = await supabase.functions.invoke('recalc-committed-stock', { body: { dry_run: dryRun } });
+      if (fnErr) throw new Error(fnErr.message);
 
       if (dryRun) {
         setDryRunResult(data);

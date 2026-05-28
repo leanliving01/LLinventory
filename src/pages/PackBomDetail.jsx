@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { base44, supabase } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Save, Loader2, AlertTriangle, RotateCcw, Package, RefreshCw } from 'lucide-react';
@@ -273,12 +273,11 @@ export default function PackBomDetail() {
                 try {
                   // Step 1: Reset demand_calculated for all orders with this package SKU
                   // and immediately re-decompose them with the updated BOM.
-                  await base44.functions.invoke('recalc-demand', {
-                    force_package_sku: packBom?.package_sku,
+                  await supabase.functions.invoke('recalc-demand', {
+                    body: { force_package_sku: packBom?.package_sku },
                   });
                   // Step 2: Recalculate committed stock from the freshly decomposed lines.
-                  const res = await base44.functions.invoke('recalc-committed-stock', {});
-                  const d = res?.data || res || {};
+                  const { data: d = {} } = await supabase.functions.invoke('recalc-committed-stock', { body: {} });
                   toast.success(
                     `Stock commitment updated — ${d.orders_processed ?? '?'} orders, ${d.unique_skus ?? '?'} SKUs in ${d.elapsed_seconds ?? '?'}s. Remaining orders sync within 15 min.`
                   );
