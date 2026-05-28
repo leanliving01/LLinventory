@@ -270,6 +270,8 @@ export const base44 = {
         bulkSyncProducts:         'sync-shopify-products',
         bulkSyncOrders:           'sync-shopify-orders',
         recalcCommittedDemand:    'recalc-demand',
+        'recalc-demand':          'recalc-demand',
+        'recalc-committed-stock': 'recalc-committed-stock',
         bulkSyncCustomers:        'sync-shopify-customers',
         reconcileShopify:         'reconcile-shopify',
         costRollup:               'cost-rollup',
