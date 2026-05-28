@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS tax_rates (
   active          boolean NOT NULL DEFAULT true
 );
 
+DROP TRIGGER IF EXISTS trg_tax_rates_updated_date ON tax_rates;
 CREATE TRIGGER trg_tax_rates_updated_date
   BEFORE UPDATE ON tax_rates FOR EACH ROW EXECUTE FUNCTION set_updated_date();
 
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS supplier_credit_notes (
 
 CREATE INDEX IF NOT EXISTS idx_scn_supplier_id ON supplier_credit_notes(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_scn_status ON supplier_credit_notes(status);
+DROP TRIGGER IF EXISTS trg_scn_updated_date ON supplier_credit_notes;
 CREATE TRIGGER trg_scn_updated_date
   BEFORE UPDATE ON supplier_credit_notes FOR EACH ROW EXECUTE FUNCTION set_updated_date();
 
@@ -111,6 +113,7 @@ CREATE TABLE IF NOT EXISTS supplier_credit_note_matches (
 CREATE INDEX IF NOT EXISTS idx_scnm_credit_note_id ON supplier_credit_note_matches(credit_note_id);
 CREATE INDEX IF NOT EXISTS idx_scnm_shortage_id ON supplier_credit_note_matches(shortage_id);
 CREATE INDEX IF NOT EXISTS idx_scnm_return_id ON supplier_credit_note_matches(return_id);
+DROP TRIGGER IF EXISTS trg_scnm_updated_date ON supplier_credit_note_matches;
 CREATE TRIGGER trg_scnm_updated_date
   BEFORE UPDATE ON supplier_credit_note_matches FOR EACH ROW EXECUTE FUNCTION set_updated_date();
 
@@ -133,6 +136,7 @@ CREATE TABLE IF NOT EXISTS invoice_po_match_suggestions (
 
 CREATE INDEX IF NOT EXISTS idx_match_suggestions_invoice_id ON invoice_po_match_suggestions(invoice_id);
 CREATE INDEX IF NOT EXISTS idx_match_suggestions_dismissed ON invoice_po_match_suggestions(dismissed) WHERE dismissed = false;
+DROP TRIGGER IF EXISTS trg_match_suggestions_updated_date ON invoice_po_match_suggestions;
 CREATE TRIGGER trg_match_suggestions_updated_date
   BEFORE UPDATE ON invoice_po_match_suggestions FOR EACH ROW EXECUTE FUNCTION set_updated_date();
 
