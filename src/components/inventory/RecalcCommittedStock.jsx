@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/api/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -19,35 +20,17 @@ export default function RecalcCommittedStock() {
     setRunning(true);
     setDryRunResult(null);
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      if (!supabaseUrl || !anonKey) throw new Error(`Env vars missing: URL=${supabaseUrl ? 'ok' : 'MISSING'} KEY=${anonKey ? 'ok' : 'MISSING'}`);
-      const fnUrl = `${supabaseUrl}/functions/v1/recalc-committed-stock`;
-      const res = await fetch(fnUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${anonKey}`,
-          'apikey': anonKey,
-        },
-        body: JSON.stringify({ dry_run: dryRun }),
-      });
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(`${res.status}: ${txt}`);
-      }
-      const data = await res.json();
-
       if (dryRun) {
+        const { data, error } = await supabase.rpc('recalc_committed_stock_dry_run');
+        if (error) throw new Error(error.message);
         setDryRunResult(data);
-        toast.success(`Dry run complete — ${data.unique_skus} SKUs computed in ${data.elapsed_seconds}s`);
+        toast.success(`Dry run — ${data.unique_skus} SKUs computed`);
       } else {
+        const { data, error } = await supabase.rpc('recalc_committed_stock');
+        if (error) throw new Error(error.message);
         toast.success(
-          `Committed stock recalculated — ${data.orders_processed} orders, ${data.rows_written} rows written in ${data.elapsed_seconds}s`
+          `Committed stock recalculated — ${data.rows_written} rows updated`
         );
-        if (data.errors?.length > 0) {
-          toast.warning(`${data.errors.length} write error(s): ${data.errors[0]}`);
-        }
         queryClient.invalidateQueries({ queryKey: ['inv-overview-soh'] });
         queryClient.invalidateQueries({ queryKey: ['inv-overview-products'] });
         queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
@@ -79,7 +62,7 @@ export default function RecalcCommittedStock() {
             <AlertDialogHeader>
               <AlertDialogTitle>Recalculate Committed Stock</AlertDialogTitle>
               <AlertDialogDescription>
-                This will recalculate committed stock for ALL products based on current orders and PackBom definitions. 
+                This will recalculate committed stock for ALL products based on current orders and PackBom definitions.
                 Existing SalesOrderLine records will not be modified.
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -117,23 +100,13 @@ export default function RecalcCommittedStock() {
               <CheckCircle2 className="w-4 h-4 text-green-600" />
               <span className="text-sm font-medium">Dry Run Results</span>
               <Badge variant="secondary" className="text-xs">
-                {dryRunResult.orders_processed} orders · {dryRunResult.unique_skus} SKUs · {dryRunResult.elapsed_seconds}s
+                {dryRunResult.unique_skus} SKUs · {dryRunResult.orders_scanned} lines scanned
               </Badge>
             </div>
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDryRunResult(null)}>
               <X className="w-3.5 h-3.5" />
             </Button>
           </div>
-
-          {dryRunResult.warnings?.length > 0 && (
-            <div className="px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border-b">
-              {dryRunResult.warnings.map((w, i) => (
-                <p key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
-                  <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" /> {w}
-                </p>
-              ))}
-            </div>
-          )}
 
           <div className="max-h-80 overflow-auto">
             <table className="w-full">
