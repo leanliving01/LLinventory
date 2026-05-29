@@ -846,7 +846,7 @@ export default function POWorkspace() {
       {showReceive && po && (
         <ReceiveAgainstPOModal
           po={po}
-          lines={lines}
+          lines={savedLines}
           onReceived={handleReceived}
           onCancel={() => setShowReceive(false)}
         />
