@@ -188,18 +188,51 @@ function createEntityProxy(entityName) {
 
     async create(record) {
       const now = new Date().toISOString();
-      const row = { id: crypto.randomUUID(), ...record, created_date: record.created_date || now, updated_date: now };
-      const { data, error } = await supabase.from(table).insert(row).select().single();
-      if (error) throw new Error(error.message);
-      return data;
+      let row = { id: crypto.randomUUID(), ...record, created_date: record.created_date || now, updated_date: now };
+      
+      let attempt = 0;
+      while (attempt < 20) {
+        attempt++;
+        const { data, error } = await supabase.from(table).insert(row).select().single();
+        if (error) {
+          if (error.code === 'PGRST204') {
+            const match = error.message.match(/Could not find the '([^']+)' column/);
+            if (match && match[1]) {
+              const badCol = match[1];
+              console.warn(`[supabase] Auto-removing missing column '${badCol}' from ${table} insert`);
+              delete row[badCol];
+              continue;
+            }
+          }
+          throw new Error(error.message);
+        }
+        return data;
+      }
+      throw new Error(`Failed to create ${table} after 20 attempts`);
     },
 
     async update(id, updates) {
-      const row = { ...updates, updated_date: new Date().toISOString() };
-      const { data, error } = await supabase
-        .from(table).update(row).eq('id', id).select().single();
-      if (error) throw new Error(error.message);
-      return data;
+      let row = { ...updates, updated_date: new Date().toISOString() };
+      
+      let attempt = 0;
+      while (attempt < 20) {
+        attempt++;
+        const { data, error } = await supabase.from(table).update(row).eq('id', id).select().single();
+        if (error) {
+          if (error.code === 'PGRST204') {
+            const match = error.message.match(/Could not find the '([^']+)' column/);
+            if (match && match[1]) {
+              const badCol = match[1];
+              console.warn(`[supabase] Auto-removing missing column '${badCol}' from ${table} update`);
+              delete row[badCol];
+              continue;
+            }
+          }
+          throw new Error(error.message);
+        }
+        return data;
+      }
+      throw new Error(`Failed to update ${table} after 20 attempts`);
     },
 
     async delete(id) {
@@ -209,19 +242,52 @@ function createEntityProxy(entityName) {
 
     async bulkCreate(records) {
       const now = new Date().toISOString();
-      const rows = records.map(r => ({ id: crypto.randomUUID(), ...r, created_date: r.created_date || now, updated_date: now }));
-      const { data, error } = await supabase.from(table).insert(rows).select();
-      if (error) throw new Error(error.message);
-      return data || [];
+      let rows = records.map(r => ({ id: crypto.randomUUID(), ...r, created_date: r.created_date || now, updated_date: now }));
+      
+      let attempt = 0;
+      while (attempt < 20) {
+        attempt++;
+        const { data, error } = await supabase.from(table).insert(rows).select();
+        if (error) {
+          if (error.code === 'PGRST204') {
+            const match = error.message.match(/Could not find the '([^']+)' column/);
+            if (match && match[1]) {
+              const badCol = match[1];
+              console.warn(`[supabase] Auto-removing missing column '${badCol}' from ${table} bulkCreate`);
+              rows.forEach(r => delete r[badCol]);
+              continue;
+            }
+          }
+          throw new Error(error.message);
+        }
+        return data || [];
+      }
+      throw new Error(`Failed to bulkCreate ${table} after 20 attempts`);
     },
 
     async bulkUpdate(records) {
       const now = new Date().toISOString();
-      const rows = records.map(r => ({ ...r, updated_date: now }));
-      const { data, error } = await supabase
-        .from(table).upsert(rows, { onConflict: 'id' }).select();
-      if (error) throw new Error(error.message);
-      return data || [];
+      let rows = records.map(r => ({ ...r, updated_date: now }));
+      
+      let attempt = 0;
+      while (attempt < 20) {
+        attempt++;
+        const { data, error } = await supabase.from(table).upsert(rows, { onConflict: 'id' }).select();
+        if (error) {
+          if (error.code === 'PGRST204') {
+            const match = error.message.match(/Could not find the '([^']+)' column/);
+            if (match && match[1]) {
+              const badCol = match[1];
+              console.warn(`[supabase] Auto-removing missing column '${badCol}' from ${table} bulkUpdate`);
+              rows.forEach(r => delete r[badCol]);
+              continue;
+            }
+          }
+          throw new Error(error.message);
+        }
+        return data || [];
+      }
+      throw new Error(`Failed to bulkUpdate ${table} after 20 attempts`);
     },
 
     async bulkDelete(ids) {
