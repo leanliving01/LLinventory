@@ -64,6 +64,7 @@ export default function SupplierProductDrawer({ sp, onClose, onUpdated, canEdit 
     try {
       const cf = parseFloat(form.conversion_factor) || 1;
       const yf = parseFloat(form.yield_factor) || 1;
+      const nomCost = parseFloat(form.nominal_cost) || 0;
       const data = {
         ...form,
         conversion_factor: cf,
@@ -74,6 +75,9 @@ export default function SupplierProductDrawer({ sp, onClose, onUpdated, canEdit 
         min_order_qty: parseFloat(form.min_order_qty) || 0,
         lead_time_days: parseInt(form.lead_time_days) || 1,
         price_variance_threshold: parseFloat(form.price_variance_threshold) || 0.1,
+        nominal_cost: nomCost,
+        price_per_stock_unit: nomCost / (cf * yf),
+        purchase_uom_name: form.purchase_uom_label || '',
       };
       const updated = await base44.entities.SupplierProduct.update(sp.id, data);
       setLiveSp(updated);
@@ -188,10 +192,10 @@ function ReadView({ sp, effectiveQty }) {
       <div className="space-y-3">
         <h3 className="text-sm font-semibold">Identification</h3>
         <ReadRow icon={Truck} label="Supplier" value={sp.supplier_name} />
-        <ReadRow icon={Package} label="Internal Product" value={`${sp.product_name} (${sp.product_sku})`} />
+        <ReadRow icon={Package} label="Internal product code" value={sp.product_sku} />
+        <ReadRow icon={Package} label="Internal product name" value={sp.product_name} />
         <ReadRow icon={Package} label="Supplier SKU" value={sp.supplier_sku} />
         <ReadRow icon={Package} label="Supplier Description" value={sp.supplier_description} />
-        <ReadRow icon={Package} label="Xero Item Code" value={sp.xero_item_code} />
         {sp.supplier_product_url && (
           <div className="flex items-start gap-3">
             <ExternalLink className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
@@ -238,6 +242,14 @@ function ReadView({ sp, effectiveQty }) {
         <h3 className="text-sm font-semibold flex items-center gap-2">
           <DollarSign className="w-4 h-4 text-primary" /> Pricing & Ordering
         </h3>
+        <ReadRow icon={DollarSign} label="Nominal cost (excl VAT)" value={sp.nominal_cost ? `R ${(sp.nominal_cost).toFixed(2)}` : '—'} />
+        <ReadRow icon={DollarSign} label="Price per stock unit" value={
+          sp.price_per_stock_unit
+            ? `R ${sp.price_per_stock_unit.toFixed(4)} / ${sp.conversion_uom || 'unit'}`
+            : (sp.nominal_cost && (sp.conversion_factor || 1) && (sp.yield_factor || 1))
+              ? `R ${((sp.nominal_cost) / ((sp.conversion_factor || 1) * (sp.yield_factor || 1))).toFixed(4)} / ${sp.conversion_uom || 'unit'}`
+              : '—'
+        } />
         <ReadRow icon={DollarSign} label="Last Purchase Price" value={`R ${(sp.last_purchase_price || 0).toFixed(2)} per ${sp.purchase_uom || 'unit'}`} />
         <ReadRow icon={DollarSign} label="Price Variance Threshold" value={`${((sp.price_variance_threshold || 0.1) * 100).toFixed(0)}%`} />
         <ReadRow icon={Clock} label="Lead Time" value={`${sp.lead_time_days || 1} day(s)`} />
@@ -259,14 +271,17 @@ function EditForm({ form, set, effectiveQty, taxRates = [] }) {
     <div className="space-y-5">
       <div className="space-y-3">
         <h3 className="text-sm font-semibold">Identification</h3>
+        <Field label="Internal product code">
+          <Input value={form.product_sku || ''} disabled className="h-8 text-sm bg-muted/40 text-muted-foreground" />
+        </Field>
+        <Field label="Internal product name">
+          <Input value={form.product_name || ''} disabled className="h-8 text-sm bg-muted/40 text-muted-foreground" />
+        </Field>
         <Field label="Supplier SKU">
           <Input value={form.supplier_sku || ''} onChange={e => set('supplier_sku', e.target.value)} className="h-8 text-sm" />
         </Field>
         <Field label="Supplier Description (invoice name)">
           <Input value={form.supplier_description || ''} onChange={e => set('supplier_description', e.target.value)} className="h-8 text-sm" />
-        </Field>
-        <Field label="Xero Item Code">
-          <Input value={form.xero_item_code || ''} onChange={e => set('xero_item_code', e.target.value)} className="h-8 text-sm" />
         </Field>
         <Field label="Supplier Product URL (website link)">
           <Input
@@ -316,9 +331,42 @@ function EditForm({ form, set, effectiveQty, taxRates = [] }) {
 
       <div className="space-y-3">
         <h3 className="text-sm font-semibold">Pricing & Ordering</h3>
+        <Field label="Nominal cost (excl VAT)">
+          <Input
+            type="number"
+            step="0.01"
+            value={form.nominal_cost || ''}
+            onChange={e => set('nominal_cost', e.target.value)}
+            className="h-8 text-sm"
+          />
+          <p className="text-[10px] text-muted-foreground mt-0.5">Standard purchase cost. Last GRN price auto-updates from receipts.</p>
+        </Field>
+        {(() => {
+          const nomCost = parseFloat(form.nominal_cost) || 0;
+          const cf = parseFloat(form.conversion_factor) || 1;
+          const yf = parseFloat(form.yield_factor) || 1;
+          const pricePerStockUnit = nomCost > 0 ? (nomCost / (cf * yf)) : null;
+          return (
+            <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-sm">
+              <span className="text-muted-foreground">Price per stock unit: </span>
+              <span className="font-bold text-primary">
+                {pricePerStockUnit != null
+                  ? `R ${pricePerStockUnit.toFixed(4)} / ${form.conversion_uom || 'unit'}`
+                  : '—'}
+              </span>
+              <span className="text-[10px] text-muted-foreground ml-2">= nominal_cost / (conversion × yield)</span>
+            </div>
+          );
+        })()}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Last Purchase Price (ZAR)">
-            <Input type="number" step="0.01" value={form.last_purchase_price || ''} onChange={e => set('last_purchase_price', e.target.value)} className="h-8 text-sm" />
+          <Field label="Last purchase price (excl VAT) — auto-updated from GRN">
+            <Input
+              type="number"
+              step="0.01"
+              value={form.last_purchase_price || ''}
+              disabled
+              className="h-8 text-sm bg-muted/40 text-muted-foreground"
+            />
           </Field>
           <Field label="Price Variance Threshold (decimal)">
             <Input type="number" step="0.01" value={form.price_variance_threshold || ''} onChange={e => set('price_variance_threshold', e.target.value)} className="h-8 text-sm" />

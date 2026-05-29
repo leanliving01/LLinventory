@@ -1,80 +1,195 @@
 import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { X, Loader2, Truck } from 'lucide-react';
+import { X, Loader2, Truck, CheckCircle2, AlertTriangle, Percent, MapPin, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { computePaymentTermsLabel } from '@/lib/utils';
+import { formatPaymentTerms } from '@/lib/utils';
+import { SupplierContactsSection } from '@/components/suppliers/SupplierContactsSection';
 
-const PAYMENT_TERM_PRESETS = [
-  { label: 'Immediate / COD',           basis: 'invoice_date',              days: 0,  cutoffDay: null },
-  { label: '7 days from invoice',       basis: 'invoice_date',              days: 7,  cutoffDay: null },
-  { label: '14 days from invoice',      basis: 'invoice_date',              days: 14, cutoffDay: null },
-  { label: '30 days from invoice',      basis: 'invoice_date',              days: 30, cutoffDay: null },
-  { label: '7 days EOM',                basis: 'end_of_month_of_invoice',   days: 7,  cutoffDay: null },
-  { label: '30 days EOM',               basis: 'end_of_month_of_invoice',   days: 30, cutoffDay: null },
-  { label: '20th of following month',   basis: 'specific_day_of_month',     days: 0,  cutoffDay: 20 },
+// ---------------------------------------------------------------------------
+// Levenshtein similarity — 1.0 = identical, 0 = completely different
+// ---------------------------------------------------------------------------
+function levenshteinSimilarity(a, b) {
+  const s1 = a.toLowerCase().trim(), s2 = b.toLowerCase().trim();
+  if (s1 === s2) return 1;
+  const m = s1.length, n = s2.length;
+  if (!m || !n) return 0;
+  const dp = Array.from({ length: m + 1 }, (_, i) => Array.from({ length: n + 1 }, (_, j) => j ? 0 : i));
+  for (let j = 1; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = s1[i - 1] === s2[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+  return 1 - dp[m][n] / Math.max(m, n);
+}
+
+// ---------------------------------------------------------------------------
+// Payment term type options (mirrors SupplierDetailDrawer)
+// ---------------------------------------------------------------------------
+const PAYMENT_TERM_TYPE_OPTIONS = [
+  { value: 'immediate',              label: 'Immediate / COD' },
+  { value: 'days_after_invoice',     label: 'Days after invoice date' },
+  { value: 'day_of_invoice_month',   label: 'Day of invoice month' },
+  { value: 'day_of_following_month', label: 'Day of month following invoice' },
 ];
 
-const EMPTY_TERMS = { payment_terms_basis: '', payment_terms_days: '', payment_terms_cutoff_day: '' };
+function SectionHeading({ children }) {
+  return (
+    <h4 className="text-xs font-semibold uppercase text-muted-foreground tracking-wide pt-1 pb-0.5 border-b border-border/60">
+      {children}
+    </h4>
+  );
+}
+
+const INITIAL_FORM = {
+  name: '',
+  category: 'other',
+  is_production_supplier: false,
+  payment_term_type: '',
+  payment_term_value: '',
+  default_tax_rate_id: '',
+  physical_address: '',
+  billing_address: '',
+  shipping_address: '',
+};
 
 export default function CreateSupplierModal({ onCreated, onCancel }) {
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [vatStatus, setVatStatus] = useState(null); // null | 'registered' | 'not_registered'
+  const [vatNumber, setVatNumber] = useState('');
+  const [contacts, setContacts] = useState([]);
+
+  // Duplicate detection state
+  const [dupWarning, setDupWarning] = useState(null); // null | { type: 'block' | 'warn', match: string }
+  const [dupAcknowledged, setDupAcknowledged] = useState(false);
+
+  // Save state
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    name: '',
-    contact_name: '',
-    email: '',
-    phone: '',
-    tax_id: '',
-    category: 'other',
-    is_production_supplier: false,
-    ...EMPTY_TERMS,
-  });
+  const [saveError, setSaveError] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [savedSupplier, setSavedSupplier] = useState(null);
 
   const set = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
-  const setField = (key) => (e) => set(key, e.target.value);
 
-  const applyPreset = (preset) => {
+  // Tax rates
+  const { data: taxRates = [] } = useQuery({
+    queryKey: ['tax-rates'],
+    queryFn: () => base44.entities.TaxRate.filter({ active: true }, 'name', 20),
+    staleTime: 300000,
+  });
+
+  // Payment terms preview
+  const termsPreview = form.payment_term_type
+    ? formatPaymentTerms(form.payment_term_type, form.payment_term_value)
+    : '';
+
+  const handleTermTypeChange = (newType) => {
     setForm(prev => ({
       ...prev,
-      payment_terms_basis: preset.basis,
-      payment_terms_days: String(preset.days),
-      payment_terms_cutoff_day: preset.cutoffDay != null ? String(preset.cutoffDay) : '',
-      payment_terms_label: preset.label,
+      payment_term_type: newType,
+      payment_term_value: newType === 'immediate' ? '' : prev.payment_term_value,
     }));
   };
 
-  const termsPreview = computePaymentTermsLabel(
-    form.payment_terms_basis,
-    form.payment_terms_days,
-    form.payment_terms_cutoff_day,
-  );
+  // Duplicate name check on blur
+  const handleNameBlur = async () => {
+    const name = form.name.trim();
+    setDupWarning(null);
+    setDupAcknowledged(false);
+    if (!name) return;
+    try {
+      const all = await base44.entities.Supplier.list();
+      const names = (all || []).map(s => s.name || '');
+      for (const existing of names) {
+        const sim = levenshteinSimilarity(name, existing);
+        if (sim === 1) {
+          setDupWarning({ type: 'block', match: existing });
+          return;
+        }
+        if (sim > 0.75) {
+          setDupWarning({ type: 'warn', match: existing });
+          return;
+        }
+      }
+    } catch {
+      // silently ignore — don't block UX on a network error
+    }
+  };
+
+  // Validation
+  const canSave = () => {
+    if (!form.name.trim()) return false;
+    if (dupWarning?.type === 'block') return false;
+    if (dupWarning?.type === 'warn' && !dupAcknowledged) return false;
+    if (vatStatus === null) return false;
+    if (vatStatus === 'registered' && !vatNumber.trim()) return false;
+    return true;
+  };
 
   const handleCreate = async () => {
-    if (!form.name.trim()) return;
+    if (!canSave()) return;
     setSaving(true);
+    setSaveError('');
     try {
-      await base44.entities.Supplier.create({
+      const payload = {
         ...form,
+        is_vat_registered: vatStatus === 'registered',
+        vat_number: vatStatus === 'registered' ? vatNumber.trim() : null,
+        payment_term_type: form.payment_term_type || null,
+        payment_term_value: form.payment_term_value ? parseInt(form.payment_term_value) : null,
+        default_tax_rate_id: form.default_tax_rate_id || null,
+        physical_address: form.physical_address || null,
+        billing_address: form.billing_address || null,
+        shipping_address: form.shipping_address || null,
         status: 'active',
-        payment_terms_days: form.payment_terms_days ? parseInt(form.payment_terms_days) : null,
-        payment_terms_cutoff_day: form.payment_terms_cutoff_day ? parseInt(form.payment_terms_cutoff_day) : null,
-        payment_terms_label: termsPreview || null,
-      });
-      toast.success(`Supplier "${form.name}" created`);
-      onCreated();
+      };
+
+      const newSupplier = await base44.entities.Supplier.create(payload);
+
+      // Create contacts
+      for (const contact of contacts) {
+        const { _key, ...rest } = contact;
+        await base44.entities.SupplierContact.create({
+          supplier_id: newSupplier.id,
+          ...rest,
+        });
+      }
+
+      setSavedSupplier(newSupplier);
+      setSaved(true);
+    } catch (err) {
+      const msg = err.message || 'Unknown error';
+      setSaveError(msg);
+      toast.error(`Failed to create supplier: ${msg}`);
     } finally {
       setSaving(false);
     }
   };
 
+  const handleAddAnother = () => {
+    setForm(INITIAL_FORM);
+    setVatStatus(null);
+    setVatNumber('');
+    setContacts([]);
+    setDupWarning(null);
+    setDupAcknowledged(false);
+    setSaved(false);
+    setSavedSupplier(null);
+    setSaveError('');
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-card rounded-2xl border border-border w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+      <div className="bg-card rounded-2xl border border-border w-full max-w-3xl shadow-xl max-h-[92vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2">
             <Truck className="w-5 h-5 text-primary" />
             <h3 className="text-lg font-bold">Add Supplier</h3>
@@ -84,100 +199,246 @@ export default function CreateSupplierModal({ onCreated, onCancel }) {
           </Button>
         </div>
 
-        <div className="px-6 py-4 space-y-4">
-          {/* Name */}
-          <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase">Supplier Name *</label>
-            <Input value={form.name} onChange={setField('name')} placeholder="e.g. Fresh Meats PE" className="mt-1" autoFocus />
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+          {/* ── Supplier Name ── */}
+          <div className="space-y-1">
+            <SectionHeading>Supplier Name</SectionHeading>
+            <Input
+              value={form.name}
+              onChange={e => {
+                set('name', e.target.value);
+                setDupWarning(null);
+                setDupAcknowledged(false);
+              }}
+              onBlur={handleNameBlur}
+              placeholder="e.g. Fresh Meats PE"
+              autoFocus
+              className={dupWarning?.type === 'block' ? 'border-destructive' : ''}
+            />
+            {dupWarning?.type === 'block' && (
+              <div className="flex items-center gap-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                A supplier named <strong className="mx-0.5">"{dupWarning.match}"</strong> already exists. Please use a different name.
+              </div>
+            )}
+            {dupWarning?.type === 'warn' && !dupAcknowledged && (
+              <div className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>
+                  A similar supplier <strong className="mx-0.5">"{dupWarning.match}"</strong> already exists. Is this a duplicate?{' '}
+                  <button
+                    type="button"
+                    className="underline font-semibold ml-1"
+                    onClick={() => setDupAcknowledged(true)}
+                  >
+                    Continue anyway
+                  </button>
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Contact */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground uppercase">Contact Name</label>
-              <Input value={form.contact_name} onChange={setField('contact_name')} placeholder="John Smith" className="mt-1" />
+          {/* ── Category + Production Supplier ── */}
+          <div className="space-y-3">
+            <SectionHeading>Classification</SectionHeading>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">Category</label>
+                <Select value={form.category} onValueChange={v => set('category', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="food">Food — raw ingredients (meat, veg, dairy)</SelectItem>
+                    <SelectItem value="packaging">Packaging — containers, labels, film</SelectItem>
+                    <SelectItem value="resale">Resale — supplements, finished goods</SelectItem>
+                    <SelectItem value="other">Other — services, software, cleaning</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end pb-0.5">
+                <div className="flex items-start gap-3 p-3 bg-muted/40 rounded-lg border border-border w-full">
+                  <Switch
+                    id="is_production_supplier"
+                    checked={form.is_production_supplier}
+                    onCheckedChange={v => set('is_production_supplier', v)}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <Label htmlFor="is_production_supplier" className="text-sm font-medium cursor-pointer">
+                      Production Supplier
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Appears in the Purchasing Units dropdown on products.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground uppercase">Phone</label>
-              <Input value={form.phone} onChange={setField('phone')} placeholder="+27 41 123 4567" className="mt-1" />
+          </div>
+
+          {/* ── VAT Registration ── */}
+          <div className="space-y-2">
+            <SectionHeading>VAT Registration</SectionHeading>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setVatStatus('registered')}
+                className={`flex-1 py-2.5 text-sm font-medium rounded-lg border transition-colors ${
+                  vatStatus === 'registered'
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-background text-foreground border-border hover:border-primary/60'
+                }`}
+              >
+                VAT Registered
+              </button>
+              <button
+                type="button"
+                onClick={() => setVatStatus('not_registered')}
+                className={`flex-1 py-2.5 text-sm font-medium rounded-lg border transition-colors ${
+                  vatStatus === 'not_registered'
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-background text-foreground border-border hover:border-primary/60'
+                }`}
+              >
+                Not VAT Registered
+              </button>
             </div>
+            {vatStatus === null && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                VAT registration status is required.
+              </p>
+            )}
+            {vatStatus === 'registered' && (
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">VAT Number *</label>
+                <Input
+                  value={vatNumber}
+                  onChange={e => setVatNumber(e.target.value)}
+                  placeholder="e.g. 4123456789"
+                />
+              </div>
+            )}
           </div>
 
-          <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase">Email</label>
-            <Input value={form.email} onChange={setField('email')} type="email" placeholder="supplier@example.com" className="mt-1" />
+          {/* ── Payment Terms ── */}
+          <div className="space-y-2">
+            <SectionHeading>Payment Terms</SectionHeading>
+            <div className="flex gap-2 items-center flex-wrap">
+              {form.payment_term_type !== 'immediate' && (
+                <Input
+                  type="number"
+                  min={1}
+                  max={form.payment_term_type === 'days_after_invoice' ? 365 : 31}
+                  placeholder={form.payment_term_type === 'days_after_invoice' ? 'Days' : 'Day'}
+                  value={form.payment_term_value}
+                  onChange={e => set('payment_term_value', e.target.value)}
+                  className="w-20 h-9"
+                />
+              )}
+              <Select value={form.payment_term_type || ''} onValueChange={handleTermTypeChange}>
+                <SelectTrigger className="flex-1 min-w-[200px] h-9">
+                  <SelectValue placeholder="Select payment term type…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_TERM_TYPE_OPTIONS.map(o => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {termsPreview && (
+              <p className="text-xs text-muted-foreground italic">→ {termsPreview}</p>
+            )}
           </div>
 
-          <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase">VAT Number</label>
-            <Input value={form.tax_id} onChange={setField('tax_id')} placeholder="4123456789" className="mt-1" />
-          </div>
-
-          {/* Category */}
-          <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase">Category</label>
-            <Select value={form.category} onValueChange={v => set('category', v)}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+          {/* ── Default Tax Rate ── */}
+          <div className="space-y-2">
+            <SectionHeading>Default Tax Rule</SectionHeading>
+            <Select
+              value={form.default_tax_rate_id || '_none'}
+              onValueChange={v => set('default_tax_rate_id', v === '_none' ? '' : v)}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Use system default" />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="food">Food — raw ingredients (meat, veg, dairy)</SelectItem>
-                <SelectItem value="packaging">Packaging — containers, labels, film</SelectItem>
-                <SelectItem value="other">Other — services, software, cleaning</SelectItem>
+                <SelectItem value="_none">Use system default</SelectItem>
+                {taxRates.map(r => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name} ({(r.rate * 100).toFixed(0)}%)
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
 
-          {/* Production supplier toggle */}
-          <div className="flex items-start gap-3 p-3 bg-muted/40 rounded-lg border border-border">
-            <Switch
-              id="is_production_supplier"
-              checked={form.is_production_supplier}
-              onCheckedChange={v => set('is_production_supplier', v)}
-              className="mt-0.5"
-            />
-            <div>
-              <Label htmlFor="is_production_supplier" className="text-sm font-medium cursor-pointer">
-                Production Supplier
-              </Label>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                This supplier is involved in production purchasing (raw materials, packaging, ingredients).
-                Only production suppliers appear in the Purchasing Units dropdown on products.
-              </p>
+          {/* ── Addresses ── */}
+          <div className="space-y-3">
+            <SectionHeading>Addresses</SectionHeading>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {[
+                { key: 'physical_address', label: 'Physical Address' },
+                { key: 'billing_address',  label: 'Billing Address' },
+                { key: 'shipping_address', label: 'Shipping Address' },
+              ].map(({ key, label }) => (
+                <div key={key}>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">{label}</label>
+                  <Textarea
+                    value={form[key]}
+                    onChange={e => set(key, e.target.value)}
+                    placeholder={label}
+                    className="text-sm h-20 resize-none"
+                  />
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Payment terms — structured */}
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-muted-foreground uppercase">Payment Terms</label>
-            <div className="flex flex-wrap gap-1.5">
-              {PAYMENT_TERM_PRESETS.map(p => (
-                <button
-                  key={p.label}
-                  type="button"
-                  onClick={() => applyPreset(p)}
-                  className={`text-xs px-2 py-1 rounded border transition-colors ${
-                    form.payment_terms_basis === p.basis &&
-                    String(form.payment_terms_days) === String(p.days) &&
-                    String(form.payment_terms_cutoff_day || '') === String(p.cutoffDay || '')
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background text-foreground border-border hover:border-primary/50'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            {termsPreview && (
-              <p className="text-xs text-muted-foreground italic">Payment due: {termsPreview}</p>
-            )}
+          {/* ── Contacts ── */}
+          <div className="space-y-3">
+            <SectionHeading>Contacts</SectionHeading>
+            <SupplierContactsSection contacts={contacts} onChange={setContacts} />
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-border flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
-          <Button className="flex-1 gap-2" onClick={handleCreate} disabled={saving || !form.name.trim()}>
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
-            {saving ? 'Creating...' : 'Create Supplier'}
-          </Button>
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-border shrink-0 space-y-2">
+          {saveError && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5">
+              {saveError}
+            </p>
+          )}
+
+          {saved ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span><strong>{savedSupplier?.name}</strong> was created successfully.</span>
+              </div>
+              <div className="flex gap-3">
+                <Button variant="outline" className="flex-1" onClick={handleAddAnother}>
+                  Add Another
+                </Button>
+                <Button className="flex-1" onClick={() => onCreated(savedSupplier)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
+              <Button
+                className="flex-1 gap-2"
+                onClick={handleCreate}
+                disabled={saving || !canSave()}
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
+                {saving ? 'Creating…' : 'Create Supplier'}
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </div>

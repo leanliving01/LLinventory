@@ -70,12 +70,14 @@ import SupplierProductCatalog from '@/pages/SupplierProductCatalog';
 import GoodsReceivedNotes from '@/pages/GoodsReceivedNotes';
 import SupplierShortages from '@/pages/SupplierShortages';
 import SupplierReturns from '@/pages/SupplierReturns';
+import SupplierCreditsReturns from '@/pages/SupplierCreditsReturns';
 import PurchaseInvoices from '@/pages/PurchaseInvoices';
 import ProductReviewQueue from '@/pages/ProductReviewQueue';
 import PriceVarianceDashboard from '@/pages/PriceVarianceDashboard';
 import ThreeWayMatch from '@/pages/ThreeWayMatch';
 import PurchasingDashboard from '@/pages/PurchasingDashboard';
 import PurchaseWorkspace from '@/pages/PurchaseWorkspace';
+import POWorkspace from '@/components/purchasing/POWorkspace';
 import FoodCostDashboard from '@/pages/FoodCostDashboard';
 import SupplierScorecard from '@/pages/SupplierScorecard';
 import ActivityLog from '@/pages/ActivityLog';
@@ -198,12 +200,14 @@ const AuthenticatedApp = () => {
         <Route path="/recipes/:bomId" element={<RecipeDetail />} />
         <Route path="/suppliers" element={<Suppliers />} />
         <Route path="/purchasing/orders" element={<PurchaseOrders />} />
+        <Route path="/purchasing/purchase-orders/:poId" element={<POWorkspace />} />
         <Route path="/purchasing/settings" element={<POSettings />} />
         <Route path="/purchasing/reorder" element={<ReorderReport />} />
         <Route path="/purchasing/supplier-products" element={<SupplierProductCatalog />} />
         <Route path="/purchasing/grn" element={<GoodsReceivedNotes />} />
         <Route path="/purchasing/shortages" element={<SupplierShortages />} />
         <Route path="/purchasing/returns" element={<SupplierReturns />} />
+        <Route path="/purchasing/credits-returns" element={<SupplierCreditsReturns />} />
         <Route path="/purchasing/invoices" element={<PurchaseInvoices />} />
         <Route path="/purchasing/review-queue" element={<ProductReviewQueue />} />
         <Route path="/purchasing/price-variance" element={<PriceVarianceDashboard />} />

@@ -346,6 +346,7 @@ export default function Catalog() {
           mergeSelection={mergeSelection}
           setMergeSelection={setMergeSelection}
           onProductReclassify={perms.catalog_edit ? handleProductReclassify : undefined}
+          search={search}
         />
       ) : (
         <div className="bg-card border border-border rounded-xl overflow-hidden">

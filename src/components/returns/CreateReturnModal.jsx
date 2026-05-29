@@ -11,6 +11,12 @@ import { format } from 'date-fns';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { writeAuditLog } from '@/lib/auditLog';
 
+const STOCK_ACTIONS = [
+  { value: 'remove_from_stock', label: 'Remove from stock' },
+  { value: 'move_to_quarantine', label: 'Move to quarantine' },
+  { value: 'already_returned', label: 'Already physically returned' },
+];
+
 const REASONS = [
   { value: 'damaged', label: 'Damaged' },
   { value: 'wrong_item', label: 'Wrong Item' },
@@ -26,6 +32,12 @@ export default function CreateReturnModal({ onCreated, onCancel }) {
   const [returnDate, setReturnDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [notes, setNotes] = useState('');
   const [selectedLines, setSelectedLines] = useState([]);
+
+  // New fields
+  const [linkedPoId, setLinkedPoId] = useState('');
+  const [linkedInvoiceId, setLinkedInvoiceId] = useState('');
+  const [stockAction, setStockAction] = useState('remove_from_stock');
+  const [creditExpected, setCreditExpected] = useState(true);
 
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers-active'],
@@ -46,6 +58,22 @@ export default function CreateReturnModal({ onCreated, onCancel }) {
       ? base44.entities.GRNLine.filter({ grn_id: grnId }, 'product_name', 100)
       : Promise.resolve([]),
     enabled: !!grnId,
+  });
+
+  const { data: supplierPOs = [] } = useQuery({
+    queryKey: ['pos-for-return', supplierId],
+    queryFn: () => supplierId
+      ? base44.entities.PurchaseOrder.filter({ supplier_id: supplierId }, '-created_date', 50)
+      : Promise.resolve([]),
+    enabled: !!supplierId,
+  });
+
+  const { data: supplierInvoices = [] } = useQuery({
+    queryKey: ['invoices-for-return', supplierId],
+    queryFn: () => supplierId
+      ? base44.entities.PurchaseInvoice.filter({ supplier_id: supplierId }, '-invoice_date', 50)
+      : Promise.resolve([]),
+    enabled: !!supplierId,
   });
 
   // Only show lines with items that could be returned (damaged/rejected or any line)
@@ -92,12 +120,12 @@ export default function CreateReturnModal({ onCreated, onCancel }) {
     }
     setSaving(true);
 
+    let createdReturn = null;
     try {
       const supplier = suppliers.find(s => s.id === supplierId);
-      // Generate return number
       const returnNumber = await nextDocNumber('RET');
 
-      const ret = await base44.entities.SupplierReturn.create({
+      createdReturn = await base44.entities.SupplierReturn.create({
         return_number: returnNumber,
         grn_id: grnId,
         supplier_id: supplierId,
@@ -106,6 +134,10 @@ export default function CreateReturnModal({ onCreated, onCancel }) {
         status: 'pending_return',
         total_return_value: Math.round(totalReturnValue * 100) / 100,
         notes,
+        po_id: linkedPoId || null,
+        invoice_id: linkedInvoiceId || null,
+        stock_action: stockAction,
+        credit_expected: creditExpected,
       });
 
       // Create return lines
@@ -114,7 +146,7 @@ export default function CreateReturnModal({ onCreated, onCancel }) {
         const cf = parseFloat(l.conversion_factor) || 1;
         const yf = parseFloat(l.yield_factor) || 1;
         return {
-          return_id: ret.id,
+          return_id: createdReturn.id,
           grn_line_id: l.grn_line_id,
           supplier_product_id: l.supplier_product_id,
           product_id: l.product_id,
@@ -129,21 +161,44 @@ export default function CreateReturnModal({ onCreated, onCancel }) {
       });
       await base44.entities.SupplierReturnLine.bulkCreate(returnLines);
 
+      // If credit is expected, create a SupplierShortage follow-up record per line
+      if (creditExpected) {
+        for (const l of selectedLines) {
+          const returnQty = parseFloat(l.return_qty) || 0;
+          const unitCost = parseFloat(l.unit_cost) || 0;
+          await base44.entities.SupplierShortage.create({
+            grn_id: grnId,
+            supplier_id: supplierId,
+            supplier_name: supplier?.name || '',
+            supplier_product_id: l.supplier_product_id || null,
+            product_id: l.product_id,
+            product_name: l.product_name,
+            product_sku: l.product_sku,
+            shortage_qty: returnQty,
+            shortage_value: Math.round(returnQty * unitCost * 100) / 100,
+            purchase_uom: '',
+            unit_cost: unitCost,
+            status: 'open',
+            credit_follow_up_status: 'credit_required',
+            source_return_id: createdReturn.id,
+          });
+        }
+      }
+
       writeAuditLog({
         action: 'create',
         entity_type: 'SupplierReturn',
-        entity_id: ret.id,
-        description: `Created return ${returnNumber}: ${returnLines.length} lines, R ${totalReturnValue.toFixed(2)}`,
+        entity_id: createdReturn.id,
+        description: `Created return ${returnNumber}: ${returnLines.length} lines, R ${totalReturnValue.toFixed(2)}${creditExpected ? ' — credit expected' : ''}`,
       });
 
       toast.success(`Return ${returnNumber} created`);
+      onCreated(createdReturn);
     } catch (err) {
       toast.error('Save failed: ' + (err.message || 'Unknown error'));
     } finally {
       setSaving(false);
     }
-
-    onCreated(ret);
   };
 
   return (
@@ -160,7 +215,7 @@ export default function CreateReturnModal({ onCreated, onCancel }) {
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase">Supplier *</label>
-            <Select value={supplierId} onValueChange={v => { setSupplierId(v); setGrnId(''); setSelectedLines([]); }}>
+            <Select value={supplierId} onValueChange={v => { setSupplierId(v); setGrnId(''); setSelectedLines([]); setLinkedPoId(''); setLinkedInvoiceId(''); }}>
               <SelectTrigger className="mt-1"><SelectValue placeholder="Select supplier" /></SelectTrigger>
               <SelectContent>
                 {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
@@ -243,6 +298,76 @@ export default function CreateReturnModal({ onCreated, onCancel }) {
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase">Return Date</label>
             <Input type="date" value={returnDate} onChange={e => setReturnDate(e.target.value)} className="mt-1" />
+          </div>
+
+          {supplierId && supplierPOs.length > 0 && (
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase">Linked PO (optional)</label>
+              <Select value={linkedPoId} onValueChange={setLinkedPoId}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select PO..." /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None</SelectItem>
+                  {supplierPOs.map(po => (
+                    <SelectItem key={po.id} value={po.id}>
+                      {po.po_number} — {po.order_date}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {supplierId && supplierInvoices.length > 0 && (
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase">Linked Invoice (optional)</label>
+              <Select value={linkedInvoiceId} onValueChange={setLinkedInvoiceId}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select invoice..." /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None</SelectItem>
+                  {supplierInvoices.map(inv => (
+                    <SelectItem key={inv.id} value={inv.id}>
+                      {inv.invoice_number} — {inv.invoice_date} — R {(inv.total_incl_vat || 0).toFixed(2)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase">Stock Action</label>
+            <div className="mt-2 space-y-1.5">
+              {STOCK_ACTIONS.map(opt => (
+                <label key={opt.value} className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="stock_action"
+                    value={opt.value}
+                    checked={stockAction === opt.value}
+                    onChange={() => setStockAction(opt.value)}
+                    className="accent-primary"
+                  />
+                  <span className="text-sm">{opt.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={creditExpected}
+                onChange={e => setCreditExpected(e.target.checked)}
+                className="accent-primary w-4 h-4"
+              />
+              <span className="text-sm font-medium">Credit expected from supplier</span>
+            </label>
+            {creditExpected && (
+              <p className="text-xs text-muted-foreground mt-1 ml-6">
+                A credit follow-up will be created in Supplier Credits &amp; Returns.
+              </p>
+            )}
           </div>
 
           <div>

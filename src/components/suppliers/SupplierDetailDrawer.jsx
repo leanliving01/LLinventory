@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { X, Truck, User, Mail, Phone, CreditCard, MapPin, Save, Loader2, Pencil, FileText, Tag, Factory, AlertTriangle, Percent, GitMerge } from 'lucide-react';
+import { X, Truck, User, Mail, Phone, CreditCard, MapPin, Save, Loader2, Pencil, FileText, Tag, Factory, AlertTriangle, Percent, GitMerge, Users, Star, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
@@ -16,6 +16,7 @@ import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import SupplierProductsTab from '@/components/purchasing/SupplierProductsTab';
 import SupplierMergeModal from '@/components/suppliers/SupplierMergeModal';
+import { SupplierContactsSection } from '@/components/suppliers/SupplierContactsSection';
 import { computePaymentTermsLabel, formatPaymentTerms, formatZAR } from '@/lib/utils';
 
 const PAYMENT_TERM_TYPE_OPTIONS = [
@@ -72,9 +73,12 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
     phone: supplier.phone || '',
     billing_address: supplier.billing_address || '',
     shipping_address: supplier.shipping_address || '',
+    physical_address: supplier.physical_address || '',
     tax_id: supplier.tax_id || '',
     category: supplier.category || 'other',
     is_production_supplier: supplier.is_production_supplier || false,
+    is_vat_registered: supplier.is_vat_registered || false,
+    vat_number: supplier.vat_number || '',
     // New structured payment terms (v2)
     payment_term_type: supplier.payment_term_type || '',
     payment_term_value: supplier.payment_term_value != null ? String(supplier.payment_term_value) : '',
@@ -85,6 +89,8 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
     // Tax rate
     default_tax_rate_id: supplier.default_tax_rate_id || '',
   });
+  // Contacts edit state — populated when editing starts
+  const [contactsEdit, setContactsEdit] = useState([]);
 
   const setField = (key) => (value) => setForm(prev => ({ ...prev, [key]: value }));
 
@@ -126,6 +132,13 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
     staleTime: 300000,
   });
 
+  // Contacts for this supplier
+  const { data: contacts = [], refetch: refetchContacts } = useQuery({
+    queryKey: ['supplier-contacts', supplier.id],
+    queryFn: () => base44.entities.SupplierContact.filter({ supplier_id: supplier.id }),
+    staleTime: 60000,
+  });
+
   // Fetch POs for this supplier
   const { data: supplierPOs = [] } = useQuery({
     queryKey: ['supplier-pos', supplier.id],
@@ -149,7 +162,34 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
         payment_terms_cutoff_day: legacy.cutoff ?? (form.payment_terms_cutoff_day ? parseInt(form.payment_terms_cutoff_day) : null),
         payment_terms_label: termsPreviewNew || null,
         default_tax_rate_id: form.default_tax_rate_id || null,
+        is_vat_registered: form.is_vat_registered,
+        vat_number: form.is_vat_registered ? (form.vat_number || null) : null,
+        physical_address: form.physical_address || null,
       });
+
+      // Diff contacts: create new (_key only), delete removed, update changed (id present)
+      const originalIds = new Set(contacts.map(c => c.id));
+      const editIds = new Set(contactsEdit.filter(c => c.id).map(c => c.id));
+
+      // Delete removed
+      for (const id of originalIds) {
+        if (!editIds.has(id)) {
+          await base44.entities.SupplierContact.delete(id);
+        }
+      }
+
+      for (const contact of contactsEdit) {
+        const { _key, ...rest } = contact;
+        if (contact.id) {
+          // Update existing
+          await base44.entities.SupplierContact.update(contact.id, rest);
+        } else {
+          // Create new
+          await base44.entities.SupplierContact.create({ supplier_id: supplier.id, ...rest });
+        }
+      }
+
+      await refetchContacts();
       setLiveSupplier(updated);
       onUpdated?.(updated);
       toast.success('Supplier updated');
@@ -181,7 +221,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
           <div className="flex items-center gap-1">
             {!editing && (
               <>
-                <Button variant="ghost" size="icon" onClick={() => setEditing(true)} title="Edit supplier">
+                <Button variant="ghost" size="icon" onClick={() => { setEditing(true); setContactsEdit(contacts.map(c => ({ ...c }))); }} title="Edit supplier">
                   <Pencil className="w-4 h-4" />
                 </Button>
                 <Button variant="ghost" size="icon" onClick={() => setShowMerge(true)} title="Merge duplicate supplier">
@@ -205,7 +245,46 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
                 <EditField icon={User} label="Contact Name" value={form.contact_name} onChange={setField('contact_name')} placeholder="John Smith" />
                 <EditField icon={Mail} label="Email" value={form.email} onChange={setField('email')} type="email" placeholder="supplier@example.com" />
                 <EditField icon={Phone} label="Phone" value={form.phone} onChange={setField('phone')} type="tel" placeholder="+27 41 123 4567" />
-                <EditField icon={CreditCard} label="VAT Number" value={form.tax_id} onChange={setField('tax_id')} />
+                <EditField icon={CreditCard} label="Tax ID (legacy)" value={form.tax_id} onChange={setField('tax_id')} />
+                {/* VAT Registration */}
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="w-4 h-4 text-muted-foreground mt-2.5 shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <label className="text-[10px] uppercase text-muted-foreground font-semibold block">VAT Registration</label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setField('is_vat_registered')(true)}
+                        className={`flex-1 py-1.5 text-xs font-medium rounded border transition-colors ${
+                          form.is_vat_registered
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-background border-border hover:border-primary/50'
+                        }`}
+                      >
+                        VAT Registered
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setField('is_vat_registered')(false)}
+                        className={`flex-1 py-1.5 text-xs font-medium rounded border transition-colors ${
+                          !form.is_vat_registered
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-background border-border hover:border-primary/50'
+                        }`}
+                      >
+                        Not VAT Registered
+                      </button>
+                    </div>
+                    {form.is_vat_registered && (
+                      <Input
+                        value={form.vat_number}
+                        onChange={e => setField('vat_number')(e.target.value)}
+                        placeholder="VAT Number"
+                        className="h-8 text-sm"
+                      />
+                    )}
+                  </div>
+                </div>
                 <div className="flex items-start gap-3">
                   <Tag className="w-4 h-4 text-muted-foreground mt-2.5 shrink-0" />
                   <div className="flex-1">
@@ -300,6 +379,18 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
                 <div className="flex items-start gap-3">
                   <MapPin className="w-4 h-4 text-muted-foreground mt-2.5 shrink-0" />
                   <div className="flex-1">
+                    <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Physical Address</label>
+                    <Textarea
+                      value={form.physical_address}
+                      onChange={e => setField('physical_address')(e.target.value)}
+                      className="text-sm h-16"
+                      placeholder="Physical / street address"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <MapPin className="w-4 h-4 text-muted-foreground mt-2.5 shrink-0" />
+                  <div className="flex-1">
                     <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Billing Address</label>
                     <Textarea
                       value={form.billing_address}
@@ -321,12 +412,34 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
                     />
                   </div>
                 </div>
+                {/* Contacts edit */}
+                <div className="flex items-start gap-3">
+                  <Users className="w-4 h-4 text-muted-foreground mt-2.5 shrink-0" />
+                  <div className="flex-1">
+                    <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-2">Contacts</label>
+                    <SupplierContactsSection contacts={contactsEdit} onChange={setContactsEdit} />
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="space-y-3">
                 <ReadOnlyField icon={User} label="Contact Name" value={liveSupplier.contact_name} />
                 <ReadOnlyField icon={Mail} label="Email" value={liveSupplier.email} />
                 <ReadOnlyField icon={Phone} label="Phone" value={liveSupplier.phone} />
+                {/* VAT status in read mode */}
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground font-semibold">VAT Registration</p>
+                    {liveSupplier.is_vat_registered ? (
+                      <p className="text-sm text-green-700 font-medium">
+                        VAT Registered{liveSupplier.vat_number ? ` — ${liveSupplier.vat_number}` : ''}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Not VAT registered</p>
+                    )}
+                  </div>
+                </div>
                 <ReadOnlyField icon={CreditCard} label="Payment Terms" value={supplierTermsDisplay} />
                 {!liveSupplier.payment_term_type && (
                   <div className="flex items-center gap-2 ml-7 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
@@ -334,9 +447,10 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
                     No payment terms configured. Due dates won't auto-calculate.
                   </div>
                 )}
+                <ReadOnlyField icon={MapPin} label="Physical Address" value={liveSupplier.physical_address} />
                 <ReadOnlyField icon={MapPin} label="Billing Address" value={liveSupplier.billing_address} />
                 <ReadOnlyField icon={MapPin} label="Shipping Address" value={liveSupplier.shipping_address} />
-                {liveSupplier.tax_id && <ReadOnlyField icon={CreditCard} label="VAT Number" value={liveSupplier.tax_id} />}
+                {liveSupplier.tax_id && <ReadOnlyField icon={CreditCard} label="Tax ID (legacy)" value={liveSupplier.tax_id} />}
                 <ReadOnlyField icon={Tag} label="Category" value={
                   liveSupplier.category === 'food' ? 'Food' :
                   liveSupplier.category === 'packaging' ? 'Packaging' :
@@ -348,7 +462,32 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
                     <span className="text-sm text-green-700 font-medium">Production Supplier</span>
                   </div>
                 )}
-                {!liveSupplier.contact_name && !liveSupplier.email && !liveSupplier.phone && (
+                {/* Contacts read mode */}
+                {contacts.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Users className="w-4 h-4 text-muted-foreground" />
+                      <p className="text-[10px] uppercase text-muted-foreground font-semibold">Contacts</p>
+                    </div>
+                    <div className="ml-6 space-y-2">
+                      {contacts.map(c => (
+                        <div key={c.id} className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm space-y-0.5">
+                          <div className="flex items-center gap-1.5 font-medium">
+                            {c.is_primary && <Star className="w-3 h-3 text-amber-500 fill-amber-500" />}
+                            {c.name || <span className="text-muted-foreground italic">Unnamed</span>}
+                            {c.role && c.role !== 'general' && (
+                              <span className="text-[10px] text-muted-foreground capitalize ml-1">({c.role})</span>
+                            )}
+                          </div>
+                          {c.email && <p className="text-xs text-muted-foreground">{c.email}</p>}
+                          {c.phone && <p className="text-xs text-muted-foreground">{c.phone}</p>}
+                          {c.notes && <p className="text-xs text-muted-foreground italic">{c.notes}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {!liveSupplier.contact_name && !liveSupplier.email && !liveSupplier.phone && contacts.length === 0 && (
                   <p className="text-xs text-muted-foreground italic">No contact details on file — click the pencil to add them</p>
                 )}
               </div>
@@ -433,7 +572,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
               </p>
             )}
             <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => { setEditing(false); setSaveError(''); }}>Cancel</Button>
+              <Button variant="outline" className="flex-1" onClick={() => { setEditing(false); setSaveError(''); setContactsEdit([]); }}>Cancel</Button>
               <Button className="flex-1 gap-2" onClick={handleSave} disabled={saving || !form.name.trim()}>
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 {saving ? 'Saving...' : 'Save'}

@@ -12,7 +12,8 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import GRNLineRow from './GRNLineRow';
 import AddGRNLineModal from './AddGRNLineModal';
-import { confirmGRN } from './GRNConfirmLogic';
+import { confirmGRN, finaliseGRNWithDecisions } from './GRNConfirmLogic';
+import ShortReceivalDecisionModal from './ShortReceivalDecisionModal';
 
 const STATUS_STYLES = {
   draft: 'bg-gray-100 text-gray-600',
@@ -26,6 +27,7 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
   const [showAddLine, setShowAddLine] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [localLines, setLocalLines] = useState(null); // null = not editing
+  const [pendingDecision, setPendingDecision] = useState(null);
 
   const { data: lines = [], isLoading } = useQuery({
     queryKey: ['grn-lines', grn.id],
@@ -103,6 +105,13 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
       setConfirming(false);
       return;
     }
+
+    if (result.requiresDecision) {
+      setPendingDecision(result);
+      setConfirming(false);
+      return;
+    }
+
     setConfirming(false);
     setLocalLines(null);
     queryClient.invalidateQueries({ queryKey: ['grn-lines', grn.id] });
@@ -115,6 +124,31 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
     onUpdated?.();
   };
 
+  const handleDecisionsConfirmed = async (decisions) => {
+    try {
+      const userName = user?.full_name || 'Unknown';
+      const result = await finaliseGRNWithDecisions(
+        pendingDecision.grn,
+        pendingDecision.persistedLines,
+        decisions,
+        userName
+      );
+      setPendingDecision(null);
+      setLocalLines(null);
+      queryClient.invalidateQueries({ queryKey: ['grn-lines', grn.id] });
+      queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+      queryClient.invalidateQueries({ queryKey: ['active-products'] });
+      queryClient.invalidateQueries({ queryKey: ['supplier-shortages'] });
+      toast.success(`GRN confirmed: ${result.lineCount} lines, R ${result.totalValue.toFixed(2)}`);
+      if (result.hasShortages) {
+        toast.warning('Some items short-received — check Credits & Returns');
+      }
+      onUpdated?.();
+    } catch (err) {
+      toast.error('Failed to finalise GRN: ' + (err?.message || 'Unknown error'));
+    }
+  };
+
   // Summary stats
   const totalValue = editingLines.reduce((s, l) => {
     return s + (parseFloat(l.received_qty) || 0) * (parseFloat(l.unit_cost) || 0);
@@ -124,6 +158,7 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
   const existingProductIds = editingLines.map(l => l.product_id);
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <div className="relative z-10 w-full max-w-3xl bg-card shadow-xl flex flex-col">
@@ -280,5 +315,15 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
         )}
       </div>
     </div>
+
+    {pendingDecision && (
+      <ShortReceivalDecisionModal
+        grn={pendingDecision.grn}
+        shortLines={pendingDecision.shortLines}
+        onConfirm={handleDecisionsConfirmed}
+        onCancel={() => setPendingDecision(null)}
+      />
+    )}
+    </>
   );
 }

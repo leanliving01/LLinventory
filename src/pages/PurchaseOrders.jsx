@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Receipt, ChevronRight, AlertTriangle, Settings } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
 import PODetailDrawer from '@/components/purchasing/PODetailDrawer';
@@ -40,6 +40,7 @@ const STATUS_LABELS = {
 
 export default function PurchaseOrders() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
@@ -266,7 +267,7 @@ export default function PurchaseOrders() {
             </Link>
           )}
           {perms.po_create && (
-            <Button onClick={() => setShowCreate(true)} className="gap-2">
+            <Button onClick={() => navigate('/purchasing/purchase-orders/new')} className="gap-2">
               <Plus className="w-4 h-4" /> New PO
             </Button>
           )}
@@ -360,7 +361,7 @@ export default function PurchaseOrders() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {paginatedPOs.map(po => (
-                    <tr key={po.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => setSelectedPO(po)}>
+                    <tr key={po.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => navigate(`/purchasing/purchase-orders/${po.id}`)}>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
                           {posNeedingAttention.has(po.id) ? (

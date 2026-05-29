@@ -75,7 +75,7 @@ export default function SupplierProductCatalog() {
                (sp.product_sku || '').toLowerCase().includes(q) ||
                (sp.supplier_name || '').toLowerCase().includes(q) ||
                (sp.supplier_sku || '').toLowerCase().includes(q) ||
-               (sp.xero_item_code || '').toLowerCase().includes(q);
+               (sp.supplier_description || '').toLowerCase().includes(q);
       }
       return true;
     });
@@ -164,7 +164,7 @@ export default function SupplierProductCatalog() {
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search product, supplier, SKU, Xero code..."
+            placeholder="Search by product, SKU, supplier, description…"
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(0); }}
             className="pl-9"
@@ -189,13 +189,16 @@ export default function SupplierProductCatalog() {
           <table className="w-full">
             <thead>
               <tr className="bg-muted/50 border-b border-border">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Product</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Internal Code</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Internal Name</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Supplier</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Supplier SKU</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Purchase UoM</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Description</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Purchase UOM</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Conversion</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Yield</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Price</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Nominal Cost</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Last Price</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Price/Stock Unit</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Status</th>
                 <th className="w-10"></th>
               </tr>

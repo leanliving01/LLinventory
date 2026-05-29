@@ -233,27 +233,16 @@ export async function confirmGRN(grn, lines, userName) {
     toast.warning(`Price history skipped — missing Supplier Product link for: ${skippedPriceNames.join(', ')}`);
   }
 
-  // 5. Create SupplierShortage records for short lines
-  for (const line of persistedLines) {
-    if (line.expected_qty == null) continue;
-    const shortage = parseFloat(line.expected_qty) - parseFloat(line.received_qty);
-    if (shortage <= 0) continue;
+  // 5. Detect short-received stock lines (not rejected)
+  const shortStockLines = persistedLines.filter(l =>
+    parseFloat(l.received_qty) < parseFloat(l.expected_qty) &&
+    l.item_type === 'stock' &&
+    l.condition !== 'rejected'
+  );
 
-    await base44.entities.SupplierShortage.create({
-      grn_id: grn.id,
-      grn_line_id: line.id,
-      supplier_id: grn.supplier_id,
-      supplier_name: grn.supplier_name,
-      supplier_product_id: line.supplier_product_id || null,
-      product_id: line.product_id,
-      product_name: line.product_name,
-      product_sku: line.product_sku,
-      shortage_qty: shortage,
-      shortage_value: Math.round(shortage * (line.unit_cost || 0) * 100) / 100,
-      purchase_uom: line.purchase_uom || '',
-      unit_cost: line.unit_cost || 0,
-      status: 'open',
-    });
+  // If there are short lines, pause and ask the user what to do
+  if (shortStockLines.length > 0) {
+    return { requiresDecision: true, shortLines: shortStockLines, persistedLines, grn, totalValue, hasShortages, hasRejections, hasPriceVariance };
   }
 
   // 6. Update PO status if linked
@@ -283,6 +272,84 @@ export async function confirmGRN(grn, lines, userName) {
     entity_type: 'GoodsReceivedNote',
     entity_id: grn.id,
     description: `Confirmed GRN ${grn.grn_number}: ${persistedLines.length} lines, R ${totalValue.toFixed(2)} total`,
+  });
+
+  return { success: true, totalValue, lineCount: persistedLines.length, hasShortages, hasRejections };
+}
+
+/**
+ * Finalises a GRN after the user has made short-receival decisions.
+ * decisions = { [lineId]: 'receive_later' | 'request_credit' }
+ */
+export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, userName) {
+  const shortLineIds = Object.keys(decisions);
+
+  // 1. Persist short_receival_action on each short line
+  for (const lineId of shortLineIds) {
+    await base44.entities.GRNLine.update(lineId, {
+      short_receival_action: decisions[lineId],
+    });
+  }
+
+  // 2. For request_credit lines, create SupplierShortage records
+  for (const lineId of shortLineIds) {
+    if (decisions[lineId] === 'request_credit') {
+      const line = persistedLines.find(l => l.id === lineId);
+      if (!line) continue;
+      const shortageQty = parseFloat(line.expected_qty) - parseFloat(line.received_qty);
+      await base44.entities.SupplierShortage.create({
+        grn_id: grn.id,
+        grn_line_id: line.id,
+        supplier_id: grn.supplier_id,
+        supplier_name: grn.supplier_name,
+        supplier_product_id: line.supplier_product_id || null,
+        product_id: line.product_id,
+        product_name: line.product_name,
+        product_sku: line.product_sku,
+        shortage_qty: shortageQty,
+        shortage_value: Math.round(shortageQty * (parseFloat(line.unit_cost) || 0) * 100) / 100,
+        purchase_uom: line.purchase_uom || '',
+        unit_cost: parseFloat(line.unit_cost) || 0,
+        status: 'open',
+        credit_follow_up_status: 'credit_required',
+      });
+    }
+  }
+
+  // 3. Compute summary flags across all persisted lines
+  const totalValue = persistedLines.reduce((s, l) => s + (l.line_total || 0), 0);
+  const hasShortages = persistedLines.some(l =>
+    l.expected_qty != null && parseFloat(l.received_qty) < parseFloat(l.expected_qty)
+  );
+  const hasRejections = persistedLines.some(l => l.condition === 'damaged' || l.condition === 'rejected');
+  const hasPriceVariance = persistedLines.some(l => l.price_variance_flagged);
+
+  // 4. Update PO status if linked
+  if (grn.purchase_order_id) {
+    const poGRNs = await base44.entities.GoodsReceivedNote.filter({ purchase_order_id: grn.purchase_order_id });
+    const confirmedCount = poGRNs.filter(g => g.status === 'confirmed' || g.id === grn.id).length;
+    await base44.entities.PurchaseOrder.update(grn.purchase_order_id, {
+      status: 'received',
+      grn_count: confirmedCount,
+    });
+  }
+
+  // 5. Mark GRN as confirmed
+  await base44.entities.GoodsReceivedNote.update(grn.id, {
+    status: 'confirmed',
+    received_by_name: userName,
+    total_lines: persistedLines.length,
+    total_received_value: Math.round(totalValue * 100) / 100,
+    has_shortages: hasShortages,
+    has_rejections: hasRejections,
+    has_price_variance: hasPriceVariance,
+  });
+
+  writeAuditLog({
+    action: 'finalize',
+    entity_type: 'GoodsReceivedNote',
+    entity_id: grn.id,
+    description: `Confirmed GRN ${grn.grn_number} with short-receival decisions: ${persistedLines.length} lines, R ${totalValue.toFixed(2)} total`,
   });
 
   return { success: true, totalValue, lineCount: persistedLines.length, hasShortages, hasRejections };

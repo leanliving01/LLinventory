@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
@@ -148,7 +148,7 @@ function CategoryGroup({ category, items, groupIdx, isOpen, onToggle, showCheckb
 }
 
 
-export default function GroupedProductTable({ products, showCheckbox, mergeSelection, setMergeSelection, onProductReclassify }) {
+export default function GroupedProductTable({ products, showCheckbox, mergeSelection, setMergeSelection, onProductReclassify, search }) {
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState({});
   const isDragEnabled = !!onProductReclassify;
@@ -168,6 +168,20 @@ export default function GroupedProductTable({ products, showCheckbox, mergeSelec
       })
       .map(([category, items]) => ({ category, items }));
   }, [products]);
+
+  // Auto-expand all groups when a search is active
+  useEffect(() => {
+    if (search && search.trim()) {
+      setExpanded(prev => {
+        const next = { ...prev };
+        for (const group of grouped) {
+          next[group.category] = true;
+        }
+        return next;
+      });
+    }
+    // Do NOT collapse when search is cleared
+  }, [search, grouped]);
 
   const toggle = (cat) => setExpanded(prev => ({ ...prev, [cat]: !prev[cat] }));
 
