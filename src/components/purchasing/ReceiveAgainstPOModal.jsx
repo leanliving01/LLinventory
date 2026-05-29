@@ -122,7 +122,9 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-stretch justify-center">
+    <>
+    <div className="fixed inset-0 bg-black/50 z-40" />
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center">
       <div className="bg-card w-full max-w-4xl shadow-xl flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div>
@@ -200,5 +202,6 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
         </div>
       </div>
     </div>
+    </>
   );
 }
