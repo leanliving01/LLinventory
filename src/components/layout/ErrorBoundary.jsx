@@ -26,6 +26,11 @@ export default class ErrorBoundary extends React.Component {
             <p className="text-sm text-muted-foreground mt-1">
               {this.state.error?.message || 'An unexpected error occurred'}
             </p>
+            {this.state.error?.stack && (
+              <p className="text-[10px] text-muted-foreground/60 mt-2 font-mono max-w-lg text-left break-all">
+                {this.state.error.stack.split('\n').slice(0, 4).join('\n')}
+              </p>
+            )}
           </div>
           <Button
             variant="outline"
