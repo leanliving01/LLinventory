@@ -57,7 +57,8 @@ export default function GoodsReceivedNotes() {
   });
 
   const filtered = useMemo(() => {
-    const result = grns.filter(g => {
+    const safeGRNs = Array.isArray(grns) ? grns : [];
+    const result = safeGRNs.filter(g => {
       if (statusTab !== 'all' && g.status !== statusTab) return false;
       if (filters.supplierId !== 'all' && g.supplier_id !== filters.supplierId) return false;
       if (filters.search) {
@@ -96,17 +97,25 @@ export default function GoodsReceivedNotes() {
   };
 
   const statusCounts = useMemo(() => {
-    const c = { all: grns.length };
-    grns.forEach(g => { c[g.status] = (c[g.status] || 0) + 1; });
+    const safeGRNs = Array.isArray(grns) ? grns : [];
+    const c = { all: safeGRNs.length };
+    safeGRNs.forEach(g => { c[g.status] = (c[g.status] || 0) + 1; });
     return c;
   }, [grns]);
 
   const handleGRNUpdated = () => {
-    queryClient.invalidateQueries({ queryKey: ['grns-list'] });
-    if (selectedGRN) {
-      base44.entities.GoodsReceivedNote.filter({ id: selectedGRN.id }).then(res => {
-        if (res[0]) setSelectedGRN(res[0]); else setSelectedGRN(null);
-      });
+    try {
+      const grnId = selectedGRN?.id;
+      queryClient.invalidateQueries({ queryKey: ['grns-list'] });
+      if (grnId) {
+        base44.entities.GoodsReceivedNote.filter({ id: grnId }).then(res => {
+          if (res?.[0]) setSelectedGRN?.(res[0]); else setSelectedGRN?.(null);
+        }).catch(() => {
+          setSelectedGRN?.(null);
+        });
+      }
+    } catch (err) {
+      console.error('[GRN] handleGRNUpdated error:', err);
     }
   };
 

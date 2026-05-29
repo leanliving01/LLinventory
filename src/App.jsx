@@ -84,6 +84,7 @@ import ActivityLog from '@/pages/ActivityLog';
 import StockWriteOffs from '@/pages/StockWriteOffs';
 import ConnectionWatchdog from '@/components/layout/ConnectionWatchdog';
 import SessionBanner from '@/components/layout/SessionBanner';
+import ErrorBoundary from '@/components/layout/ErrorBoundary';
 
 function NativeAppRoleError() {
   const { logout } = useAuth();
@@ -199,15 +200,15 @@ const AuthenticatedApp = () => {
         <Route path="/recipes" element={<Recipes />} />
         <Route path="/recipes/:bomId" element={<RecipeDetail />} />
         <Route path="/suppliers" element={<Suppliers />} />
-        <Route path="/purchasing/orders" element={<PurchaseOrders />} />
-        <Route path="/purchasing/purchase-orders/:poId" element={<POWorkspace />} />
+        <Route path="/purchasing/orders" element={<ErrorBoundary><PurchaseOrders /></ErrorBoundary>} />
+        <Route path="/purchasing/purchase-orders/:poId" element={<ErrorBoundary><POWorkspace /></ErrorBoundary>} />
         <Route path="/purchasing/settings" element={<POSettings />} />
         <Route path="/purchasing/reorder" element={<ReorderReport />} />
         <Route path="/purchasing/supplier-products" element={<SupplierProductCatalog />} />
-        <Route path="/purchasing/grn" element={<GoodsReceivedNotes />} />
+        <Route path="/purchasing/grn" element={<ErrorBoundary><GoodsReceivedNotes /></ErrorBoundary>} />
         <Route path="/purchasing/shortages" element={<SupplierShortages />} />
         <Route path="/purchasing/returns" element={<SupplierReturns />} />
-        <Route path="/purchasing/credits-returns" element={<SupplierCreditsReturns />} />
+        <Route path="/purchasing/credits-returns" element={<ErrorBoundary><SupplierCreditsReturns /></ErrorBoundary>} />
         <Route path="/purchasing/invoices" element={<PurchaseInvoices />} />
         <Route path="/purchasing/review-queue" element={<ProductReviewQueue />} />
         <Route path="/purchasing/price-variance" element={<PriceVarianceDashboard />} />

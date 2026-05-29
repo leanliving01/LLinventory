@@ -14,6 +14,7 @@ import GRNLineRow from './GRNLineRow';
 import AddGRNLineModal from './AddGRNLineModal';
 import { confirmGRN, finaliseGRNWithDecisions } from './GRNConfirmLogic';
 import ShortReceivalDecisionModal from './ShortReceivalDecisionModal';
+import ErrorBoundary from '@/components/layout/ErrorBoundary';
 
 const STATUS_STYLES = {
   draft: 'bg-gray-100 text-gray-600',
@@ -117,7 +118,9 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
     queryClient.invalidateQueries({ queryKey: ['grn-lines', grn.id] });
     queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
     queryClient.invalidateQueries({ queryKey: ['active-products'] });
-    toast.success(`GRN confirmed: ${result.lineCount} lines, R ${result.totalValue.toFixed(2)}`);
+    const totalVal = typeof result.totalValue === 'number' ? result.totalValue : 0;
+    const lineCount = result.lineCount ?? 0;
+    toast.success(`GRN confirmed: ${lineCount} lines, R ${totalVal.toFixed(2)}`);
     if (result.hasShortages) {
       toast.warning('Shortages detected — check the shortages queue');
     }
@@ -139,7 +142,9 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
       queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
       queryClient.invalidateQueries({ queryKey: ['active-products'] });
       queryClient.invalidateQueries({ queryKey: ['supplier-shortages'] });
-      toast.success(`GRN confirmed: ${result.lineCount} lines, R ${result.totalValue.toFixed(2)}`);
+      const totalVal = typeof result.totalValue === 'number' ? result.totalValue : 0;
+      const lineCount = result.lineCount ?? 0;
+      toast.success(`GRN confirmed: ${lineCount} lines, R ${totalVal.toFixed(2)}`);
       if (result.hasShortages) {
         toast.warning('Some items short-received — check Credits & Returns');
       }
@@ -150,14 +155,16 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
   };
 
   // Summary stats
-  const totalValue = editingLines.reduce((s, l) => {
+  const safeLines = Array.isArray(editingLines) ? editingLines : [];
+  const totalValue = safeLines.reduce((s, l) => {
     return s + (parseFloat(l.received_qty) || 0) * (parseFloat(l.unit_cost) || 0);
   }, 0);
-  const shortLines = editingLines.filter(l => l.expected_qty != null && (parseFloat(l.received_qty) || 0) < parseFloat(l.expected_qty));
-  const rejectedLines = editingLines.filter(l => l.condition === 'damaged' || l.condition === 'rejected');
-  const existingProductIds = editingLines.map(l => l.product_id);
+  const shortLines = safeLines.filter(l => l.expected_qty != null && (parseFloat(l.received_qty) || 0) < parseFloat(l.expected_qty));
+  const rejectedLines = safeLines.filter(l => l.condition === 'damaged' || l.condition === 'rejected');
+  const existingProductIds = safeLines.map(l => l.product_id);
 
   return (
+    <ErrorBoundary onReset={() => { setPendingDecision(null); setConfirming(false); }}>
     <>
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
@@ -229,7 +236,7 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {editingLines.map((line, idx) => (
+                  {safeLines.map((line, idx) => (
                     <GRNLineRow
                       key={line.id || idx}
                       line={line}
@@ -288,7 +295,7 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
                 </Button>
                 <Button
                   onClick={handleConfirm}
-                  disabled={confirming || editingLines.filter(l => parseFloat(l.received_qty) > 0).length === 0}
+                  disabled={confirming || safeLines.filter(l => parseFloat(l.received_qty) > 0).length === 0}
                   className="gap-2"
                 >
                   {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
@@ -325,5 +332,6 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
       />
     )}
     </>
+    </ErrorBoundary>
   );
 }

@@ -117,7 +117,11 @@ export async function confirmGRN(grn, lines, userName) {
   );
   const uniqueProductIds = [...new Set(stockLines.map(l => l.product_id).filter(Boolean))];
   const productList = uniqueProductIds.length > 0
-    ? await base44.entities.Product.filter({ id: { $in: uniqueProductIds } })
+    ? (await Promise.allSettled(
+        uniqueProductIds.map(id => base44.entities.Product.filter({ id }))
+      ))
+      .filter(r => r.status === 'fulfilled' && Array.isArray(r.value) && r.value.length > 0)
+      .map(r => r.value[0])
     : [];
   const productCache = Object.fromEntries(productList.map(p => [p.id, p]));
 
@@ -133,36 +137,49 @@ export async function confirmGRN(grn, lines, userName) {
     const costPerStockUnit = line.unit_cost / ((line.conversion_factor || 1) * (line.yield_factor || 1)) || 0;
 
     // Create stock movement — unit_cost_at_movement must be per stock UOM, not purchase UOM
-    await base44.entities.StockMovement.create({
-      product_id: line.product_id,
-      product_sku: line.product_sku || product.sku,
-      product_name: line.product_name || product.name,
-      to_location_id: grn.location_id,
-      qty: line.internal_qty_received,
-      uom: product.stock_uom || 'kg',
-      reason: 'receipt',
-      ref_type: 'grn',
-      ref_id: grn.id,
-      ref_number: grn.grn_number,
-      reference_key: `grn:${grn.id}:${line.id}`,
-      unit_cost_at_movement: costPerStockUnit,
-      notes: `GRN ${grn.grn_number} from ${grn.supplier_name}`,
-    });
+    try {
+      await base44.entities.StockMovement.create({
+        product_id: line.product_id,
+        product_sku: line.product_sku || product.sku,
+        product_name: line.product_name || product.name,
+        to_location_id: grn.location_id,
+        qty: line.internal_qty_received,
+        uom: product.stock_uom || 'kg',
+        reason: 'receipt',
+        ref_type: 'grn',
+        ref_id: grn.id,
+        ref_number: grn.grn_number,
+        reference_key: `grn:${grn.id}:${line.id}`,
+        unit_cost_at_movement: costPerStockUnit,
+        notes: `GRN ${grn.grn_number} from ${grn.supplier_name}`,
+      });
+    } catch (stepErr) {
+      console.warn('[GRNConfirmLogic] Step failed (non-fatal):', stepErr?.message);
+    }
 
     // 3. Atomically update StockOnHand — the RPC computes the correct weighted average in the DB
-    const updatedSoh = await adjustStockOnHand(line.product_id, grn.location_id, line.internal_qty_received, costPerStockUnit);
+    let updatedSoh;
+    try {
+      updatedSoh = await adjustStockOnHand(line.product_id, grn.location_id, line.internal_qty_received, costPerStockUnit);
+    } catch (stepErr) {
+      console.warn('[GRNConfirmLogic] Step failed (non-fatal):', stepErr?.message);
+    }
 
     // 4. FIFO: create a cost layer. Weighted average: update cost_avg from RPC result.
     if (product.costing_method === 'fifo') {
-      await base44.entities.CostLayer.create({
-        product_id: line.product_id,
-        grn_line_id: line.id,
-        received_date: grn.received_date || new Date().toISOString().slice(0, 10),
-        qty_received: line.internal_qty_received,
-        qty_remaining: line.internal_qty_received,
-        cost_per_stock_uom: costPerStockUnit,
-        is_depleted: false,
-      });
+      try {
+        await base44.entities.CostLayer.create({
+          product_id: line.product_id,
+          grn_line_id: line.id,
+          received_date: grn.received_date || new Date().toISOString().slice(0, 10),
+          qty_received: line.internal_qty_received,
+          qty_remaining: line.internal_qty_received,
+          cost_per_stock_uom: costPerStockUnit,
+          is_depleted: false,
+        });
+      } catch (stepErr) {
+        console.warn('[GRNConfirmLogic] Step failed (non-fatal):', stepErr?.message);
+      }
       await base44.entities.Product.update(product.id, {
         cost_current: Math.round(costPerStockUnit * 100) / 100,
       });
@@ -203,19 +220,23 @@ export async function confirmGRN(grn, lines, userName) {
     const isFlagged = prevPrice > 0 && Math.abs(changePct) > threshold * 100;
 
     // Write price history record
-    await base44.entities.SupplierPriceHistory.create({
-      supplier_product_id: line.supplier_product_id,
-      supplier_name: grn.supplier_name,
-      product_name: line.product_name,
-      product_sku: line.product_sku,
-      price: unitCost,
-      previous_price: prevPrice,
-      change_pct: Math.round(changePct * 10) / 10,
-      effective_date: grn.received_date || new Date().toISOString().split('T')[0],
-      source: 'grn',
-      source_ref: grn.grn_number,
-      purchase_uom: line.purchase_uom || sp.purchase_uom || '',
-    });
+    try {
+      await base44.entities.SupplierPriceHistory.create({
+        supplier_product_id: line.supplier_product_id,
+        supplier_name: grn.supplier_name,
+        product_name: line.product_name,
+        product_sku: line.product_sku,
+        price: unitCost,
+        previous_price: prevPrice,
+        change_pct: Math.round(changePct * 10) / 10,
+        effective_date: grn.received_date || new Date().toISOString().split('T')[0],
+        source: 'grn',
+        source_ref: grn.grn_number,
+        purchase_uom: line.purchase_uom || sp.purchase_uom || '',
+      });
+    } catch (stepErr) {
+      console.warn('[GRNConfirmLogic] Step failed (non-fatal):', stepErr?.message);
+    }
 
     // Update supplier product last_purchase_price
     await base44.entities.SupplierProduct.update(sp.id, {
@@ -230,14 +251,17 @@ export async function confirmGRN(grn, lines, userName) {
   }
 
   if (skippedPriceNames.length > 0) {
-    toast.warning(`Price history skipped — missing Supplier Product link for: ${skippedPriceNames.join(', ')}`);
+    try {
+      toast.warning(`Price history skipped — missing Supplier Product link for: ${skippedPriceNames.join(', ')}`);
+    } catch (_) {}
   }
 
   // 5. Detect short-received stock lines (not rejected)
   const shortStockLines = persistedLines.filter(l =>
     parseFloat(l.received_qty) < parseFloat(l.expected_qty) &&
-    l.item_type === 'stock' &&
-    l.condition !== 'rejected'
+    (!l.item_type || l.item_type === 'stock') &&
+    l.condition !== 'rejected' &&
+    l.id  // must have an id to be actionable
   );
 
   // If there are short lines, pause and ask the user what to do
