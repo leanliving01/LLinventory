@@ -41,9 +41,9 @@ export default function GRNCard({ grn, onClick }) {
               <Clock className="w-3.5 h-3.5" /> {grn.received_date}
             </span>
             <span>{grn.total_lines || 0} lines</span>
-            {grn.total_received_value > 0 && (
+            {Number(grn.total_received_value) > 0 && (
               <span className="font-medium text-foreground">
-                R {grn.total_received_value.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                R {Number(grn.total_received_value).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
               </span>
             )}
           </div>

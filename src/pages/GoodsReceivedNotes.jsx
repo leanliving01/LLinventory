@@ -61,9 +61,9 @@ export default function GoodsReceivedNotes() {
       if (statusTab !== 'all' && g.status !== statusTab) return false;
       if (filters.supplierId !== 'all' && g.supplier_id !== filters.supplierId) return false;
       if (filters.search) {
-        const q = filters.search.toLowerCase();
-        if (!(g.grn_number || '').toLowerCase().includes(q) &&
-            !(g.supplier_name || '').toLowerCase().includes(q)) return false;
+        const q = String(filters.search).toLowerCase();
+        if (!String(g.grn_number || '').toLowerCase().includes(q) &&
+            !String(g.supplier_name || '').toLowerCase().includes(q)) return false;
       }
       if (filters.dateFrom && g.received_date && new Date(g.received_date) < filters.dateFrom) return false;
       if (filters.dateTo && g.received_date) {
@@ -76,12 +76,12 @@ export default function GoodsReceivedNotes() {
 
     const sorted = [...result];
     switch (filters.sortBy) {
-      case 'date_desc':     sorted.sort((a, b) => (b.received_date || '').localeCompare(a.received_date || '')); break;
-      case 'date_asc':      sorted.sort((a, b) => (a.received_date || '').localeCompare(b.received_date || '')); break;
-      case 'total_desc':    sorted.sort((a, b) => (b.total_received_value || 0) - (a.total_received_value || 0)); break;
-      case 'total_asc':     sorted.sort((a, b) => (a.total_received_value || 0) - (b.total_received_value || 0)); break;
-      case 'supplier_asc':  sorted.sort((a, b) => (a.supplier_name || '').localeCompare(b.supplier_name || '')); break;
-      case 'supplier_desc': sorted.sort((a, b) => (b.supplier_name || '').localeCompare(a.supplier_name || '')); break;
+      case 'date_desc':     sorted.sort((a, b) => String(b.received_date || '').localeCompare(String(a.received_date || ''))); break;
+      case 'date_asc':      sorted.sort((a, b) => String(a.received_date || '').localeCompare(String(b.received_date || ''))); break;
+      case 'total_desc':    sorted.sort((a, b) => (Number(b.total_received_value) || 0) - (Number(a.total_received_value) || 0)); break;
+      case 'total_asc':     sorted.sort((a, b) => (Number(a.total_received_value) || 0) - (Number(b.total_received_value) || 0)); break;
+      case 'supplier_asc':  sorted.sort((a, b) => String(a.supplier_name || '').localeCompare(String(b.supplier_name || ''))); break;
+      case 'supplier_desc': sorted.sort((a, b) => String(b.supplier_name || '').localeCompare(String(a.supplier_name || ''))); break;
     }
     return sorted;
   }, [grns, statusTab, filters]);
