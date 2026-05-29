@@ -8,13 +8,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { X, Truck, User, Mail, Phone, CreditCard, MapPin, Save, Loader2, Pencil, FileText, Tag, Factory, AlertTriangle, Percent } from 'lucide-react';
+import { X, Truck, User, Mail, Phone, CreditCard, MapPin, Save, Loader2, Pencil, FileText, Tag, Factory, AlertTriangle, Percent, GitMerge } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import SupplierProductsTab from '@/components/purchasing/SupplierProductsTab';
+import SupplierMergeModal from '@/components/suppliers/SupplierMergeModal';
 import { computePaymentTermsLabel, formatPaymentTerms, formatZAR } from '@/lib/utils';
 
 const PAYMENT_TERM_TYPE_OPTIONS = [
@@ -62,6 +63,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [showMerge, setShowMerge] = useState(false);
   const [liveSupplier, setLiveSupplier] = useState(supplier);
   const [form, setForm] = useState({
     name: supplier.name || '',
@@ -178,9 +180,14 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
           </div>
           <div className="flex items-center gap-1">
             {!editing && (
-              <Button variant="ghost" size="icon" onClick={() => setEditing(true)} title="Edit supplier">
-                <Pencil className="w-4 h-4" />
-              </Button>
+              <>
+                <Button variant="ghost" size="icon" onClick={() => setEditing(true)} title="Edit supplier">
+                  <Pencil className="w-4 h-4" />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => setShowMerge(true)} title="Merge duplicate supplier">
+                  <GitMerge className="w-4 h-4" />
+                </Button>
+              </>
             )}
             <Button variant="ghost" size="icon" onClick={onClose}>
               <X className="w-5 h-5" />
@@ -436,5 +443,17 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
         )}
       </div>
     </div>
+
+    {showMerge && (
+      <SupplierMergeModal
+        supplier={liveSupplier}
+        onClose={() => setShowMerge(false)}
+        onMerged={(primaryId) => {
+          setShowMerge(false);
+          if (primaryId !== liveSupplier.id) onClose();
+          else onUpdated?.(liveSupplier);
+        }}
+      />
+    )}
   );
 }
