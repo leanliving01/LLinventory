@@ -188,6 +188,7 @@ Deno.serve(async (req) => {
 
   for (const o of orders) {
     const customerName = [o.customer?.first_name, o.customer?.last_name].filter(Boolean).join(' ') || null;
+    // shopify_orders columns only — no total_amount (not in that table), no demand_calculated on updates
     const payload = {
       shopify_order_id: String(o.id),
       order_number: String(o.order_number || o.name || o.id),
@@ -196,10 +197,8 @@ Deno.serve(async (req) => {
       fulfilment_status: mapFulfilmentStatus(o.fulfillment_status),
       tags: o.tags || null,
       order_date: o.created_at,
-      total_amount: parseFloat(o.total_price || '0') || 0,
       synced_at: now,
       updated_date: now,
-      demand_calculated: false,
     };
     const existingId = existingByShopifyId.get(String(o.id));
     if (existingId) {
@@ -207,7 +206,8 @@ Deno.serve(async (req) => {
       orderIdMap.set(String(o.id), existingId);
     } else {
       const newId = crypto.randomUUID();
-      toInsert.push({ id: newId, ...payload, created_date: now });
+      // demand_calculated only set false on brand-new orders — never overwritten on updates
+      toInsert.push({ id: newId, ...payload, created_date: now, demand_calculated: false });
       orderIdMap.set(String(o.id), newId);
     }
 
