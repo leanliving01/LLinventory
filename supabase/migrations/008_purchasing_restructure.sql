@@ -40,15 +40,37 @@ ALTER TABLE supplier_products
   ADD COLUMN IF NOT EXISTS purchase_uom_name    text,
   ADD COLUMN IF NOT EXISTS price_per_stock_unit numeric DEFAULT 0;
 
--- 4. Add unique constraint needed for ON CONFLICT below
-ALTER TABLE supplier_products
-  ADD CONSTRAINT IF NOT EXISTS uq_supplier_products_product_supplier
-  UNIQUE (product_id, supplier_id);
+-- 4. Deduplicate supplier_products, then add unique constraint
+-- Keep the row with the highest last_purchase_price (most recent data) per (product_id, supplier_id)
+DELETE FROM supplier_products
+WHERE id IN (
+  SELECT id FROM (
+    SELECT id,
+           ROW_NUMBER() OVER (
+             PARTITION BY product_id, supplier_id
+             ORDER BY COALESCE(last_purchase_price, 0) DESC, updated_date DESC NULLS LAST, id
+           ) AS rn
+    FROM supplier_products
+  ) ranked
+  WHERE rn > 1
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'uq_supplier_products_product_supplier'
+  ) THEN
+    ALTER TABLE supplier_products
+      ADD CONSTRAINT uq_supplier_products_product_supplier
+      UNIQUE (product_id, supplier_id);
+  END IF;
+END $$;
 
 -- 5. Migrate product_purchase_uoms → supplier_products
 INSERT INTO supplier_products (
   id, product_id, supplier_id, supplier_name, product_name, product_sku,
-  purchase_uom_label, purchase_uom_name, conversion_factor,
+  purchase_uom, purchase_uom_label, purchase_uom_name, conversion_factor,
   last_purchase_price, nominal_cost,
   supplier_sku, supplier_description,
   is_default_supplier, active,
@@ -61,6 +83,7 @@ SELECT
   ppu.supplier_name,
   p.name,
   p.sku,
+  'kg',
   COALESCE(ppu.label, ppu.purchase_uom_name),
   ppu.purchase_uom_name,
   COALESCE(ppu.conversion_factor, ppu.purchase_to_stock_factor, 1),

@@ -195,7 +195,6 @@ export default function ProductPurchaseUomEditor({ productId, product, stockUom 
       conversion_factor: cf,
       yield_factor: yf,
       effective_internal_qty: cf * yf,
-      purchase_to_stock_factor: cf,  // legacy
       nominal_cost: nc,
       price_per_stock_unit: nc / (cf * yf),
       is_default_supplier: row.is_default || false,
