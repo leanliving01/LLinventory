@@ -9,6 +9,7 @@ import { X, Receipt, Truck, MapPin, Calendar, FileText, CheckCircle2, Loader2, B
 import { toast } from 'sonner';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
 import CreditNoteModal from './CreditNoteModal';
+import CreateInvoiceFromPOModal from './CreateInvoiceFromPOModal';
 
 const STATUS_COLORS = {
   draft: 'bg-gray-100 text-gray-600',
@@ -16,6 +17,7 @@ const STATUS_COLORS = {
   partially_received: 'bg-amber-100 text-amber-700',
   received: 'bg-green-100 text-green-700',
   invoiced: 'bg-purple-100 text-purple-700',
+  credit_note_pending: 'bg-orange-100 text-orange-700',
   paid: 'bg-green-100 text-green-700',
   cancelled: 'bg-red-100 text-red-600',
 };
@@ -25,6 +27,7 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
   const [updating, setUpdating] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
   const [showCreditNote, setShowCreditNote] = useState(false);
+  const [showCreateInvoice, setShowCreateInvoice] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState(po.supplier_invoice_number || '');
   const [editing, setEditing] = useState(false);
   const [editExpectedDate, setEditExpectedDate] = useState(po.expected_date || '');
@@ -240,10 +243,11 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
   // Actions available based on status
   const canConfirm = po.status === 'draft';
   const canReceive = ['confirmed', 'partially_received'].includes(po.status);
-  const canInvoice = ['received', 'partially_received'].includes(po.status);
+  const canInvoice = (po.grn_count > 0 || po.type === 'blind_receipt') &&
+    ['received', 'partially_received', 'credit_note_pending'].includes(po.status);
   const canPay = ['invoiced'].includes(po.status);
   const canCancel = ['draft', 'confirmed'].includes(po.status);
-  const canCreditNote = ['received', 'invoiced', 'paid'].includes(po.status);
+  const canCreditNote = ['received', 'invoiced', 'credit_note_pending', 'paid'].includes(po.status);
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-center">
@@ -579,8 +583,8 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                 </Button>
               )}
               {canInvoice && (
-                <Button onClick={handleMarkInvoiced} disabled={updating} className="gap-2 h-10 bg-purple-600 hover:bg-purple-700">
-                  <FileText className="w-4 h-4" /> Mark Invoiced
+                <Button onClick={() => setShowCreateInvoice(true)} disabled={updating} className="gap-2 h-10 bg-purple-600 hover:bg-purple-700">
+                  <FileText className="w-4 h-4" /> Create Invoice
                 </Button>
               )}
               {canPay && (
@@ -610,6 +614,13 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
           po={po}
           onCreated={() => { setShowCreditNote(false); onUpdated(); }}
           onCancel={() => setShowCreditNote(false)}
+        />
+      )}
+      {showCreateInvoice && (
+        <CreateInvoiceFromPOModal
+          po={po}
+          onCreated={() => { setShowCreateInvoice(false); onUpdated(); }}
+          onCancel={() => setShowCreateInvoice(false)}
         />
       )}
     </div>

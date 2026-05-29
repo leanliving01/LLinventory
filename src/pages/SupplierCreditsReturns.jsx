@@ -257,6 +257,7 @@ export default function SupplierCreditsReturns() {
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase">UOM</th>
                 <th className="text-right px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase">Value</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase">Status</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase">Invoice #</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase">Credit Note #</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase">Date</th>
                 <th className="text-right px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase">Actions</th>
@@ -299,6 +300,9 @@ export default function SupplierCreditsReturns() {
                       <Badge className={`text-[10px] ${STATUS_BADGE[status] || 'bg-gray-100 text-gray-600'}`}>
                         {STATUS_LABELS[status] || status}
                       </Badge>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
+                      {item.invoice_number || '—'}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {item._creditNoteNumber ? (

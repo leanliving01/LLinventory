@@ -25,6 +25,7 @@ const STATUS_COLORS = {
   partially_received: 'bg-amber-100 text-amber-700',
   received: 'bg-green-100 text-green-700',
   invoiced: 'bg-purple-100 text-purple-700',
+  credit_note_pending: 'bg-orange-100 text-orange-700',
   paid: 'bg-green-100 text-green-700',
   cancelled: 'bg-red-100 text-red-600',
 };
@@ -35,6 +36,7 @@ const STATUS_LABELS = {
   partially_received: 'Partial',
   received: 'Received',
   invoiced: 'Invoiced',
+  credit_note_pending: 'Credit Note Pending',
   paid: 'Paid',
   cancelled: 'Cancelled',
 };
@@ -167,6 +169,7 @@ export default function PurchaseOrders() {
             if (!postReceive.includes(po.status)) return false;
             if ((invoiceByPoId[po.id] || []).some(i => !i.is_credit_note)) return false;
             break;
+          case 'credit_note_pending': if (po.status !== 'credit_note_pending') return false; break;
           case 'invoiced':           if (po.status !== 'invoiced') return false; break;
           case 'paid':               if (po.status !== 'paid') return false; break;
           case 'needs_review':       if (!posNeedingAttention.has(po.id)) return false; break;
@@ -177,7 +180,7 @@ export default function PurchaseOrders() {
         }
       } else {
         // Status filter
-        if (statusFilter === 'open' && ['received', 'paid', 'cancelled'].includes(po.status)) return false;
+        if (statusFilter === 'open' && ['invoiced', 'paid', 'cancelled'].includes(po.status)) return false;
         if (statusFilter !== 'open' && statusFilter !== 'all' && po.status !== statusFilter) return false;
         // Needs attention filter
         if (needsAttentionOnly && !posNeedingAttention.has(po.id)) return false;

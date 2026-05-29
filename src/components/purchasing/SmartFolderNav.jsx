@@ -7,9 +7,10 @@ const FOLDERS = [
   { key: 'awaiting_approval',  label: 'Awaiting Approval',     badge: null },
   { key: 'approved',           label: 'Approved',              badge: null },
   { key: 'awaiting_grn',       label: 'Awaiting GRN',          badge: 'amber' },
-  { key: 'partially_received', label: 'Partially Received',    badge: 'amber' },
-  { key: 'received',           label: 'Received',              badge: null },
-  { key: 'awaiting_invoice',   label: 'Awaiting Invoice',      badge: 'amber' },
+  { key: 'partially_received',  label: 'Partially Received',   badge: 'amber' },
+  { key: 'received',            label: 'Received',             badge: null },
+  { key: 'awaiting_invoice',    label: 'Awaiting Invoice',     badge: 'amber' },
+  { key: 'credit_note_pending', label: 'Credit Note Pending',  badge: 'red' },
   { key: 'invoiced',           label: 'Invoiced',              badge: null },
   { key: 'paid',               label: 'Paid',                  badge: null },
   { key: 'needs_review',       label: 'Needs Review',          badge: 'red' },
@@ -85,6 +86,7 @@ export default function SmartFolderNav({
         postReceiveStatuses.includes(p.status) &&
         !(invoiceByPoId[p.id] || []).some(i => !i.is_credit_note)
       ).length,
+      credit_note_pending: pos.filter(p => p.status === 'credit_note_pending').length,
       invoiced:           pos.filter(p => p.status === 'invoiced').length,
       paid:               pos.filter(p => p.status === 'paid').length,
       needs_review:       posNeedingAttention.size,

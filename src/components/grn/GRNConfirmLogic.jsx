@@ -269,9 +269,8 @@ export async function confirmGRN(grn, lines, userName) {
     return { requiresDecision: true, shortLines: shortStockLines, persistedLines, grn, totalValue, hasShortages, hasRejections, hasPriceVariance };
   }
 
-  // 6. Update PO status if linked
+  // 6. Update PO status if linked (no shortages path — all items fully received)
   if (grn.purchase_order_id) {
-    // Check how many GRNs exist for this PO
     const poGRNs = await base44.entities.GoodsReceivedNote.filter({ purchase_order_id: grn.purchase_order_id });
     const confirmedCount = poGRNs.filter(g => g.status === 'confirmed' || g.id === grn.id).length;
     await base44.entities.PurchaseOrder.update(grn.purchase_order_id, {
@@ -348,12 +347,25 @@ export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, u
   const hasRejections = persistedLines.some(l => l.condition === 'damaged' || l.condition === 'rejected');
   const hasPriceVariance = persistedLines.some(l => l.price_variance_flagged);
 
-  // 4. Update PO status if linked
+  // 4. Update PO status if linked — status depends on what the user decided for short lines
   if (grn.purchase_order_id) {
     const poGRNs = await base44.entities.GoodsReceivedNote.filter({ purchase_order_id: grn.purchase_order_id });
     const confirmedCount = poGRNs.filter(g => g.status === 'confirmed' || g.id === grn.id).length;
+
+    const decisionValues = Object.values(decisions);
+    let newStatus;
+    if (decisionValues.some(d => d === 'request_credit')) {
+      // Any credit-note decision takes the PO to credit note pending
+      newStatus = 'credit_note_pending';
+    } else if (decisionValues.some(d => d === 'receive_later')) {
+      // All decisions are receive_later — still waiting on stock
+      newStatus = 'partially_received';
+    } else {
+      newStatus = 'received';
+    }
+
     await base44.entities.PurchaseOrder.update(grn.purchase_order_id, {
-      status: 'received',
+      status: newStatus,
       grn_count: confirmedCount,
     });
   }
