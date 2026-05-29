@@ -7,14 +7,13 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  ArrowLeft, Receipt, Loader2, Plus, Trash2, Save, CheckCircle2, Ban,
-  AlertTriangle, CheckCheck,
-} from 'lucide-react';
+import { CheckCircle2, ArrowLeft, Save, Loader2, Receipt, AlertTriangle, Ban, Package, Truck, FileText, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { resolveTaxRate, resolveTaxRateId, resolveTaxRateRecord } from '@/lib/taxResolution';
 import { formatPaymentTerms } from '@/lib/utils';
+import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
+import CreditNoteModal from './CreditNoteModal';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -128,6 +127,9 @@ export default function POWorkspace() {
   const [savedBanner, setSavedBanner] = useState(false);
   const [validationErrors, setValidationErrors] = useState([]);
   const [productSearch, setProductSearch] = useState('');
+  const [showReceive, setShowReceive] = useState(false);
+  const [showCreditNote, setShowCreditNote] = useState(false);
+  const [invoiceNumber, setInvoiceNumber] = useState('');
 
   // ---- Populate from loaded PO ----
   useEffect(() => {
@@ -137,6 +139,7 @@ export default function POWorkspace() {
     setExpectedDate(po.expected_date || '');
     setLocationId(po.location_id || '');
     setNotes(po.notes || '');
+    setInvoiceNumber(po.supplier_invoice_number || '');
   }, [po]);
 
   useEffect(() => {
@@ -478,6 +481,43 @@ export default function POWorkspace() {
     }
   };
 
+  const handleReceived = () => {
+    setShowReceive(false);
+    queryClient.invalidateQueries({ queryKey: ['po-lines', poId] });
+    queryClient.invalidateQueries({ queryKey: ['po', poId] });
+  };
+
+  const handleMarkInvoiced = async () => {
+    setSaving(true);
+    try {
+      await base44.entities.PurchaseOrder.update(poId, {
+        status: 'invoiced',
+        supplier_invoice_number: invoiceNumber || null,
+      });
+      toast.success('PO marked as invoiced');
+      queryClient.invalidateQueries({ queryKey: ['po', poId] });
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+    } catch (err) {
+      toast.error(`Failed: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMarkPaid = async () => {
+    setSaving(true);
+    try {
+      await base44.entities.PurchaseOrder.update(poId, { status: 'paid', payment_status: 'paid' });
+      toast.success('PO marked as paid');
+      queryClient.invalidateQueries({ queryKey: ['po', poId] });
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+    } catch (err) {
+      toast.error(`Failed: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // ---- Loading state ----
   if (!isNew && (isLoadingPO || isLoadingLines)) {
     return (
@@ -494,6 +534,11 @@ export default function POWorkspace() {
   const canSave = !isViewOnly && (currentStatus === 'draft' || currentStatus === 'approved' || currentStatus === 'confirmed');
   const canApprove = !isViewOnly && currentStatus === 'draft';
   const canCancel = !isViewOnly && (currentStatus === 'draft' || currentStatus === 'approved' || currentStatus === 'confirmed');
+  
+  const canReceive = ['confirmed', 'approved', 'partially_received'].includes(currentStatus);
+  const canInvoice = ['received', 'partially_received'].includes(currentStatus);
+  const canPay = ['invoiced'].includes(currentStatus);
+  const canCreditNote = ['received', 'invoiced', 'paid'].includes(currentStatus);
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -535,6 +580,35 @@ export default function POWorkspace() {
             <Button size="sm" onClick={handleApprove} disabled={saving} className="gap-1.5">
               <CheckCircle2 className="w-4 h-4" />
               Approve
+            </Button>
+          )}
+          {canReceive && (
+            <Button size="sm" onClick={() => setShowReceive(true)} className="gap-1.5 bg-green-600 hover:bg-green-700">
+              <Truck className="w-4 h-4" /> Receive Stock
+            </Button>
+          )}
+          {canInvoice && (
+            <div className="flex items-center gap-2 border border-purple-200 bg-purple-50 rounded-md pl-2 pr-1 py-1">
+              <input
+                type="text"
+                placeholder="Invoice #"
+                value={invoiceNumber}
+                onChange={e => setInvoiceNumber(e.target.value)}
+                className="bg-transparent border-none text-xs w-24 focus:outline-none placeholder:text-purple-300 text-purple-900"
+              />
+              <Button size="sm" onClick={handleMarkInvoiced} disabled={saving} className="gap-1.5 h-7 text-xs bg-purple-600 hover:bg-purple-700 px-2">
+                <FileText className="w-3.5 h-3.5" /> Mark Invoiced
+              </Button>
+            </div>
+          )}
+          {canPay && (
+            <Button size="sm" onClick={handleMarkPaid} disabled={saving} className="gap-1.5">
+              <CheckCircle2 className="w-4 h-4" /> Mark Paid
+            </Button>
+          )}
+          {canCreditNote && (
+            <Button variant="outline" size="sm" onClick={() => setShowCreditNote(true)} className="gap-1.5 text-destructive border-destructive/40 hover:bg-destructive/10">
+              <CreditCard className="w-4 h-4" /> Credit Note
             </Button>
           )}
           {canCancel && (
@@ -768,6 +842,23 @@ export default function POWorkspace() {
           </div>
         </div>
       </div>
+
+      {showReceive && po && (
+        <ReceiveAgainstPOModal
+          po={po}
+          lines={lines}
+          onReceived={handleReceived}
+          onCancel={() => setShowReceive(false)}
+        />
+      )}
+
+      {showCreditNote && po && (
+        <CreditNoteModal
+          po={po}
+          onCreated={() => { setShowCreditNote(false); queryClient.invalidateQueries({ queryKey: ['po', poId] }); }}
+          onCancel={() => setShowCreditNote(false)}
+        />
+      )}
     </div>
   );
 }

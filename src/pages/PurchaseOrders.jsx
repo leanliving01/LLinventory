@@ -7,6 +7,7 @@ import { Plus, Receipt, ChevronRight, AlertTriangle, Settings } from 'lucide-rea
 import { Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
+import CreateBlindReceiptModal from '@/components/grn/CreateBlindReceiptModal';
 import PODetailDrawer from '@/components/purchasing/PODetailDrawer';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
@@ -46,6 +47,7 @@ export default function PurchaseOrders() {
   const perms = getUserPermissions(user || {}, customRoles);
   const [statusFilter, setStatusFilter] = useState('open');
   const [showCreate, setShowCreate] = useState(false);
+  const [showBlindReceipt, setShowBlindReceipt] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -267,9 +269,14 @@ export default function PurchaseOrders() {
             </Link>
           )}
           {perms.po_create && (
-            <Button onClick={() => navigate('/purchasing/purchase-orders/new')} className="gap-2">
-              <Plus className="w-4 h-4" /> New PO
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={() => setShowBlindReceipt(true)} variant="outline" className="gap-2">
+                <Plus className="w-4 h-4" /> Blind Receipt
+              </Button>
+              <Button onClick={() => navigate('/purchasing/purchase-orders/new')} className="gap-2">
+                <Plus className="w-4 h-4" /> New PO
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -294,34 +301,7 @@ export default function PurchaseOrders() {
         </button>
       )}
 
-      {/* Status chips (only when no folder active) */}
-      {!activeFolder && (
-        <div className="flex gap-2 flex-wrap">
-          {[
-            { key: 'open', label: `Open (${statusCounts.open || 0})` },
-            { key: 'draft', label: `Draft (${statusCounts.draft || 0})` },
-            { key: 'confirmed', label: `Confirmed (${statusCounts.confirmed || 0})` },
-            { key: 'partially_received', label: `Partial (${statusCounts.partially_received || 0})` },
-            { key: 'received', label: `Received (${statusCounts.received || 0})` },
-            { key: 'invoiced', label: `Invoiced (${statusCounts.invoiced || 0})` },
-            { key: 'paid', label: `Paid (${statusCounts.paid || 0})` },
-            { key: 'cancelled', label: `Cancelled (${statusCounts.cancelled || 0})` },
-            { key: 'all', label: 'All' },
-          ].map(chip => (
-            <button
-              key={chip.key}
-              onClick={() => { setStatusFilter(statusFilter === chip.key ? 'all' : chip.key); setPage(1); }}
-              className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
-                statusFilter === chip.key
-                  ? 'bg-primary/10 text-primary ring-2 ring-primary/30'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              }`}
-            >
-              {chip.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Status chips removed in favor of Smart Folders */}
 
       {/* Filters */}
       <POFilters filters={filters} onChange={handleFiltersChange} suppliers={supplierOptions} />
@@ -441,6 +421,16 @@ export default function PurchaseOrders() {
             if (newPO) setSelectedPO(newPO);
           }}
           onCancel={() => setShowCreate(false)}
+        />
+      )}
+
+      {showBlindReceipt && (
+        <CreateBlindReceiptModal
+          onCreated={() => {
+            setShowBlindReceipt(false);
+            queryClient.invalidateQueries({ queryKey: ['pdash-grns'] });
+          }}
+          onCancel={() => setShowBlindReceipt(false)}
         />
       )}
 
