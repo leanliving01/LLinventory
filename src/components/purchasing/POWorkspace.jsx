@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { CheckCircle2, ArrowLeft, Save, Loader2, Receipt, AlertTriangle, Ban, Package, Truck, FileText, CreditCard } from 'lucide-react';
+import { CheckCircle2, ArrowLeft, Save, Loader2, Receipt, AlertTriangle, Ban, Package, Truck, FileText, CreditCard, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { resolveTaxRate, resolveTaxRateId, resolveTaxRateRecord } from '@/lib/taxResolution';
