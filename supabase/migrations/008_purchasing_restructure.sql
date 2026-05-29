@@ -121,3 +121,8 @@ ALTER TABLE supplier_shortages
       'credit_required','credit_requested','credit_note_received',
       'partially_credited','matched','cancelled'
     ));
+
+-- 9. Extend purchase_order_lines
+ALTER TABLE purchase_order_lines
+  ADD COLUMN IF NOT EXISTS supplier_sku text,
+  ADD COLUMN IF NOT EXISTS tax_rate numeric DEFAULT 0;
