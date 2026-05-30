@@ -7,10 +7,6 @@ import { Plus, Receipt, ChevronRight, AlertTriangle, Settings } from 'lucide-rea
 import { Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
-import { X, Loader2 } from 'lucide-react';
-import { nextDocNumber } from '@/lib/docNumbering';
 import PODetailDrawer from '@/components/purchasing/PODetailDrawer';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
@@ -52,11 +48,6 @@ export default function PurchaseOrders() {
   const perms = getUserPermissions(user || {}, customRoles);
   const [statusFilter, setStatusFilter] = useState('open');
   const [showCreate, setShowCreate] = useState(false);
-  const [showBlindReceipt, setShowBlindReceipt] = useState(false);
-  const [brSupplierId, setBrSupplierId] = useState('');
-  const [brExpectedDate, setBrExpectedDate] = useState('');
-  const [brNotes, setBrNotes] = useState('');
-  const [brSaving, setBrSaving] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -128,40 +119,6 @@ export default function PurchaseOrders() {
     });
     return poIds;
   }, [allLines]);
-
-  // Suppliers list for blind receipt form
-  const { data: allSuppliers = [] } = useQuery({
-    queryKey: ['suppliers-active'],
-    queryFn: () => base44.entities.Supplier.filter({ status: 'active' }, 'name', 200),
-    enabled: showBlindReceipt,
-  });
-
-  const handleCreateBlindReceipt = async () => {
-    if (!brSupplierId) { toast.error('Select a supplier'); return; }
-    setBrSaving(true);
-    try {
-      const supplier = allSuppliers.find(s => s.id === brSupplierId);
-      const poNumber = await nextDocNumber('PO');
-      const po = await base44.entities.PurchaseOrder.create({
-        po_number: poNumber,
-        type: 'blind_receipt',
-        status: 'draft',
-        supplier_id: brSupplierId,
-        supplier_name: supplier?.name || '',
-        expected_delivery_date: brExpectedDate || null,
-        notes: brNotes || null,
-        payment_terms: supplier?.payment_terms || null,
-        location_id: null,
-      });
-      setShowBlindReceipt(false);
-      setBrSupplierId(''); setBrExpectedDate(''); setBrNotes('');
-      navigate(`/purchasing/workspace/${po.id}`);
-    } catch (err) {
-      toast.error('Failed to create blind receipt: ' + err.message);
-    } finally {
-      setBrSaving(false);
-    }
-  };
 
   // Unique suppliers for the filter dropdown
   const supplierOptions = useMemo(() => {
@@ -313,14 +270,9 @@ export default function PurchaseOrders() {
             </Link>
           )}
           {perms.po_create && (
-            <div className="flex items-center gap-2">
-              <Button onClick={() => setShowBlindReceipt(true)} variant="outline" className="gap-2">
-                <Plus className="w-4 h-4" /> Blind Receipt
-              </Button>
-              <Button onClick={() => navigate('/purchasing/purchase-orders/new')} className="gap-2">
-                <Plus className="w-4 h-4" /> New PO
-              </Button>
-            </div>
+            <Button onClick={() => navigate('/purchasing/purchase-orders/new')} className="gap-2">
+              <Plus className="w-4 h-4" /> New PO
+            </Button>
           )}
         </div>
       </div>
@@ -466,47 +418,6 @@ export default function PurchaseOrders() {
           }}
           onCancel={() => setShowCreate(false)}
         />
-      )}
-
-      {showBlindReceipt && (
-        <>
-          <div className="fixed inset-0 bg-black/40 z-[150]" onClick={() => setShowBlindReceipt(false)} />
-          <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
-            <div className="bg-card rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="font-semibold text-base">New Blind Receipt</h3>
-                  <p className="text-xs text-muted-foreground mt-1">No PO — goods arrived without a prior order. The invoice will be created in the workspace.</p>
-                </div>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowBlindReceipt(false)}><X className="w-4 h-4" /></Button>
-              </div>
-              <div>
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase">Supplier *</label>
-                <Select value={brSupplierId} onValueChange={setBrSupplierId}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select supplier..." /></SelectTrigger>
-                  <SelectContent>
-                    {allSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase">Expected Delivery Date</label>
-                <Input type="date" value={brExpectedDate} onChange={e => setBrExpectedDate(e.target.value)} className="mt-1" />
-              </div>
-              <div>
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase">Notes</label>
-                <Input value={brNotes} onChange={e => setBrNotes(e.target.value)} placeholder="Optional..." className="mt-1" />
-              </div>
-              <div className="flex gap-2 pt-1">
-                <Button variant="outline" className="flex-1" onClick={() => setShowBlindReceipt(false)}>Cancel</Button>
-                <Button className="flex-1 gap-2" onClick={handleCreateBlindReceipt} disabled={brSaving || !brSupplierId}>
-                  {brSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Create &amp; Open Workspace
-                </Button>
-              </div>
-            </div>
-          </div>
-        </>
       )}
 
       {selectedPO && (

@@ -7,11 +7,12 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import { CheckCircle2, ArrowLeft, Save, Loader2, Receipt, AlertTriangle, Ban, Package, Truck, FileText, CreditCard, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { resolveTaxRate, resolveTaxRateId, resolveTaxRateRecord } from '@/lib/taxResolution';
-import { formatPaymentTerms } from '@/lib/utils';
+import { formatPaymentTerms, computeDueDate } from '@/lib/utils';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
 import CreditNoteModal from './CreditNoteModal';
 
@@ -118,6 +119,9 @@ export default function POWorkspace() {
   const [expectedDate, setExpectedDate] = useState('');
   const [locationId, setLocationId] = useState('');
   const [notes, setNotes] = useState('');
+  // Blind receipt mode — raises a PO + invoice simultaneously, no prior order
+  const [isBlindReceipt, setIsBlindReceipt] = useState(false);
+  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
 
   // ---- Local lines state ----
   const [localLines, setLocalLines] = useState([emptyLine()]);
@@ -134,8 +138,12 @@ export default function POWorkspace() {
   // ---- Populate from loaded PO ----
   useEffect(() => {
     if (!po) return;
+    const blind = po.type === 'blind_receipt';
+    setIsBlindReceipt(blind);
     setSupplierId(po.supplier_id || '');
     setOrderDate(po.order_date || new Date().toISOString().slice(0, 10));
+    // For blind receipts, order_date doubles as the invoice date
+    if (blind) setInvoiceDate(po.order_date || new Date().toISOString().slice(0, 10));
     setExpectedDate(po.expected_date || '');
     setLocationId(po.location_id || '');
     setNotes(po.notes || '');
@@ -340,9 +348,12 @@ export default function POWorkspace() {
     supplier_id: supplierId,
     supplier_name: selectedSupplier?.name || '',
     location_id: locationId || null,
-    order_date: orderDate,
+    // Blind receipts have no order date — store the invoice date in order_date so listing/sorting still works
+    order_date: isBlindReceipt ? (invoiceDate || null) : orderDate,
     expected_date: expectedDate || null,
     notes: notes || null,
+    type: isBlindReceipt ? 'blind_receipt' : 'formal_po',
+    supplier_invoice_number: isBlindReceipt ? (invoiceNumber || null) : (po?.supplier_invoice_number ?? null),
     subtotal: Math.round(subtotalExcl * 100) / 100,
     tax_amount: Math.round(totalVat * 100) / 100,
     total: Math.round(totalIncl * 100) / 100,
@@ -397,7 +408,6 @@ export default function POWorkspace() {
           ...buildHeaderPayload(),
           po_number: docNumber,
           status: targetStatus || 'draft',
-          type: 'formal_po',
         });
 
         // Create lines
@@ -457,6 +467,10 @@ export default function POWorkspace() {
   };
 
   const handleApprove = async () => {
+    if (isBlindReceipt) {
+      await handleApproveBlindReceipt();
+      return;
+    }
     const errors = validateForApproval();
     if (errors.length) {
       setValidationErrors(errors);
@@ -464,6 +478,115 @@ export default function POWorkspace() {
     }
     setValidationErrors([]);
     await handleSave('approved');
+  };
+
+  // Persist line items against a PO (handles both new bulk-create and existing upsert)
+  const persistLines = async (purchaseOrderId, validLines) => {
+    if (isNew) {
+      const payloads = validLines.map(l => buildLinePayload(l, purchaseOrderId));
+      if (payloads.length > 0) await base44.entities.PurchaseOrderLine.bulkCreate(payloads);
+      return;
+    }
+    const existingIds = savedLines.map(l => l.id);
+    const localIds = localLines.filter(l => l.id).map(l => l.id);
+    for (const existingId of existingIds) {
+      if (!localIds.includes(existingId)) await base44.entities.PurchaseOrderLine.delete(existingId);
+    }
+    for (const l of validLines) {
+      if (l.id) {
+        const payload = buildLinePayload(l, purchaseOrderId);
+        delete payload.received_qty;
+        await base44.entities.PurchaseOrderLine.update(l.id, payload);
+      }
+    }
+    const newLines = validLines.filter(l => !l.id);
+    if (newLines.length > 0) {
+      await base44.entities.PurchaseOrderLine.bulkCreate(newLines.map(l => buildLinePayload(l, purchaseOrderId)));
+    }
+  };
+
+  // Blind receipt approve: raises the PO + invoice together, then sends the user to the
+  // workspace where the next step is the GRN.
+  const handleApproveBlindReceipt = async () => {
+    if (!supplierId) { toast.error('Select a supplier'); return; }
+    if (!invoiceNumber.trim()) { toast.error('Enter the supplier invoice number'); return; }
+    if (!invoiceDate) { toast.error('Enter the invoice date'); return; }
+    const validLines = localLines.filter(l => l.product_id && parseFloat(l.ordered_qty) > 0 && parseFloat(l.unit_cost) > 0);
+    if (validLines.length === 0) { toast.error('Add at least one line with quantity and cost'); return; }
+
+    setValidationErrors([]);
+    setSaving(true);
+    try {
+      // Due date from supplier payment terms
+      let dueDate = null;
+      if (selectedSupplier?.payment_terms_basis) {
+        const calc = computeDueDate(invoiceDate, selectedSupplier.payment_terms_basis, selectedSupplier.payment_terms_days, selectedSupplier.payment_terms_cutoff_day);
+        if (calc) dueDate = calc.toISOString().slice(0, 10);
+      }
+
+      // 1. Create or update the PO (status approved — invoice is authorised on creation)
+      let poId2;
+      if (isNew) {
+        const docNumber = await nextDocNumber('PO');
+        const created = await base44.entities.PurchaseOrder.create({
+          ...buildHeaderPayload(),
+          po_number: docNumber,
+          status: 'approved',
+        });
+        poId2 = created.id;
+      } else {
+        await base44.entities.PurchaseOrder.update(poId, { ...buildHeaderPayload(), status: 'approved' });
+        poId2 = poId;
+      }
+
+      // 2. Persist the line items
+      await persistLines(poId2, validLines);
+
+      // 3. Create the supplier invoice + lines (authorised)
+      const invoice = await base44.entities.PurchaseInvoice.create({
+        invoice_number: invoiceNumber.trim(),
+        supplier_id: supplierId,
+        supplier_name: selectedSupplier?.name || '',
+        purchase_order_id: poId2,
+        invoice_date: invoiceDate,
+        due_date: dueDate,
+        due_date_calculated: dueDate,
+        source: 'manual',
+        status: 'approved',
+        payment_status: 'unpaid',
+        subtotal: Math.round(subtotalExcl * 100) / 100,
+        tax_amount: Math.round(totalVat * 100) / 100,
+        total: Math.round(totalIncl * 100) / 100,
+        currency: 'ZAR',
+        unmatched_line_count: 0,
+      });
+
+      for (const l of validLines) {
+        const qty = parseFloat(l.ordered_qty) || 0;
+        const cost = parseFloat(l.unit_cost) || 0;
+        await base44.entities.PurchaseInvoiceLine.create({
+          invoice_id: invoice.id,
+          product_id: l.product_id,
+          product_name: l.product_name || '',
+          product_sku: l.product_sku || '',
+          supplier_product_id: l.supplier_product_id || null,
+          qty,
+          unit_cost: cost,
+          tax_rule: l.tax_rule || '',
+          line_total: Math.round(qty * cost * 100) / 100,
+          match_status: 'manually_matched',
+        });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+      toast.success('Blind receipt created — raise the GRN to receive stock');
+      navigate(`/purchasing/workspace/${poId2}`);
+    } catch (err) {
+      console.error('[POWorkspace] Blind receipt approve failed', err);
+      toast.error(`Failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancelPO = async () => {
@@ -554,7 +677,7 @@ export default function POWorkspace() {
         <div className="flex items-center gap-2">
           <Receipt className="w-5 h-5 text-primary" />
           <span className="font-mono font-semibold text-base">
-            {isNew ? 'New Purchase Order' : (po?.po_number || '...')}
+            {isNew ? (isBlindReceipt ? 'New Blind Receipt' : 'New Purchase Order') : (po?.po_number || '...')}
           </span>
         </div>
 
@@ -564,7 +687,7 @@ export default function POWorkspace() {
 
         {savedBanner && (
           <span className="flex items-center gap-1 text-sm text-green-600 font-medium">
-            <CheckCheck className="w-4 h-4" />
+            <CheckCircle2 className="w-4 h-4" />
             Saved
           </span>
         )}
@@ -578,8 +701,8 @@ export default function POWorkspace() {
           )}
           {canApprove && (
             <Button size="sm" onClick={handleApprove} disabled={saving} className="gap-1.5">
-              <CheckCircle2 className="w-4 h-4" />
-              Approve
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              {isBlindReceipt ? 'Approve & Create Invoice' : 'Approve'}
             </Button>
           )}
           {canReceive && (
@@ -659,7 +782,18 @@ export default function POWorkspace() {
         {/* ---- Left panel: Header fields ---- */}
         <div className="w-96 shrink-0 sticky top-[69px]">
           <div className="bg-card border border-border rounded-xl p-5 space-y-5">
-            <h3 className="text-sm font-semibold text-foreground">Order Details</h3>
+            <h3 className="text-sm font-semibold text-foreground">{isBlindReceipt ? 'Blind Receipt Details' : 'Order Details'}</h3>
+
+            {/* Blind receipt toggle — only when creating a new document */}
+            {isNew && (
+              <div className="flex items-start justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+                <div>
+                  <p className="text-xs font-semibold">Blind Receipt</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Goods arrived with an invoice but no prior PO. Captures the invoice now and raises a PO automatically.</p>
+                </div>
+                <Switch checked={isBlindReceipt} onCheckedChange={setIsBlindReceipt} />
+              </div>
+            )}
 
             {/* Supplier */}
             <div>
@@ -685,17 +819,42 @@ export default function POWorkspace() {
               )}
             </div>
 
-            {/* Order date */}
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
-                Order Date
-              </label>
-              {isViewOnly ? (
-                <p className="text-sm">{po?.order_date || '—'}</p>
-              ) : (
-                <Input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)} />
-              )}
-            </div>
+            {/* Order date (formal PO) OR Invoice number + date (blind receipt) */}
+            {isBlindReceipt ? (
+              <>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
+                    Invoice Number *
+                  </label>
+                  {isViewOnly ? (
+                    <p className="text-sm font-mono">{po?.supplier_invoice_number || '—'}</p>
+                  ) : (
+                    <Input value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} placeholder="e.g. INV-2024-001" />
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
+                    Invoice Date *
+                  </label>
+                  {isViewOnly ? (
+                    <p className="text-sm">{po?.order_date || '—'}</p>
+                  ) : (
+                    <Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} />
+                  )}
+                </div>
+              </>
+            ) : (
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
+                  Order Date
+                </label>
+                {isViewOnly ? (
+                  <p className="text-sm">{po?.order_date || '—'}</p>
+                ) : (
+                  <Input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)} />
+                )}
+              </div>
+            )}
 
             {/* Expected delivery */}
             <div>
