@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { writeAuditLog } from '@/lib/auditLog';
+import { upsertShortage } from '@/lib/shortageEngine';
 
 const STOCK_ACTIONS = [
   { value: 'remove_from_stock', label: 'Remove from stock' },
@@ -85,6 +86,7 @@ export default function CreateReturnModal({ onCreated, onCancel }) {
       if (exists) return prev.filter(l => l.grn_line_id !== line.id);
       return [...prev, {
         grn_line_id: line.id,
+        po_line_id: line.po_line_id || null,
         supplier_product_id: line.supplier_product_id || null,
         product_id: line.product_id,
         product_name: line.product_name,
@@ -161,26 +163,33 @@ export default function CreateReturnModal({ onCreated, onCancel }) {
       });
       await base44.entities.SupplierReturnLine.bulkCreate(returnLines);
 
-      // If credit is expected, create a SupplierShortage follow-up record per line
+      // If credit is expected, upsert the ONE central shortage record per PO line
+      // (keyed on po_line_id; links this return via return_id). Fixes the previous
+      // create which set a non-existent source_return_id column.
       if (creditExpected) {
         for (const l of selectedLines) {
           const returnQty = parseFloat(l.return_qty) || 0;
           const unitCost = parseFloat(l.unit_cost) || 0;
-          await base44.entities.SupplierShortage.create({
+          await upsertShortage({
+            poLineId: l.po_line_id || null,
+            purchaseOrderId: linkedPoId || null,
+            productId: l.product_id,
             grn_id: grnId,
+            grn_line_id: l.grn_line_id || null,
             supplier_id: supplierId,
             supplier_name: supplier?.name || '',
             supplier_product_id: l.supplier_product_id || null,
-            product_id: l.product_id,
             product_name: l.product_name,
             product_sku: l.product_sku,
             shortage_qty: returnQty,
             shortage_value: Math.round(returnQty * unitCost * 100) / 100,
             purchase_uom: '',
             unit_cost: unitCost,
+            decision: 'request_credit',
             status: 'open',
             credit_follow_up_status: 'credit_required',
-            source_return_id: createdReturn.id,
+            return_id: createdReturn.id,
+            invoice_id: linkedInvoiceId || null,
           });
         }
       }

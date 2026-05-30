@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { X, FileText, AlertTriangle, Loader2, Calendar, CheckCircle2, Plus, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { computeDueDate } from '@/lib/utils';
+import { upsertShortage } from '@/lib/shortageEngine';
 
 const PRICE_VARIANCE_THRESHOLD = 5; // percent
 
@@ -280,24 +281,27 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
         }
       }
 
-      // Create SupplierShortage for request_credit decisions
+      // Upsert the ONE central shortage record per PO line for request_credit decisions
+      // (keyed on po_line_id — updates the existing GRN-created shortage rather than duplicating it)
       for (const [poLineId, decision] of Object.entries(decisions)) {
         if (decision !== 'request_credit') continue;
         const row = rows.find(r => r.poLine.id === poLineId);
         if (!row) continue;
-        const shortageQty = row.invoicedQty - row.receivedQty;
-        await base44.entities.SupplierShortage.create({
+        await upsertShortage({
+          poLineId: row.poLine.id,
+          purchaseOrderId: po.id,
+          productId: row.poLine.product_id,
           grn_id: latestGRN?.id || null,
           grn_line_id: row.grnLine?.id || null,
           supplier_id: po.supplier_id,
           supplier_name: po.supplier_name,
-          product_id: row.poLine.product_id,
           product_name: row.poLine.product_name,
           product_sku: row.poLine.product_sku,
-          shortage_qty: shortageQty,
-          shortage_value: Math.round(shortageQty * row.invCost * 100) / 100,
+          ordered_qty: row.invoicedQty,
+          received_qty: row.receivedQty,
           purchase_uom: row.poLine.purchase_uom || row.grnLine?.purchase_uom || '',
           unit_cost: row.invCost,
+          decision: 'request_credit',
           status: 'open',
           credit_follow_up_status: 'credit_required',
           invoice_id: invoice.id,

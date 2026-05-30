@@ -75,6 +75,7 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
         const sp = spByProductId[l.product_id];
         return {
           grn_id: grn.id,
+          po_line_id: l.id,
           product_id: l.product_id,
           product_name: l.product_name || '',
           product_sku: l.product_sku || '',

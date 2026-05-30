@@ -177,6 +177,7 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
         const sp = spByProductId[l.product_id];
         const cf = sp?.conversion_factor || sp?.purchase_to_stock_factor || 1;
         return {
+          po_line_id: l.id,
           product_id: l.product_id,
           product_name: l.product_name,
           product_sku: l.product_sku,

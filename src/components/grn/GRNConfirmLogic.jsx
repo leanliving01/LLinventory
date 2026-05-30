@@ -1,5 +1,6 @@
 import { base44, adjustStockOnHand } from '@/api/base44Client';
 import { writeAuditLog } from '@/lib/auditLog';
+import { upsertShortage } from '@/lib/shortageEngine';
 import { toast } from 'sonner';
 
 /**
@@ -314,25 +315,30 @@ export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, u
     });
   }
 
-  // 2. For request_credit lines, create SupplierShortage records
+  // 2. For request_credit lines, upsert the ONE central shortage record per PO line
+  //    (keyed on po_line_id — never creates a duplicate of an existing line shortage)
   for (const lineId of shortLineIds) {
     if (decisions[lineId] === 'request_credit') {
       const line = persistedLines.find(l => l.id === lineId);
       if (!line) continue;
-      const shortageQty = parseFloat(line.expected_qty) - parseFloat(line.received_qty);
-      await base44.entities.SupplierShortage.create({
+      const orderedQty = parseFloat(line.expected_qty) || 0;
+      const receivedQty = parseFloat(line.received_qty) || 0;
+      await upsertShortage({
+        poLineId: line.po_line_id || null,
+        purchaseOrderId: grn.purchase_order_id || null,
+        productId: line.product_id,
         grn_id: grn.id,
         grn_line_id: line.id,
         supplier_id: grn.supplier_id,
         supplier_name: grn.supplier_name,
         supplier_product_id: line.supplier_product_id || null,
-        product_id: line.product_id,
         product_name: line.product_name,
         product_sku: line.product_sku,
-        shortage_qty: shortageQty,
-        shortage_value: Math.round(shortageQty * (parseFloat(line.unit_cost) || 0) * 100) / 100,
+        ordered_qty: orderedQty,
+        received_qty: receivedQty,
         purchase_uom: line.purchase_uom || '',
         unit_cost: parseFloat(line.unit_cost) || 0,
+        decision: 'request_credit',
         status: 'open',
         credit_follow_up_status: 'credit_required',
       });
