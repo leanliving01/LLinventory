@@ -199,3 +199,20 @@ export async function resolveShortageIfNoneNeeded(poLineId, { resolution_notes }
     resolution_notes: resolution_notes || 'Auto-resolved — no outstanding stock or credit required',
   });
 }
+
+/**
+ * Resolve the open shortage of a specific kind ('await' | 'credit' | 'review') for a
+ * PO line. Used when an invoice shows a kind is no longer required (e.g. the supplier
+ * only billed for what was received, so the credit shortage can be closed).
+ */
+export async function resolveShortageKind(poLineId, kind, resolution_notes) {
+  if (!poLineId || !kind) return null;
+  const existing = await findShortageForPOLine({ poLineId, kind });
+  if (!existing || ['resolved', 'cancelled'].includes(existing.status)) return null;
+  return base44.entities.SupplierShortage.update(existing.id, {
+    status: 'resolved',
+    credit_follow_up_status: 'cancelled',
+    resolution_date: new Date().toISOString().slice(0, 10),
+    resolution_notes: resolution_notes || 'Resolved — no longer required per the supplier invoice',
+  });
+}

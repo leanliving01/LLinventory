@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { X, FileText, AlertTriangle, Loader2, Calendar, CheckCircle2, Plus, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { computeDueDate } from '@/lib/utils';
-import { upsertShortage } from '@/lib/shortageEngine';
+import { upsertShortage, resolveShortageKind, shortageKind } from '@/lib/shortageEngine';
 
 const PRICE_VARIANCE_THRESHOLD = 5; // percent
 
@@ -51,6 +51,25 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
     },
     enabled: !!po.supplier_id,
   });
+
+  // Existing central shortages for this PO — the invoice reflects decisions already
+  // made on the GRN rather than re-asking.
+  const { data: poShortages = [] } = useQuery({
+    queryKey: ['po-shortages-for-invoice', po.id],
+    queryFn: () => base44.entities.SupplierShortage.filter({ purchase_order_id: po.id }, '-created_date', 200),
+    enabled: !!po.id,
+  });
+
+  // Open shortage kinds present per PO line: { [poLineId]: { await?, credit?, review? } }
+  const existingByPoLine = useMemo(() => {
+    const m = {};
+    poShortages.forEach(s => {
+      if (!s.po_line_id || ['resolved', 'cancelled'].includes(s.status)) return;
+      const kind = shortageKind(s.decision);
+      (m[s.po_line_id] = m[s.po_line_id] || {})[kind] = s;
+    });
+    return m;
+  }, [poShortages]);
 
   const isBlindReceipt = po.type === 'blind_receipt';
   const isBlindMode = isBlindReceipt && !linesLoading && poLines.length === 0;
@@ -171,14 +190,18 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
   const taxAmount = Math.round(subtotal * taxRate * 100) / 100;
   const total = Math.round((subtotal + taxAmount) * 100) / 100;
   const mismatchedRows = isBlindMode ? [] : rows.filter(r => r.qtyMismatch);
+  // Only lines billed above received AND with no existing GRN decision need a prompt.
+  const linesNeedingDecision = isBlindMode ? [] : rows.filter(r =>
+    r.invoicedQty > r.receivedQty && !existingByPoLine[r.poLine.id]
+  );
 
   const handleSubmitClick = () => {
     if (!invoiceNumber.trim()) { toast.error('Enter the supplier invoice number'); return; }
     if (!invoiceDate) { toast.error('Select the invoice date'); return; }
     if (isBlindMode && blindLines.length === 0) { toast.error('Add at least one product line'); return; }
-    if (mismatchedRows.length > 0) {
+    if (linesNeedingDecision.length > 0) {
       const initial = {};
-      mismatchedRows.forEach(r => { initial[r.poLine.id] = 'receive_later'; });
+      linesNeedingDecision.forEach(r => { initial[r.poLine.id] = 'receive_later'; });
       setMismatchDecisions(initial);
       setShowMismatchDialog(true);
       return;
@@ -189,13 +212,6 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
   const submitInvoice = async (decisions) => {
     setSubmitting(true);
     try {
-      const decisionValues = Object.values(decisions);
-      const newPoStatus = decisionValues.some(d => d === 'request_credit')
-        ? 'credit_note_pending'
-        : decisionValues.some(d => d === 'receive_later')
-          ? 'partially_received'
-          : 'invoiced';
-
       // For blind receipts, create PO lines from the entered invoice lines first
       const poLineIdMap = {}; // product_id → po_line_id (for invoice line linking)
       if (isBlindMode) {
@@ -281,33 +297,64 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
         }
       }
 
-      // Upsert the ONE central shortage record per PO line for request_credit decisions
-      // (keyed on po_line_id — updates the existing GRN-created shortage rather than duplicating it)
-      for (const [poLineId, decision] of Object.entries(decisions)) {
-        if (decision !== 'request_credit') continue;
-        const row = rows.find(r => r.poLine.id === poLineId);
-        if (!row) continue;
-        await upsertShortage({
-          poLineId: row.poLine.id,
-          purchaseOrderId: po.id,
-          productId: row.poLine.product_id,
-          grn_id: latestGRN?.id || null,
-          grn_line_id: row.grnLine?.id || null,
-          supplier_id: po.supplier_id,
-          supplier_name: po.supplier_name,
-          product_name: row.poLine.product_name,
-          product_sku: row.poLine.product_sku,
-          ordered_qty: row.invoicedQty,
-          received_qty: row.receivedQty,
-          purchase_uom: row.poLine.purchase_uom || row.grnLine?.purchase_uom || '',
-          unit_cost: row.invCost,
-          decision: 'request_credit',
-          status: 'open',
-          credit_follow_up_status: 'credit_required',
-          invoice_id: invoice.id,
-          invoice_number: invoiceNumber.trim(),
-        });
+      // Reconcile the central shortage(s) for each PO line against this invoice.
+      // The invoice READS the existing GRN decision and updates the SAME records —
+      // it never creates a duplicate shortage.
+      let anyCredit = false;
+      let anyAwait = false;
+      if (!isBlindMode) {
+        for (const row of rows) {
+          const lineId = row.poLine.id;
+          const billedShort = row.invoicedQty - row.receivedQty;
+          const existing = existingByPoLine[lineId] || {};
+          const dialogDecision = decisions[lineId]; // only set for lines that needed a choice
+
+          const baseFields = {
+            poLineId: lineId,
+            purchaseOrderId: po.id,
+            productId: row.poLine.product_id,
+            grn_id: latestGRN?.id || null,
+            grn_line_id: row.grnLine?.id || null,
+            supplier_id: po.supplier_id,
+            supplier_name: po.supplier_name,
+            product_name: row.poLine.product_name,
+            product_sku: row.poLine.product_sku,
+            ordered_qty: row.orderedQty,
+            received_qty: row.receivedQty,
+            purchase_uom: row.poLine.purchase_uom || row.grnLine?.purchase_uom || '',
+            unit_cost: row.invCost,
+            status: 'open',
+            invoice_id: invoice.id,
+            invoice_number: invoiceNumber.trim(),
+          };
+
+          if (billedShort > 0.0001) {
+            // Supplier billed for more than was received → credit needed unless we still await stock
+            const effective = dialogDecision
+              || (existing.credit ? 'request_credit'
+                : existing.await ? 'receive_later'
+                : existing.review ? 'review'
+                : 'request_credit');
+            if (effective === 'request_credit') {
+              await upsertShortage({ ...baseFields, decision: 'request_credit', shortage_qty: billedShort, credit_qty: billedShort, awaiting_qty: 0, credit_follow_up_status: 'credit_required' });
+              anyCredit = true;
+            } else if (effective === 'review') {
+              await upsertShortage({ ...baseFields, decision: 'review', shortage_qty: billedShort });
+              anyAwait = true;
+            } else {
+              await upsertShortage({ ...baseFields, decision: 'await_receival', shortage_qty: billedShort, awaiting_qty: billedShort, credit_qty: 0 });
+              anyAwait = true;
+            }
+          } else {
+            // Invoice billed only the received qty (or less) → no credit required.
+            // Close any open credit shortage; an await shortage (stock still expected) stays.
+            await resolveShortageKind(lineId, 'credit', 'Supplier invoiced only the received quantity — no credit required');
+            if (existing.await) anyAwait = true;
+          }
+        }
       }
+
+      const newPoStatus = anyCredit ? 'credit_note_pending' : anyAwait ? 'partially_received' : 'invoiced';
 
       await base44.entities.PurchaseOrder.update(po.id, {
         status: newPoStatus,
@@ -340,7 +387,7 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
           </div>
 
           <div className="space-y-3 mb-6">
-            {mismatchedRows.map(row => (
+            {linesNeedingDecision.map(row => (
               <div key={row.poLine.id} className="border border-border rounded-lg p-3">
                 <p className="text-sm font-medium mb-1">{row.poLine.product_name}</p>
                 <p className="text-xs text-muted-foreground mb-2">
@@ -348,10 +395,10 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
                   {' · '}Invoiced: <span className="font-semibold">{row.invoicedQty}</span>
                   {' · '}Difference: <span className="font-semibold text-amber-600">{(row.invoicedQty - row.receivedQty).toFixed(3).replace(/\.?0+$/, '')}</span>
                 </p>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     onClick={() => setMismatchDecisions(prev => ({ ...prev, [row.poLine.id]: 'receive_later' }))}
-                    className={`flex-1 text-xs rounded-lg px-3 py-2 border transition-colors text-left ${
+                    className={`text-xs rounded-lg px-3 py-2 border transition-colors text-left ${
                       mismatchDecisions[row.poLine.id] === 'receive_later'
                         ? 'border-blue-500 bg-blue-50 text-blue-700 font-semibold'
                         : 'border-border hover:border-blue-300 text-muted-foreground'
@@ -362,7 +409,7 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
                   </button>
                   <button
                     onClick={() => setMismatchDecisions(prev => ({ ...prev, [row.poLine.id]: 'request_credit' }))}
-                    className={`flex-1 text-xs rounded-lg px-3 py-2 border transition-colors text-left ${
+                    className={`text-xs rounded-lg px-3 py-2 border transition-colors text-left ${
                       mismatchDecisions[row.poLine.id] === 'request_credit'
                         ? 'border-orange-500 bg-orange-50 text-orange-700 font-semibold'
                         : 'border-border hover:border-orange-300 text-muted-foreground'
@@ -370,6 +417,17 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
                   >
                     <div className="font-medium">Credit note expected</div>
                     <div className="text-[10px] mt-0.5 opacity-75">Moves to Credit Note Pending</div>
+                  </button>
+                  <button
+                    onClick={() => setMismatchDecisions(prev => ({ ...prev, [row.poLine.id]: 'review' }))}
+                    className={`text-xs rounded-lg px-3 py-2 border transition-colors text-left ${
+                      mismatchDecisions[row.poLine.id] === 'review'
+                        ? 'border-gray-500 bg-gray-100 text-gray-700 font-semibold'
+                        : 'border-border hover:border-gray-300 text-muted-foreground'
+                    }`}
+                  >
+                    <div className="font-medium">Mark for review</div>
+                    <div className="text-[10px] mt-0.5 opacity-75">Decide later</div>
                   </button>
                 </div>
               </div>
@@ -661,7 +719,9 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
               <span>
                 {mismatchedRows.length === 1 ? '1 line has' : `${mismatchedRows.length} lines have`} an invoiced quantity greater than the received quantity.
-                You will be asked how to handle the difference before the invoice is saved.
+                {linesNeedingDecision.length > 0
+                  ? ' You will be asked how to handle the lines without an existing GRN decision before saving.'
+                  : ' These already have a GRN decision, which the invoice will follow.'}
               </span>
             </div>
           )}
@@ -697,7 +757,7 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
             {submitting
               ? <Loader2 className="w-4 h-4 animate-spin" />
               : <FileText className="w-4 h-4" />}
-            {mismatchedRows.length > 0 ? 'Review Differences & Create Invoice' : 'Create Invoice'}
+            {linesNeedingDecision.length > 0 ? 'Review Differences & Create Invoice' : 'Create Invoice'}
           </Button>
         </div>
     </div>

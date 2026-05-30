@@ -268,6 +268,8 @@ export default function WorkspaceLinesTab({ po, poLines = [], invoice, invoiceLi
             setShowCreateInvoice(false);
             qc.invalidateQueries({ queryKey: ['workspace-invoices', po.id] });
             qc.invalidateQueries({ queryKey: ['po', po.id] });
+            qc.invalidateQueries({ queryKey: ['workspace-shortages', po.id] });
+            qc.invalidateQueries({ queryKey: ['po-shortages-for-invoice', po.id] });
           }}
           onCancel={() => setShowCreateInvoice(false)}
         />
