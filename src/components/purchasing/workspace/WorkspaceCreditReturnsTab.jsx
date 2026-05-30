@@ -1,13 +1,17 @@
-import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
-import { Button } from '@/components/ui/button';
+import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, ArrowLeftRight, CreditCard, Plus } from 'lucide-react';
-import { toast } from 'sonner';
-import { useQueryClient } from '@tanstack/react-query';
-import { nextDocNumber } from '@/lib/docNumbering';
+import { AlertTriangle, ArrowLeftRight, CreditCard } from 'lucide-react';
+import { shortageStatusLabel } from '@/lib/shortageEngine';
 
-function ShortageRow({ shortage, onRequestCredit }) {
+const TONE_CLASSES = {
+  amber: 'bg-amber-100 text-amber-700',
+  blue:  'bg-blue-100 text-blue-700',
+  green: 'bg-green-100 text-green-700',
+  gray:  'bg-gray-100 text-gray-600',
+};
+
+function ShortageRow({ shortage }) {
+  const { label, tone } = shortageStatusLabel(shortage);
   return (
     <div className="flex items-start gap-3 p-3 border border-border rounded-lg bg-card">
       <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
@@ -17,16 +21,9 @@ function ShortageRow({ shortage, onRequestCredit }) {
           Short: {shortage.shortage_qty} {shortage.purchase_uom} · R {(shortage.shortage_value || 0).toFixed(2)}
         </p>
       </div>
-      <div className="flex flex-col items-end gap-1 shrink-0">
-        <Badge className={`text-[10px] ${shortage.status === 'open' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-          {shortage.status}
-        </Badge>
-        {shortage.status === 'open' && (
-          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => onRequestCredit(shortage)}>
-            Request Credit
-          </Button>
-        )}
-      </div>
+      <Badge className={`text-[10px] shrink-0 ${TONE_CLASSES[tone] || TONE_CLASSES.amber}`}>
+        {label}
+      </Badge>
     </div>
   );
 }
@@ -67,20 +64,6 @@ function CreditNoteRow({ creditNote }) {
 }
 
 export default function WorkspaceCreditReturnsTab({ po, shortages = [], returns = [], creditNotes = [], onDataChanged }) {
-  const qc = useQueryClient();
-
-  const handleRequestCredit = async (shortage) => {
-    // Mark shortage as "credit_requested" — create a note
-    try {
-      await base44.entities.SupplierShortage.update(shortage.id, { status: 'credit_requested' });
-      toast.success('Credit request noted');
-      qc.invalidateQueries({ queryKey: ['workspace-shortages', po.id] });
-      onDataChanged && onDataChanged();
-    } catch (err) {
-      toast.error(`Failed: ${err.message}`);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Shortages */}
@@ -92,7 +75,7 @@ export default function WorkspaceCreditReturnsTab({ po, shortages = [], returns 
           <p className="text-xs text-muted-foreground py-3">No shortages on this PO.</p>
         ) : (
           <div className="space-y-2">
-            {shortages.map(s => <ShortageRow key={s.id} shortage={s} onRequestCredit={handleRequestCredit} />)}
+            {shortages.map(s => <ShortageRow key={s.id} shortage={s} />)}
           </div>
         )}
       </section>

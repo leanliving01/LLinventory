@@ -14,6 +14,27 @@ export function computeShortageValue(shortQty, unitCost) {
 }
 
 /**
+ * Human-readable status for a shortage, derived from the decision that was made
+ * at the GRN/invoice step (no manual button needed). Returns { label, tone }.
+ * tone ∈ 'amber' | 'blue' | 'green' | 'gray'.
+ */
+export function shortageStatusLabel(s) {
+  if (!s) return { label: '—', tone: 'gray' };
+  if (s.status === 'resolved' || s.status === 'credit_received') return { label: 'Resolved', tone: 'green' };
+  if (s.status === 'cancelled' || s.status === 'written_off') return { label: 'Cancelled', tone: 'gray' };
+  if (s.status === 'partially_credited') return { label: 'Partially credited', tone: 'amber' };
+  switch (s.decision) {
+    case 'request_credit': return { label: 'Awaiting credit note', tone: 'amber' };
+    case 'await_receival':  return { label: 'Awaiting remaining receival', tone: 'blue' };
+    case 'split':           return { label: 'Split — part await / part credit', tone: 'amber' };
+    case 'review':          return { label: 'Marked for review', tone: 'gray' };
+    default:
+      if (s.credit_follow_up_status === 'credit_required') return { label: 'Awaiting credit note', tone: 'amber' };
+      return { label: 'Open', tone: 'amber' };
+  }
+}
+
+/**
  * Find the existing central shortage for a PO line, if any.
  * Tries po_line_id first, then falls back to (purchase_order_id + product_id)
  * so records created before po_line_id was populated are still matched.
