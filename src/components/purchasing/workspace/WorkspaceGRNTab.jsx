@@ -158,8 +158,16 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
     return m;
   }, [allGrnLines]);
 
+  // "Already received" from the strongest available source so a follow-up GRN only
+  // offers the REMAINING qty even if older GRN lines predate po_line_id.
+  const alreadyReceivedForLine = (l) => Math.max(
+    receivedByPoLineId[l.id] || 0,            // GRN lines linked by po_line_id
+    totalReceivedByProductId[l.product_id] || 0, // GRN lines matched by product
+    parseFloat(l.received_qty) || 0,          // the PO line's own received_qty field
+  );
+
   const remainingForLine = (l) =>
-    Math.max(0, (parseFloat(l.ordered_qty) || 0) - (receivedByPoLineId[l.id] || 0));
+    Math.max(0, (parseFloat(l.ordered_qty) || 0) - alreadyReceivedForLine(l));
 
   const enrichedLines = useMemo(() =>
     allGrnLines.map(l => ({ ...l, _totalReceived: totalReceivedByProductId[l.product_id] || 0 })),
@@ -437,7 +445,7 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
               </thead>
               <tbody className="divide-y divide-border">
                 {poLines.map(l => {
-                  const already = receivedByPoLineId[l.id] || 0;
+                  const already = alreadyReceivedForLine(l);
                   const remaining = remainingForLine(l);
                   const done = remaining <= 0;
                   return (
