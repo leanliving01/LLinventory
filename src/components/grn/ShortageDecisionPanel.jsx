@@ -88,7 +88,7 @@ export default function ShortageDecisionPanel({ shortLines, onConfirm, onCancel,
                   <td className="px-3 py-2 min-w-[230px] align-top">
                     <Select value={d.action} onValueChange={v => update(l.id, { action: v })}>
                       <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="z-[120]">
                         {OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
