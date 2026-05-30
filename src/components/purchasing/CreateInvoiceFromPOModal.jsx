@@ -489,6 +489,7 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
               : <FileText className="w-4 h-4" />}
             {mismatchedRows.length > 0 ? 'Review Differences & Create Invoice' : 'Create Invoice'}
           </Button>
+        </div>
     </div>
   );
 }
