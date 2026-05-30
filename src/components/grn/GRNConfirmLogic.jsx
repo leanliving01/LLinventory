@@ -325,12 +325,15 @@ export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, u
     });
   }
 
-  // 2. Upsert the ONE central shortage record per short PO line — for BOTH
-  //    "await remaining receival" and "request credit" decisions, so every short
-  //    receival is tracked in Shortages immediately (keyed on po_line_id).
+  // 2. Upsert the ONE central shortage record per short PO line for every decision
+  //    type, so each short receival is tracked in Shortages immediately (keyed on
+  //    po_line_id). 'await'/'credit'/'split'/'review' all supported.
   for (const lineId of shortLineIds) {
-    const action = norm[lineId].action;
-    if (action !== 'request_credit' && action !== 'receive_later') continue;
+    const dec = norm[lineId] || {};
+    const action = dec.action;
+    // accept both legacy 'receive_later' and 'await_receival' for the await decision
+    const isAwait = action === 'receive_later' || action === 'await_receival';
+    if (!isAwait && !['request_credit', 'split', 'review'].includes(action)) continue;
     const line = persistedLines.find(l => l.id === lineId);
     if (!line) continue;
     const orderedQty = parseFloat(line.expected_qty) || 0;
@@ -353,10 +356,22 @@ export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, u
       status: 'open',
     };
     if (action === 'request_credit') {
-      await upsertShortage({ ...fields, decision: 'request_credit', credit_follow_up_status: 'credit_required' });
+      await upsertShortage({ ...fields, decision: 'request_credit', credit_follow_up_status: 'credit_required', awaiting_qty: 0, credit_qty: (orderedQty - receivedQty) });
+    } else if (action === 'split') {
+      // Part awaited, part credited — both tracked on the one shortage record
+      await upsertShortage({
+        ...fields,
+        decision: 'split',
+        credit_follow_up_status: 'credit_required',
+        awaiting_qty: parseFloat(dec.awaiting_qty) || 0,
+        credit_qty: parseFloat(dec.credit_qty) || 0,
+        expected_delivery_date: dec.expected_delivery_date || null,
+      });
+    } else if (action === 'review') {
+      await upsertShortage({ ...fields, decision: 'review' });
     } else {
       // await remaining receival — capture the expected next-delivery date
-      await upsertShortage({ ...fields, decision: 'await_receival', expected_delivery_date: norm[lineId].expected_delivery_date || null });
+      await upsertShortage({ ...fields, decision: 'await_receival', awaiting_qty: (orderedQty - receivedQty), credit_qty: 0, expected_delivery_date: dec.expected_delivery_date || null });
     }
   }
 
@@ -375,11 +390,11 @@ export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, u
 
     const decisionValues = shortLineIds.map(id => norm[id].action);
     let newStatus;
-    if (decisionValues.some(d => d === 'request_credit')) {
-      // Any credit-note decision takes the PO to credit note pending
+    if (decisionValues.some(d => d === 'request_credit' || d === 'split')) {
+      // Any credit-note (or split, which has a credit part) decision → credit pending
       newStatus = 'credit_note_pending';
-    } else if (decisionValues.some(d => d === 'receive_later')) {
-      // All decisions are receive_later — still waiting on stock
+    } else if (decisionValues.some(d => d === 'receive_later' || d === 'await_receival' || d === 'review')) {
+      // Still waiting on stock (or flagged for review) — PO stays open
       newStatus = 'partially_received';
     } else {
       newStatus = 'received';

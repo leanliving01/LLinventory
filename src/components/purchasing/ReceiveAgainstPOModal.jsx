@@ -9,6 +9,7 @@ import { X, Loader2, PackageCheck, AlertTriangle, CheckCircle2 } from 'lucide-re
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { confirmGRN, finaliseGRNWithDecisions } from '@/components/grn/GRNConfirmLogic';
+import ShortageDecisionPanel from '@/components/grn/ShortageDecisionPanel';
 import { nextDocNumber } from '@/lib/docNumbering';
 
 export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel }) {
@@ -27,8 +28,6 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
 
   // Shortage decision step
   const [pendingDecision, setPendingDecision] = useState(null);
-  const [decisions, setDecisions] = useState({});
-  const [expectedDates, setExpectedDates] = useState({});
 
   const { data: locations = [] } = useQuery({
     queryKey: ['locations'],
@@ -102,10 +101,7 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
 
       if (result.requiresDecision) {
         // Shortage detected — show per-line decision step before finalising
-        const initDecisions = {};
-        result.shortLines.forEach(l => { initDecisions[l.id] = 'receive_later'; });
         setPendingDecision(result);
-        setDecisions(initDecisions);
         setReceiving(false);
         return;
       }
@@ -127,15 +123,9 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
     }
   };
 
-  const handleFinalise = async () => {
+  const handleFinalise = async (payload) => {
     setReceiving(true);
     try {
-      const payload = Object.fromEntries(
-        Object.entries(decisions).map(([id, action]) => [
-          id,
-          { action, expected_delivery_date: action === 'receive_later' ? (expectedDates[id] || null) : null },
-        ])
-      );
       await finaliseGRNWithDecisions(
         pendingDecision.grn,
         pendingDecision.persistedLines,
@@ -169,71 +159,13 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {pendingDecision ? (
             /* ── Shortage decision step ── */
-            <>
-              <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-amber-800">Some items were short-received</p>
-                  <p className="text-xs text-amber-700 mt-0.5">Choose how to handle each shortage below, then click Finalise GRN.</p>
-                </div>
-              </div>
-              <div className="border border-border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-muted/50 border-b border-border">
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
-                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Expected</th>
-                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Received</th>
-                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Short</th>
-                      <th className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {pendingDecision.shortLines.map(l => {
-                      const short = parseFloat(l.expected_qty) - parseFloat(l.received_qty);
-                      return (
-                        <tr key={l.id}>
-                          <td className="px-3 py-2">
-                            <p className="text-xs font-medium">{l.product_name}</p>
-                            <p className="text-[10px] font-mono text-muted-foreground">{l.product_sku}</p>
-                          </td>
-                          <td className="px-3 py-2 text-right text-xs text-muted-foreground">{l.expected_qty}</td>
-                          <td className="px-3 py-2 text-right text-xs">{l.received_qty}</td>
-                          <td className="px-3 py-2 text-right text-xs font-semibold text-amber-600">{short}</td>
-                          <td className="px-3 py-2 min-w-[200px]">
-                            <Select
-                              value={decisions[l.id] || 'receive_later'}
-                              onValueChange={val => setDecisions(prev => ({ ...prev, [l.id]: val }))}
-                            >
-                              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="receive_later">Wait for delivery</SelectItem>
-                                <SelectItem value="request_credit">Request credit note</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            {(decisions[l.id] || 'receive_later') === 'receive_later' && (
-                              <div className="mt-1.5">
-                                <label className="text-[10px] text-muted-foreground">Expected next delivery</label>
-                                <Input
-                                  type="date"
-                                  value={expectedDates[l.id] || ''}
-                                  onChange={e => setExpectedDates(prev => ({ ...prev, [l.id]: e.target.value }))}
-                                  className="h-8 text-xs mt-0.5"
-                                />
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                <strong>Wait for delivery</strong> — PO stays open; you can create another GRN when the remaining stock arrives.<br />
-                <strong>Request credit note</strong> — raises a supplier shortage record; the PO moves to credit-note pending.
-              </p>
-            </>
+            <ShortageDecisionPanel
+              shortLines={pendingDecision.shortLines}
+              onConfirm={handleFinalise}
+              onCancel={onCancel}
+              saving={receiving}
+              confirmLabel="Finalise GRN"
+            />
           ) : (
             /* ── Normal receive form ── */
             <>
@@ -305,20 +237,16 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-border shrink-0 flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
-          {pendingDecision ? (
-            <Button className="flex-1 gap-2" onClick={handleFinalise} disabled={receiving}>
-              {receiving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              {receiving ? 'Finalising...' : 'Finalise GRN'}
-            </Button>
-          ) : (
+        {/* Footer — only for the receive step; the decision step has its own buttons */}
+        {!pendingDecision && (
+          <div className="px-6 py-4 border-t border-border shrink-0 flex gap-3">
+            <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
             <Button className="flex-1 gap-2 bg-green-600 hover:bg-green-700" onClick={handleReceive} disabled={receiving || linesToReceive.length === 0}>
               {receiving ? <Loader2 className="w-4 h-4 animate-spin" /> : <PackageCheck className="w-4 h-4" />}
               {receiving ? 'Receiving...' : `Receive ${linesToReceive.length} Items`}
             </Button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
     </>

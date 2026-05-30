@@ -12,6 +12,7 @@ import ValidationErrorBanner from '@/components/purchasing/ValidationErrorBanner
 import { nextDocNumber } from '@/lib/docNumbering';
 import { useAuth } from '@/lib/AuthContext';
 import GRNDrawer from '@/components/grn/GRNDrawer';
+import ShortageDecisionPanel from '@/components/grn/ShortageDecisionPanel';
 
 function ExpandableGRNRow({ grn, lines, poLines, onOpenDrawer }) {
   const [open, setOpen] = useState(false);
@@ -108,8 +109,6 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
 
   // Shortage decision step
   const [pendingDecision, setPendingDecision] = useState(null);
-  const [decisions, setDecisions] = useState({});
-  const [expectedDates, setExpectedDates] = useState({});
 
   const { data: locations = [] } = useQuery({
     queryKey: ['locations'],
@@ -261,15 +260,9 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
     }
   };
 
-  const handleFinaliseDecisions = async () => {
+  const handleFinaliseDecisions = async (payload) => {
     setSaving(true);
     try {
-      const payload = Object.fromEntries(
-        Object.entries(decisions).map(([id, action]) => [
-          id,
-          { action, expected_delivery_date: action === 'receive_later' ? (expectedDates[id] || null) : null },
-        ])
-      );
       await finaliseGRNWithDecisions(
         pendingDecision.grn,
         pendingDecision.persistedLines,
@@ -278,7 +271,6 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
       );
       toast.success(`GRN ${pendingDecision.grn.grn_number} confirmed`);
       setPendingDecision(null);
-      setDecisions({});
       resetCreateForm();
       qc.invalidateQueries({ queryKey: ['workspace-grns', po.id] });
       qc.invalidateQueries({ queryKey: ['grn-lines-for-po', po.id] });
@@ -336,82 +328,14 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
 
       {/* ── Shortage decision step (replaces create form) ── */}
       {pendingDecision && (
-        <div className="border border-amber-200 rounded-xl p-4 space-y-4 bg-amber-50/40">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-semibold text-amber-800">Shortage Detected</p>
-              <p className="text-xs text-amber-700 mt-0.5">
-                Some items were short-received. Choose how to handle each shortage, then finalise the GRN.
-              </p>
-            </div>
-          </div>
-
-          <div className="border border-border rounded-lg overflow-hidden bg-card">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-muted/50 border-b border-border">
-                  <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
-                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Expected</th>
-                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Received</th>
-                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Short</th>
-                  <th className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {pendingDecision.shortLines.map(l => {
-                  const short = parseFloat(l.expected_qty) - parseFloat(l.received_qty);
-                  return (
-                    <tr key={l.id}>
-                      <td className="px-3 py-2">
-                        <p className="font-medium">{l.product_name}</p>
-                        <p className="text-[10px] font-mono text-muted-foreground">{l.product_sku}</p>
-                      </td>
-                      <td className="px-3 py-2 text-right text-muted-foreground">{l.expected_qty}</td>
-                      <td className="px-3 py-2 text-right">{l.received_qty}</td>
-                      <td className="px-3 py-2 text-right font-semibold text-amber-600">{short}</td>
-                      <td className="px-3 py-2 min-w-[200px]">
-                        <Select
-                          value={decisions[l.id] || 'receive_later'}
-                          onValueChange={val => setDecisions(prev => ({ ...prev, [l.id]: val }))}
-                        >
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="receive_later">Wait for delivery</SelectItem>
-                            <SelectItem value="request_credit">Request credit note</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {(decisions[l.id] || 'receive_later') === 'receive_later' && (
-                          <div className="mt-1.5">
-                            <label className="text-[10px] text-muted-foreground">Expected next delivery</label>
-                            <Input
-                              type="date"
-                              value={expectedDates[l.id] || ''}
-                              onChange={e => setExpectedDates(prev => ({ ...prev, [l.id]: e.target.value }))}
-                              className="h-8 text-xs mt-0.5"
-                            />
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            <strong>Wait for delivery</strong> — stock received now is added; PO stays open and the shortage is tracked as "Awaiting remaining receival" until the next GRN.<br />
-            <strong>Request credit note</strong> — raises a shortage for credit; PO moves to credit-note pending.
-          </p>
-
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => { setPendingDecision(null); setDecisions({}); setExpectedDates({}); }}>Cancel</Button>
-            <Button className="gap-2" onClick={handleFinaliseDecisions} disabled={saving}>
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              Finalise GRN
-            </Button>
-          </div>
+        <div className="border border-amber-200 rounded-xl p-4 bg-amber-50/40">
+          <ShortageDecisionPanel
+            shortLines={pendingDecision.shortLines}
+            onConfirm={handleFinaliseDecisions}
+            onCancel={() => setPendingDecision(null)}
+            saving={saving}
+            confirmLabel="Finalise GRN"
+          />
         </div>
       )}
 
