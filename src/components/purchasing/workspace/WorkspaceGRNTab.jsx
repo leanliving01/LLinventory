@@ -1,32 +1,87 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, PackageCheck, Loader2, CheckCircle2 } from 'lucide-react';
+import { Plus, PackageCheck, Loader2, CheckCircle2, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirmGRN, validateGRNLines } from '@/components/grn/GRNConfirmLogic';
 import ValidationErrorBanner from '@/components/purchasing/ValidationErrorBanner';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { useAuth } from '@/lib/AuthContext';
 
-function GRNRow({ grn }) {
+function ExpandableGRNRow({ grn, lines, poLines }) {
+  const [open, setOpen] = useState(false);
+  const grnLines = lines.filter(l => l.grn_id === grn.id);
+
   return (
-    <div className="flex items-center gap-4 p-4 border border-border rounded-xl bg-card">
-      <CheckCircle2 className={`w-5 h-5 shrink-0 ${grn.status === 'confirmed' ? 'text-green-600' : 'text-amber-500'}`} />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold font-mono">{grn.grn_number}</p>
-        <p className="text-xs text-muted-foreground">Received: {grn.received_date || '—'} · By: {grn.received_by_name || '—'}</p>
-        {grn.has_shortages && <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Shortages</span>}
-      </div>
-      <div className="text-right shrink-0">
-        <p className="text-sm font-bold">R {(grn.total_received_value || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
-        <Badge className={`text-[10px] mt-1 ${grn.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-          {grn.status}
-        </Badge>
-      </div>
+    <div className="border border-border rounded-xl bg-card overflow-hidden">
+      <button
+        className="w-full flex items-center gap-4 p-4 text-left hover:bg-muted/30 transition-colors"
+        onClick={() => setOpen(o => !o)}
+      >
+        <CheckCircle2 className={`w-5 h-5 shrink-0 ${grn.status === 'confirmed' ? 'text-green-600' : 'text-amber-500'}`} />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold font-mono">{grn.grn_number}</p>
+          <p className="text-xs text-muted-foreground">
+            Received: {grn.received_date || '—'} · By: {grn.received_by_name || '—'}
+          </p>
+          {grn.has_shortages && (
+            <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Shortages</span>
+          )}
+        </div>
+        <div className="text-right shrink-0 flex flex-col items-end gap-1">
+          <p className="text-sm font-bold">R {(grn.total_received_value || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
+          <Badge className={`text-[10px] ${grn.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+            {grn.status}
+          </Badge>
+        </div>
+        <ChevronDown className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && grnLines.length > 0 && (
+        <div className="border-t border-border">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-muted/50">
+                <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase text-[10px]">Product</th>
+                <th className="text-right px-3 py-2 font-semibold text-muted-foreground uppercase text-[10px]">Ordered</th>
+                <th className="text-right px-3 py-2 font-semibold text-muted-foreground uppercase text-[10px]">Received</th>
+                <th className="text-right px-3 py-2 font-semibold text-muted-foreground uppercase text-[10px]">Still Short</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {grnLines.map(gl => {
+                const poLine = poLines.find(p => p.product_id === gl.product_id);
+                const orderedQty = parseFloat(poLine?.ordered_qty) || 0;
+                const totalReceived = gl._totalReceived || 0;
+                const stillShort = Math.max(0, orderedQty - totalReceived);
+                return (
+                  <tr key={gl.id}>
+                    <td className="px-3 py-2">
+                      <p className="font-medium">{gl.product_name}</p>
+                      <p className="text-[10px] font-mono text-muted-foreground">{gl.product_sku}</p>
+                    </td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">{orderedQty}</td>
+                    <td className="px-3 py-2 text-right font-medium">{gl.received_qty}</td>
+                    <td className={`px-3 py-2 text-right font-semibold ${stillShort > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                      {stillShort > 0 ? stillShort : '✓ Complete'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {open && grnLines.length === 0 && (
+        <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
+          No line detail available.
+        </div>
+      )}
     </div>
   );
 }
@@ -36,6 +91,7 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [locationId, setLocationId] = useState('');
+  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
   const [receivedQtys, setReceivedQtys] = useState({});
   const [saving, setSaving] = useState(false);
   const [validationErrors, setValidationErrors] = useState([]);
@@ -56,6 +112,34 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
     return m;
   }, [supplierProducts]);
 
+  // Fetch GRN lines for all GRNs in this PO so we can show per-line detail
+  const grnIds = useMemo(() => grns.map(g => g.id), [grns]);
+  const { data: allGrnLines = [] } = useQuery({
+    queryKey: ['grn-lines-for-po', po.id, grnIds.join(',')],
+    queryFn: async () => {
+      if (!grnIds.length) return [];
+      const chunks = await Promise.all(
+        grnIds.map(id => base44.entities.GRNLine.filter({ grn_id: id }, 'product_name', 100))
+      );
+      return chunks.flat();
+    },
+    enabled: grnIds.length > 0,
+  });
+
+  // Total received per product across ALL GRNs for this PO
+  const totalReceivedByProductId = useMemo(() => {
+    const m = {};
+    allGrnLines.forEach(l => {
+      m[l.product_id] = (m[l.product_id] || 0) + (parseFloat(l.received_qty) || 0);
+    });
+    return m;
+  }, [allGrnLines]);
+
+  const enrichedLines = useMemo(() =>
+    allGrnLines.map(l => ({ ...l, _totalReceived: totalReceivedByProductId[l.product_id] || 0 })),
+    [allGrnLines, totalReceivedByProductId]
+  );
+
   const handleConfirmGRN = async () => {
     if (!locationId) { toast.error('Select a delivery location'); return; }
 
@@ -64,7 +148,6 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
 
     try {
       const grnNumber = await nextDocNumber('GRN');
-      const today = new Date().toISOString().slice(0, 10);
 
       const grn = {
         id: null,
@@ -74,7 +157,7 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
         supplier_name: po.supplier_name,
         location_id: locationId,
         status: 'draft',
-        received_date: today,
+        received_date: receivedDate,
       };
 
       const grnLines = poLines.map(l => {
@@ -103,7 +186,6 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
         return;
       }
 
-      // Persist the GRN first so it has an ID
       const created = await base44.entities.GoodsReceivedNote.create({
         grn_number: grnNumber,
         purchase_order_id: po.id,
@@ -111,7 +193,7 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
         supplier_name: po.supplier_name,
         location_id: locationId,
         status: 'draft',
-        received_date: today,
+        received_date: receivedDate,
       });
 
       const grnWithId = { ...grn, id: created.id };
@@ -122,7 +204,9 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
       toast.success(`GRN ${grnNumber} confirmed — stock updated`);
       setShowCreate(false);
       setReceivedQtys({});
+      setReceivedDate(new Date().toISOString().slice(0, 10));
       qc.invalidateQueries({ queryKey: ['workspace-grns', po.id] });
+      qc.invalidateQueries({ queryKey: ['grn-lines-for-po', po.id] });
       onGRNCreated && onGRNCreated();
     } catch (err) {
       if (err.validationErrors) {
@@ -151,7 +235,14 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
         </div>
       )}
 
-      {grns.map(grn => <GRNRow key={grn.id} grn={grn} />)}
+      {grns.map(grn => (
+        <ExpandableGRNRow
+          key={grn.id}
+          grn={grn}
+          lines={enrichedLines}
+          poLines={poLines}
+        />
+      ))}
 
       {showCreate && (
         <div className="border border-border rounded-xl p-4 space-y-4 bg-muted/20">
@@ -165,6 +256,16 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
                 {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name} ({l.code})</SelectItem>)}
               </SelectContent>
             </Select>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase">Received Date *</label>
+            <Input
+              type="date"
+              value={receivedDate}
+              onChange={e => setReceivedDate(e.target.value)}
+              className="mt-1"
+            />
           </div>
 
           <ValidationErrorBanner errors={validationErrors} />
@@ -206,7 +307,11 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
           </div>
 
           <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => { setShowCreate(false); setValidationErrors([]); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => {
+              setShowCreate(false);
+              setValidationErrors([]);
+              setReceivedDate(new Date().toISOString().slice(0, 10));
+            }}>Cancel</Button>
             <Button className="gap-2" onClick={handleConfirmGRN} disabled={saving}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <PackageCheck className="w-4 h-4" />}
               Confirm Receipt & Update Stock

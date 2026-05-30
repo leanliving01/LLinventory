@@ -15,6 +15,7 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
   const { user } = useAuth();
   const [receiving, setReceiving] = useState(false);
   const [locationId, setLocationId] = useState(po.location_id || '');
+  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().split('T')[0]);
   const [receiveQtys, setReceiveQtys] = useState(() => {
     const init = {};
     lines.forEach(l => {
@@ -57,7 +58,6 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
 
     try {
       const loc = locations.find(l => l.id === locationId);
-      const today = new Date().toISOString().split('T')[0];
       const grnNumber = await generateGRNNumber();
 
       // Create the GRN record (draft — confirmGRN will mark it confirmed)
@@ -68,7 +68,7 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
         supplier_name: po.supplier_name,
         location_id: locationId || null,
         location_name: loc?.name || '',
-        received_date: today,
+        received_date: receivedDate,
         status: 'draft',
         total_lines: linesToReceive.length,
       });
@@ -144,6 +144,17 @@ export default function ReceiveAgainstPOModal({ po, lines, onReceived, onCancel 
                 {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name} ({l.code})</SelectItem>)}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Received Date */}
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase">Received Date *</label>
+            <Input
+              type="date"
+              value={receivedDate}
+              onChange={e => setReceivedDate(e.target.value)}
+              className="mt-1"
+            />
           </div>
 
           {/* Lines */}
