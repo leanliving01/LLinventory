@@ -3,6 +3,29 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, Clock, AlertTriangle, FileText, PackageCheck, CreditCard, ChevronRight } from 'lucide-react';
 
+function InfoRow({ label, value, mono }) {
+  return (
+    <div>
+      <dt className="text-[10px] uppercase font-semibold text-muted-foreground">{label}</dt>
+      <dd className={`text-sm font-medium mt-0.5 ${mono ? 'font-mono' : ''} ${value ? '' : 'text-muted-foreground'}`}>
+        {value || '—'}
+      </dd>
+    </div>
+  );
+}
+
+function InfoSection({ title, children, faded, badge }) {
+  return (
+    <div className={`space-y-3 ${faded ? 'opacity-50' : ''}`}>
+      <div className="flex items-center gap-2 pb-2 border-b border-border">
+        <p className="text-xs font-semibold uppercase text-muted-foreground">{title}</p>
+        {badge && <Badge className="text-[10px] py-0">{badge}</Badge>}
+      </div>
+      <dl className="space-y-2.5">{children}</dl>
+    </div>
+  );
+}
+
 function StatusCard({ icon: Icon, title, value, color, detail }) {
   return (
     <div className="bg-card border border-border rounded-xl p-4 flex items-start gap-3">
@@ -49,14 +72,64 @@ function deriveNextAction(po, invoice, grns, shortages) {
 export default function WorkspaceSummaryTab({ po, invoice, grns = [], shortages = [], returns = [], onTabChange }) {
   if (!po) return null;
 
+  const isBlind = po.type === 'blind_receipt';
   const hasConfirmedGRN = grns.some(g => g.status === 'confirmed');
   const hasPriceVariance = grns.some(g => g.has_price_variance);
   const nextAction = deriveNextAction(po, invoice, grns, shortages);
   const grnTotal = grns.filter(g => g.status === 'confirmed').reduce((s, g) => s + (g.total_received_value || 0), 0);
+  const confirmedGRNs = grns.filter(g => g.status === 'confirmed').sort((a, b) => (b.received_date || '').localeCompare(a.received_date || ''));
+  const latestGRN = confirmedGRNs[0] || null;
 
   return (
     <div className="space-y-4">
-      {/* Status summary grid */}
+
+      {/* ── Document Info Panel ── */}
+      <div className="bg-muted/30 border border-border rounded-xl p-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-border">
+
+          {/* PO Section */}
+          <InfoSection
+            title={isBlind ? 'Blind Receipt' : 'Purchase Order'}
+            badge={isBlind ? 'Blind Receipt' : null}
+          >
+            {!isBlind && <InfoRow label="PO Number" value={po.po_number} mono />}
+            <InfoRow label="Order Date" value={po.order_date} />
+            <InfoRow label="Supplier" value={po.supplier_name} />
+            <InfoRow label="Payment Terms" value={po.payment_terms} />
+            <InfoRow label="Expected Delivery" value={po.expected_delivery_date} />
+            <InfoRow label="Delivery Location" value={po.location_name} />
+          </InfoSection>
+
+          {/* Invoice Section */}
+          <div className="pt-4 md:pt-0 md:pl-6">
+            <InfoSection title="Invoice" faded={!invoice}>
+              <InfoRow label="Invoice #" value={invoice?.invoice_number} mono />
+              <InfoRow label="Invoice Date" value={invoice?.invoice_date} />
+              <InfoRow label="Due Date" value={invoice?.due_date_calculated} />
+            </InfoSection>
+          </div>
+
+          {/* GRN Section */}
+          <div className="pt-4 md:pt-0 md:pl-6">
+            <InfoSection
+              title="Goods Received"
+              faded={!latestGRN}
+              badge={confirmedGRNs.length > 1 ? `${confirmedGRNs.length} GRNs` : null}
+            >
+              <InfoRow label="GRN Number" value={latestGRN?.grn_number} mono />
+              <InfoRow label="Received Date" value={latestGRN?.received_date} />
+              <InfoRow label="Received At" value={latestGRN?.location_name} />
+              <InfoRow
+                label="Total Received"
+                value={latestGRN ? `R ${(latestGRN.total_received_value || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : null}
+              />
+            </InfoSection>
+          </div>
+
+        </div>
+      </div>
+
+      {/* ── Status summary grid ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatusCard
           icon={FileText}
@@ -88,7 +161,7 @@ export default function WorkspaceSummaryTab({ po, invoice, grns = [], shortages 
         />
       </div>
 
-      {/* Flags */}
+      {/* ── Flags ── */}
       {(hasPriceVariance || shortages.length > 0 || returns.length > 0) && (
         <div className="flex flex-wrap gap-2">
           {hasPriceVariance && (
@@ -109,7 +182,7 @@ export default function WorkspaceSummaryTab({ po, invoice, grns = [], shortages 
         </div>
       )}
 
-      {/* Next recommended action */}
+      {/* ── Next recommended action ── */}
       {nextAction && (
         <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 flex items-center justify-between gap-4">
           <div>

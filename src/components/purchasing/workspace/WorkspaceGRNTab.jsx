@@ -5,14 +5,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, PackageCheck, Loader2, CheckCircle2, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Plus, PackageCheck, Loader2, CheckCircle2, ChevronDown, AlertTriangle, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirmGRN, validateGRNLines, finaliseGRNWithDecisions } from '@/components/grn/GRNConfirmLogic';
 import ValidationErrorBanner from '@/components/purchasing/ValidationErrorBanner';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { useAuth } from '@/lib/AuthContext';
+import GRNDrawer from '@/components/grn/GRNDrawer';
 
-function ExpandableGRNRow({ grn, lines, poLines }) {
+function ExpandableGRNRow({ grn, lines, poLines, onOpenDrawer }) {
   const [open, setOpen] = useState(false);
   const grnLines = lines.filter(l => l.grn_id === grn.id);
 
@@ -39,6 +40,14 @@ function ExpandableGRNRow({ grn, lines, poLines }) {
           </Badge>
         </div>
         <ChevronDown className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-xs gap-1 shrink-0 h-7"
+          onClick={(e) => { e.stopPropagation(); onOpenDrawer && onOpenDrawer(grn); }}
+        >
+          <ExternalLink className="w-3 h-3" /> Details
+        </Button>
       </button>
 
       {open && grnLines.length > 0 && (
@@ -90,6 +99,7 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
   const { user } = useAuth();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
+  const [drawerGRN, setDrawerGRN] = useState(null);
   const [locationId, setLocationId] = useState('');
   const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
   const [receivedQtys, setReceivedQtys] = useState({});
@@ -281,6 +291,7 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
           grn={grn}
           lines={enrichedLines}
           poLines={poLines}
+          onOpenDrawer={setDrawerGRN}
         />
       ))}
 
@@ -425,6 +436,20 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
             </Button>
           </div>
         </div>
+      )}
+
+      {/* Full-screen GRN detail/edit drawer */}
+      {drawerGRN && (
+        <GRNDrawer
+          grn={drawerGRN}
+          onClose={() => setDrawerGRN(null)}
+          onUpdated={() => {
+            setDrawerGRN(null);
+            qc.invalidateQueries({ queryKey: ['workspace-grns', po.id] });
+            qc.invalidateQueries({ queryKey: ['grn-lines-for-po', po.id] });
+            onGRNCreated && onGRNCreated();
+          }}
+        />
       )}
     </div>
   );

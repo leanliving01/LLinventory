@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { PackageCheck, Plus } from 'lucide-react';
@@ -29,9 +30,18 @@ const STATUS_TABS = [
 
 export default function GoodsReceivedNotes() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
+
+  const handleGRNClick = (grn) => {
+    if (grn.purchase_order_id) {
+      navigate(`/purchasing/workspace/${grn.purchase_order_id}?tab=grn`);
+    } else {
+      setSelectedGRN(grn);
+    }
+  };
 
   const [statusTab, setStatusTab] = useState('draft');
   const [showCreate, setShowCreate] = useState(false);
@@ -170,7 +180,7 @@ export default function GoodsReceivedNotes() {
         <>
           <div className="grid gap-3">
             {paginated.map(grn => (
-              <GRNCard key={grn.id} grn={grn} onClick={setSelectedGRN} />
+              <GRNCard key={grn.id} grn={grn} onClick={handleGRNClick} />
             ))}
           </div>
           <POPagination

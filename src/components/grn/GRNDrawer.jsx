@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
   X, PackageCheck, Truck, MapPin, Calendar, FileText,
-  Plus, Loader2, CheckCircle2, AlertTriangle
+  Plus, Loader2, CheckCircle2, AlertTriangle, ExternalLink
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
@@ -24,6 +25,7 @@ const STATUS_STYLES = {
 
 export default function GRNDrawer({ grn, onClose, onUpdated }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showAddLine, setShowAddLine] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -34,6 +36,13 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
     queryKey: ['grn-lines', grn.id],
     queryFn: () => base44.entities.GRNLine.filter({ grn_id: grn.id }, 'product_name', 100),
   });
+
+  const { data: linkedPOList = [] } = useQuery({
+    queryKey: ['linked-po', grn.purchase_order_id],
+    queryFn: () => base44.entities.PurchaseOrder.filter({ id: grn.purchase_order_id }),
+    enabled: !!grn.purchase_order_id,
+  });
+  const linkedPO = linkedPOList[0] || null;
 
   const isDraft = grn.status === 'draft';
   const editingLines = localLines || lines;
@@ -166,9 +175,7 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
   return (
     <ErrorBoundary onReset={() => { setPendingDecision(null); setConfirming(false); }}>
     <>
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-3xl bg-card shadow-xl flex flex-col">
+    <div className="fixed inset-0 z-50 flex flex-col bg-card">
         {/* Header */}
         <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-start justify-between z-10 shrink-0">
           <div>
@@ -188,6 +195,21 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="w-5 h-5" /></Button>
         </div>
+
+        {/* Linked PO info strip */}
+        {linkedPO && (
+          <div className="px-6 py-2 border-b border-border bg-muted/20 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-4 text-muted-foreground">
+              <span>PO: <span className="font-mono font-medium text-foreground">{linkedPO.po_number}</span></span>
+              <span>Ordered: {linkedPO.order_date || '—'}</span>
+              <span>Supplier: {linkedPO.supplier_name}</span>
+              {linkedPO.expected_delivery_date && <span>Expected: {linkedPO.expected_delivery_date}</span>}
+            </div>
+            <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" onClick={() => navigate(`/purchasing/workspace/${linkedPO.id}`)}>
+              View PO <ExternalLink className="w-3 h-3" />
+            </Button>
+          </div>
+        )}
 
         {/* Summary strip */}
         <div className="px-6 py-3 border-b border-border flex items-center gap-6 text-sm bg-muted/30">
@@ -320,7 +342,6 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
             onClose={() => setShowAddLine(false)}
           />
         )}
-      </div>
     </div>
 
     {pendingDecision && (
