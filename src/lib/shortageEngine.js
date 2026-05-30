@@ -205,9 +205,9 @@ export async function resolveShortageIfNoneNeeded(poLineId, { resolution_notes }
  * PO line. Used when an invoice shows a kind is no longer required (e.g. the supplier
  * only billed for what was received, so the credit shortage can be closed).
  */
-export async function resolveShortageKind(poLineId, kind, resolution_notes) {
-  if (!poLineId || !kind) return null;
-  const existing = await findShortageForPOLine({ poLineId, kind });
+export async function resolveShortageKind(poLineId, kind, resolution_notes, { purchaseOrderId, productId } = {}) {
+  if (!kind) return null;
+  const existing = await findShortageForPOLine({ poLineId, purchaseOrderId, productId, kind });
   if (!existing || ['resolved', 'cancelled'].includes(existing.status)) return null;
   return base44.entities.SupplierShortage.update(existing.id, {
     status: 'resolved',

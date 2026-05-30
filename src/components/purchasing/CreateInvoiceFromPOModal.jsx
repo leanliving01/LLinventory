@@ -348,7 +348,11 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
           } else {
             // Invoice billed only the received qty (or less) → no credit required.
             // Close any open credit shortage; an await shortage (stock still expected) stays.
-            await resolveShortageKind(lineId, 'credit', 'Supplier invoiced only the received quantity — no credit required');
+            await resolveShortageKind(
+              lineId, 'credit',
+              'Supplier invoiced only the received quantity — no credit required',
+              { purchaseOrderId: po.id, productId: row.poLine.product_id }
+            );
             if (existing.await) anyAwait = true;
           }
         }
