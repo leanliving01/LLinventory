@@ -40,8 +40,8 @@ ALTER TABLE supplier_shortages ALTER COLUMN grn_id DROP NOT NULL;
 ALTER TABLE supplier_shortages DROP CONSTRAINT IF EXISTS supplier_shortages_status_check;
 ALTER TABLE supplier_shortages
   ADD CONSTRAINT supplier_shortages_status_check CHECK (status IN (
-    -- legacy
-    'open','follow_up_delivery','credit_received','written_off','resolved','cancelled',
+    -- legacy / existing app values
+    'open','follow_up_delivery','credit_requested','credit_received','written_off','resolved','cancelled',
     -- central engine
     'awaiting_receival','awaiting_credit','partially_credited','under_review'
   ));
