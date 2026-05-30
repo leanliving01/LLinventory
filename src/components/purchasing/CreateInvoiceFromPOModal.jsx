@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -55,12 +55,16 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
     return map;
   }, [grnLines]);
 
+  // Recalculate due date whenever invoice date or supplier payment terms change.
+  // supplier loads async so this handles both the initial load and manual date changes.
+  useEffect(() => {
+    if (!supplier?.payment_terms_basis || !invoiceDate) return;
+    const calc = calculateDueDate(invoiceDate, supplier.payment_terms_basis, supplier.payment_terms_days);
+    if (calc) setDueDate(calc.toISOString().slice(0, 10));
+  }, [supplier?.payment_terms_basis, supplier?.payment_terms_days, invoiceDate]);
+
   const handleInvoiceDateChange = (date) => {
     setInvoiceDate(date);
-    if (supplier?.payment_terms_basis && date) {
-      const calc = calculateDueDate(date, supplier.payment_terms_basis, supplier.payment_terms_days);
-      if (calc) setDueDate(calc.toISOString().slice(0, 10));
-    }
   };
 
   const getReceivedQty = (poLine) => {
