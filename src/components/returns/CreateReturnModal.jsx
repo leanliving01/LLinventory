@@ -26,16 +26,16 @@ const REASONS = [
   { value: 'other', label: 'Other' },
 ];
 
-export default function CreateReturnModal({ onCreated, onCancel }) {
+export default function CreateReturnModal({ po = null, onCreated, onCancel }) {
   const [saving, setSaving] = useState(false);
-  const [supplierId, setSupplierId] = useState('');
+  const [supplierId, setSupplierId] = useState(po?.supplier_id || '');
   const [grnId, setGrnId] = useState('');
   const [returnDate, setReturnDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [notes, setNotes] = useState('');
   const [selectedLines, setSelectedLines] = useState([]);
 
-  // New fields
-  const [linkedPoId, setLinkedPoId] = useState('');
+  // New fields — pre-linked to the originating PO when opened from the workspace
+  const [linkedPoId, setLinkedPoId] = useState(po?.id || '');
   const [linkedInvoiceId, setLinkedInvoiceId] = useState('');
   const [stockAction, setStockAction] = useState('remove_from_stock');
   const [creditExpected, setCreditExpected] = useState(true);

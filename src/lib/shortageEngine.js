@@ -201,6 +201,32 @@ export async function resolveShortageIfNoneNeeded(poLineId, { resolution_notes }
 }
 
 /**
+ * Allocate a supplier credit note against a credit-kind shortage.
+ * Expected credit = short qty × unit cost. If the actual amount matches, the
+ * shortage is resolved (credit_received); otherwise it stays partially_credited
+ * with the variance recorded.
+ */
+export async function allocateCreditNote(shortage, { creditNoteNumber, creditNoteDate, amountActual }) {
+  const expected = computeShortageValue(shortage.shortage_qty, shortage.unit_cost);
+  const actual = Math.round((parseFloat(amountActual) || 0) * 100) / 100;
+  const variance = Math.round((actual - expected) * 100) / 100;
+  const matched = Math.abs(variance) < 0.01;
+  return base44.entities.SupplierShortage.update(shortage.id, {
+    credit_note_number: creditNoteNumber || null,
+    credit_note_date: creditNoteDate || null,
+    credit_amount_expected: expected,
+    credit_amount_actual: actual,
+    credit_variance: variance,
+    status: matched ? 'credit_received' : 'partially_credited',
+    credit_follow_up_status: matched ? 'matched' : 'partially_credited',
+    resolution_date: matched ? new Date().toISOString().slice(0, 10) : null,
+    resolution_notes: matched
+      ? `Credit note ${creditNoteNumber || ''} received in full`.trim()
+      : `Credit note ${creditNoteNumber || ''} received with variance R ${variance.toFixed(2)}`.trim(),
+  });
+}
+
+/**
  * Resolve the open shortage of a specific kind ('await' | 'credit' | 'review') for a
  * PO line. Used when an invoice shows a kind is no longer required (e.g. the supplier
  * only billed for what was received, so the credit shortage can be closed).
