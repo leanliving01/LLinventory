@@ -289,6 +289,17 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
     }
   };
 
+  // Open the create form with each line's Received Qty pre-filled to the REMAINING qty
+  const openCreateForm = () => {
+    const init = {};
+    poLines.forEach(l => {
+      const r = remainingForLine(l);
+      if (r > 0) init[l.id] = String(r);
+    });
+    setReceivedQtys(init);
+    setShowCreate(true);
+  };
+
   const resetCreateForm = () => {
     setShowCreate(false);
     setReceivedQtys({});
@@ -301,7 +312,7 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">Goods Received Notes</h3>
         {!showCreate && !pendingDecision && (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowCreate(true)}>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={openCreateForm}>
             <Plus className="w-3.5 h-3.5" /> Create GRN
           </Button>
         )}
