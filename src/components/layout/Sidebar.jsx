@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { APP_VERSION, formatBuildTime } from '@/lib/version';
 import { 
   LayoutDashboard, 
   Package, 
@@ -362,6 +363,19 @@ export default function Sidebar({ collapsed, onToggle, onAiOpen }) {
         >
           {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
         </button>
+        {/* Build version marker — confirm which deployment you're on */}
+        <div
+          className="px-3 pb-2 text-center"
+          title={formatBuildTime() ? `Built ${formatBuildTime()}` : ''}
+        >
+          {collapsed ? (
+            <span className="text-[9px] font-mono text-sidebar-foreground/30">{APP_VERSION}</span>
+          ) : (
+            <span className="text-[10px] font-mono text-sidebar-foreground/30">
+              build {APP_VERSION}{formatBuildTime() ? ` · ${formatBuildTime()}` : ''}
+            </span>
+          )}
+        </div>
       </div>
     </aside>
   );
