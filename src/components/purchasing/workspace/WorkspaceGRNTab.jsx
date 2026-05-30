@@ -109,6 +109,7 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
   // Shortage decision step
   const [pendingDecision, setPendingDecision] = useState(null);
   const [decisions, setDecisions] = useState({});
+  const [expectedDates, setExpectedDates] = useState({});
 
   const { data: locations = [] } = useQuery({
     queryKey: ['locations'],
@@ -243,10 +244,16 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
   const handleFinaliseDecisions = async () => {
     setSaving(true);
     try {
+      const payload = Object.fromEntries(
+        Object.entries(decisions).map(([id, action]) => [
+          id,
+          { action, expected_delivery_date: action === 'receive_later' ? (expectedDates[id] || null) : null },
+        ])
+      );
       await finaliseGRNWithDecisions(
         pendingDecision.grn,
         pendingDecision.persistedLines,
-        decisions,
+        payload,
         user?.full_name || user?.email || 'System'
       );
       toast.success(`GRN ${pendingDecision.grn.grn_number} confirmed`);
@@ -332,7 +339,7 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
                       <td className="px-3 py-2 text-right text-muted-foreground">{l.expected_qty}</td>
                       <td className="px-3 py-2 text-right">{l.received_qty}</td>
                       <td className="px-3 py-2 text-right font-semibold text-amber-600">{short}</td>
-                      <td className="px-3 py-2 min-w-[180px]">
+                      <td className="px-3 py-2 min-w-[200px]">
                         <Select
                           value={decisions[l.id] || 'receive_later'}
                           onValueChange={val => setDecisions(prev => ({ ...prev, [l.id]: val }))}
@@ -343,6 +350,17 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
                             <SelectItem value="request_credit">Request credit note</SelectItem>
                           </SelectContent>
                         </Select>
+                        {(decisions[l.id] || 'receive_later') === 'receive_later' && (
+                          <div className="mt-1.5">
+                            <label className="text-[10px] text-muted-foreground">Expected next delivery</label>
+                            <Input
+                              type="date"
+                              value={expectedDates[l.id] || ''}
+                              onChange={e => setExpectedDates(prev => ({ ...prev, [l.id]: e.target.value }))}
+                              className="h-8 text-xs mt-0.5"
+                            />
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -352,12 +370,12 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
           </div>
 
           <p className="text-xs text-muted-foreground">
-            <strong>Wait for delivery</strong> — PO stays open; create another GRN when remaining stock arrives.<br />
-            <strong>Request credit note</strong> — raises a shortage record; PO moves to credit-note pending.
+            <strong>Wait for delivery</strong> — stock received now is added; PO stays open and the shortage is tracked as "Awaiting remaining receival" until the next GRN.<br />
+            <strong>Request credit note</strong> — raises a shortage for credit; PO moves to credit-note pending.
           </p>
 
           <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => { setPendingDecision(null); setDecisions({}); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setPendingDecision(null); setDecisions({}); setExpectedDates({}); }}>Cancel</Button>
             <Button className="gap-2" onClick={handleFinaliseDecisions} disabled={saving}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               Finalise GRN

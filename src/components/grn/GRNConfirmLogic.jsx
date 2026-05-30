@@ -306,42 +306,52 @@ export async function confirmGRN(grn, lines, userName) {
  * decisions = { [lineId]: 'receive_later' | 'request_credit' }
  */
 export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, userName) {
-  const shortLineIds = Object.keys(decisions);
+  // Decisions may be a plain action string or { action, expected_delivery_date }.
+  const norm = {};
+  for (const [id, v] of Object.entries(decisions)) {
+    norm[id] = (typeof v === 'string') ? { action: v } : (v || {});
+  }
+  const shortLineIds = Object.keys(norm);
 
   // 1. Persist short_receival_action on each short line
   for (const lineId of shortLineIds) {
     await base44.entities.GRNLine.update(lineId, {
-      short_receival_action: decisions[lineId],
+      short_receival_action: norm[lineId].action,
     });
   }
 
-  // 2. For request_credit lines, upsert the ONE central shortage record per PO line
-  //    (keyed on po_line_id — never creates a duplicate of an existing line shortage)
+  // 2. Upsert the ONE central shortage record per short PO line — for BOTH
+  //    "await remaining receival" and "request credit" decisions, so every short
+  //    receival is tracked in Shortages immediately (keyed on po_line_id).
   for (const lineId of shortLineIds) {
-    if (decisions[lineId] === 'request_credit') {
-      const line = persistedLines.find(l => l.id === lineId);
-      if (!line) continue;
-      const orderedQty = parseFloat(line.expected_qty) || 0;
-      const receivedQty = parseFloat(line.received_qty) || 0;
-      await upsertShortage({
-        poLineId: line.po_line_id || null,
-        purchaseOrderId: grn.purchase_order_id || null,
-        productId: line.product_id,
-        grn_id: grn.id,
-        grn_line_id: line.id,
-        supplier_id: grn.supplier_id,
-        supplier_name: grn.supplier_name,
-        supplier_product_id: line.supplier_product_id || null,
-        product_name: line.product_name,
-        product_sku: line.product_sku,
-        ordered_qty: orderedQty,
-        received_qty: receivedQty,
-        purchase_uom: line.purchase_uom || '',
-        unit_cost: parseFloat(line.unit_cost) || 0,
-        decision: 'request_credit',
-        status: 'open',
-        credit_follow_up_status: 'credit_required',
-      });
+    const action = norm[lineId].action;
+    if (action !== 'request_credit' && action !== 'receive_later') continue;
+    const line = persistedLines.find(l => l.id === lineId);
+    if (!line) continue;
+    const orderedQty = parseFloat(line.expected_qty) || 0;
+    const receivedQty = parseFloat(line.received_qty) || 0;
+    const fields = {
+      poLineId: line.po_line_id || null,
+      purchaseOrderId: grn.purchase_order_id || null,
+      productId: line.product_id,
+      grn_id: grn.id,
+      grn_line_id: line.id,
+      supplier_id: grn.supplier_id,
+      supplier_name: grn.supplier_name,
+      supplier_product_id: line.supplier_product_id || null,
+      product_name: line.product_name,
+      product_sku: line.product_sku,
+      ordered_qty: orderedQty,
+      received_qty: receivedQty,
+      purchase_uom: line.purchase_uom || '',
+      unit_cost: parseFloat(line.unit_cost) || 0,
+      status: 'open',
+    };
+    if (action === 'request_credit') {
+      await upsertShortage({ ...fields, decision: 'request_credit', credit_follow_up_status: 'credit_required' });
+    } else {
+      // await remaining receival — capture the expected next-delivery date
+      await upsertShortage({ ...fields, decision: 'await_receival', expected_delivery_date: norm[lineId].expected_delivery_date || null });
     }
   }
 
@@ -358,7 +368,7 @@ export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, u
     const poGRNs = await base44.entities.GoodsReceivedNote.filter({ purchase_order_id: grn.purchase_order_id });
     const confirmedCount = poGRNs.filter(g => g.status === 'confirmed' || g.id === grn.id).length;
 
-    const decisionValues = Object.values(decisions);
+    const decisionValues = shortLineIds.map(id => norm[id].action);
     let newStatus;
     if (decisionValues.some(d => d === 'request_credit')) {
       // Any credit-note decision takes the PO to credit note pending

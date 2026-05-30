@@ -13,10 +13,22 @@ export default function ShortReceivalDecisionModal({ grn, shortLines, onConfirm,
   const [decisions, setDecisions] = useState(() =>
     Object.fromEntries(shortLines.map(l => [l.id, 'receive_later']))
   );
+  const [expectedDates, setExpectedDates] = useState({});
 
   const setDecision = (lineId, value) => {
     setDecisions(prev => ({ ...prev, [lineId]: value }));
   };
+  const setExpectedDate = (lineId, value) => {
+    setExpectedDates(prev => ({ ...prev, [lineId]: value }));
+  };
+
+  // Build { [lineId]: { action, expected_delivery_date } } for the finaliser
+  const buildPayload = () => Object.fromEntries(
+    Object.entries(decisions).map(([id, action]) => [
+      id,
+      { action, expected_delivery_date: action === 'receive_later' ? (expectedDates[id] || null) : null },
+    ])
+  );
 
   const totalShortValue = shortLines.reduce((sum, l) => {
     const shortQty = parseFloat(l.expected_qty) - parseFloat(l.received_qty);
@@ -123,6 +135,19 @@ export default function ShortReceivalDecisionModal({ grn, shortLines, onConfirm,
                     Request supplier credit
                   </button>
                 </div>
+
+                {/* Expected next-delivery date — only when awaiting the remainder */}
+                {decision === 'receive_later' && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <label className="text-xs text-muted-foreground whitespace-nowrap">Expected next delivery</label>
+                    <input
+                      type="date"
+                      value={expectedDates[line.id] || ''}
+                      onChange={e => setExpectedDate(line.id, e.target.value)}
+                      className="h-8 text-xs border border-border rounded-md px-2 bg-background"
+                    />
+                  </div>
+                )}
               </div>
             );
           })}
@@ -141,7 +166,7 @@ export default function ShortReceivalDecisionModal({ grn, shortLines, onConfirm,
             </Button>
             <Button
               className="flex-1 gap-2"
-              onClick={() => onConfirm(decisions)}
+              onClick={() => onConfirm(buildPayload())}
             >
               Confirm Decisions &amp; Finalise GRN
             </Button>
