@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import GRNLineRow from './GRNLineRow';
 import AddGRNLineModal from './AddGRNLineModal';
-import { confirmGRN, finaliseGRNWithDecisions } from './GRNConfirmLogic';
+import { confirmGRN, finaliseGRNWithDecisions, deleteGRN } from './GRNConfirmLogic';
 import ShortReceivalDecisionModal from './ShortReceivalDecisionModal';
 import ErrorBoundary from '@/components/layout/ErrorBoundary';
 import ManagerPinDialog from '@/components/purchasing/ManagerPinDialog';
@@ -177,8 +177,10 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
     setShowDeletePin(false);
     setDeleting(true);
     try {
-      await base44.entities.GoodsReceivedNote.delete(grn.id);
-      toast.success('GRN deleted');
+      await deleteGRN(grn);
+      toast.success('GRN deleted — stock reversed and PO reopened');
+      queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+      queryClient.invalidateQueries({ queryKey: ['active-products'] });
       onUpdated?.();
       onClose();
     } catch (err) {
@@ -191,8 +193,10 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
   const handleDeleteDraft = async () => {
     setDeleting(true);
     try {
-      await base44.entities.GoodsReceivedNote.delete(grn.id);
+      await deleteGRN(grn);
       toast.success('GRN deleted');
+      queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+      queryClient.invalidateQueries({ queryKey: ['active-products'] });
       onUpdated?.();
       onClose();
     } catch (err) {

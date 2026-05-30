@@ -406,3 +406,105 @@ export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, u
 
   return { success: true, totalValue, lineCount: persistedLines.length, hasShortages, hasRejections };
 }
+
+/**
+ * Deletes a GRN and reverses everything it did, so the PO returns to a clean state
+ * and a fresh GRN can be created:
+ *  1. Reverses stock (negative SOH adjustment + cancellation_reversal movement) for
+ *     confirmed GRNs.
+ *  2. Deletes shortage records anchored on this GRN.
+ *  3. Deletes the GRN lines.
+ *  4. Recomputes each PO line's received_qty from the REMAINING confirmed GRNs and
+ *     resets the PO status (approved / partially_received / received).
+ *  5. Deletes the GRN row.
+ */
+export async function deleteGRN(grn) {
+  const lines = await base44.entities.GRNLine.filter({ grn_id: grn.id }, 'product_name', 200);
+
+  // 1. Reverse stock for confirmed GRNs
+  if (grn.status === 'confirmed') {
+    const stockLines = lines.filter(l =>
+      (!l.item_type || l.item_type === 'stock') &&
+      l.condition !== 'rejected' &&
+      (parseFloat(l.internal_qty_received) || 0) > 0
+    );
+    const productIds = [...new Set(stockLines.map(l => l.product_id).filter(Boolean))];
+    const productCache = {};
+    if (productIds.length) {
+      const results = await Promise.allSettled(productIds.map(id => base44.entities.Product.filter({ id })));
+      results.forEach(r => { if (r.status === 'fulfilled' && r.value?.[0]) productCache[r.value[0].id] = r.value[0]; });
+    }
+    for (const line of stockLines) {
+      const internalQty = parseFloat(line.internal_qty_received) || 0;
+      const product = productCache[line.product_id];
+      try {
+        await adjustStockOnHand(line.product_id, grn.location_id, -internalQty, null);
+        await base44.entities.StockMovement.create({
+          product_id: line.product_id,
+          product_sku: line.product_sku || product?.sku || '',
+          product_name: line.product_name || product?.name || '',
+          from_location_id: grn.location_id,
+          qty: internalQty,
+          uom: product?.stock_uom || 'unit',
+          reason: 'cancellation_reversal',
+          ref_type: 'grn',
+          ref_id: grn.id,
+          ref_number: grn.grn_number,
+          reference_key: `grn-reversal:${grn.id}:${line.id}`,
+          unit_cost_at_movement: 0,
+          notes: `Reversal — deleted GRN ${grn.grn_number}`,
+        });
+      } catch (e) { console.warn('[deleteGRN] stock reversal failed:', e?.message); }
+    }
+  }
+
+  // 2. Delete shortages anchored on this GRN
+  try {
+    const grnShortages = await base44.entities.SupplierShortage.filter({ grn_id: grn.id }, '-created_date', 100);
+    for (const s of grnShortages) await base44.entities.SupplierShortage.delete(s.id);
+  } catch (e) { console.warn('[deleteGRN] shortage cleanup failed:', e?.message); }
+
+  // 3. Delete the GRN lines
+  for (const line of lines) {
+    try { await base44.entities.GRNLine.delete(line.id); } catch (e) { /* ignore */ }
+  }
+
+  // 4. Recompute PO line received_qty + PO status from remaining confirmed GRNs
+  if (grn.purchase_order_id) {
+    const poLines = await base44.entities.PurchaseOrderLine.filter({ purchase_order_id: grn.purchase_order_id }, 'created_date', 200);
+    const allPoGRNs = await base44.entities.GoodsReceivedNote.filter({ purchase_order_id: grn.purchase_order_id }, '-received_date', 50);
+    const remainingConfirmed = allPoGRNs.filter(g => g.id !== grn.id && g.status === 'confirmed');
+
+    let remainingLines = [];
+    if (remainingConfirmed.length) {
+      const chunks = await Promise.all(remainingConfirmed.map(g => base44.entities.GRNLine.filter({ grn_id: g.id }, 'product_name', 200)));
+      remainingLines = chunks.flat();
+    }
+    const receivedByPoLine = {};
+    remainingLines.forEach(l => {
+      if (l.po_line_id) receivedByPoLine[l.po_line_id] = (receivedByPoLine[l.po_line_id] || 0) + (parseFloat(l.received_qty) || 0);
+    });
+
+    for (const pl of poLines) {
+      const newReceived = receivedByPoLine[pl.id] || 0;
+      if ((parseFloat(pl.received_qty) || 0) !== newReceived) {
+        await base44.entities.PurchaseOrderLine.update(pl.id, { received_qty: newReceived });
+      }
+    }
+
+    const anyReceived = poLines.some(pl => (receivedByPoLine[pl.id] || 0) > 0);
+    const allReceived = poLines.length > 0 && poLines.every(pl => (receivedByPoLine[pl.id] || 0) >= (parseFloat(pl.ordered_qty) || 0));
+    const status = allReceived ? 'received' : anyReceived ? 'partially_received' : 'approved';
+    await base44.entities.PurchaseOrder.update(grn.purchase_order_id, { status, grn_count: remainingConfirmed.length });
+  }
+
+  // 5. Delete the GRN itself
+  await base44.entities.GoodsReceivedNote.delete(grn.id);
+
+  writeAuditLog({
+    action: 'delete',
+    entity_type: 'GoodsReceivedNote',
+    entity_id: grn.id,
+    description: `Deleted GRN ${grn.grn_number} — stock reversed, PO received quantities recomputed`,
+  });
+}
