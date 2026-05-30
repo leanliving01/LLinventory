@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { X, FileText, AlertTriangle, Loader2, Calendar, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { calculateDueDate } from '@/lib/utils';
+import { computeDueDate } from '@/lib/utils';
 
 const PRICE_VARIANCE_THRESHOLD = 5; // percent
 
@@ -59,9 +59,9 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
   // supplier loads async so this handles both the initial load and manual date changes.
   useEffect(() => {
     if (!supplier?.payment_terms_basis || !invoiceDate) return;
-    const calc = calculateDueDate(invoiceDate, supplier.payment_terms_basis, supplier.payment_terms_days);
+    const calc = computeDueDate(invoiceDate, supplier.payment_terms_basis, supplier.payment_terms_days, supplier.payment_terms_cutoff_day);
     if (calc) setDueDate(calc.toISOString().slice(0, 10));
-  }, [supplier?.payment_terms_basis, supplier?.payment_terms_days, invoiceDate]);
+  }, [supplier?.payment_terms_basis, supplier?.payment_terms_days, supplier?.payment_terms_cutoff_day, invoiceDate]);
 
   const handleInvoiceDateChange = (date) => {
     setInvoiceDate(date);
@@ -223,7 +223,7 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
 
   if (showMismatchDialog) {
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center">
+      <div className="fixed inset-0 z-[200] flex items-center justify-center">
         <div className="absolute inset-0 bg-black/40" />
         <div className="relative z-10 bg-card rounded-xl shadow-2xl w-full max-w-lg p-6">
           <div className="flex items-start gap-3 mb-4">
@@ -290,7 +290,7 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-card">
+    <div className="fixed inset-0 z-[200] flex flex-col bg-card">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0 bg-card">
           <div>
