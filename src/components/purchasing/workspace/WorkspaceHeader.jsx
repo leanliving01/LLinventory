@@ -54,7 +54,7 @@ export default function WorkspaceHeader({ po, invoice, grns = [], perms = {}, on
   const dueDateOverridden = invoice?.due_date_overridden || po.due_date_overridden;
 
   const subtotal = po.subtotal || 0;
-  const tax = po.tax || 0;
+  const tax = po.tax_amount ?? po.tax ?? 0;
   const total = po.total || 0;
 
   // Revert to draft: only if approved/confirmed and no GRNs and no invoice
