@@ -3,10 +3,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, ExternalLink, Link2, X, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Link2, X, CheckCircle2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import ValidationErrorBanner from '@/components/purchasing/ValidationErrorBanner';
 import { findBestPOMatch } from '@/lib/purchaseMatchingEngine';
+import CreateInvoiceFromPOModal from '@/components/purchasing/CreateInvoiceFromPOModal';
 
 function validateInvoice(invoice, invoiceLines, po) {
   const errors = [];
@@ -76,6 +77,7 @@ export default function WorkspaceLinesTab({ po, poLines = [], invoice, invoiceLi
   const [authorising, setAuthorising] = useState(false);
   const [validationErrors, setValidationErrors] = useState([]);
   const [dismissedMatch, setDismissedMatch] = useState(false);
+  const [showCreateInvoice, setShowCreateInvoice] = useState(false);
 
   // Check for match suggestions
   const { data: matchSuggestions = [] } = useQuery({
@@ -181,6 +183,11 @@ export default function WorkspaceLinesTab({ po, poLines = [], invoice, invoiceLi
       <div>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-semibold">Invoice Lines</h3>
+          {!invoice && (
+            <Button size="sm" className="gap-1.5" onClick={() => setShowCreateInvoice(true)}>
+              <Plus className="w-3.5 h-3.5" /> Add Invoice
+            </Button>
+          )}
           {invoice && invoice.status === 'pending_match' && (
             <Button size="sm" className="gap-1.5" onClick={handleAuthorise} disabled={authorising}>
               <CheckCircle2 className="w-4 h-4" /> Authorise Invoice
@@ -191,8 +198,13 @@ export default function WorkspaceLinesTab({ po, poLines = [], invoice, invoiceLi
           )}
         </div>
         {!invoice ? (
-          <div className="text-center py-8 text-sm text-muted-foreground border border-dashed border-border rounded-lg">
-            No invoice linked. Add a supplier invoice to this PO.
+          <div
+            className="text-center py-10 border border-dashed border-border rounded-lg cursor-pointer hover:bg-muted/30 transition-colors"
+            onClick={() => setShowCreateInvoice(true)}
+          >
+            <Plus className="w-6 h-6 text-muted-foreground mx-auto mb-2" />
+            <p className="text-sm font-medium">No invoice yet</p>
+            <p className="text-xs text-muted-foreground mt-1">Click to add a supplier invoice — PO lines will be pre-populated</p>
           </div>
         ) : (
           <div className="border border-border rounded-lg overflow-hidden">
@@ -211,6 +223,18 @@ export default function WorkspaceLinesTab({ po, poLines = [], invoice, invoiceLi
           </div>
         )}
       </div>
+
+      {showCreateInvoice && (
+        <CreateInvoiceFromPOModal
+          po={po}
+          onCreated={() => {
+            setShowCreateInvoice(false);
+            qc.invalidateQueries({ queryKey: ['workspace-invoices', po.id] });
+            qc.invalidateQueries({ queryKey: ['po', po.id] });
+          }}
+          onCancel={() => setShowCreateInvoice(false)}
+        />
+      )}
     </div>
   );
 }

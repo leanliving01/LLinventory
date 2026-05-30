@@ -286,11 +286,9 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
-      <div className="relative z-10 bg-card rounded-xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col">
+    <div className="fixed inset-0 z-[60] flex flex-col bg-card">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0 bg-card">
           <div>
             <h2 className="text-base font-bold flex items-center gap-2">
               <FileText className="w-5 h-5 text-primary" />
@@ -491,8 +489,6 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
               : <FileText className="w-4 h-4" />}
             {mismatchedRows.length > 0 ? 'Review Differences & Create Invoice' : 'Create Invoice'}
           </Button>
-        </div>
-      </div>
     </div>
   );
 }
