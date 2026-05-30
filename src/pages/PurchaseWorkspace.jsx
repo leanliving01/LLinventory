@@ -62,7 +62,7 @@ export default function PurchaseWorkspace() {
   // Load invoice lines
   const { data: invoiceLines = [] } = useQuery({
     queryKey: ['workspace-invoice-lines', invoice?.id],
-    queryFn: () => base44.entities.PurchaseInvoiceLine.filter({ purchase_invoice_id: invoice.id }, 'created_date', 100),
+    queryFn: () => base44.entities.PurchaseInvoiceLine.filter({ invoice_id: invoice.id }, 'created_date', 100),
     enabled: !!invoice?.id,
   });
 
