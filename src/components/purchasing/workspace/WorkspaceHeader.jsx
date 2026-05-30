@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, TrendingUp } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { AlertTriangle, TrendingUp, RotateCcw, Trash2, Loader2 } from 'lucide-react';
 import { dueDateColour, formatPaymentTerms } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import ManagerPinDialog from '@/components/purchasing/ManagerPinDialog';
 
 const STATUS_COLORS = {
   draft: 'bg-gray-100 text-gray-600',
@@ -36,8 +38,11 @@ function DueDateBadge({ dateStr, overridden }) {
   );
 }
 
-export default function WorkspaceHeader({ po, invoice, grns = [] }) {
+export default function WorkspaceHeader({ po, invoice, grns = [], perms = {}, onRevertToDraft, onDeletePO }) {
   if (!po) return null;
+
+  const [showDeletePin, setShowDeletePin] = useState(false);
+  const [reverting, setReverting] = useState(false);
 
   const hasConfirmedGRN = grns.some(g => g.status === 'confirmed');
   const hasPriceVariance = grns.some(g => g.has_price_variance);
@@ -51,6 +56,27 @@ export default function WorkspaceHeader({ po, invoice, grns = [] }) {
   const subtotal = po.subtotal || 0;
   const tax = po.tax || 0;
   const total = po.total || 0;
+
+  // Revert to draft: only if approved/confirmed and no GRNs and no invoice
+  const canRevertToDraft = ['approved', 'confirmed', 'awaiting_approval'].includes(po.status)
+    && grns.length === 0
+    && !invoice;
+
+  // Cancel PO: gated on po_delete permission; not if already cancelled or has GRNs/invoice
+  const canDelete = perms.po_delete
+    && !['cancelled', 'paid'].includes(po.status)
+    && !hasConfirmedGRN
+    && !invoice;
+
+  const handleRevert = async () => {
+    if (!onRevertToDraft) return;
+    setReverting(true);
+    try {
+      await onRevertToDraft();
+    } finally {
+      setReverting(false);
+    }
+  };
 
   return (
     <div className="sticky top-0 z-40 bg-card border-b border-border shadow-sm">
@@ -102,23 +128,53 @@ export default function WorkspaceHeader({ po, invoice, grns = [] }) {
           )}
         </div>
 
-        {/* Financials */}
-        <div className="ml-auto flex items-center gap-4 text-sm shrink-0">
+        {/* Financials + actions */}
+        <div className="ml-auto flex items-center gap-3 text-sm shrink-0">
           <span className="text-muted-foreground">Excl: <strong>R {subtotal.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</strong></span>
           <span className="text-muted-foreground">VAT: <strong>R {tax.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</strong></span>
           <span className="font-bold text-base">R {total.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+
+          {canRevertToDraft && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs h-7"
+              onClick={handleRevert}
+              disabled={reverting}
+              title="Revert this PO to Draft — only available when no GRNs or invoices exist"
+            >
+              {reverting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+              Revert to Draft
+            </Button>
+          )}
+
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-xs h-7 text-red-600 hover:text-red-700 hover:bg-red-50"
+              onClick={() => setShowDeletePin(true)}
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Cancel PO
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Alerts row */}
-      {(hasPriceVariance) && (
+      {hasPriceVariance && (
         <div className="px-6 pb-2 flex gap-3">
-          {hasPriceVariance && (
-            <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-              <TrendingUp className="w-3 h-3" /> Price variance flagged on one or more lines
-            </div>
-          )}
+          <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+            <TrendingUp className="w-3 h-3" /> Price variance flagged on one or more lines
+          </div>
         </div>
+      )}
+
+      {showDeletePin && (
+        <ManagerPinDialog
+          action="cancel this purchase order"
+          onConfirmed={() => { setShowDeletePin(false); onDeletePO && onDeletePO(); }}
+          onCancel={() => setShowDeletePin(false)}
+        />
       )}
     </div>
   );

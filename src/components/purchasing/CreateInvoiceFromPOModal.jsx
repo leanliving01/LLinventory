@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { X, FileText, AlertTriangle, Loader2, Calendar, CheckCircle2 } from 'lucide-react';
+import { X, FileText, AlertTriangle, Loader2, Calendar, CheckCircle2, Plus, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { computeDueDate } from '@/lib/utils';
 
@@ -18,6 +18,10 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
   const [submitting, setSubmitting] = useState(false);
   const [showMismatchDialog, setShowMismatchDialog] = useState(false);
   const [mismatchDecisions, setMismatchDecisions] = useState({});
+  // Blind receipt free-form line entry
+  const [blindLines, setBlindLines] = useState([]);
+  const [showProductPicker, setShowProductPicker] = useState(false);
+  const [productSearch, setProductSearch] = useState('');
 
   const { data: poLines = [], isLoading: linesLoading } = useQuery({
     queryKey: ['po-lines', po.id],
@@ -48,6 +52,56 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
   });
 
   const isBlindReceipt = po.type === 'blind_receipt';
+  const isBlindMode = isBlindReceipt && !linesLoading && poLines.length === 0;
+
+  // Supplier products for blind receipt product picker
+  const { data: supplierProducts = [] } = useQuery({
+    queryKey: ['supplier-products-for-invoice-br', po.supplier_id],
+    queryFn: () => base44.entities.SupplierProduct.filter({ supplier_id: po.supplier_id, active: true }, 'product_name', 200),
+    enabled: !!po.supplier_id && isBlindMode,
+  });
+
+  const filteredSPs = useMemo(() => {
+    const existing = new Set(blindLines.map(l => l.product_id));
+    let list = supplierProducts.filter(sp => !existing.has(sp.product_id));
+    if (productSearch) {
+      const q = productSearch.toLowerCase();
+      list = list.filter(sp =>
+        (sp.product_name || '').toLowerCase().includes(q) ||
+        (sp.product_sku || '').toLowerCase().includes(q)
+      );
+    }
+    return list.slice(0, 20);
+  }, [supplierProducts, blindLines, productSearch]);
+
+  const addBlindProduct = (sp) => {
+    setBlindLines(prev => [...prev, {
+      product_id: sp.product_id,
+      product_name: sp.product_name,
+      product_sku: sp.product_sku,
+      supplier_product_id: sp.id,
+      purchase_uom: sp.purchase_uom || '',
+      invoiced_qty: String(1),
+      unit_cost: String(parseFloat(sp.last_purchase_price) || 0),
+    }]);
+    setShowProductPicker(false);
+    setProductSearch('');
+  };
+
+  const updateBlindLine = (idx, field, value) => {
+    setBlindLines(prev => prev.map((l, i) => i === idx ? { ...l, [field]: value } : l));
+  };
+
+  const removeBlindLine = (idx) => {
+    setBlindLines(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const blindRows = useMemo(() => blindLines.map(l => ({
+    ...l,
+    invoicedQty: parseFloat(l.invoiced_qty) || 0,
+    invCost: parseFloat(l.unit_cost) || 0,
+    lineTotal: Math.round((parseFloat(l.invoiced_qty) || 0) * (parseFloat(l.unit_cost) || 0) * 100) / 100,
+  })), [blindLines]);
 
   const grnLineByProductId = useMemo(() => {
     const map = {};
@@ -110,15 +164,17 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
     };
   }), [poLines, grnLineByProductId, lineEdits, isBlindReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const subtotal = rows.reduce((s, r) => s + r.lineTotal, 0);
+  const activeRows = isBlindMode ? blindRows : rows;
+  const subtotal = activeRows.reduce((s, r) => s + r.lineTotal, 0);
   const taxRate = parseFloat(po.tax_rate) || 0.15;
   const taxAmount = Math.round(subtotal * taxRate * 100) / 100;
   const total = Math.round((subtotal + taxAmount) * 100) / 100;
-  const mismatchedRows = rows.filter(r => r.qtyMismatch);
+  const mismatchedRows = isBlindMode ? [] : rows.filter(r => r.qtyMismatch);
 
   const handleSubmitClick = () => {
     if (!invoiceNumber.trim()) { toast.error('Enter the supplier invoice number'); return; }
     if (!invoiceDate) { toast.error('Select the invoice date'); return; }
+    if (isBlindMode && blindLines.length === 0) { toast.error('Add at least one product line'); return; }
     if (mismatchedRows.length > 0) {
       const initial = {};
       mismatchedRows.forEach(r => { initial[r.poLine.id] = 'receive_later'; });
@@ -138,6 +194,27 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
         : decisionValues.some(d => d === 'receive_later')
           ? 'partially_received'
           : 'invoiced';
+
+      // For blind receipts, create PO lines from the entered invoice lines first
+      const poLineIdMap = {}; // product_id → po_line_id (for invoice line linking)
+      if (isBlindMode) {
+        for (const bl of blindLines) {
+          const poline = await base44.entities.PurchaseOrderLine.create({
+            purchase_order_id: po.id,
+            product_id: bl.product_id,
+            product_name: bl.product_name,
+            product_sku: bl.product_sku,
+            supplier_product_id: bl.supplier_product_id || null,
+            ordered_qty: parseFloat(bl.invoiced_qty) || 0,
+            received_qty: 0,
+            unit_cost: parseFloat(bl.unit_cost) || 0,
+            uom: bl.purchase_uom || '',
+            tax_rule: 'VAT 15%',
+            line_total: Math.round((parseFloat(bl.invoiced_qty) || 0) * (parseFloat(bl.unit_cost) || 0) * 100) / 100,
+          });
+          poLineIdMap[bl.product_id] = poline.id;
+        }
+      }
 
       const invoice = await base44.entities.PurchaseInvoice.create({
         invoice_number: invoiceNumber.trim(),
@@ -159,26 +236,48 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
         unmatched_line_count: 0,
       });
 
-      for (const row of rows) {
-        await base44.entities.PurchaseInvoiceLine.create({
-          invoice_id: invoice.id,
-          po_line_id: row.poLine.id,
-          grn_line_id: row.grnLine?.id || null,
-          product_id: row.poLine.product_id,
-          product_name: row.poLine.product_name,
-          product_sku: row.poLine.product_sku,
-          supplier_product_id: row.poLine.supplier_product_id || null,
-          ordered_qty: row.orderedQty,
-          received_qty: row.receivedQty,
-          qty: row.invoicedQty,
-          unit_cost: row.invCost,
-          tax_rule: row.poLine.tax_rule || 'VAT 15%',
-          line_total: row.lineTotal,
-          match_status: 'manually_matched',
-          price_variance_pct: Math.round(row.varPct * 10) / 10,
-          price_variance_flagged: row.priceFlag,
-          account_code: row.poLine.account_code || null,
-        });
+      if (isBlindMode) {
+        for (const bl of blindLines) {
+          const qty = parseFloat(bl.invoiced_qty) || 0;
+          const cost = parseFloat(bl.unit_cost) || 0;
+          await base44.entities.PurchaseInvoiceLine.create({
+            invoice_id: invoice.id,
+            po_line_id: poLineIdMap[bl.product_id] || null,
+            product_id: bl.product_id,
+            product_name: bl.product_name,
+            product_sku: bl.product_sku,
+            supplier_product_id: bl.supplier_product_id || null,
+            ordered_qty: qty,
+            received_qty: 0,
+            qty,
+            unit_cost: cost,
+            tax_rule: 'VAT 15%',
+            line_total: Math.round(qty * cost * 100) / 100,
+            match_status: 'manually_matched',
+          });
+        }
+      } else {
+        for (const row of rows) {
+          await base44.entities.PurchaseInvoiceLine.create({
+            invoice_id: invoice.id,
+            po_line_id: row.poLine.id,
+            grn_line_id: row.grnLine?.id || null,
+            product_id: row.poLine.product_id,
+            product_name: row.poLine.product_name,
+            product_sku: row.poLine.product_sku,
+            supplier_product_id: row.poLine.supplier_product_id || null,
+            ordered_qty: row.orderedQty,
+            received_qty: row.receivedQty,
+            qty: row.invoicedQty,
+            unit_cost: row.invCost,
+            tax_rule: row.poLine.tax_rule || 'VAT 15%',
+            line_total: row.lineTotal,
+            match_status: 'manually_matched',
+            price_variance_pct: Math.round(row.varPct * 10) / 10,
+            price_variance_flagged: row.priceFlag,
+            account_code: row.poLine.account_code || null,
+          });
+        }
       }
 
       // Create SupplierShortage for request_credit decisions
@@ -355,6 +454,109 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
           {/* Lines table */}
           {linesLoading ? (
             <div className="text-center py-8 text-sm text-muted-foreground">Loading lines...</div>
+          ) : isBlindMode ? (
+            /* Blind receipt: free-form product entry */
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-muted-foreground uppercase">Invoice Lines</p>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowProductPicker(true)}>
+                  <Plus className="w-3.5 h-3.5" /> Add Product
+                </Button>
+              </div>
+              {blindLines.length === 0 ? (
+                <div
+                  className="text-center py-8 border border-dashed border-border rounded-lg cursor-pointer hover:bg-muted/30 transition-colors"
+                  onClick={() => setShowProductPicker(true)}
+                >
+                  <Plus className="w-5 h-5 text-muted-foreground mx-auto mb-1" />
+                  <p className="text-sm text-muted-foreground">Add products from supplier catalog</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted/50 border-b border-border">
+                        <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
+                        <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Qty</th>
+                        <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Unit Cost</th>
+                        <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Line Total</th>
+                        <th className="w-8" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {blindLines.map((bl, idx) => (
+                        <tr key={idx}>
+                          <td className="px-3 py-2">
+                            <div className="font-medium">{bl.product_name}</div>
+                            <div className="text-[10px] font-mono text-muted-foreground">{bl.product_sku}</div>
+                            {bl.purchase_uom && <div className="text-[10px] text-muted-foreground">{bl.purchase_uom}</div>}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <Input type="number" min="0" step="any" value={bl.invoiced_qty}
+                              onChange={e => updateBlindLine(idx, 'invoiced_qty', e.target.value)}
+                              className="w-20 h-7 text-right text-sm ml-auto" />
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <Input type="number" min="0" step="any" value={bl.unit_cost}
+                              onChange={e => updateBlindLine(idx, 'unit_cost', e.target.value)}
+                              className="w-24 h-7 text-right text-sm ml-auto" />
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums font-medium">
+                            R {(Math.round((parseFloat(bl.invoiced_qty) || 0) * (parseFloat(bl.unit_cost) || 0) * 100) / 100).toFixed(2)}
+                          </td>
+                          <td className="px-2 py-2">
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-red-600"
+                              onClick={() => removeBlindLine(idx)}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Product picker */}
+              {showProductPicker && (
+                <>
+                  <div className="fixed inset-0 bg-black/30 z-[210]" onClick={() => setShowProductPicker(false)} />
+                  <div className="fixed inset-0 z-[220] flex items-center justify-center p-4">
+                    <div className="bg-card rounded-xl shadow-2xl w-full max-w-md p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <Input
+                          placeholder="Search supplier products..."
+                          value={productSearch}
+                          onChange={e => setProductSearch(e.target.value)}
+                          autoFocus
+                          className="h-8"
+                        />
+                        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setShowProductPicker(false)}>
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <div className="max-h-72 overflow-y-auto space-y-1">
+                        {filteredSPs.length === 0 ? (
+                          <p className="text-center text-sm text-muted-foreground py-4">No products found</p>
+                        ) : filteredSPs.map(sp => (
+                          <button key={sp.id}
+                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors"
+                            onClick={() => addBlindProduct(sp)}
+                          >
+                            <p className="text-sm font-medium">{sp.product_name}</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {sp.product_sku} · {sp.purchase_uom}
+                              {sp.last_purchase_price ? ` · R${parseFloat(sp.last_purchase_price).toFixed(2)}` : ''}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
@@ -443,7 +645,7 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
             </div>
           )}
 
-          {/* Warnings */}
+          {/* Warnings — only for regular PO mode */}
           {rows.some(r => r.priceFlag) && (
             <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm">
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />

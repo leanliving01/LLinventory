@@ -97,6 +97,7 @@ export const PERMISSION_GROUPS = [
       { key: 'supplier_scorecard',    label: 'Supplier Scorecard' },
       { key: 'price_variance_view',   label: 'View Price Variance Dashboard' },
       { key: 'three_way_match_view', label: 'Three-Way Matching (PO/GRN/Invoice)' },
+      { key: 'po_delete', label: 'Delete / Cancel POs, GRNs & Invoices (requires manager PIN)' },
     ],
   },
   {
@@ -153,7 +154,7 @@ export const ROLE_DEFAULTS = {
   financial_manager: p(
     'dashboard_view', 'dashboard_kpis', 'dashboard_revenue', 'dashboard_costs',
     'catalog_view',
-    'po_view', 'po_approve', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'supplier_scorecard', 'price_variance_view', 'three_way_match_view', 'xero_invoice_sync',
+    'po_view', 'po_approve', 'po_delete', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'supplier_scorecard', 'price_variance_view', 'three_way_match_view', 'xero_invoice_sync',
     'reports_view', 'reports_costs', 'food_cost_view', 'food_cost_run', 'forecasting',
     'settings', 'activity_log_view',
   ),
@@ -164,7 +165,7 @@ export const ROLE_DEFAULTS = {
     'planning_view', 'planning_create', 'runs_view', 'runs_create', 'runs_start_complete', 'runs_approve_complete', 'team_management', 'kitchen_tablet', 'pick_lists', 'yield_tracker',
     'cooking_runs_view', 'cooking_runs_create', 'cooking_runs_release', 'wip_view', 'wip_manage', 'wip_qc_override', 'yield_review', 'supplier_yield_view', 'wip_planning', 'wastage_review',
     'stocktake_view', 'stocktake_create', 'stock_transfers', 'receiving', 'wastage', 'par_levels', 'movements_view', 'inventory_overview', 'inventory_recalc_committed', 'stock_writeoff_view', 'stock_writeoff_create',
-    'po_view', 'po_create', 'po_approve', 'grn_create', 'blind_receipt_create', 'product_review', 'product_create_from_queue', 'returns_process', 'supplier_product_edit', 'xero_invoice_sync', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'price_variance_view', 'three_way_match_view',
+    'po_view', 'po_create', 'po_approve', 'po_delete', 'grn_create', 'blind_receipt_create', 'product_review', 'product_create_from_queue', 'returns_process', 'supplier_product_edit', 'xero_invoice_sync', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'price_variance_view', 'three_way_match_view',
     'sales_view', 'sales_fulfill', 'customers',
     'reports_view', 'reports_costs', 'reports_team', 'forecasting', 'food_cost_view', 'food_cost_run',
     'equipment', 'shopify_sync', 'supplier_scorecard', 'activity_log_view',

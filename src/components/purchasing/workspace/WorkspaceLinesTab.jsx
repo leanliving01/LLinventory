@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, ExternalLink, Link2, X, CheckCircle2, Plus } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Link2, X, CheckCircle2, Plus, RotateCcw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import ValidationErrorBanner from '@/components/purchasing/ValidationErrorBanner';
 import { findBestPOMatch } from '@/lib/purchaseMatchingEngine';
@@ -75,6 +75,7 @@ function InvoiceLineRow({ line, poLine }) {
 export default function WorkspaceLinesTab({ po, poLines = [], invoice, invoiceLines = [], onInvoiceAuthorised }) {
   const qc = useQueryClient();
   const [authorising, setAuthorising] = useState(false);
+  const [reverting, setReverting] = useState(false);
   const [validationErrors, setValidationErrors] = useState([]);
   const [dismissedMatch, setDismissedMatch] = useState(false);
   const [showCreateInvoice, setShowCreateInvoice] = useState(false);
@@ -110,6 +111,25 @@ export default function WorkspaceLinesTab({ po, poLines = [], invoice, invoiceLi
       toast.error(`Failed: ${err.message}`);
     } finally {
       setAuthorising(false);
+    }
+  };
+
+  const handleRevertInvoice = async () => {
+    if (!invoice) return;
+    setReverting(true);
+    try {
+      await base44.entities.PurchaseInvoice.update(invoice.id, { status: 'pending_match' });
+      // Restore PO status to received (undo invoiced)
+      if (['invoiced'].includes(po.status)) {
+        await base44.entities.PurchaseOrder.update(po.id, { status: 'received' });
+      }
+      qc.invalidateQueries({ queryKey: ['workspace-invoices', po.id] });
+      qc.invalidateQueries({ queryKey: ['po', po.id] });
+      toast.success('Invoice reverted to pending — you can now edit it');
+    } catch (err) {
+      toast.error(`Failed: ${err.message}`);
+    } finally {
+      setReverting(false);
     }
   };
 
@@ -162,22 +182,24 @@ export default function WorkspaceLinesTab({ po, poLines = [], invoice, invoiceLi
       {/* Validation errors for authorisation */}
       <ValidationErrorBanner errors={validationErrors} />
 
-      {/* PO Lines */}
-      <div>
-        <h3 className="text-sm font-semibold mb-2">Purchase Order Lines</h3>
-        <div className="border border-border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            {tableHead}
-            <tbody className="divide-y divide-border">
-              {poLines.length === 0 ? (
-                <tr><td colSpan={5} className="px-3 py-6 text-center text-xs text-muted-foreground">No PO lines.</td></tr>
-              ) : (
-                poLines.map(l => <POLineRow key={l.id} line={l} />)
-              )}
-            </tbody>
-          </table>
+      {/* PO Lines — hidden for blind receipts with no lines (invoice is the source of truth) */}
+      {!(po.type === 'blind_receipt' && poLines.length === 0) && (
+        <div>
+          <h3 className="text-sm font-semibold mb-2">Purchase Order Lines</h3>
+          <div className="border border-border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              {tableHead}
+              <tbody className="divide-y divide-border">
+                {poLines.length === 0 ? (
+                  <tr><td colSpan={5} className="px-3 py-6 text-center text-xs text-muted-foreground">No PO lines.</td></tr>
+                ) : (
+                  poLines.map(l => <POLineRow key={l.id} line={l} />)
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Invoice Lines */}
       <div>
@@ -193,7 +215,22 @@ export default function WorkspaceLinesTab({ po, poLines = [], invoice, invoiceLi
               <CheckCircle2 className="w-4 h-4" /> Authorise Invoice
             </Button>
           )}
-          {invoice?.status === 'approved' && (
+          {invoice?.status === 'approved' && invoice?.payment_status === 'unpaid' && (
+            <div className="flex items-center gap-2">
+              <Badge className="text-[10px] bg-green-100 text-green-700">Authorised</Badge>
+              <Button
+                variant="ghost" size="sm"
+                className="gap-1 text-xs h-7 text-muted-foreground"
+                onClick={handleRevertInvoice}
+                disabled={reverting}
+                title="Revert invoice back to pending for editing"
+              >
+                {reverting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                Revert
+              </Button>
+            </div>
+          )}
+          {invoice?.status === 'approved' && invoice?.payment_status !== 'unpaid' && (
             <Badge className="text-[10px] bg-green-100 text-green-700">Authorised</Badge>
           )}
         </div>

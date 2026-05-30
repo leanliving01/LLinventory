@@ -5,6 +5,10 @@ import { base44 } from '@/api/base44Client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2 } from 'lucide-react';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
+import { toast } from 'sonner';
 
 import WorkspaceHeader from '@/components/purchasing/workspace/WorkspaceHeader';
 import StepIndicator from '@/components/purchasing/workspace/StepIndicator';
@@ -20,6 +24,9 @@ export default function PurchaseWorkspace() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'summary');
 
   // Load PO
@@ -87,6 +94,18 @@ export default function PurchaseWorkspace() {
     qc.invalidateQueries({ queryKey: ['workspace-shortages', id] });
   };
 
+  const handleRevertToDraft = async () => {
+    await base44.entities.PurchaseOrder.update(id, { status: 'draft' });
+    toast.success('PO reverted to draft');
+    qc.invalidateQueries({ queryKey: ['po', id] });
+  };
+
+  const handleDeletePO = async () => {
+    await base44.entities.PurchaseOrder.update(id, { status: 'cancelled' });
+    toast.success('Purchase order cancelled');
+    navigate('/purchasing/orders');
+  };
+
   if (poLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -107,7 +126,14 @@ export default function PurchaseWorkspace() {
   return (
     <div className="space-y-0">
       {/* Sticky header */}
-      <WorkspaceHeader po={po} invoice={invoice} grns={grns} />
+      <WorkspaceHeader
+        po={po}
+        invoice={invoice}
+        grns={grns}
+        perms={perms}
+        onRevertToDraft={handleRevertToDraft}
+        onDeletePO={handleDeletePO}
+      />
 
       <div className="px-4 pt-4 space-y-3">
         {/* Back navigation */}
