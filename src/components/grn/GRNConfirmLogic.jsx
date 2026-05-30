@@ -1,6 +1,6 @@
 import { base44, adjustStockOnHand } from '@/api/base44Client';
 import { writeAuditLog } from '@/lib/auditLog';
-import { upsertShortage } from '@/lib/shortageEngine';
+import { upsertShortage, reconcileAwaitShortages } from '@/lib/shortageEngine';
 import { toast } from 'sonner';
 
 /**
@@ -298,6 +298,11 @@ export async function confirmGRN(grn, lines, userName) {
     description: `Confirmed GRN ${grn.grn_number}: ${persistedLines.length} lines, R ${totalValue.toFixed(2)} total`,
   });
 
+  // Reconcile PO line totals + auto-resolve any await shortage now fully received
+  if (grn.purchase_order_id) {
+    try { await reconcileAwaitShortages(grn.purchase_order_id); } catch (_) {}
+  }
+
   return { success: true, totalValue, lineCount: persistedLines.length, hasShortages, hasRejections };
 }
 
@@ -403,6 +408,11 @@ export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, u
     entity_id: grn.id,
     description: `Confirmed GRN ${grn.grn_number} with short-receival decisions: ${persistedLines.length} lines, R ${totalValue.toFixed(2)} total`,
   });
+
+  // Reconcile PO line totals + auto-resolve any await shortage now fully received
+  if (grn.purchase_order_id) {
+    try { await reconcileAwaitShortages(grn.purchase_order_id); } catch (_) {}
+  }
 
   return { success: true, totalValue, lineCount: persistedLines.length, hasShortages, hasRejections };
 }

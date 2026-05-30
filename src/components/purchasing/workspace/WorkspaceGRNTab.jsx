@@ -149,6 +149,18 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
     return m;
   }, [allGrnLines]);
 
+  // Already-received per PO line, so a follow-up GRN only expects the REMAINING qty
+  const receivedByPoLineId = useMemo(() => {
+    const m = {};
+    allGrnLines.forEach(l => {
+      if (l.po_line_id) m[l.po_line_id] = (m[l.po_line_id] || 0) + (parseFloat(l.received_qty) || 0);
+    });
+    return m;
+  }, [allGrnLines]);
+
+  const remainingForLine = (l) =>
+    Math.max(0, (parseFloat(l.ordered_qty) || 0) - (receivedByPoLineId[l.id] || 0));
+
   const enrichedLines = useMemo(() =>
     allGrnLines.map(l => ({ ...l, _totalReceived: totalReceivedByProductId[l.product_id] || 0 })),
     [allGrnLines, totalReceivedByProductId]
@@ -183,7 +195,7 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
           product_name: l.product_name,
           product_sku: l.product_sku,
           supplier_product_id: sp?.id || null,
-          expected_qty: parseFloat(l.ordered_qty) || 0,
+          expected_qty: remainingForLine(l),
           received_qty: parseFloat(receivedQtys[l.id] ?? '') || 0,
           unit_cost: parseFloat(l.unit_cost) || 0,
           purchase_uom: l.uom || '',
@@ -416,33 +428,47 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
               <thead>
                 <tr className="bg-muted/50 border-b border-border">
                   <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
-                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Ordered</th>
+                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Ordered</th>
+                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Already</th>
+                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Remaining</th>
                   <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-36">Received Qty *</th>
                   <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Unit Cost</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {poLines.map(l => (
-                  <tr key={l.id}>
+                {poLines.map(l => {
+                  const already = receivedByPoLineId[l.id] || 0;
+                  const remaining = remainingForLine(l);
+                  const done = remaining <= 0;
+                  return (
+                  <tr key={l.id} className={done ? 'opacity-50' : ''}>
                     <td className="px-3 py-2">
                       <p className="font-medium">{l.product_name}</p>
                       <p className="text-[10px] font-mono text-muted-foreground">{l.product_sku}</p>
                     </td>
                     <td className="px-3 py-2 text-right text-muted-foreground">{l.ordered_qty} {l.uom}</td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">{already || '—'}</td>
+                    <td className="px-3 py-2 text-right font-medium">{remaining}</td>
                     <td className="px-3 py-2">
-                      <Input
-                        type="number"
-                        value={receivedQtys[l.id] ?? ''}
-                        onChange={e => setReceivedQtys(prev => ({ ...prev, [l.id]: e.target.value }))}
-                        placeholder={String(l.ordered_qty || 0)}
-                        className="h-8 text-sm text-right"
-                        min="0"
-                        step="0.001"
-                      />
+                      {done ? (
+                        <span className="text-[10px] text-green-600 font-medium block text-right">Fully received</span>
+                      ) : (
+                        <Input
+                          type="number"
+                          value={receivedQtys[l.id] ?? ''}
+                          onChange={e => setReceivedQtys(prev => ({ ...prev, [l.id]: e.target.value }))}
+                          placeholder={String(remaining)}
+                          className="h-8 text-sm text-right"
+                          min="0"
+                          max={remaining}
+                          step="0.001"
+                        />
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right text-muted-foreground">R {(l.unit_cost || 0).toFixed(2)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

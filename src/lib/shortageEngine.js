@@ -92,6 +92,52 @@ export async function upsertShortage({ poLineId, purchaseOrderId, productId, ...
 }
 
 /**
+ * After a GRN is confirmed, reconcile the PO's lines:
+ *  - keep each PO line's received_qty accurate (sum of confirmed GRN receipts)
+ *  - auto-resolve any "await remaining receival" shortage whose line is now fully received
+ * Safe to call after every confirm; idempotent and does not touch PO status.
+ */
+export async function reconcileAwaitShortages(purchaseOrderId) {
+  if (!purchaseOrderId) return;
+  const poLines = await base44.entities.PurchaseOrderLine.filter({ purchase_order_id: purchaseOrderId }, 'created_date', 200);
+  const grns = await base44.entities.GoodsReceivedNote.filter({ purchase_order_id: purchaseOrderId, status: 'confirmed' }, '-received_date', 50);
+
+  let grnLines = [];
+  if (grns.length) {
+    const chunks = await Promise.all(grns.map(g => base44.entities.GRNLine.filter({ grn_id: g.id }, 'product_name', 200)));
+    grnLines = chunks.flat();
+  }
+  const receivedByPoLine = {};
+  grnLines.forEach(l => {
+    if (l.po_line_id) receivedByPoLine[l.po_line_id] = (receivedByPoLine[l.po_line_id] || 0) + (parseFloat(l.received_qty) || 0);
+  });
+
+  for (const pl of poLines) {
+    const ordered = parseFloat(pl.ordered_qty) || 0;
+    const received = receivedByPoLine[pl.id] || 0;
+
+    // Keep the PO line's received_qty in sync with actual confirmed receipts
+    if ((parseFloat(pl.received_qty) || 0) !== received) {
+      try { await base44.entities.PurchaseOrderLine.update(pl.id, { received_qty: received }); } catch (_) {}
+    }
+
+    // Once the line is fully received, close any awaiting-remainder shortage
+    if (ordered > 0 && received >= ordered) {
+      const existing = await findShortageForPOLine({ poLineId: pl.id });
+      if (existing && existing.decision === 'await_receival' && !['resolved', 'cancelled'].includes(existing.status)) {
+        try {
+          await base44.entities.SupplierShortage.update(existing.id, {
+            status: 'resolved',
+            resolution_date: new Date().toISOString().slice(0, 10),
+            resolution_notes: 'Remaining quantity received in a later GRN',
+          });
+        } catch (_) {}
+      }
+    }
+  }
+}
+
+/**
  * Resolve the central shortage for a PO line when no credit/stock is outstanding
  * (e.g. the supplier only invoiced for what was received, or the remainder arrived).
  * No-op if there is no shortage record.
