@@ -344,7 +344,7 @@ export default function PurchaseOrders() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {paginatedPOs.map(po => (
-                    <tr key={po.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => navigate(`/purchasing/purchase-orders/${po.id}`)}>
+                    <tr key={po.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => navigate(`/purchasing/workspace/${po.id}`)}>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
                           {posNeedingAttention.has(po.id) ? (
