@@ -39,32 +39,49 @@ export function shortageStatusLabel(s) {
  * Tries po_line_id first, then falls back to (purchase_order_id + product_id)
  * so records created before po_line_id was populated are still matched.
  */
-export async function findShortageForPOLine({ poLineId, purchaseOrderId, productId }) {
-  if (poLineId) {
-    const byLine = await base44.entities.SupplierShortage.filter({ po_line_id: poLineId }, '-created_date', 5);
-    if (byLine.length) return byLine[0];
-  }
-  if (purchaseOrderId && productId) {
-    const byProduct = await base44.entities.SupplierShortage.filter(
-      { purchase_order_id: purchaseOrderId, product_id: productId }, '-created_date', 5
-    );
-    if (byProduct.length) return byProduct[0];
-  }
-  return null;
+/**
+ * Resolution "kind" of a shortage, derived from its decision. A PO line can hold at
+ * most one shortage of each kind, so a split (await + credit) becomes two records
+ * that resolve independently — the await one when the stock arrives, the credit one
+ * when the supplier credit note is allocated.
+ */
+export function shortageKind(decision) {
+  if (decision === 'request_credit') return 'credit';
+  if (decision === 'await_receival' || decision === 'receive_later') return 'await';
+  if (decision === 'review') return 'review';
+  return 'other';
 }
 
 /**
- * Upsert the central shortage record for a PO line.
- * - If a record already exists for this line, it is UPDATED (never duplicated).
- * - Otherwise a new record is created.
+ * Find an existing shortage for a PO line, optionally of a specific kind.
+ * Tries po_line_id first, then falls back to (purchase_order_id + product_id).
+ */
+export async function findShortageForPOLine({ poLineId, purchaseOrderId, productId, kind }) {
+  let candidates = [];
+  if (poLineId) {
+    candidates = await base44.entities.SupplierShortage.filter({ po_line_id: poLineId }, '-created_date', 20);
+  }
+  if (!candidates.length && purchaseOrderId && productId) {
+    candidates = await base44.entities.SupplierShortage.filter(
+      { purchase_order_id: purchaseOrderId, product_id: productId }, '-created_date', 20
+    );
+  }
+  if (!candidates.length) return null;
+  if (kind) {
+    return candidates.find(s => shortageKind(s.decision) === kind) || null;
+  }
+  return candidates[0];
+}
+
+/**
+ * Upsert a shortage record for a PO line, scoped to its resolution kind.
+ * - Updates the existing record of the SAME kind for this line, else creates one.
+ * - A split therefore produces one 'await' and one 'credit' record (different kinds).
  *
  * `fields` are written as-is; shortage_qty / shortage_value are derived from
  * ordered_qty - received_qty when not explicitly supplied.
- *
- * @returns the upserted shortage record
  */
 export async function upsertShortage({ poLineId, purchaseOrderId, productId, ...fields }) {
-  // Derive shortage qty/value if the caller passed ordered/received but not the deltas
   const derived = { ...fields };
   if (derived.shortage_qty == null && derived.ordered_qty != null && derived.received_qty != null) {
     derived.shortage_qty = Math.max(0, (parseFloat(derived.ordered_qty) || 0) - (parseFloat(derived.received_qty) || 0));
@@ -73,10 +90,10 @@ export async function upsertShortage({ poLineId, purchaseOrderId, productId, ...
     derived.shortage_value = computeShortageValue(derived.shortage_qty, derived.unit_cost);
   }
 
-  const existing = await findShortageForPOLine({ poLineId, purchaseOrderId, productId });
+  const kind = shortageKind(derived.decision);
+  const existing = await findShortageForPOLine({ poLineId, purchaseOrderId, productId, kind });
 
   if (existing) {
-    // Don't overwrite a stronger identity with nulls — only set keys we actually have
     const payload = { ...derived };
     if (poLineId) payload.po_line_id = poLineId;
     if (purchaseOrderId) payload.purchase_order_id = purchaseOrderId;
@@ -89,6 +106,24 @@ export async function upsertShortage({ poLineId, purchaseOrderId, productId, ...
     product_id: productId,
     ...derived,
   });
+}
+
+/**
+ * Quantity per PO line that is being handled via credit (so it is NOT expected as
+ * incoming stock). Counts open credit shortages, plus the credit portion of any
+ * legacy 'split' records. Returns a map { [po_line_id]: qty }.
+ */
+export function creditCommittedByPoLine(shortages = []) {
+  const m = {};
+  shortages.forEach(s => {
+    if (!s.po_line_id) return;
+    if (['resolved', 'cancelled'].includes(s.status)) return;
+    let qty = 0;
+    if (s.decision === 'request_credit') qty = parseFloat(s.shortage_qty) || 0;
+    else if (s.decision === 'split') qty = parseFloat(s.credit_qty) || 0;
+    if (qty > 0) m[s.po_line_id] = (m[s.po_line_id] || 0) + qty;
+  });
+  return m;
 }
 
 /**
@@ -112,21 +147,32 @@ export async function reconcileAwaitShortages(purchaseOrderId) {
     if (l.po_line_id) receivedByPoLine[l.po_line_id] = (receivedByPoLine[l.po_line_id] || 0) + (parseFloat(l.received_qty) || 0);
   });
 
+  // Credit-committed qty is NOT expected as stock, so the stock obligation for a line
+  // is ordered - credit. The await shortage resolves once that obligation is met.
+  const shortages = await base44.entities.SupplierShortage.filter({ purchase_order_id: purchaseOrderId }, '-created_date', 200);
+  const creditByPoLine = creditCommittedByPoLine(shortages);
+
   for (const pl of poLines) {
     const ordered = parseFloat(pl.ordered_qty) || 0;
     const received = receivedByPoLine[pl.id] || 0;
+    const creditCommitted = creditByPoLine[pl.id] || 0;
+    const stockObligation = Math.max(0, ordered - creditCommitted);
 
     // Keep the PO line's received_qty in sync with actual confirmed receipts
     if ((parseFloat(pl.received_qty) || 0) !== received) {
       try { await base44.entities.PurchaseOrderLine.update(pl.id, { received_qty: received }); } catch (_) {}
     }
 
-    // Once the line is fully received, close any awaiting-remainder shortage
-    if (ordered > 0 && received >= ordered) {
-      const existing = await findShortageForPOLine({ poLineId: pl.id });
-      if (existing && existing.decision === 'await_receival' && !['resolved', 'cancelled'].includes(existing.status)) {
+    // Once the stock obligation is met, close the awaiting-remainder shortage for this line
+    if (stockObligation > 0 && received >= stockObligation) {
+      const awaitShortage = shortages.find(s =>
+        s.po_line_id === pl.id &&
+        shortageKind(s.decision) === 'await' &&
+        !['resolved', 'cancelled'].includes(s.status)
+      );
+      if (awaitShortage) {
         try {
-          await base44.entities.SupplierShortage.update(existing.id, {
+          await base44.entities.SupplierShortage.update(awaitShortage.id, {
             status: 'resolved',
             resolution_date: new Date().toISOString().slice(0, 10),
             resolution_notes: 'Remaining quantity received in a later GRN',

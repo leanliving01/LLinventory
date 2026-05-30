@@ -13,6 +13,7 @@ import { nextDocNumber } from '@/lib/docNumbering';
 import { useAuth } from '@/lib/AuthContext';
 import GRNDrawer from '@/components/grn/GRNDrawer';
 import ShortageDecisionPanel from '@/components/grn/ShortageDecisionPanel';
+import { creditCommittedByPoLine } from '@/lib/shortageEngine';
 
 function ExpandableGRNRow({ grn, lines, poLines, onOpenDrawer }) {
   const [open, setOpen] = useState(false);
@@ -96,7 +97,7 @@ function ExpandableGRNRow({ grn, lines, poLines, onOpenDrawer }) {
   );
 }
 
-export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCreated }) {
+export default function WorkspaceGRNTab({ po, grns = [], poLines = [], shortages = [], onGRNCreated }) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
@@ -165,8 +166,12 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], onGRNCrea
     parseFloat(l.received_qty) || 0,          // the PO line's own received_qty field
   );
 
+  // Qty already committed to a credit note is NOT expected as incoming stock.
+  const creditByPoLineId = useMemo(() => creditCommittedByPoLine(shortages), [shortages]);
+
+  // Remaining stock to receive = ordered - already received - credit-committed
   const remainingForLine = (l) =>
-    Math.max(0, (parseFloat(l.ordered_qty) || 0) - alreadyReceivedForLine(l));
+    Math.max(0, (parseFloat(l.ordered_qty) || 0) - alreadyReceivedForLine(l) - (creditByPoLineId[l.id] || 0));
 
   const enrichedLines = useMemo(() =>
     allGrnLines.map(l => ({ ...l, _totalReceived: totalReceivedByProductId[l.product_id] || 0 })),

@@ -182,6 +182,7 @@ export default function PurchaseWorkspace() {
                 po={po}
                 grns={grns}
                 poLines={poLines}
+                shortages={shortages}
                 onGRNCreated={invalidateAll}
               />
             </TabsContent>

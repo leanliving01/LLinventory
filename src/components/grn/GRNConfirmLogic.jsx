@@ -358,15 +358,17 @@ export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, u
     if (action === 'request_credit') {
       await upsertShortage({ ...fields, decision: 'request_credit', credit_follow_up_status: 'credit_required', awaiting_qty: 0, credit_qty: (orderedQty - receivedQty) });
     } else if (action === 'split') {
-      // Part awaited, part credited — both tracked on the one shortage record
-      await upsertShortage({
-        ...fields,
-        decision: 'split',
-        credit_follow_up_status: 'credit_required',
-        awaiting_qty: parseFloat(dec.awaiting_qty) || 0,
-        credit_qty: parseFloat(dec.credit_qty) || 0,
-        expected_delivery_date: dec.expected_delivery_date || null,
-      });
+      // Split → TWO independent shortages on the same PO line:
+      //   • an await shortage (resolves when the remaining stock is received)
+      //   • a credit shortage (resolves when the supplier credit note is allocated)
+      const awaitQty = parseFloat(dec.awaiting_qty) || 0;
+      const creditQty = parseFloat(dec.credit_qty) || 0;
+      if (awaitQty > 0) {
+        await upsertShortage({ ...fields, decision: 'await_receival', shortage_qty: awaitQty, awaiting_qty: awaitQty, credit_qty: 0, expected_delivery_date: dec.expected_delivery_date || null });
+      }
+      if (creditQty > 0) {
+        await upsertShortage({ ...fields, decision: 'request_credit', shortage_qty: creditQty, awaiting_qty: 0, credit_qty: creditQty, credit_follow_up_status: 'credit_required' });
+      }
     } else if (action === 'review') {
       await upsertShortage({ ...fields, decision: 'review' });
     } else {
