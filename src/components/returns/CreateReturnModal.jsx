@@ -312,10 +312,10 @@ export default function CreateReturnModal({ po = null, onCreated, onCancel }) {
           {supplierId && supplierPOs.length > 0 && (
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase">Linked PO (optional)</label>
-              <Select value={linkedPoId} onValueChange={setLinkedPoId}>
+              <Select value={linkedPoId || '__none__'} onValueChange={v => setLinkedPoId(v === '__none__' ? '' : v)}>
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Select PO..." /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="__none__">None</SelectItem>
                   {supplierPOs.map(po => (
                     <SelectItem key={po.id} value={po.id}>
                       {po.po_number} — {po.order_date}
@@ -329,10 +329,10 @@ export default function CreateReturnModal({ po = null, onCreated, onCancel }) {
           {supplierId && supplierInvoices.length > 0 && (
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase">Linked Invoice (optional)</label>
-              <Select value={linkedInvoiceId} onValueChange={setLinkedInvoiceId}>
+              <Select value={linkedInvoiceId || '__none__'} onValueChange={v => setLinkedInvoiceId(v === '__none__' ? '' : v)}>
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Select invoice..." /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="__none__">None</SelectItem>
                   {supplierInvoices.map(inv => (
                     <SelectItem key={inv.id} value={inv.id}>
                       {inv.invoice_number} — {inv.invoice_date} — R {(inv.total_incl_vat || 0).toFixed(2)}
