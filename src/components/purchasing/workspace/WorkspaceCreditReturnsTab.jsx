@@ -93,7 +93,7 @@ export default function WorkspaceCreditReturnsTab({ po, shortages = [], returns 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['workspace-shortages', po.id] });
     qc.invalidateQueries({ queryKey: ['workspace-returns', po.id] });
-    qc.invalidateQueries({ queryKey: ['workspace-credit-notes', po.supplier_id] });
+    qc.invalidateQueries({ queryKey: ['workspace-credit-notes', po.id] });
     qc.invalidateQueries({ queryKey: ['po', po.id] });
     onDataChanged && onDataChanged();
   };

@@ -80,11 +80,11 @@ export default function PurchaseWorkspace() {
     enabled: !!id,
   });
 
-  // Load credit notes for this supplier
+  // Load credit notes raised against THIS PO only (not every credit note for the supplier)
   const { data: creditNotes = [] } = useQuery({
-    queryKey: ['workspace-credit-notes', po?.supplier_id],
-    queryFn: () => base44.entities.SupplierCreditNote.filter({ supplier_id: po.supplier_id }, '-created_date', 50),
-    enabled: !!po?.supplier_id,
+    queryKey: ['workspace-credit-notes', id],
+    queryFn: () => base44.entities.SupplierCreditNote.filter({ purchase_order_id: id }, '-created_date', 50),
+    enabled: !!id,
   });
 
   const invalidateAll = () => {
