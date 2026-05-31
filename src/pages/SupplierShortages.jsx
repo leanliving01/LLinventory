@@ -7,9 +7,20 @@ import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import { shortageStatusLabel, shortageKind } from '@/lib/shortageEngine';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import PageHelp from '@/components/help/PageHelp';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
+
+const STATUS_FILTER_OPTIONS = [
+  'All statuses',
+  'Awaiting remaining receival',
+  'Awaiting credit note',
+  'Partially credited',
+  'Marked for review',
+  'Resolved',
+  'Cancelled',
+];
 
 const HELP_ITEMS = [
   { title: 'What are shortages?', text: 'When a GRN is short-received or an invoice bills for undelivered stock, the system tracks one central shortage per PO line — either awaiting the remaining receival or awaiting a supplier credit note.' },
@@ -53,6 +64,7 @@ export default function SupplierShortages() {
   const perms = getUserPermissions(user || {}, customRoles); // eslint-disable-line no-unused-vars
 
   const [statusTab, setStatusTab] = useState('open');
+  const [statusFilter, setStatusFilter] = useState('All statuses');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [filters, setFilters] = useState({ search: '', supplierId: 'all', dateFrom: null, dateTo: null, sortBy: 'date_desc' });
@@ -94,6 +106,7 @@ export default function SupplierShortages() {
     let result = enriched.filter(s => {
       if (statusTab === 'open' && !isOpenShortage(s)) return false;
       if (statusTab === 'resolved' && isOpenShortage(s)) return false;
+      if (statusFilter !== 'All statuses' && shortageStatusLabel(s).label !== statusFilter) return false;
       if (filters.supplierId !== 'all' && s.supplier_id !== filters.supplierId) return false;
       if (filters.search) {
         const q = filters.search.toLowerCase();
@@ -119,7 +132,7 @@ export default function SupplierShortages() {
       default:              sorted.sort((a, b) => (b.created_date || '').localeCompare(a.created_date || ''));
     }
     return sorted;
-  }, [enriched, statusTab, filters]);
+  }, [enriched, statusTab, statusFilter, filters]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -152,18 +165,26 @@ export default function SupplierShortages() {
 
       <PageHelp items={HELP_ITEMS} />
 
-      <div className="flex gap-2 flex-wrap">
-        {STATUS_TABS.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => { setStatusTab(tab.key); setPage(1); }}
-            className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
-              statusTab === tab.key ? 'bg-primary/10 text-primary ring-2 ring-primary/30' : 'bg-muted text-muted-foreground hover:bg-muted/80'
-            }`}
-          >
-            {tab.label} ({tab.key === 'open' ? openCount : tab.key === 'resolved' ? resolvedCount : enriched.length})
-          </button>
-        ))}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex gap-2 flex-wrap">
+          {STATUS_TABS.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => { setStatusTab(tab.key); setPage(1); }}
+              className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
+                statusTab === tab.key ? 'bg-primary/10 text-primary ring-2 ring-primary/30' : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              }`}
+            >
+              {tab.label} ({tab.key === 'open' ? openCount : tab.key === 'resolved' ? resolvedCount : enriched.length})
+            </button>
+          ))}
+        </div>
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+          <SelectTrigger className="h-8 w-56 text-xs"><SelectValue placeholder="Status" /></SelectTrigger>
+          <SelectContent>
+            {STATUS_FILTER_OPTIONS.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
 
       <POFilters filters={filters} onChange={(f) => { setFilters(f); setPage(1); }} suppliers={suppliers} />
