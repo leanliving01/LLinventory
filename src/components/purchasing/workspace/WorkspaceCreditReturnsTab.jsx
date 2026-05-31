@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, ArrowLeftRight, CreditCard, Plus } from 'lucide-react';
 import { shortageStatusLabel, shortageKind } from '@/lib/shortageEngine';
-import AllocateCreditNoteModal from '@/components/purchasing/AllocateCreditNoteModal';
+import CreditNoteEditor from '@/components/purchasing/CreditNoteEditor';
 import CreateReturnModal from '@/components/returns/CreateReturnModal';
 
 const TONE_CLASSES = {
@@ -59,35 +59,45 @@ function ReturnRow({ supplierReturn }) {
   );
 }
 
-function CreditNoteRow({ creditNote }) {
-  const remaining = (creditNote.total || 0) - (creditNote.matched_amount || 0);
+function CreditNoteRow({ creditNote, onOpen }) {
+  const variance = creditNote.total_variance;
   return (
-    <div className="flex items-start gap-3 p-3 border border-border rounded-lg bg-card">
+    <button
+      className="w-full flex items-start gap-3 p-3 border border-border rounded-lg bg-card text-left hover:bg-muted/30 transition-colors"
+      onClick={() => onOpen(creditNote)}
+    >
       <CreditCard className="w-4 h-4 text-purple-500 mt-0.5 shrink-0" />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium font-mono">{creditNote.scn_number || creditNote.supplier_credit_note_number}</p>
+        <p className="text-sm font-medium font-mono">{creditNote.supplier_credit_note_number || creditNote.scn_number}</p>
         <p className="text-xs text-muted-foreground">
-          R {(creditNote.total || 0).toFixed(2)} · Remaining: R {remaining.toFixed(2)}
+          {creditNote.credit_note_date || '—'} · Total: R {(creditNote.total || 0).toFixed(2)}
+          {variance != null && Math.abs(variance) > 0.001 && <> · <span className="text-amber-700">variance R {variance.toFixed(2)}</span></>}
         </p>
       </div>
       <Badge className={`text-[10px] shrink-0 ${creditNote.status === 'fully_matched' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'}`}>
-        {creditNote.status}
+        {(creditNote.status || '').replace(/_/g, ' ')}
       </Badge>
-    </div>
+    </button>
   );
 }
 
 export default function WorkspaceCreditReturnsTab({ po, shortages = [], returns = [], creditNotes = [], onDataChanged }) {
   const qc = useQueryClient();
-  const [allocateShortage, setAllocateShortage] = useState(null);
+  const [showCreditEditor, setShowCreditEditor] = useState(false);
+  const [viewCreditNote, setViewCreditNote] = useState(null);
   const [showCreateReturn, setShowCreateReturn] = useState(false);
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['workspace-shortages', po.id] });
     qc.invalidateQueries({ queryKey: ['workspace-returns', po.id] });
+    qc.invalidateQueries({ queryKey: ['workspace-credit-notes', po.supplier_id] });
     qc.invalidateQueries({ queryKey: ['po', po.id] });
     onDataChanged && onDataChanged();
   };
+
+  const hasOpenCreditShortage = shortages.some(s =>
+    shortageKind(s.decision) === 'credit' && !['resolved', 'cancelled', 'credit_received'].includes(s.status)
+  );
 
   return (
     <div className="space-y-6">
@@ -100,7 +110,7 @@ export default function WorkspaceCreditReturnsTab({ po, shortages = [], returns 
           <p className="text-xs text-muted-foreground py-3">No shortages on this PO.</p>
         ) : (
           <div className="space-y-2">
-            {shortages.map(s => <ShortageRow key={s.id} shortage={s} onAllocate={setAllocateShortage} />)}
+            {shortages.map(s => <ShortageRow key={s.id} shortage={s} onAllocate={() => setShowCreditEditor(true)} />)}
           </div>
         )}
       </section>
@@ -126,23 +136,39 @@ export default function WorkspaceCreditReturnsTab({ po, shortages = [], returns 
 
       {/* Credit Notes */}
       <section>
-        <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
-          <CreditCard className="w-4 h-4 text-purple-500" /> Credit Notes ({creditNotes.length})
-        </h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <CreditCard className="w-4 h-4 text-purple-500" /> Credit Notes ({creditNotes.length})
+          </h3>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowCreditEditor(true)}>
+            <Plus className="w-3.5 h-3.5" /> Raise Credit Note
+          </Button>
+        </div>
         {creditNotes.length === 0 ? (
           <p className="text-xs text-muted-foreground py-3">No credit notes for this supplier.</p>
         ) : (
           <div className="space-y-2">
-            {creditNotes.map(cn => <CreditNoteRow key={cn.id} creditNote={cn} />)}
+            {creditNotes.map(cn => <CreditNoteRow key={cn.id} creditNote={cn} onOpen={setViewCreditNote} />)}
           </div>
         )}
       </section>
 
-      {allocateShortage && (
-        <AllocateCreditNoteModal
-          shortage={allocateShortage}
-          onAllocated={() => { setAllocateShortage(null); refresh(); }}
-          onCancel={() => setAllocateShortage(null)}
+      {showCreditEditor && (
+        <CreditNoteEditor
+          po={po}
+          shortages={shortages}
+          onCreated={() => { setShowCreditEditor(false); refresh(); }}
+          onCancel={() => setShowCreditEditor(false)}
+        />
+      )}
+
+      {viewCreditNote && (
+        <CreditNoteEditor
+          po={po}
+          shortages={shortages}
+          existingCreditNote={viewCreditNote}
+          onCreated={() => setViewCreditNote(null)}
+          onCancel={() => setViewCreditNote(null)}
         />
       )}
 

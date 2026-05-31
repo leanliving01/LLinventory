@@ -115,6 +115,7 @@ const ENTITY_TABLE_MAP = {
   TaxRate:                  'tax_rates',
   DocNumberSequence:        'doc_number_sequences',
   SupplierCreditNote:       'supplier_credit_notes',
+  SupplierCreditNoteLine:   'supplier_credit_note_lines',
   SupplierCreditNoteMatch:  'supplier_credit_note_matches',
   InvoicePOMatchSuggestion: 'invoice_po_match_suggestions',
 };

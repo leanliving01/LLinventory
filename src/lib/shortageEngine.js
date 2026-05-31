@@ -242,3 +242,130 @@ export async function resolveShortageKind(poLineId, kind, resolution_notes, { pu
     resolution_notes: resolution_notes || 'Resolved — no longer required per the supplier invoice',
   });
 }
+
+const round2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
+
+/**
+ * Reconcile a credit-note line against its linked shortage. The shortage resolves
+ * only when BOTH the credited quantity and the credited (excl-VAT) value align with
+ * the shortage's outstanding amount; otherwise it stays open as partially_credited
+ * with the variance recorded.
+ */
+async function reconcileShortageFromCreditLine(line, { creditNoteNumber, creditNoteDate }) {
+  if (!line.shortage_id) return { resolved: false };
+  const list = await base44.entities.SupplierShortage.filter({ id: line.shortage_id });
+  const s = list[0];
+  if (!s) return { resolved: false };
+
+  const expectedQty = parseFloat(s.shortage_qty) || 0;
+  const expectedExcl = computeShortageValue(s.shortage_qty, s.unit_cost);
+  const creditedQty = parseFloat(line.credit_qty) || 0;
+  const creditedExcl = round2(line.line_total_excl);
+  const qtyAligned = Math.abs(creditedQty - expectedQty) < 0.001;
+  const valueAligned = Math.abs(creditedExcl - expectedExcl) < 0.01;
+  const aligned = qtyAligned && valueAligned;
+  const variance = round2(creditedExcl - expectedExcl);
+
+  await base44.entities.SupplierShortage.update(s.id, {
+    credit_note_number: creditNoteNumber || null,
+    credit_note_date: creditNoteDate || null,
+    credit_amount_expected: expectedExcl,
+    credit_amount_actual: creditedExcl,
+    credit_variance: variance,
+    status: aligned ? 'credit_received' : 'partially_credited',
+    credit_follow_up_status: aligned ? 'matched' : 'partially_credited',
+    resolution_date: aligned ? new Date().toISOString().slice(0, 10) : null,
+    resolution_notes: aligned
+      ? `Credit note ${creditNoteNumber || ''} — fully credited`.trim()
+      : `Credit note ${creditNoteNumber || ''} — credited ${creditedQty} of ${expectedQty}, variance R ${variance.toFixed(2)}`.trim(),
+  });
+  return { resolved: aligned };
+}
+
+/**
+ * Create a supplier credit-note document (header + lines + matches) and reconcile
+ * the linked shortages/returns.
+ *  - header: { scn_number, supplierCreditNoteNumber, creditNoteDate, notes, capturedTotal }
+ *  - lines:  [{ shortage_id?, return_id?, product_id, product_name, product_sku,
+ *               credit_qty, unit_cost_excl, tax_rate_id, tax_rule, tax_rate,
+ *               line_total_excl, line_total_incl }]
+ * Returns the created SupplierCreditNote.
+ */
+export async function createCreditNote({ po, header, lines, userName }) {
+  const subtotal = round2(lines.reduce((s, l) => s + (parseFloat(l.line_total_excl) || 0), 0));
+  const total = round2(lines.reduce((s, l) => s + (parseFloat(l.line_total_incl) || 0), 0));
+  const vat = round2(total - subtotal);
+  const captured = (header.capturedTotal != null && header.capturedTotal !== '') ? round2(header.capturedTotal) : null;
+  const totalVariance = captured != null ? round2(captured - total) : null;
+  const cnNumber = header.supplierCreditNoteNumber || header.scn_number;
+
+  const scn = await base44.entities.SupplierCreditNote.create({
+    scn_number: header.scn_number,
+    supplier_credit_note_number: header.supplierCreditNoteNumber || null,
+    supplier_id: po.supplier_id,
+    supplier_name: po.supplier_name,
+    purchase_order_id: po.id,
+    credit_note_date: header.creditNoteDate,
+    subtotal,
+    vat_amount: vat,
+    total,
+    captured_total: captured,
+    total_variance: totalVariance,
+    notes: header.notes || null,
+    status: 'open',
+    created_by: userName || null,
+  });
+
+  let allResolved = true;
+  let anyMatch = false;
+
+  for (const l of lines) {
+    await base44.entities.SupplierCreditNoteLine.create({
+      credit_note_id: scn.id,
+      shortage_id: l.shortage_id || null,
+      return_id: l.return_id || null,
+      product_id: l.product_id || null,
+      product_name: l.product_name || '',
+      product_sku: l.product_sku || '',
+      credit_qty: parseFloat(l.credit_qty) || 0,
+      unit_cost_excl: parseFloat(l.unit_cost_excl) || 0,
+      tax_rate_id: l.tax_rate_id || null,
+      tax_rule: l.tax_rule || '',
+      tax_rate: parseFloat(l.tax_rate) || 0,
+      line_total_excl: round2(l.line_total_excl),
+      line_total_incl: round2(l.line_total_incl),
+    });
+
+    if (l.shortage_id || l.return_id) {
+      anyMatch = true;
+      await base44.entities.SupplierCreditNoteMatch.create({
+        credit_note_id: scn.id,
+        shortage_id: l.shortage_id || null,
+        return_id: l.return_id || null,
+        matched_amount: round2(l.line_total_incl),
+        matched_by: userName || null,
+      });
+    }
+
+    if (l.shortage_id) {
+      const { resolved } = await reconcileShortageFromCreditLine(l, { creditNoteNumber: cnNumber, creditNoteDate: header.creditNoteDate });
+      if (!resolved) allResolved = false;
+    }
+    if (l.return_id) {
+      try {
+        await base44.entities.SupplierReturn.update(l.return_id, {
+          credit_note_number: cnNumber,
+          status: 'credit_received',
+        });
+      } catch (_) {}
+    }
+  }
+
+  const varianceOk = totalVariance == null || Math.abs(totalVariance) < 0.01;
+  const status = anyMatch
+    ? ((allResolved && varianceOk) ? 'fully_matched' : 'partially_matched')
+    : (varianceOk ? 'fully_matched' : 'open');
+  await base44.entities.SupplierCreditNote.update(scn.id, { status });
+
+  return scn;
+}
