@@ -4,12 +4,12 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, CreditCard, Loader2, AlertTriangle, Plus, Search, Trash2 } from 'lucide-react';
+import { X, CreditCard, Loader2, AlertTriangle, Plus, Search, Trash2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { resolveTaxRateRecord } from '@/lib/taxResolution';
-import { shortageKind, createCreditNote } from '@/lib/shortageEngine';
+import { shortageKind, createCreditNote, saveCreditNoteDraft } from '@/lib/shortageEngine';
 
 const RESOLVED = ['resolved', 'cancelled', 'credit_received'];
 const rnd2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
@@ -25,7 +25,9 @@ const fmtR = (v) => `R ${(parseFloat(v) || 0).toLocaleString('en-ZA', { minimumF
  */
 export default function CreditNoteEditor({ po, shortages = [], existingCreditNote = null, onCreated, onCancel }) {
   const { user } = useAuth();
-  const viewMode = !!existingCreditNote;
+  const isDraft = existingCreditNote?.status === 'draft';
+  const viewMode = !!existingCreditNote && !isDraft;   // finalised → read-only
+  const editMode = !viewMode;                           // new or draft → editable
 
   const { data: taxRates = [] } = useQuery({
     queryKey: ['tax-rates'],
@@ -40,14 +42,14 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
   const { data: supplierProducts = [] } = useQuery({
     queryKey: ['supplier-products-for-cn', po.supplier_id],
     queryFn: () => base44.entities.SupplierProduct.filter({ supplier_id: po.supplier_id, active: true }, 'product_name', 200),
-    enabled: !!po.supplier_id && !viewMode,
+    enabled: !!po.supplier_id && editMode,
   });
 
-  // Existing CN lines (view mode)
+  // Existing CN lines (view or draft-edit)
   const { data: savedLines = [] } = useQuery({
     queryKey: ['scn-lines', existingCreditNote?.id],
     queryFn: () => base44.entities.SupplierCreditNoteLine.filter({ credit_note_id: existingCreditNote.id }, 'created_date', 100),
-    enabled: viewMode,
+    enabled: !!existingCreditNote,
   });
 
   const defaultTax = useMemo(
@@ -55,19 +57,39 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
     [taxRates]
   );
 
-  const [supplierCnNumber, setSupplierCnNumber] = useState('');
-  const [creditNoteDate, setCreditNoteDate] = useState(new Date().toISOString().slice(0, 10));
-  const [notes, setNotes] = useState('');
-  const [capturedTotal, setCapturedTotal] = useState('');
+  const [supplierCnNumber, setSupplierCnNumber] = useState(existingCreditNote?.supplier_credit_note_number || '');
+  const [creditNoteDate, setCreditNoteDate] = useState(existingCreditNote?.credit_note_date || new Date().toISOString().slice(0, 10));
+  const [notes, setNotes] = useState(existingCreditNote?.notes || '');
+  const [capturedTotal, setCapturedTotal] = useState(existingCreditNote?.captured_total != null ? String(existingCreditNote.captured_total) : '');
   const [lines, setLines] = useState([]);
   const [showPicker, setShowPicker] = useState(false);
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [seeded, setSeeded] = useState(false);
 
-  // Seed lines from the PO's open credit shortages (create mode)
+  // Seed editable lines: a new CN seeds from the PO's open credit shortages; a draft
+  // seeds from its saved lines.
   useEffect(() => {
-    if (viewMode || seeded || !defaultTax) return;
+    if (!editMode || seeded) return;
+    if (isDraft) {
+      if (!savedLines.length) return; // wait for load
+      setLines(savedLines.map(l => ({
+        key: l.id,
+        shortage_id: l.shortage_id || null,
+        return_id: l.return_id || null,
+        product_id: l.product_id,
+        product_name: l.product_name,
+        product_sku: l.product_sku,
+        credit_qty: String(l.credit_qty ?? ''),
+        unit_cost_excl: String(l.unit_cost_excl ?? ''),
+        tax_rate_id: l.tax_rate_id || null,
+        tax_rule: l.tax_rule || '',
+        tax_rate: parseFloat(l.tax_rate) || 0,
+      })));
+      setSeeded(true);
+      return;
+    }
+    if (!defaultTax) return;
     const creditShortages = shortages.filter(s =>
       shortageKind(s.decision) === 'credit' && !RESOLVED.includes(s.status)
     );
@@ -85,7 +107,7 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
       tax_rate: defaultTax.rate || 0,
     })));
     setSeeded(true);
-  }, [viewMode, seeded, defaultTax, shortages]);
+  }, [editMode, isDraft, seeded, defaultTax, shortages, savedLines]);
 
   const update = (key, field, value) => setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
   const removeLine = (key) => setLines(prev => prev.filter(l => l.key !== key));
@@ -172,37 +194,64 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
   const captured = viewMode ? existingCreditNote.captured_total : (capturedTotal === '' ? null : parseFloat(capturedTotal));
   const variance = (captured != null) ? rnd2(captured - (viewMode ? (existingCreditNote.total || 0) : total)) : null;
 
+  const buildPayloadLines = () => rows.map(r => ({
+    shortage_id: r.shortage_id || null,
+    return_id: r.return_id || null,
+    product_id: r.product_id,
+    product_name: r.product_name,
+    product_sku: r.product_sku,
+    credit_qty: parseFloat(r.credit_qty) || 0,
+    unit_cost_excl: parseFloat(r.unit_cost_excl) || 0,
+    tax_rate_id: r.tax_rate_id || null,
+    tax_rule: r.tax_rule || '',
+    tax_rate: parseFloat(r.tax_rate) || 0,
+    line_total_excl: r._excl,
+    line_total_incl: r._incl,
+  }));
+
+  const buildHeader = (scnNumber) => ({
+    scn_number: scnNumber,
+    supplierCreditNoteNumber: supplierCnNumber.trim(),
+    creditNoteDate,
+    notes,
+    capturedTotal: capturedTotal === '' ? null : parseFloat(capturedTotal),
+  });
+
+  // Save as draft — no matches, no shortage reconciliation
+  const handleSaveDraft = async () => {
+    if (lines.length === 0) { toast.error('Add at least one credit line'); return; }
+    setSaving(true);
+    try {
+      const scnNumber = existingCreditNote?.scn_number || await nextDocNumber('SCN');
+      await saveCreditNoteDraft({
+        po,
+        header: buildHeader(scnNumber),
+        lines: buildPayloadLines(),
+        existingId: existingCreditNote?.id || null,
+        userName: user?.full_name || user?.email || 'System',
+      });
+      toast.success('Credit note saved as draft');
+      onCreated();
+    } catch (err) {
+      toast.error('Failed: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Approve — runs reconciliation; updates the draft in place if approving one
   const handleSave = async () => {
     if (!supplierCnNumber.trim()) { toast.error('Enter the supplier credit note number'); return; }
     if (lines.length === 0) { toast.error('Add at least one credit line'); return; }
     setSaving(true);
     try {
-      const scnNumber = await nextDocNumber('SCN');
-      const payloadLines = rows.map(r => ({
-        shortage_id: r.shortage_id || null,
-        return_id: r.return_id || null,
-        product_id: r.product_id,
-        product_name: r.product_name,
-        product_sku: r.product_sku,
-        credit_qty: parseFloat(r.credit_qty) || 0,
-        unit_cost_excl: parseFloat(r.unit_cost_excl) || 0,
-        tax_rate_id: r.tax_rate_id || null,
-        tax_rule: r.tax_rule || '',
-        tax_rate: parseFloat(r.tax_rate) || 0,
-        line_total_excl: r._excl,
-        line_total_incl: r._incl,
-      }));
+      const scnNumber = existingCreditNote?.scn_number || await nextDocNumber('SCN');
       await createCreditNote({
         po,
-        header: {
-          scn_number: scnNumber,
-          supplierCreditNoteNumber: supplierCnNumber.trim(),
-          creditNoteDate,
-          notes,
-          capturedTotal: capturedTotal === '' ? null : parseFloat(capturedTotal),
-        },
-        lines: payloadLines,
+        header: buildHeader(scnNumber),
+        lines: buildPayloadLines(),
         userName: user?.full_name || user?.email || 'System',
+        existingId: existingCreditNote?.id || null,
       });
       toast.success('Credit note recorded');
       onCreated();
@@ -220,7 +269,9 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
         <div>
           <h2 className="text-base font-bold flex items-center gap-2">
             <CreditCard className="w-5 h-5 text-purple-600" />
-            {viewMode ? `Credit Note ${existingCreditNote.supplier_credit_note_number || existingCreditNote.scn_number}` : 'New Supplier Credit Note'}
+            {viewMode
+              ? `Credit Note ${existingCreditNote.supplier_credit_note_number || existingCreditNote.scn_number}`
+              : isDraft ? 'Edit Credit Note (Draft)' : 'New Supplier Credit Note'}
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">{po.po_number} · {po.supplier_name}</p>
         </div>
@@ -394,6 +445,10 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
         <div className="sticky bottom-0 bg-card border-t border-border px-6 py-4 flex gap-3 shrink-0">
           <Button variant="outline" onClick={onCancel} className="h-10">Cancel</Button>
           <div className="flex-1" />
+          <Button variant="outline" onClick={handleSaveDraft} disabled={saving || lines.length === 0} className="gap-2 h-10">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save Draft
+          </Button>
           <Button onClick={handleSave} disabled={saving || lines.length === 0} className="gap-2 h-10 bg-purple-600 hover:bg-purple-700">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
             Record Credit Note

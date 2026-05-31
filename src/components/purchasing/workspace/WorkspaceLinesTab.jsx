@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, ExternalLink, Link2, X, CheckCircle2, Plus, RotateCcw, Loader2 } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Link2, X, CheckCircle2, Plus, RotateCcw, Loader2, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import ValidationErrorBanner from '@/components/purchasing/ValidationErrorBanner';
 import { findBestPOMatch } from '@/lib/purchaseMatchingEngine';
@@ -79,6 +79,7 @@ export default function WorkspaceLinesTab({ po, poLines = [], invoice, invoiceLi
   const [validationErrors, setValidationErrors] = useState([]);
   const [dismissedMatch, setDismissedMatch] = useState(false);
   const [showCreateInvoice, setShowCreateInvoice] = useState(false);
+  const [showEditInvoice, setShowEditInvoice] = useState(false);
 
   // Check for match suggestions
   const { data: matchSuggestions = [] } = useQuery({
@@ -210,6 +211,14 @@ export default function WorkspaceLinesTab({ po, poLines = [], invoice, invoiceLi
               <Plus className="w-3.5 h-3.5" /> Add Invoice
             </Button>
           )}
+          {invoice?.status === 'draft' && (
+            <div className="flex items-center gap-2">
+              <Badge className="text-[10px] bg-gray-100 text-gray-600">Draft</Badge>
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowEditInvoice(true)}>
+                <Pencil className="w-3.5 h-3.5" /> Edit Draft Invoice
+              </Button>
+            </div>
+          )}
           {invoice && invoice.status === 'pending_match' && (
             <Button size="sm" className="gap-1.5" onClick={handleAuthorise} disabled={authorising}>
               <CheckCircle2 className="w-4 h-4" /> Authorise Invoice
@@ -261,17 +270,20 @@ export default function WorkspaceLinesTab({ po, poLines = [], invoice, invoiceLi
         )}
       </div>
 
-      {showCreateInvoice && (
+      {(showCreateInvoice || showEditInvoice) && (
         <CreateInvoiceFromPOModal
           po={po}
+          existingInvoice={showEditInvoice ? invoice : null}
           onCreated={() => {
             setShowCreateInvoice(false);
+            setShowEditInvoice(false);
             qc.invalidateQueries({ queryKey: ['workspace-invoices', po.id] });
+            qc.invalidateQueries({ queryKey: ['workspace-invoice-lines', invoice?.id] });
             qc.invalidateQueries({ queryKey: ['po', po.id] });
             qc.invalidateQueries({ queryKey: ['workspace-shortages', po.id] });
             qc.invalidateQueries({ queryKey: ['po-shortages-for-invoice', po.id] });
           }}
-          onCancel={() => setShowCreateInvoice(false)}
+          onCancel={() => { setShowCreateInvoice(false); setShowEditInvoice(false); }}
         />
       )}
     </div>

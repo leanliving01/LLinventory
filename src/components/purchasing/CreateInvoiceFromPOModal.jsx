@@ -4,28 +4,50 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, FileText, AlertTriangle, Loader2, Calendar, CheckCircle2, Plus, Search, Trash2 } from 'lucide-react';
+import { X, FileText, AlertTriangle, Loader2, Calendar, CheckCircle2, Plus, Search, Trash2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { computeDueDate } from '@/lib/utils';
 import { upsertShortage, resolveShortageKind, shortageKind } from '@/lib/shortageEngine';
 
 const PRICE_VARIANCE_THRESHOLD = 5; // percent
 
-export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
-  const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
-  const [dueDate, setDueDate] = useState('');
-  const [notes, setNotes] = useState('');
+export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, onCreated, onCancel }) {
+  const [invoiceNumber, setInvoiceNumber] = useState(existingInvoice?.invoice_number || '');
+  const [invoiceDate, setInvoiceDate] = useState(existingInvoice?.invoice_date || new Date().toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState(existingInvoice?.due_date || '');
+  const [notes, setNotes] = useState(existingInvoice?.notes || '');
   const [lineEdits, setLineEdits] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [showMismatchDialog, setShowMismatchDialog] = useState(false);
   const [mismatchDecisions, setMismatchDecisions] = useState({});
+  const [draftSeeded, setDraftSeeded] = useState(false);
   // Blind receipt free-form line entry
   const [blindLines, setBlindLines] = useState([]);
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   // Supplier's stated invoice total (incl VAT) — compared to the recalculated total
-  const [capturedTotal, setCapturedTotal] = useState('');
+  const [capturedTotal, setCapturedTotal] = useState(existingInvoice?.captured_total != null ? String(existingInvoice.captured_total) : '');
+
+  // When editing a draft, load its saved lines back into lineEdits (keyed by po_line_id)
+  const { data: existingInvoiceLines = [] } = useQuery({
+    queryKey: ['edit-invoice-lines', existingInvoice?.id],
+    queryFn: () => base44.entities.PurchaseInvoiceLine.filter({ invoice_id: existingInvoice.id }, 'created_date', 200),
+    enabled: !!existingInvoice,
+  });
+  useEffect(() => {
+    if (!existingInvoice || draftSeeded || !existingInvoiceLines.length) return;
+    const seed = {};
+    existingInvoiceLines.forEach(l => {
+      if (!l.po_line_id) return;
+      seed[l.po_line_id] = {
+        invoiced_qty: String(l.qty ?? ''),
+        unit_cost: String(l.unit_cost ?? ''),
+        tax_rate_id: l.tax_rate_id || '',
+      };
+    });
+    setLineEdits(seed);
+    setDraftSeeded(true);
+  }, [existingInvoice, existingInvoiceLines, draftSeeded]);
 
   const { data: poLines = [], isLoading: linesLoading } = useQuery({
     queryKey: ['po-lines', po.id],
@@ -248,12 +270,17 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
     submitInvoice({});
   };
 
-  const submitInvoice = async (decisions) => {
+  const submitInvoice = (decisions) => persist('approved', decisions);
+  const handleSaveDraft = () => persist('draft', {});
+
+  const persist = async (targetStatus, decisions = {}) => {
+    const isApprove = targetStatus === 'approved';
     setSubmitting(true);
     try {
       // For blind receipts, create PO lines from the entered invoice lines first
+      // (only on approve — a draft has no side-effects)
       const poLineIdMap = {}; // product_id → po_line_id (for invoice line linking)
-      if (isBlindMode) {
+      if (isBlindMode && isApprove) {
         for (const bl of blindLines) {
           const poline = await base44.entities.PurchaseOrderLine.create({
             purchase_order_id: po.id,
@@ -265,14 +292,14 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
             received_qty: 0,
             unit_cost: parseFloat(bl.unit_cost) || 0,
             uom: bl.purchase_uom || '',
-            tax_rule: 'VAT 15%',
+            tax_rule: taxById[bl.tax_rate_id]?.name || 'VAT 15%',
             line_total: Math.round((parseFloat(bl.invoiced_qty) || 0) * (parseFloat(bl.unit_cost) || 0) * 100) / 100,
           });
           poLineIdMap[bl.product_id] = poline.id;
         }
       }
 
-      const invoice = await base44.entities.PurchaseInvoice.create({
+      const headerPayload = {
         invoice_number: invoiceNumber.trim(),
         supplier_id: po.supplier_id,
         supplier_name: po.supplier_name,
@@ -282,7 +309,7 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
         due_date: dueDate || null,
         due_date_calculated: dueDate || null,
         source: 'manual',
-        status: 'approved',
+        status: targetStatus,
         payment_status: 'unpaid',
         subtotal: Math.round(subtotal * 100) / 100,
         tax_amount: taxAmount,
@@ -292,7 +319,18 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
         currency: po.currency || 'ZAR',
         notes: notes || null,
         unmatched_line_count: 0,
-      });
+      };
+
+      // Create new, or update the existing draft (replacing its lines)
+      let invoice;
+      if (existingInvoice) {
+        await base44.entities.PurchaseInvoice.update(existingInvoice.id, headerPayload);
+        invoice = { ...existingInvoice, ...headerPayload, id: existingInvoice.id };
+        const old = await base44.entities.PurchaseInvoiceLine.filter({ invoice_id: existingInvoice.id }, 'created_date', 200);
+        for (const l of old) { try { await base44.entities.PurchaseInvoiceLine.delete(l.id); } catch (_) {} }
+      } else {
+        invoice = await base44.entities.PurchaseInvoice.create(headerPayload);
+      }
 
       if (isBlindMode) {
         for (const bl of blindLines) {
@@ -340,6 +378,13 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
             account_code: row.poLine.account_code || null,
           });
         }
+      }
+
+      // A draft stops here — no shortage reconciliation, no PO status change
+      if (!isApprove) {
+        toast.success('Invoice saved as draft');
+        onCreated();
+        return;
       }
 
       // Reconcile the central shortage(s) for each PO line against this invoice.
@@ -411,10 +456,10 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
         supplier_invoice_number: invoiceNumber.trim(),
       });
 
-      toast.success('Invoice created');
+      toast.success('Invoice approved');
       onCreated();
     } catch (err) {
-      toast.error('Failed to create invoice: ' + (err?.message || 'Unknown error'));
+      toast.error('Failed to save invoice: ' + (err?.message || 'Unknown error'));
     } finally {
       setSubmitting(false);
     }
@@ -506,7 +551,7 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
           <div>
             <h2 className="text-base font-bold flex items-center gap-2">
               <FileText className="w-5 h-5 text-primary" />
-              Create Supplier Invoice
+              {existingInvoice ? 'Edit Draft Invoice' : 'Create Supplier Invoice'}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
               {po.po_number} · {po.supplier_name}
@@ -844,6 +889,15 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
           <Button variant="outline" onClick={onCancel} className="h-10">Cancel</Button>
           <div className="flex-1" />
           <Button
+            variant="outline"
+            onClick={handleSaveDraft}
+            disabled={submitting || linesLoading}
+            className="gap-2 h-10"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save Draft
+          </Button>
+          <Button
             onClick={handleSubmitClick}
             disabled={submitting || linesLoading}
             className="gap-2 h-10 bg-purple-600 hover:bg-purple-700"
@@ -851,7 +905,7 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
             {submitting
               ? <Loader2 className="w-4 h-4 animate-spin" />
               : <FileText className="w-4 h-4" />}
-            {linesNeedingDecision.length > 0 ? 'Review Differences & Create Invoice' : 'Create Invoice'}
+            {linesNeedingDecision.length > 0 ? 'Review Differences & Approve' : 'Approve Invoice'}
           </Button>
         </div>
     </div>

@@ -304,15 +304,13 @@ async function reconcileShortageFromCreditLine(line, { creditNoteNumber, creditN
  *               line_total_excl, line_total_incl }]
  * Returns the created SupplierCreditNote.
  */
-export async function createCreditNote({ po, header, lines, userName }) {
+/** Header payload shared by draft-save and approve. */
+function scnHeaderPayload(po, header, lines, status) {
   const subtotal = round2(lines.reduce((s, l) => s + (parseFloat(l.line_total_excl) || 0), 0));
   const total = round2(lines.reduce((s, l) => s + (parseFloat(l.line_total_incl) || 0), 0));
   const vat = round2(total - subtotal);
   const captured = (header.capturedTotal != null && header.capturedTotal !== '') ? round2(header.capturedTotal) : null;
-  const totalVariance = captured != null ? round2(captured - total) : null;
-  const cnNumber = header.supplierCreditNoteNumber || header.scn_number;
-
-  const scn = await base44.entities.SupplierCreditNote.create({
+  return {
     scn_number: header.scn_number,
     supplier_credit_note_number: header.supplierCreditNoteNumber || null,
     supplier_id: po.supplier_id,
@@ -323,11 +321,74 @@ export async function createCreditNote({ po, header, lines, userName }) {
     vat_amount: vat,
     total,
     captured_total: captured,
-    total_variance: totalVariance,
+    total_variance: captured != null ? round2(captured - total) : null,
     notes: header.notes || null,
-    status: 'open',
-    created_by: userName || null,
-  });
+    status,
+  };
+}
+
+async function replaceCreditNoteLines(creditNoteId, lines) {
+  const existing = await base44.entities.SupplierCreditNoteLine.filter({ credit_note_id: creditNoteId }, 'created_date', 200);
+  for (const l of existing) { try { await base44.entities.SupplierCreditNoteLine.delete(l.id); } catch (_) {} }
+  for (const l of lines) {
+    await base44.entities.SupplierCreditNoteLine.create({
+      credit_note_id: creditNoteId,
+      shortage_id: l.shortage_id || null,
+      return_id: l.return_id || null,
+      product_id: l.product_id || null,
+      product_name: l.product_name || '',
+      product_sku: l.product_sku || '',
+      credit_qty: parseFloat(l.credit_qty) || 0,
+      unit_cost_excl: parseFloat(l.unit_cost_excl) || 0,
+      tax_rate_id: l.tax_rate_id || null,
+      tax_rule: l.tax_rule || '',
+      tax_rate: parseFloat(l.tax_rate) || 0,
+      line_total_excl: round2(l.line_total_excl),
+      line_total_incl: round2(l.line_total_incl),
+    });
+  }
+}
+
+/**
+ * Save a credit note as a DRAFT — persists header + lines only, no matches and no
+ * shortage reconciliation. Creates a new SCN or updates an existing draft (existingId).
+ */
+export async function saveCreditNoteDraft({ po, header, lines, existingId, userName }) {
+  const payload = scnHeaderPayload(po, header, lines, 'draft');
+  let scnId = existingId;
+  if (scnId) {
+    await base44.entities.SupplierCreditNote.update(scnId, payload);
+  } else {
+    const scn = await base44.entities.SupplierCreditNote.create({ ...payload, created_by: userName || null });
+    scnId = scn.id;
+  }
+  await replaceCreditNoteLines(scnId, lines);
+  return { id: scnId };
+}
+
+export async function createCreditNote({ po, header, lines, userName, existingId }) {
+  const subtotal = round2(lines.reduce((s, l) => s + (parseFloat(l.line_total_excl) || 0), 0));
+  const total = round2(lines.reduce((s, l) => s + (parseFloat(l.line_total_incl) || 0), 0));
+  const vat = round2(total - subtotal);
+  const captured = (header.capturedTotal != null && header.capturedTotal !== '') ? round2(header.capturedTotal) : null;
+  const totalVariance = captured != null ? round2(captured - total) : null;
+  const cnNumber = header.supplierCreditNoteNumber || header.scn_number;
+
+  let scn;
+  if (existingId) {
+    // Approving a draft — update in place and clear its old lines + matches first
+    await base44.entities.SupplierCreditNote.update(existingId, { ...scnHeaderPayload(po, header, lines, 'open') });
+    scn = { id: existingId };
+    const oldLines = await base44.entities.SupplierCreditNoteLine.filter({ credit_note_id: existingId }, 'created_date', 200);
+    for (const l of oldLines) { try { await base44.entities.SupplierCreditNoteLine.delete(l.id); } catch (_) {} }
+    const oldMatches = await base44.entities.SupplierCreditNoteMatch.filter({ credit_note_id: existingId }, 'created_date', 200);
+    for (const m of oldMatches) { try { await base44.entities.SupplierCreditNoteMatch.delete(m.id); } catch (_) {} }
+  } else {
+    scn = await base44.entities.SupplierCreditNote.create({
+      ...scnHeaderPayload(po, header, lines, 'open'),
+      created_by: userName || null,
+    });
+  }
 
   let allResolved = true;
   let anyMatch = false;
