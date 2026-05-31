@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, FileText, AlertTriangle, Loader2, Calendar, CheckCircle2, Plus, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { computeDueDate } from '@/lib/utils';
@@ -23,6 +24,8 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
   const [blindLines, setBlindLines] = useState([]);
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [productSearch, setProductSearch] = useState('');
+  // Supplier's stated invoice total (incl VAT) — compared to the recalculated total
+  const [capturedTotal, setCapturedTotal] = useState('');
 
   const { data: poLines = [], isLoading: linesLoading } = useQuery({
     queryKey: ['po-lines', po.id],
@@ -59,6 +62,18 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
     queryFn: () => base44.entities.SupplierShortage.filter({ purchase_order_id: po.id }, '-created_date', 200),
     enabled: !!po.id,
   });
+
+  const { data: taxRates = [] } = useQuery({
+    queryKey: ['tax-rates'],
+    queryFn: () => base44.entities.TaxRate.filter({ active: true }, 'name', 20),
+    staleTime: 300000,
+  });
+  const taxById = useMemo(() => Object.fromEntries(taxRates.map(t => [t.id, t])), [taxRates]);
+  const defaultTax = useMemo(
+    () => taxRates.find(t => Math.abs((t.rate || 0) - 0.15) < 0.001) || taxRates[0] || null,
+    [taxRates]
+  );
+  const rateOf = (taxRateId) => { const t = taxById[taxRateId]; return t ? (parseFloat(t.rate) || 0) : 0; };
 
   // Open shortage kinds present per PO line: { [poLineId]: { await?, credit?, review? } }
   const existingByPoLine = useMemo(() => {
@@ -103,6 +118,7 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
       purchase_uom: sp.purchase_uom || '',
       invoiced_qty: String(1),
       unit_cost: String(parseFloat(sp.last_purchase_price) || 0),
+      tax_rate_id: defaultTax?.id || '',
     }]);
     setShowProductPicker(false);
     setProductSearch('');
@@ -116,12 +132,24 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
     setBlindLines(prev => prev.filter((_, i) => i !== idx));
   };
 
-  const blindRows = useMemo(() => blindLines.map(l => ({
-    ...l,
-    invoicedQty: parseFloat(l.invoiced_qty) || 0,
-    invCost: parseFloat(l.unit_cost) || 0,
-    lineTotal: Math.round((parseFloat(l.invoiced_qty) || 0) * (parseFloat(l.unit_cost) || 0) * 100) / 100,
-  })), [blindLines]);
+  const blindRows = useMemo(() => blindLines.map(l => {
+    const qty = parseFloat(l.invoiced_qty) || 0;
+    const cost = parseFloat(l.unit_cost) || 0;
+    const rate = rateOf(l.tax_rate_id);
+    const excl = Math.round(qty * cost * 100) / 100;
+    const incl = Math.round(excl * (1 + rate) * 100) / 100;
+    return {
+      ...l,
+      invoicedQty: qty,
+      invCost: cost,
+      taxRateId: l.tax_rate_id || '',
+      taxRate: rate,
+      taxRule: taxById[l.tax_rate_id]?.name || '',
+      lineExcl: excl,
+      lineIncl: incl,
+      lineTotal: excl,
+    };
+  }), [blindLines, taxById]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const grnLineByProductId = useMemo(() => {
     const map = {};
@@ -152,6 +180,7 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
     return {
       invoiced_qty: String(receivedQty || parseFloat(poLine.ordered_qty) || 0),
       unit_cost: String(parseFloat(poLine.unit_cost) || 0),
+      tax_rate_id: poLine.tax_rate_id || defaultTax?.id || '',
       ...lineEdits[poLine.id],
     };
   };
@@ -166,9 +195,13 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
     const orderedQty = parseFloat(poLine.ordered_qty) || 0;
     const receivedQty = getReceivedQty(poLine);
     const invoicedQty = parseFloat(edit.invoiced_qty) || 0;
-    const invCost = parseFloat(edit.unit_cost) || 0;
+    const invCost = parseFloat(edit.unit_cost) || 0;   // excl VAT
     const poCost = parseFloat(poLine.unit_cost) || 0;
     const varPct = poCost > 0 ? ((invCost - poCost) / poCost) * 100 : 0;
+    const taxRateId = edit.tax_rate_id || '';
+    const rate = rateOf(taxRateId);
+    const excl = Math.round(invoicedQty * invCost * 100) / 100;
+    const incl = Math.round(excl * (1 + rate) * 100) / 100;
     return {
       poLine,
       grnLine,
@@ -178,17 +211,23 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
       invCost,
       poCost,
       varPct,
+      taxRateId,
+      taxRate: rate,
+      taxRule: taxById[taxRateId]?.name || '',
+      lineExcl: excl,
+      lineIncl: incl,
       priceFlag: Math.abs(varPct) >= PRICE_VARIANCE_THRESHOLD,
       qtyMismatch: invoicedQty > receivedQty,
-      lineTotal: Math.round(invoicedQty * invCost * 100) / 100,
+      lineTotal: excl,
     };
-  }), [poLines, grnLineByProductId, lineEdits, isBlindReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [poLines, grnLineByProductId, lineEdits, isBlindReceipt, taxById, defaultTax]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeRows = isBlindMode ? blindRows : rows;
-  const subtotal = activeRows.reduce((s, r) => s + r.lineTotal, 0);
-  const taxRate = parseFloat(po.tax_rate) || 0.15;
-  const taxAmount = Math.round(subtotal * taxRate * 100) / 100;
-  const total = Math.round((subtotal + taxAmount) * 100) / 100;
+  const subtotal = Math.round(activeRows.reduce((s, r) => s + (r.lineExcl ?? r.lineTotal ?? 0), 0) * 100) / 100;
+  const total = Math.round(activeRows.reduce((s, r) => s + (r.lineIncl ?? r.lineTotal ?? 0), 0) * 100) / 100;
+  const taxAmount = Math.round((total - subtotal) * 100) / 100;
+  const captured = capturedTotal === '' ? null : parseFloat(capturedTotal);
+  const totalVariance = captured != null ? Math.round((captured - total) * 100) / 100 : null;
   const mismatchedRows = isBlindMode ? [] : rows.filter(r => r.qtyMismatch);
   // Only lines billed above received AND with no existing GRN decision need a prompt.
   const linesNeedingDecision = isBlindMode ? [] : rows.filter(r =>
@@ -248,6 +287,8 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
         subtotal: Math.round(subtotal * 100) / 100,
         tax_amount: taxAmount,
         total,
+        captured_total: captured,
+        total_variance: totalVariance,
         currency: po.currency || 'ZAR',
         notes: notes || null,
         unmatched_line_count: 0,
@@ -268,7 +309,9 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
             received_qty: 0,
             qty,
             unit_cost: cost,
-            tax_rule: 'VAT 15%',
+            tax_rule: taxById[bl.tax_rate_id]?.name || 'VAT 15%',
+            tax_rate: rateOf(bl.tax_rate_id),
+            tax_rate_id: bl.tax_rate_id || null,
             line_total: Math.round(qty * cost * 100) / 100,
             match_status: 'manually_matched',
           });
@@ -287,8 +330,10 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
             received_qty: row.receivedQty,
             qty: row.invoicedQty,
             unit_cost: row.invCost,
-            tax_rule: row.poLine.tax_rule || 'VAT 15%',
-            line_total: row.lineTotal,
+            tax_rule: row.taxRule || row.poLine.tax_rule || 'VAT 15%',
+            tax_rate: row.taxRate,
+            tax_rate_id: row.taxRateId || null,
+            line_total: row.lineExcl,
             match_status: 'manually_matched',
             price_variance_pct: Math.round(row.varPct * 10) / 10,
             price_variance_flagged: row.priceFlag,
@@ -543,14 +588,20 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
                     <thead>
                       <tr className="bg-muted/50 border-b border-border">
                         <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
-                        <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Qty</th>
-                        <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Unit Cost</th>
-                        <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Line Total</th>
+                        <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-20">Qty</th>
+                        <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Unit Cost (excl)</th>
+                        <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-36">Tax</th>
+                        <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Total excl</th>
+                        <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Total incl</th>
                         <th className="w-8" />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {blindLines.map((bl, idx) => (
+                      {blindLines.map((bl, idx) => {
+                        const rate = rateOf(bl.tax_rate_id);
+                        const excl = Math.round((parseFloat(bl.invoiced_qty) || 0) * (parseFloat(bl.unit_cost) || 0) * 100) / 100;
+                        const incl = Math.round(excl * (1 + rate) * 100) / 100;
+                        return (
                         <tr key={idx}>
                           <td className="px-3 py-2">
                             <div className="font-medium">{bl.product_name}</div>
@@ -560,16 +611,23 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
                           <td className="px-3 py-2 text-right">
                             <Input type="number" min="0" step="any" value={bl.invoiced_qty}
                               onChange={e => updateBlindLine(idx, 'invoiced_qty', e.target.value)}
-                              className="w-20 h-7 text-right text-sm ml-auto" />
+                              className="w-16 h-7 text-right text-sm ml-auto" />
                           </td>
                           <td className="px-3 py-2 text-right">
                             <Input type="number" min="0" step="any" value={bl.unit_cost}
                               onChange={e => updateBlindLine(idx, 'unit_cost', e.target.value)}
                               className="w-24 h-7 text-right text-sm ml-auto" />
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums font-medium">
-                            R {(Math.round((parseFloat(bl.invoiced_qty) || 0) * (parseFloat(bl.unit_cost) || 0) * 100) / 100).toFixed(2)}
+                          <td className="px-3 py-2">
+                            <Select value={bl.tax_rate_id || ''} onValueChange={v => updateBlindLine(idx, 'tax_rate_id', v)}>
+                              <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Tax..." /></SelectTrigger>
+                              <SelectContent className="z-[220]">
+                                {taxRates.map(t => <SelectItem key={t.id} value={t.id}>{t.name} ({Math.round((t.rate || 0) * 100)}%)</SelectItem>)}
+                              </SelectContent>
+                            </Select>
                           </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">R {excl.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-medium">R {incl.toFixed(2)}</td>
                           <td className="px-2 py-2">
                             <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-red-600"
                               onClick={() => removeBlindLine(idx)}>
@@ -577,7 +635,8 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
                             </Button>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -633,9 +692,11 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
                     <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Received</th>
                     <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Invoiced Qty</th>
                     <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Expected Cost</th>
-                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Invoice Cost</th>
+                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Unit Cost (excl)</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-36">Tax</th>
                     <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Variance</th>
-                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Line Total</th>
+                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Total excl</th>
+                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Total incl</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -689,6 +750,14 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
                           className="w-24 h-7 text-right text-sm"
                         />
                       </td>
+                      <td className="px-3 py-2">
+                        <Select value={row.taxRateId || ''} onValueChange={v => setEdit(row.poLine.id, 'tax_rate_id', v)}>
+                          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Tax..." /></SelectTrigger>
+                          <SelectContent className="z-[220]">
+                            {taxRates.map(t => <SelectItem key={t.id} value={t.id}>{t.name} ({Math.round((t.rate || 0) * 100)}%)</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums">
                         {row.priceFlag ? (
                           <span className="inline-flex items-center gap-1 text-amber-600 font-medium">
@@ -701,8 +770,11 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
                           </span>
                         )}
                       </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        R {row.lineExcl.toFixed(2)}
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums font-medium">
-                        R {row.lineTotal.toFixed(2)}
+                        R {row.lineIncl.toFixed(2)}
                       </td>
                     </tr>
                   ))}
@@ -730,21 +802,39 @@ export default function CreateInvoiceFromPOModal({ po, onCreated, onCancel }) {
             </div>
           )}
 
-          {/* Totals */}
+          {/* Totals + supplier captured total check */}
           <div className="flex justify-end">
-            <div className="w-64 space-y-1 text-sm">
+            <div className="w-72 space-y-1 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Subtotal</span>
+                <span className="text-muted-foreground">Subtotal (excl)</span>
                 <span className="tabular-nums">R {subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">VAT ({Math.round(taxRate * 100)}%)</span>
+                <span className="text-muted-foreground">VAT</span>
                 <span className="tabular-nums">R {taxAmount.toFixed(2)}</span>
               </div>
               <div className="flex justify-between font-semibold border-t border-border pt-1 mt-1">
-                <span>Total</span>
+                <span>Recalculated Total (incl)</span>
                 <span className="tabular-nums">R {total.toFixed(2)}</span>
               </div>
+              <div className="flex justify-between items-center pt-1.5">
+                <span className="text-muted-foreground">Invoice Total (incl, per supplier)</span>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={capturedTotal}
+                  onChange={e => setCapturedTotal(e.target.value)}
+                  placeholder="0.00"
+                  className="h-8 w-32 text-right text-sm"
+                />
+              </div>
+              {totalVariance != null && Math.abs(totalVariance) > 0.001 && (
+                <div className="flex justify-between text-amber-700 font-medium pt-1">
+                  <span className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Total variance</span>
+                  <span className="tabular-nums">R {totalVariance.toFixed(2)}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
