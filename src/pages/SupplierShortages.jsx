@@ -207,6 +207,9 @@ export default function SupplierShortages() {
                       <td className="px-3 py-2">
                         <span className="font-medium">{s.product_name}</span>
                         <span className="text-[10px] font-mono text-muted-foreground ml-1">{s.product_sku}</span>
+                        {s.status === 'partially_credited' && s.resolution_notes && (
+                          <p className="text-[10px] text-amber-700 mt-0.5 whitespace-normal max-w-xs">{s.resolution_notes}</p>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">{s.order_date}</td>
                       <td className="px-3 py-2 font-mono text-xs">{s.grn_number}</td>

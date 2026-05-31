@@ -258,13 +258,28 @@ async function reconcileShortageFromCreditLine(line, { creditNoteNumber, creditN
   if (!s) return { resolved: false };
 
   const expectedQty = parseFloat(s.shortage_qty) || 0;
+  const expectedUnitCost = parseFloat(s.unit_cost) || 0;
   const expectedExcl = computeShortageValue(s.shortage_qty, s.unit_cost);
   const creditedQty = parseFloat(line.credit_qty) || 0;
+  const creditedUnitCost = parseFloat(line.unit_cost_excl) || 0;
   const creditedExcl = round2(line.line_total_excl);
   const qtyAligned = Math.abs(creditedQty - expectedQty) < 0.001;
+  const priceAligned = Math.abs(creditedUnitCost - expectedUnitCost) < 0.001;
   const valueAligned = Math.abs(creditedExcl - expectedExcl) < 0.01;
   const aligned = qtyAligned && valueAligned;
   const variance = round2(creditedExcl - expectedExcl);
+
+  // Explain WHY a partial credit is partial — short on quantity, price, or both
+  let reason;
+  if (aligned) {
+    reason = `Credit note ${creditNoteNumber || ''} — fully credited`.trim();
+  } else if (!qtyAligned && !priceAligned) {
+    reason = `Partially credited — short on quantity and price (credited ${creditedQty} of ${expectedQty} @ R${creditedUnitCost.toFixed(2)} vs R${expectedUnitCost.toFixed(2)}; variance R ${variance.toFixed(2)})`;
+  } else if (!qtyAligned) {
+    reason = `Partially credited — short on quantity (credited ${creditedQty} of ${expectedQty} units; variance R ${variance.toFixed(2)})`;
+  } else {
+    reason = `Partially credited — short on price (R${creditedUnitCost.toFixed(2)}/unit vs R${expectedUnitCost.toFixed(2)}/unit expected; variance R ${variance.toFixed(2)})`;
+  }
 
   await base44.entities.SupplierShortage.update(s.id, {
     credit_note_number: creditNoteNumber || null,
@@ -275,9 +290,7 @@ async function reconcileShortageFromCreditLine(line, { creditNoteNumber, creditN
     status: aligned ? 'credit_received' : 'partially_credited',
     credit_follow_up_status: aligned ? 'matched' : 'partially_credited',
     resolution_date: aligned ? new Date().toISOString().slice(0, 10) : null,
-    resolution_notes: aligned
-      ? `Credit note ${creditNoteNumber || ''} — fully credited`.trim()
-      : `Credit note ${creditNoteNumber || ''} — credited ${creditedQty} of ${expectedQty}, variance R ${variance.toFixed(2)}`.trim(),
+    resolution_notes: reason,
   });
   return { resolved: aligned };
 }

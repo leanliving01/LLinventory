@@ -28,7 +28,10 @@ function ShortageRow({ shortage, onAllocate }) {
           Short: {shortage.shortage_qty} {shortage.purchase_uom} · R {(shortage.shortage_value || 0).toFixed(2)}
           {shortage.credit_note_number && <> · CN: <span className="font-mono">{shortage.credit_note_number}</span></>}
         </p>
-        {variance != null && Math.abs(variance) > 0.001 && (
+        {shortage.status === 'partially_credited' && shortage.resolution_notes && (
+          <p className="text-[11px] text-amber-700 mt-0.5">{shortage.resolution_notes}</p>
+        )}
+        {shortage.status !== 'partially_credited' && variance != null && Math.abs(variance) > 0.001 && (
           <p className="text-[11px] text-amber-700 mt-0.5">Credit variance: R {variance.toFixed(2)}</p>
         )}
       </div>

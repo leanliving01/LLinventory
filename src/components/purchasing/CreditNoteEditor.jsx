@@ -144,6 +144,29 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
   const total = rnd2(rows.reduce((s, r) => s + r._incl, 0));
   const vat = rnd2(total - subtotal);
 
+  // Per-line warnings vs the linked shortage: short quantity and/or price variance
+  const shortageById = useMemo(() => Object.fromEntries(shortages.map(s => [s.id, s])), [shortages]);
+  const warnings = useMemo(() => {
+    if (viewMode) return [];
+    const out = [];
+    rows.forEach(r => {
+      if (!r.shortage_id) return;
+      const s = shortageById[r.shortage_id];
+      if (!s) return;
+      const expectedQty = parseFloat(s.shortage_qty) || 0;
+      const expectedCost = parseFloat(s.unit_cost) || 0;
+      const creditedQty = parseFloat(r.credit_qty) || 0;
+      const creditedCost = parseFloat(r.unit_cost_excl) || 0;
+      if (creditedQty < expectedQty - 0.001) {
+        out.push({ type: 'qty', text: `Short receival on ${r.product_name}: crediting ${creditedQty} of ${expectedQty} units — the shortage will stay open.` });
+      }
+      if (Math.abs(creditedCost - expectedCost) > 0.001) {
+        out.push({ type: 'price', text: `Price variance on ${r.product_name}: credited R${creditedCost.toFixed(2)}/unit vs R${expectedCost.toFixed(2)}/unit expected.` });
+      }
+    });
+    return out;
+  }, [viewMode, rows, shortageById]);
+
   const captured = viewMode ? existingCreditNote.captured_total : (capturedTotal === '' ? null : parseFloat(capturedTotal));
   const variance = (captured != null) ? rnd2(captured - (viewMode ? (existingCreditNote.total || 0) : total)) : null;
 
@@ -327,6 +350,18 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
             </>
           )}
         </div>
+
+        {/* Warnings: short receival + price variance vs the linked shortage */}
+        {warnings.length > 0 && (
+          <div className="space-y-1.5">
+            {warnings.map((w, i) => (
+              <div key={i} className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>{w.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Totals + captured/variance */}
         <div className="flex justify-end">
