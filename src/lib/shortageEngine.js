@@ -296,6 +296,28 @@ async function reconcileShortageFromCreditLine(line, { creditNoteNumber, creditN
 }
 
 /**
+ * Reconcile a credit-note line against its linked supplier return. The return is
+ * marked credit_received only when the credited value aligns with the return's total
+ * value; otherwise it stays open (status unchanged) for follow-up.
+ */
+async function reconcileReturnFromCreditLine(line, { creditNoteNumber }) {
+  if (!line.return_id) return { resolved: false };
+  const list = await base44.entities.SupplierReturn.filter({ id: line.return_id });
+  const r = list[0];
+  if (!r) return { resolved: false };
+  const expectedValue = round2(r.total_return_value);
+  const creditedValue = round2(line.line_total_excl);
+  const aligned = Math.abs(creditedValue - expectedValue) < 0.01;
+  try {
+    await base44.entities.SupplierReturn.update(r.id, {
+      credit_note_number: creditNoteNumber || null,
+      status: aligned ? 'credit_received' : r.status,  // keep open if not fully credited
+    });
+  } catch (_) {}
+  return { resolved: aligned };
+}
+
+/**
  * Create a supplier credit-note document (header + lines + matches) and reconcile
  * the linked shortages/returns.
  *  - header: { scn_number, supplierCreditNoteNumber, creditNoteDate, notes, capturedTotal }
@@ -426,12 +448,8 @@ export async function createCreditNote({ po, header, lines, userName, existingId
       if (!resolved) allResolved = false;
     }
     if (l.return_id) {
-      try {
-        await base44.entities.SupplierReturn.update(l.return_id, {
-          credit_note_number: cnNumber,
-          status: 'credit_received',
-        });
-      } catch (_) {}
+      const { resolved } = await reconcileReturnFromCreditLine(l, { creditNoteNumber: cnNumber });
+      if (!resolved) allResolved = false;
     }
   }
 

@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { resolveTaxRateRecord } from '@/lib/taxResolution';
-import { shortageKind, createCreditNote, saveCreditNoteDraft } from '@/lib/shortageEngine';
+import { shortageKind, createCreditNote, saveCreditNoteDraft, computeShortageValue } from '@/lib/shortageEngine';
 
 const RESOLVED = ['resolved', 'cancelled', 'credit_received'];
 const rnd2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
@@ -45,6 +45,44 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
     enabled: !!po.supplier_id && editMode,
   });
 
+  // Supplier-wide outstanding shortages + returns (so one CN can cover items across POs)
+  const { data: supplierShortages = [] } = useQuery({
+    queryKey: ['cn-supplier-shortages', po.supplier_id],
+    queryFn: () => base44.entities.SupplierShortage.filter({ supplier_id: po.supplier_id }, '-created_date', 500),
+    enabled: !!po.supplier_id && editMode,
+  });
+  const { data: supplierReturns = [] } = useQuery({
+    queryKey: ['cn-supplier-returns', po.supplier_id],
+    queryFn: () => base44.entities.SupplierReturn.filter({ supplier_id: po.supplier_id }, '-created_date', 500),
+    enabled: !!po.supplier_id && editMode,
+  });
+  const { data: supplierPOs = [] } = useQuery({
+    queryKey: ['cn-supplier-pos', po.supplier_id],
+    queryFn: () => base44.entities.PurchaseOrder.filter({ supplier_id: po.supplier_id }, '-created_date', 500),
+    enabled: !!po.supplier_id && editMode,
+  });
+  const { data: supplierGRNs = [] } = useQuery({
+    queryKey: ['cn-supplier-grns', po.supplier_id],
+    queryFn: () => base44.entities.GoodsReceivedNote.filter({ supplier_id: po.supplier_id }, '-received_date', 500),
+    enabled: !!po.supplier_id && editMode,
+  });
+  const poById = useMemo(() => Object.fromEntries(supplierPOs.map(p => [p.id, p])), [supplierPOs]);
+  const grnById = useMemo(() => Object.fromEntries(supplierGRNs.map(g => [g.id, g])), [supplierGRNs]);
+
+  // Build a friendly reference string for the audit trail
+  const refForShortage = (s) => [
+    poById[s.purchase_order_id]?.po_number,
+    grnById[s.grn_id]?.grn_number,
+    s.invoice_number,
+  ].filter(Boolean).join(' · ') || '—';
+  const refForReturn = (r) => [r.return_number, grnById[r.grn_id]?.grn_number].filter(Boolean).join(' · ') || '—';
+  const shortageByIdAll = useMemo(() => Object.fromEntries(supplierShortages.map(s => [s.id, s])), [supplierShortages]);
+  const returnByIdAll = useMemo(() => Object.fromEntries(supplierReturns.map(r => [r.id, r])), [supplierReturns]);
+  const lineRef = (l) => l.ref
+    || (l.shortage_id && shortageByIdAll[l.shortage_id] ? refForShortage(shortageByIdAll[l.shortage_id]) : null)
+    || (l.return_id && returnByIdAll[l.return_id] ? refForReturn(returnByIdAll[l.return_id]) : null)
+    || '—';
+
   // Existing CN lines (view or draft-edit)
   const { data: savedLines = [] } = useQuery({
     queryKey: ['scn-lines', existingCreditNote?.id],
@@ -64,6 +102,8 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
   const [lines, setLines] = useState([]);
   const [showPicker, setShowPicker] = useState(false);
   const [search, setSearch] = useState('');
+  const [showOutstanding, setShowOutstanding] = useState(false);
+  const [outSearch, setOutSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [seeded, setSeeded] = useState(false);
 
@@ -97,6 +137,7 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
       key: s.id,
       shortage_id: s.id,
       return_id: null,
+      ref: [po.po_number, s.invoice_number].filter(Boolean).join(' · '),
       product_id: s.product_id,
       product_name: s.product_name,
       product_sku: s.product_sku,
@@ -136,6 +177,62 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
     setSearch('');
   };
 
+  // Outstanding shortages + returns for this supplier, not already on the credit note
+  const outstandingItems = useMemo(() => {
+    const linkedShortageIds = new Set(lines.map(l => l.shortage_id).filter(Boolean));
+    const linkedReturnIds = new Set(lines.map(l => l.return_id).filter(Boolean));
+    const items = [];
+    supplierShortages.forEach(s => {
+      if (shortageKind(s.decision) !== 'credit') return;
+      if (RESOLVED.includes(s.status)) return;
+      if (linkedShortageIds.has(s.id)) return;
+      items.push({
+        kind: 'shortage', id: s.id, product_name: s.product_name, product_sku: s.product_sku,
+        product_id: s.product_id, ref: refForShortage(s),
+        expected_qty: parseFloat(s.shortage_qty) || 0, unit_cost: parseFloat(s.unit_cost) || 0,
+      });
+    });
+    supplierReturns.forEach(r => {
+      if (r.status === 'credit_received') return;
+      if (linkedReturnIds.has(r.id)) return;
+      items.push({
+        kind: 'return', id: r.id, product_name: `Return ${r.return_number}`, product_sku: '',
+        product_id: null, ref: refForReturn(r),
+        expected_qty: 1, unit_cost: parseFloat(r.total_return_value) || 0, total_value: parseFloat(r.total_return_value) || 0,
+      });
+    });
+    return items;
+  }, [supplierShortages, supplierReturns, lines, poById, grnById]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const addOutstanding = (item) => {
+    setLines(prev => [...prev, {
+      key: `${item.kind}-${item.id}`,
+      shortage_id: item.kind === 'shortage' ? item.id : null,
+      return_id: item.kind === 'return' ? item.id : null,
+      ref: item.ref,
+      product_id: item.product_id,
+      product_name: item.product_name,
+      product_sku: item.product_sku,
+      credit_qty: String(item.expected_qty ?? 1),
+      unit_cost_excl: String(item.unit_cost ?? 0),
+      tax_rate_id: defaultTax?.id || null,
+      tax_rule: defaultTax?.name || '',
+      tax_rate: defaultTax?.rate || 0,
+    }]);
+    setShowOutstanding(false);
+    setOutSearch('');
+  };
+
+  const filteredOutstanding = useMemo(() => {
+    if (!outSearch) return outstandingItems.slice(0, 50);
+    const q = outSearch.toLowerCase();
+    return outstandingItems.filter(i =>
+      (i.product_name || '').toLowerCase().includes(q) ||
+      (i.product_sku || '').toLowerCase().includes(q) ||
+      (i.ref || '').toLowerCase().includes(q)
+    ).slice(0, 50);
+  }, [outstandingItems, outSearch]);
+
   const filteredSPs = useMemo(() => {
     const existing = new Set(lines.map(l => l.product_id));
     let list = supplierProducts.filter(sp => !existing.has(sp.product_id));
@@ -166,8 +263,37 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
   const total = rnd2(rows.reduce((s, r) => s + r._incl, 0));
   const vat = rnd2(total - subtotal);
 
+  // Per linked shortage/return: expected vs allocated (qty + value)
+  const linkedSummary = useMemo(() => rows
+    .filter(r => r.shortage_id || r.return_id)
+    .map(r => {
+      let expectedQty = null, expectedValue = null;
+      if (r.shortage_id) {
+        const s = shortageByIdAll[r.shortage_id];
+        if (s) { expectedQty = parseFloat(s.shortage_qty) || 0; expectedValue = computeShortageValue(s.shortage_qty, s.unit_cost); }
+      } else if (r.return_id) {
+        const rr = returnByIdAll[r.return_id];
+        if (rr) { expectedValue = rnd2(rr.total_return_value); }
+      }
+      const allocatedValue = r._excl;
+      return {
+        key: r.key,
+        kind: r.return_id ? 'return' : 'shortage',
+        label: r.product_name,
+        ref: lineRef(r),
+        expectedQty,
+        expectedValue,
+        allocatedQty: parseFloat(r.credit_qty) || 0,
+        allocatedValue,
+        valueVar: expectedValue != null ? rnd2(allocatedValue - expectedValue) : null,
+      };
+    }), [rows, shortageByIdAll, returnByIdAll]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const allocatedIncl = rnd2(rows.filter(r => r.shortage_id || r.return_id).reduce((s, r) => s + r._incl, 0));
+  const unallocated = rnd2(total - allocatedIncl);
+
   // Per-line warnings vs the linked shortage: short quantity and/or price variance
-  const shortageById = useMemo(() => Object.fromEntries(shortages.map(s => [s.id, s])), [shortages]);
+  const shortageById = shortageByIdAll;
   const warnings = useMemo(() => {
     if (viewMode) return [];
     const out = [];
@@ -314,9 +440,14 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-muted-foreground uppercase">Credit Note Lines</p>
             {!viewMode && (
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowPicker(true)}>
-                <Plus className="w-3.5 h-3.5" /> Add Product
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowOutstanding(true)}>
+                  <Plus className="w-3.5 h-3.5" /> Add from Outstanding
+                </Button>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowPicker(true)}>
+                  <Plus className="w-3.5 h-3.5" /> Add Product
+                </Button>
+              </div>
             )}
           </div>
 
@@ -325,6 +456,7 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
               <thead>
                 <tr className="bg-muted/50 border-b border-border text-[10px] uppercase text-muted-foreground">
                   <th className="text-left px-3 py-2 font-semibold">Product</th>
+                  <th className="text-left px-3 py-2 font-semibold">Linked to</th>
                   <th className="text-right px-3 py-2 font-semibold w-28">Credit Qty</th>
                   <th className="text-right px-3 py-2 font-semibold w-32">Unit Cost (excl)</th>
                   <th className="text-left px-3 py-2 font-semibold w-40">Tax Rule</th>
@@ -335,12 +467,17 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
               </thead>
               <tbody className="divide-y divide-border">
                 {rows.length === 0 ? (
-                  <tr><td colSpan={viewMode ? 6 : 7} className="px-3 py-6 text-center text-xs text-muted-foreground">No lines.</td></tr>
+                  <tr><td colSpan={viewMode ? 7 : 8} className="px-3 py-6 text-center text-xs text-muted-foreground">No lines.</td></tr>
                 ) : rows.map(r => (
                   <tr key={r.key}>
                     <td className="px-3 py-2">
                       <p className="font-medium">{r.product_name}</p>
-                      <p className="text-[10px] font-mono text-muted-foreground">{r.product_sku}{r.shortage_id ? ' · vs shortage' : ''}</p>
+                      <p className="text-[10px] font-mono text-muted-foreground">{r.product_sku}</p>
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      {(r.shortage_id || r.return_id)
+                        ? <span className="font-mono text-[11px]">{lineRef(r)}<span className="text-muted-foreground">{r.return_id ? ' · return' : ' · shortage'}</span></span>
+                        : <span className="text-muted-foreground">— ad-hoc</span>}
                     </td>
                     <td className="px-3 py-2 text-right">
                       {viewMode ? r.credit_qty : (
@@ -402,6 +539,42 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
               </div>
             </>
           )}
+
+          {/* Outstanding shortages / returns picker (supplier-wide) */}
+          {showOutstanding && (
+            <>
+              <div className="fixed inset-0 bg-black/30 z-[210]" onClick={() => setShowOutstanding(false)} />
+              <div className="fixed inset-0 z-[220] flex items-center justify-center p-4">
+                <div className="bg-card rounded-xl shadow-2xl w-full max-w-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <Input placeholder="Search this supplier's open shortages & returns..." value={outSearch} onChange={e => setOutSearch(e.target.value)} autoFocus className="h-8" />
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setShowOutstanding(false)}><X className="w-4 h-4" /></Button>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto space-y-1">
+                    {filteredOutstanding.length === 0 ? (
+                      <p className="text-center text-sm text-muted-foreground py-4">No outstanding shortages or returns for this supplier.</p>
+                    ) : filteredOutstanding.map(item => (
+                      <button key={`${item.kind}-${item.id}`} className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors flex items-start justify-between gap-3" onClick={() => addOutstanding(item)}>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{item.product_name}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            <span className={`px-1.5 py-0.5 rounded ${item.kind === 'return' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'} mr-1`}>{item.kind}</span>
+                            {item.ref}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0 text-[11px] text-muted-foreground">
+                          {item.kind === 'shortage'
+                            ? <>qty {item.expected_qty} · {fmtR(item.expected_qty * item.unit_cost)}</>
+                            : <>{fmtR(item.total_value)}</>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Warnings: short receival + price variance vs the linked shortage */}
@@ -416,12 +589,56 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
           </div>
         )}
 
+        {/* Linked shortages & returns — audit trail + expected vs allocated */}
+        {linkedSummary.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Linked Shortages & Returns</p>
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-muted/50 border-b border-border text-[10px] uppercase text-muted-foreground">
+                    <th className="text-left px-3 py-2 font-semibold">Item</th>
+                    <th className="text-left px-3 py-2 font-semibold">Reference</th>
+                    <th className="text-right px-3 py-2 font-semibold">Expected Qty</th>
+                    <th className="text-right px-3 py-2 font-semibold">Expected Value</th>
+                    <th className="text-right px-3 py-2 font-semibold">Allocated Qty</th>
+                    <th className="text-right px-3 py-2 font-semibold">Allocated Value</th>
+                    <th className="text-right px-3 py-2 font-semibold">Variance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {linkedSummary.map(it => (
+                    <tr key={it.key}>
+                      <td className="px-3 py-2">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${it.kind === 'return' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'} mr-1`}>{it.kind}</span>
+                        {it.label}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-[11px]">{it.ref}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{it.expectedQty != null ? it.expectedQty : '—'}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{it.expectedValue != null ? fmtR(it.expectedValue) : '—'}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{it.allocatedQty}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtR(it.allocatedValue)}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${it.valueVar != null && Math.abs(it.valueVar) > 0.001 ? 'text-amber-700 font-medium' : 'text-muted-foreground'}`}>
+                        {it.valueVar != null ? fmtR(it.valueVar) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Totals + captured/variance */}
         <div className="flex justify-end">
           <div className="w-72 space-y-1 text-sm">
             <div className="flex justify-between"><span className="text-muted-foreground">Subtotal (excl)</span><span className="tabular-nums">{fmtR(subtotal)}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">VAT</span><span className="tabular-nums">{fmtR(vat)}</span></div>
             <div className="flex justify-between font-semibold border-t border-border pt-1 mt-1"><span>Recalculated Total (incl)</span><span className="tabular-nums">{fmtR(viewMode ? existingCreditNote.total : total)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Allocated to shortages/returns</span><span className="tabular-nums">{fmtR(allocatedIncl)}</span></div>
+            {Math.abs(unallocated) > 0.001 && (
+              <div className="flex justify-between text-amber-700"><span className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Unallocated (ad-hoc)</span><span className="tabular-nums">{fmtR(unallocated)}</span></div>
+            )}
             <div className="flex justify-between items-center pt-1.5">
               <span className="text-muted-foreground">Captured Total (incl)</span>
               {viewMode ? (
