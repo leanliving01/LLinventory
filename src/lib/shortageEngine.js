@@ -269,16 +269,16 @@ async function reconcileShortageFromCreditLine(line, { creditNoteNumber, creditN
   const aligned = qtyAligned && valueAligned;
   const variance = round2(creditedExcl - expectedExcl);
 
-  // Explain WHY a partial credit is partial — short on quantity, price, or both
+  // Explain WHY a partial credit is partial — name the variance type and the amount
   let reason;
   if (aligned) {
     reason = `Credit note ${creditNoteNumber || ''} — fully credited`.trim();
   } else if (!qtyAligned && !priceAligned) {
-    reason = `Partially credited — short on quantity and price (credited ${creditedQty} of ${expectedQty} @ R${creditedUnitCost.toFixed(2)} vs R${expectedUnitCost.toFixed(2)}; variance R ${variance.toFixed(2)})`;
+    reason = `Quantity & price variance — credited ${creditedQty} of ${expectedQty} units @ R${creditedUnitCost.toFixed(2)} vs R${expectedUnitCost.toFixed(2)}/unit · variance R ${variance.toFixed(2)}`;
   } else if (!qtyAligned) {
-    reason = `Partially credited — short on quantity (credited ${creditedQty} of ${expectedQty} units; variance R ${variance.toFixed(2)})`;
+    reason = `Short quantity — credited ${creditedQty} of ${expectedQty} units · variance R ${variance.toFixed(2)}`;
   } else {
-    reason = `Partially credited — short on price (R${creditedUnitCost.toFixed(2)}/unit vs R${expectedUnitCost.toFixed(2)}/unit expected; variance R ${variance.toFixed(2)})`;
+    reason = `Price variance — credited R${creditedUnitCost.toFixed(2)}/unit vs R${expectedUnitCost.toFixed(2)}/unit expected · variance R ${variance.toFixed(2)}`;
   }
 
   await base44.entities.SupplierShortage.update(s.id, {

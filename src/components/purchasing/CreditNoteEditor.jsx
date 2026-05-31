@@ -158,10 +158,12 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
       const creditedQty = parseFloat(r.credit_qty) || 0;
       const creditedCost = parseFloat(r.unit_cost_excl) || 0;
       if (creditedQty < expectedQty - 0.001) {
-        out.push({ type: 'qty', text: `Short receival on ${r.product_name}: crediting ${creditedQty} of ${expectedQty} units — the shortage will stay open.` });
+        const shortUnits = rnd2(expectedQty - creditedQty);
+        out.push({ type: 'qty', text: `Short quantity on ${r.product_name}: crediting ${creditedQty} of ${expectedQty} units (short ${shortUnits}) — the shortage will stay open.` });
       }
       if (Math.abs(creditedCost - expectedCost) > 0.001) {
-        out.push({ type: 'price', text: `Price variance on ${r.product_name}: credited R${creditedCost.toFixed(2)}/unit vs R${expectedCost.toFixed(2)}/unit expected.` });
+        const perUnit = rnd2(creditedCost - expectedCost);
+        out.push({ type: 'price', text: `Price variance on ${r.product_name}: credited R${creditedCost.toFixed(2)}/unit vs R${expectedCost.toFixed(2)}/unit expected (R${perUnit.toFixed(2)}/unit).` });
       }
     });
     return out;
