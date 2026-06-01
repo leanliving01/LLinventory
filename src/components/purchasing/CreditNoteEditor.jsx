@@ -66,6 +66,21 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
     queryFn: () => base44.entities.GoodsReceivedNote.filter({ supplier_id: po.supplier_id }, '-received_date', 500),
     enabled: !!po.supplier_id && editMode,
   });
+  // Lines of the supplier's returns — so adding a return expands into its products,
+  // each editable (qty + price), rather than one lump credit line.
+  const { data: supplierReturnLines = [] } = useQuery({
+    queryKey: ['cn-supplier-return-lines', po.supplier_id, supplierReturns.length],
+    queryFn: () => base44.entities.SupplierReturnLine.filter({ return_id: supplierReturns.map(r => r.id) }, 'created_date', 1000),
+    enabled: editMode && supplierReturns.length > 0,
+  });
+  const returnLinesByReturn = useMemo(() => {
+    const m = {};
+    supplierReturnLines.forEach(l => {
+      if (!m[l.return_id]) m[l.return_id] = [];
+      m[l.return_id].push(l);
+    });
+    return m;
+  }, [supplierReturnLines]);
   const poById = useMemo(() => Object.fromEntries(supplierPOs.map(p => [p.id, p])), [supplierPOs]);
   const grnById = useMemo(() => Object.fromEntries(supplierGRNs.map(g => [g.id, g])), [supplierGRNs]);
 
@@ -106,6 +121,9 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
   const [outSearch, setOutSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [seeded, setSeeded] = useState(false);
+  // 'single' = just this PO (the original per-PO flow); 'multiple' = pick across all of
+  // the supplier's open shortages & returns.
+  const [scope, setScope] = useState('single');
 
   // Seed editable lines: a new CN seeds from the PO's open credit shortages; a draft
   // seeds from its saved lines.
@@ -189,49 +207,89 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
       items.push({
         kind: 'shortage', id: s.id, product_name: s.product_name, product_sku: s.product_sku,
         product_id: s.product_id, ref: refForShortage(s),
+        purchase_order_id: s.purchase_order_id,
+        po_number: poById[s.purchase_order_id]?.po_number || null,
+        invoice_number: s.invoice_number || null,
         expected_qty: parseFloat(s.shortage_qty) || 0, unit_cost: parseFloat(s.unit_cost) || 0,
       });
     });
     supplierReturns.forEach(r => {
       if (r.status === 'credit_received') return;
       if (linkedReturnIds.has(r.id)) return;
+      const rlines = returnLinesByReturn[r.id] || [];
       items.push({
         kind: 'return', id: r.id, product_name: `Return ${r.return_number}`, product_sku: '',
         product_id: null, ref: refForReturn(r),
+        purchase_order_id: r.purchase_order_id,
+        po_number: poById[r.purchase_order_id]?.po_number || null,
+        invoice_number: null,
+        line_count: rlines.length,
         expected_qty: 1, unit_cost: parseFloat(r.total_return_value) || 0, total_value: parseFloat(r.total_return_value) || 0,
       });
     });
     return items;
-  }, [supplierShortages, supplierReturns, lines, poById, grnById]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [supplierShortages, supplierReturns, lines, poById, grnById, returnLinesByReturn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addOutstanding = (item) => {
-    setLines(prev => [...prev, {
-      key: `${item.kind}-${item.id}`,
-      shortage_id: item.kind === 'shortage' ? item.id : null,
-      return_id: item.kind === 'return' ? item.id : null,
-      ref: item.ref,
-      product_id: item.product_id,
-      product_name: item.product_name,
-      product_sku: item.product_sku,
-      credit_qty: String(item.expected_qty ?? 1),
-      unit_cost_excl: String(item.unit_cost ?? 0),
-      tax_rate_id: defaultTax?.id || null,
-      tax_rule: defaultTax?.name || '',
-      tax_rate: defaultTax?.rate || 0,
-    }]);
+    const tax = { tax_rate_id: defaultTax?.id || null, tax_rule: defaultTax?.name || '', tax_rate: defaultTax?.rate || 0 };
+    if (item.kind === 'return') {
+      // Expand the return into one editable credit line per returned product.
+      const rlines = returnLinesByReturn[item.id] || [];
+      if (rlines.length) {
+        setLines(prev => [...prev, ...rlines.map(rl => ({
+          key: `return-${item.id}-${rl.id}`,
+          shortage_id: null,
+          return_id: item.id,
+          ref: item.ref,
+          product_id: rl.product_id,
+          product_name: rl.product_name,
+          product_sku: rl.product_sku,
+          credit_qty: String(rl.return_qty ?? 1),
+          unit_cost_excl: String(rl.unit_cost ?? 0),
+          ret_expected_qty: parseFloat(rl.return_qty) || 0,
+          ret_expected_value: rnd2((parseFloat(rl.return_qty) || 0) * (parseFloat(rl.unit_cost) || 0)),
+          ...tax,
+        }))]);
+      } else {
+        // No line detail — fall back to a single lump line for the return value.
+        setLines(prev => [...prev, {
+          key: `return-${item.id}`, shortage_id: null, return_id: item.id, ref: item.ref,
+          product_id: null, product_name: item.product_name, product_sku: '',
+          credit_qty: '1', unit_cost_excl: String(item.unit_cost ?? 0), ...tax,
+        }]);
+      }
+    } else {
+      setLines(prev => [...prev, {
+        key: `shortage-${item.id}`,
+        shortage_id: item.id,
+        return_id: null,
+        ref: item.ref,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        product_sku: item.product_sku,
+        credit_qty: String(item.expected_qty ?? 1),
+        unit_cost_excl: String(item.unit_cost ?? 0),
+        ...tax,
+      }]);
+    }
     setShowOutstanding(false);
     setOutSearch('');
   };
 
   const filteredOutstanding = useMemo(() => {
-    if (!outSearch) return outstandingItems.slice(0, 50);
-    const q = outSearch.toLowerCase();
-    return outstandingItems.filter(i =>
-      (i.product_name || '').toLowerCase().includes(q) ||
-      (i.product_sku || '').toLowerCase().includes(q) ||
-      (i.ref || '').toLowerCase().includes(q)
-    ).slice(0, 50);
-  }, [outstandingItems, outSearch]);
+    let list = scope === 'single'
+      ? outstandingItems.filter(i => i.purchase_order_id === po.id)
+      : outstandingItems;
+    if (outSearch) {
+      const q = outSearch.toLowerCase();
+      list = list.filter(i =>
+        (i.product_name || '').toLowerCase().includes(q) ||
+        (i.product_sku || '').toLowerCase().includes(q) ||
+        (i.ref || '').toLowerCase().includes(q)
+      );
+    }
+    return list.slice(0, 50);
+  }, [outstandingItems, outSearch, scope, po.id]);
 
   const filteredSPs = useMemo(() => {
     const existing = new Set(lines.map(l => l.product_id));
@@ -272,8 +330,13 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
         const s = shortageByIdAll[r.shortage_id];
         if (s) { expectedQty = parseFloat(s.shortage_qty) || 0; expectedValue = computeShortageValue(s.shortage_qty, s.unit_cost); }
       } else if (r.return_id) {
-        const rr = returnByIdAll[r.return_id];
-        if (rr) { expectedValue = rnd2(rr.total_return_value); }
+        if (r.ret_expected_qty != null) {
+          expectedQty = r.ret_expected_qty;
+          expectedValue = r.ret_expected_value;
+        } else {
+          const rr = returnByIdAll[r.return_id];
+          if (rr) { expectedValue = rnd2(rr.total_return_value); }
+        }
       }
       const allocatedValue = r._excl;
       return {
@@ -435,6 +498,29 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
           )}
         </div>
 
+        {/* Scope: this PO only, or pick across all of the supplier's open items */}
+        {!viewMode && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase">Apply to</span>
+            <div className="inline-flex rounded-lg border border-border overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => setScope('single')}
+                className={`px-3 py-1.5 ${scope === 'single' ? 'bg-purple-600 text-white' : 'text-muted-foreground'}`}
+              >
+                This PO ({po.po_number})
+              </button>
+              <button
+                type="button"
+                onClick={() => setScope('multiple')}
+                className={`px-3 py-1.5 border-l border-border ${scope === 'multiple' ? 'bg-purple-600 text-white' : 'text-muted-foreground'}`}
+              >
+                Multiple — all open shortages &amp; returns
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Lines */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
@@ -558,9 +644,11 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
                       <button key={`${item.kind}-${item.id}`} className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors flex items-start justify-between gap-3" onClick={() => addOutstanding(item)}>
                         <div className="min-w-0">
                           <p className="text-sm font-medium">{item.product_name}</p>
-                          <p className="text-[10px] text-muted-foreground">
-                            <span className={`px-1.5 py-0.5 rounded ${item.kind === 'return' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'} mr-1`}>{item.kind}</span>
-                            {item.ref}
+                          <p className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                            <span className={`px-1.5 py-0.5 rounded ${item.kind === 'return' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>{item.kind}</span>
+                            {item.po_number && <span>PO {item.po_number}</span>}
+                            {item.invoice_number && <span>INV {item.invoice_number}</span>}
+                            {item.kind === 'return' && item.line_count > 0 && <span>{item.line_count} product{item.line_count !== 1 ? 's' : ''}</span>}
                           </p>
                         </div>
                         <div className="text-right shrink-0 text-[11px] text-muted-foreground">
