@@ -55,7 +55,7 @@ export default function FloorPack() {
   const { triggerFeedback, FeedbackWrapper } = useScanFeedback();
 
   // Packer identity
-  const [packer, setPacker] = useState(null); // DispatchTeamMember object or null
+  const [packer, setPacker] = useState(null); // Production Team member (dispatch station) { id, name } or null
 
   // Order & scanning
   const [selectedOrder, setSelectedOrder] = useState(null);
