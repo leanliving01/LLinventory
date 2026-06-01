@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, CheckCircle2, AlertCircle, Loader2, Pause, X, MoreVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,6 +15,27 @@ const SYNC_CONFIGS = {
   xero_invoices:        { label: 'Bills (Xero)',   fn: 'syncXeroInvoices',       title: 'Xero Sync' },
   xero_purchase_orders: { label: 'POs (Xero)',     fn: 'syncXeroPurchaseOrders', title: 'Xero Sync' },
 };
+
+// When a sync finishes, refetch the screens that show its data so new records appear
+// without a manual page refresh. Matched (case-insensitively) against each query key.
+const INVALIDATE_ON_DONE = {
+  shopify_orders:    ['sales-order', 'shopify-order', 'shopifyorders', 'dash-shopify', 'floor-pack-order', 'forecast-order', 'report-sales', 'report-fc-sales'],
+  shopify_products:  ['product', 'sku', 'meal'],
+  shopify_customers: ['customer'],
+  xero_invoices:     ['invoice', 'bill'],
+  xero_purchase_orders: ['purchase-order'],
+};
+
+function invalidateForSync(queryClient, sourceKey) {
+  const subs = INVALIDATE_ON_DONE[sourceKey];
+  if (!subs) return;
+  queryClient.invalidateQueries({
+    predicate: (q) => {
+      const key = JSON.stringify(q.queryKey).toLowerCase();
+      return subs.some(sub => key.includes(sub));
+    },
+  });
+}
 
 function SyncRow({ syncKey, syncState, onTrigger, onCancel, triggering, onFullResync, onSinceDays }) {
   const config = SYNC_CONFIGS[syncKey];
@@ -91,6 +112,7 @@ function SyncRow({ syncKey, syncState, onTrigger, onCancel, triggering, onFullRe
 
 export default function SyncStatusBanner({ showAll = false, syncKeys: customKeys, title }) {
   const [triggering, setTriggering] = useState(null);
+  const queryClient = useQueryClient();
 
   const { data: syncStates = [] } = useQuery({
     queryKey: ['sync-states'],
@@ -132,6 +154,20 @@ export default function SyncStatusBanner({ showAll = false, syncKeys: customKeys
     }
   }, [syncStates]);
 
+  // When a sync leaves the 'running'/'cancelling' state, its data has landed — refetch
+  // the screens that show it so new orders appear without a manual page refresh.
+  const prevStatusRef = useRef({});
+  useEffect(() => {
+    for (const s of syncStates) {
+      const prev = prevStatusRef.current[s.source_key];
+      const curr = s.sync_status;
+      const wasActive = prev === 'running' || prev === 'cancelling';
+      const nowIdle = curr !== 'running' && curr !== 'cancelling';
+      if (wasActive && nowIdle) invalidateForSync(queryClient, s.source_key);
+      prevStatusRef.current[s.source_key] = curr;
+    }
+  }, [syncStates, queryClient]);
+
   const stateMap = {};
   for (const s of syncStates) stateMap[s.source_key] = s;
 
@@ -146,6 +182,9 @@ export default function SyncStatusBanner({ showAll = false, syncKeys: customKeys
         toast.error(`${config.label}: ${res.data?.error || res.data?.status || 'sync failed'}`);
       } else if (res.data?.status === 'completed') {
         toast.success(`${config.label}: ${res.data.totalProcessed || 0} records synced`);
+        // Single-page syncs finish synchronously — refetch now (the poll may never
+        // observe the brief running→completed transition).
+        invalidateForSync(queryClient, syncKey);
       } else {
         toast.info(`${config.label} ${fullResync ? 'full re-sync' : 'sync'} started…`);
       }
