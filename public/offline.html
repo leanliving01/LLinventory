@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>LL Floor — No Connection</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; align-items: center; justify-content: center;
+      font-family: -apple-system, system-ui, Segoe UI, Roboto, sans-serif;
+      background: #0f172a; color: #e2e8f0; padding: 24px; text-align: center;
+    }
+    .card { max-width: 360px; }
+    .icon { font-size: 56px; margin-bottom: 16px; }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    p { font-size: 14px; line-height: 1.5; color: #94a3b8; margin: 0 0 24px; }
+    button {
+      appearance: none; border: 0; border-radius: 10px; cursor: pointer;
+      background: #6d28d9; color: #fff; font-size: 16px; font-weight: 600;
+      padding: 14px 28px; width: 100%;
+    }
+    button:active { background: #5b21b6; }
+    .hint { margin-top: 16px; font-size: 12px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">📡</div>
+    <h1>No connection</h1>
+    <p>The LL Floor app needs Wi-Fi to load the latest version. Check that this device is connected, then try again.</p>
+    <button onclick="window.location.href='https://ll-inventory-antigravity-build-new.vercel.app'">Try again</button>
+    <div class="hint">Reconnect to Wi-Fi and tap “Try again”.</div>
+  </div>
+</body>
+</html>
