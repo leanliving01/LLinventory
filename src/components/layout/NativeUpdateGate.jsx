@@ -25,15 +25,25 @@ export default function NativeUpdateGate({ children }) {
   const [installedBuild, setInstalledBuild] = useState(null);
 
   const checkVersion = useCallback(async () => {
-    if (!isNativeApp()) return;
+    if (!isNativeApp()) return; // browser → never block
     try {
       const { App } = await import('@capacitor/app');
       const info = await App.getInfo();
-      const build = parseInt(info?.build, 10) || 0;
+      const build = parseInt(info?.build, 10);
+      if (!Number.isFinite(build)) {
+        // Native shell but the version is unreadable → an old build that predates the
+        // version plugin. Force the update instead of silently running the old (broken)
+        // native code.
+        setInstalledBuild(null);
+        setBlocked(true);
+        return;
+      }
       setInstalledBuild(build);
       setBlocked(build < REQUIRED_NATIVE_BUILD);
     } catch {
-      setBlocked(false); // can't read version → don't lock anyone out
+      // In a native shell but @capacitor/app isn't available → very old APK → force update.
+      setInstalledBuild(null);
+      setBlocked(true);
     }
   }, []);
 
