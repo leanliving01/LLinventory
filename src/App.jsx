@@ -5,6 +5,8 @@ import { queryClientInstance } from '@/lib/query-client'
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
+import { getUserPermissions, BUILT_IN_ROLES } from '@/lib/permissions';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import AppLayout from '@/components/layout/AppLayout';
 import Dashboard from '@/pages/Dashboard';
@@ -117,6 +119,7 @@ const IS_NATIVE_APP = getIsNativeApp();
 
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin, isFloorUser } = useAuth();
+  const customRoles = useCustomRoles();
 
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
@@ -144,9 +147,26 @@ const AuthenticatedApp = () => {
     }
   }
 
-  // In the native Android app, non-floor users see a clear error rather than management screens
-  if (IS_NATIVE_APP && !isFloorUser) {
-    return <NativeAppRoleError />;
+  // Native app access: allow floor staff PLUS anyone who oversees the floor (admins /
+  // managers) or holds any floor-module permission. Only users with zero floor access see
+  // "Floor App Only". Wait for custom-role data before deciding so we don't wrongly flash
+  // the block while permissions are still loading.
+  if (IS_NATIVE_APP) {
+    const FLOOR_PERMS = ['kitchen_tablet', 'pick_lists', 'stocktake_view', 'stock_transfers', 'receiving', 'catalog_view'];
+    const isManagerRole = ['admin', 'director', 'ops_manager', 'kitchen_manager'].includes(user.role);
+    const rolePending = !BUILT_IN_ROLES.includes(user.role) && customRoles.isLoading;
+    const perms = getUserPermissions(user, customRoles);
+    const canUseFloorApp = isManagerRole || isFloorUser || FLOOR_PERMS.some(k => perms[k]);
+    if (rolePending) {
+      return (
+        <div className="fixed inset-0 flex items-center justify-center bg-background">
+          <div className="w-8 h-8 border-4 border-border border-t-primary rounded-full animate-spin"></div>
+        </div>
+      );
+    }
+    if (!canUseFloorApp) {
+      return <NativeAppRoleError />;
+    }
   }
 
   // In native app: only expose floor routes
