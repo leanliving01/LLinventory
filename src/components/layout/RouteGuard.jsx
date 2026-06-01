@@ -44,6 +44,7 @@ const ROUTE_PERMISSIONS = {
   '/shopify':              'shopify_sync',
   '/reports':              'reports_view',
   '/reports/team':         'reports_team',
+  '/reports/employees':    'reports_team',
   '/reports/dispatch':     'reports_dispatch',
   '/reports/forecasting':  'forecasting',
   '/reports/food-cost':    'food_cost_view',
