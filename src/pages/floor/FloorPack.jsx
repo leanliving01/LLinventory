@@ -13,6 +13,7 @@ import CameraScanner from '@/components/floor/CameraScanner';
 import PackerSelectModal from '@/components/floor/PackerSelectModal';
 import { useScanFeedback } from '@/components/floor/ScanFeedback';
 import ScanResultBanner from '@/components/floor/ScanResultBanner';
+import { computePackedSnapshot } from '@/lib/packingMetrics';
 
 /* ── SKU-to-friendly-name map ── */
 const SKU_LABELS = {
@@ -437,6 +438,20 @@ export default function FloorPack() {
     return Math.floor((Date.now() - segmentStartRef.current) / 1000);
   };
 
+  // Append a packing lifecycle event for KPIs. Non-blocking — never interrupts packing.
+  const logPackingEvent = (event_type, extra = {}) => {
+    if (!selectedOrder) return;
+    base44.entities.PackingEventLog.create({
+      sales_order_id: selectedOrder.id,
+      order_number: selectedOrder.order_number || selectedOrder.shopify_order_id || '',
+      event_type,
+      member_id: packer?.id || '',
+      member_name: packer?.name || '',
+      timestamp: new Date().toISOString(),
+      ...extra,
+    }).catch(() => {});
+  };
+
   const handleStartPacking = async () => {
     const now = new Date().toISOString();
     setPackingStartedAt(now);
@@ -453,6 +468,7 @@ export default function FloorPack() {
       packed_by_name: packer?.name || '',
       packed_by_member_id: packer?.id || '',
     });
+    logPackingEvent('started');
     toast.success('Packing started — scan items!');
   };
 
@@ -467,6 +483,7 @@ export default function FloorPack() {
       packing_duration_seconds: newTotal,
       packing_scanned_map: JSON.stringify(scannedMap),
     });
+    logPackingEvent('paused');
     toast('Packing paused');
   };
 
@@ -476,6 +493,7 @@ export default function FloorPack() {
     await base44.entities.SalesOrder.update(selectedOrder.id, {
       packing_paused: false,
     });
+    logPackingEvent('resumed');
     toast.success('Resumed packing — scan items!');
   };
 
@@ -488,13 +506,19 @@ export default function FloorPack() {
     setPacking(true);
     const now = new Date().toISOString();
     const totalSec = accumulatedSeconds + getCurrentSegmentSeconds();
+    // Freeze what was packed (line items, meals, supplements) for KPIs — packing_scanned_map
+    // is cleared below, so this snapshot is the historical record.
+    const snap = computePackedSnapshot(groups, skuTypeMap);
     await base44.entities.SalesOrder.update(selectedOrder.id, {
       status: 'packed',
       packed_at: now,
       packing_paused: false,
       packing_duration_seconds: totalSec,
+      packing_active_seconds: totalSec,
       packing_scanned_map: '',
+      ...snap,
     });
+    logPackingEvent('completed', { ...snap, active_seconds: totalSec });
     queryClient.invalidateQueries({ queryKey: ['floor-pack-orders'] });
     toast.success(`Order ${selectedOrder.order_number || selectedOrder.shopify_order_id} packed in ${Math.floor(totalSec / 60)}m ${totalSec % 60}s!`);
     setPacking(false);
@@ -529,6 +553,7 @@ export default function FloorPack() {
         packing_duration_seconds: totalSoFar,
         packing_scanned_map: JSON.stringify(scannedMap),
       });
+      logPackingEvent('paused');
       queryClient.invalidateQueries({ queryKey: ['floor-pack-orders'] });
     }
     setSelectedOrder(null);

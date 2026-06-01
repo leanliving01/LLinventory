@@ -114,6 +114,7 @@ export const PERMISSION_GROUPS = [
       { key: 'reports_view',  label: 'View Reports' },
       { key: 'reports_costs', label: 'See Cost Data in Reports' },
       { key: 'reports_team',  label: 'Team Performance' },
+      { key: 'reports_dispatch', label: 'Dispatch Performance' },
       { key: 'forecasting',   label: 'Trend Forecasting' },
       { key: 'food_cost_view', label: 'View Food Cost Dashboard' },
       { key: 'food_cost_run',  label: 'Run Cost Rollup' },
@@ -167,7 +168,7 @@ export const ROLE_DEFAULTS = {
     'stocktake_view', 'stocktake_create', 'stock_transfers', 'receiving', 'wastage', 'par_levels', 'movements_view', 'inventory_overview', 'inventory_recalc_committed', 'stock_writeoff_view', 'stock_writeoff_create',
     'po_view', 'po_create', 'po_approve', 'po_delete', 'grn_create', 'blind_receipt_create', 'product_review', 'product_create_from_queue', 'returns_process', 'supplier_product_edit', 'xero_invoice_sync', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'price_variance_view', 'three_way_match_view',
     'sales_view', 'sales_fulfill', 'customers',
-    'reports_view', 'reports_costs', 'reports_team', 'forecasting', 'food_cost_view', 'food_cost_run',
+    'reports_view', 'reports_costs', 'reports_team', 'reports_dispatch', 'forecasting', 'food_cost_view', 'food_cost_run',
     'equipment', 'shopify_sync', 'supplier_scorecard', 'activity_log_view',
   ),
 
@@ -178,7 +179,7 @@ export const ROLE_DEFAULTS = {
     'cooking_runs_view', 'cooking_runs_create', 'cooking_runs_release', 'wip_view', 'wip_manage', 'wip_qc_override', 'yield_review', 'supplier_yield_view', 'wip_planning', 'wastage_review',
     'wastage', 'par_levels', 'inventory_overview', 'stock_writeoff_view', 'stock_writeoff_create',
     'po_view', 'grn_create', 'purchasing_dashboard',
-    'reports_view', 'reports_team', 'food_cost_view',
+    'reports_view', 'reports_team', 'reports_dispatch', 'food_cost_view',
   ),
 
   kitchen: p(

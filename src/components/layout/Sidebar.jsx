@@ -85,6 +85,7 @@ const PATH_PERMISSION_MAP = {
   '/shopify': 'shopify_sync',
   '/reports': 'reports_view',
   '/reports/team': 'reports_team',
+  '/reports/dispatch': 'reports_dispatch',
   '/reports/forecasting': 'forecasting',
   '/reports/food-cost': 'food_cost_view',
   '/equipment': 'equipment',
@@ -162,6 +163,7 @@ const navItems = [
     children: [
       { label: 'Audit & Runs', path: '/reports', icon: FileText },
       { label: 'Team Performance', path: '/reports/team', icon: Users },
+      { label: 'Dispatch Performance', path: '/reports/dispatch', icon: Package },
       { label: 'Trend Forecasting', path: '/reports/forecasting', icon: TrendingUp },
       { label: 'Food Cost', path: '/reports/food-cost', icon: DollarSign },
     ]

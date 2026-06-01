@@ -51,6 +51,7 @@ import Customers from '@/pages/Customers';
 import EquipmentManager from '@/pages/EquipmentManager';
 import Bugs from '@/pages/Bugs';
 import TrendForecasting from '@/pages/TrendForecasting';
+import DispatchPerformance from '@/pages/DispatchPerformance';
 import FloorLayout from '@/components/floor/FloorLayout';
 import FloorHome from '@/pages/floor/FloorHome';
 import FloorScan from '@/pages/floor/FloorScan';
@@ -266,6 +267,7 @@ const AuthenticatedApp = () => {
         <Route path="/stock/par-levels" element={<MasterDataParLevels />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/reports/team" element={<TeamPerformance />} />
+        <Route path="/reports/dispatch" element={<DispatchPerformance />} />
         <Route path="/reports/forecasting" element={<TrendForecasting />} />
         <Route path="/reports/food-cost" element={<FoodCostDashboard />} />
         <Route path="/settings" element={<SettingsPage />} />

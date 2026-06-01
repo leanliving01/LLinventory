@@ -118,6 +118,7 @@ const ENTITY_TABLE_MAP = {
   SupplierCreditNoteLine:   'supplier_credit_note_lines',
   SupplierCreditNoteMatch:  'supplier_credit_note_matches',
   InvoicePOMatchSuggestion: 'invoice_po_match_suggestions',
+  PackingEventLog:          'packing_event_logs',
 };
 
 function applyFilters(query, filters) {
