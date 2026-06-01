@@ -16,7 +16,8 @@
 // Minimum Android versionCode allowed to run. Installed APKs below this are forced to update.
 export const REQUIRED_NATIVE_BUILD = 1;
 
-// Stable public link to the latest APK (Supabase Storage, public bucket "app-releases").
-// Overwrite the file in place on each release so this URL stays constant.
+// Stable public link to the latest APK. Supabase Storage, public bucket
+// "LL Floor App Release" (spaces URL-encoded as %20). Overwrite the file in place on
+// each release so this URL stays constant.
 export const LATEST_APK_URL =
-  'https://cpzkmzcohujpybcocipe.supabase.co/storage/v1/object/public/app-releases/ll-floor-latest.apk';
+  'https://cpzkmzcohujpybcocipe.supabase.co/storage/v1/object/public/LL%20Floor%20App%20Release/ll-floor-latest.apk';
