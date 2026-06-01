@@ -85,6 +85,7 @@ import StockWriteOffs from '@/pages/StockWriteOffs';
 import ConnectionWatchdog from '@/components/layout/ConnectionWatchdog';
 import SessionBanner from '@/components/layout/SessionBanner';
 import ErrorBoundary from '@/components/layout/ErrorBoundary';
+import NativeUpdateGate from '@/components/layout/NativeUpdateGate';
 
 function NativeAppRoleError() {
   const { logout } = useAuth();
@@ -270,13 +271,15 @@ function App() {
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>
-        <SessionBanner />
-        <Router>
-          <AuthenticatedApp />
-        </Router>
-        <ConnectionWatchdog />
-        <Toaster />
-        <SonnerToaster />
+        <NativeUpdateGate>
+          <SessionBanner />
+          <Router>
+            <AuthenticatedApp />
+          </Router>
+          <ConnectionWatchdog />
+          <Toaster />
+          <SonnerToaster />
+        </NativeUpdateGate>
       </QueryClientProvider>
     </AuthProvider>
   )
