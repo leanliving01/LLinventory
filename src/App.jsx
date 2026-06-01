@@ -58,7 +58,6 @@ import FloorStockTake from '@/pages/floor/FloorStockTake';
 import FloorTransfer from '@/pages/floor/FloorTransfer';
 import FloorReceive from '@/pages/floor/FloorReceive';
 import FloorPack from '@/pages/floor/FloorPack';
-import FloorShortages from '@/pages/floor/FloorShortages';
 import Login from '@/pages/Login';
 import CookingRuns from '@/pages/CookingRuns';
 import WipInventory from '@/pages/WipInventory';
@@ -163,7 +162,6 @@ const AuthenticatedApp = () => {
           <Route path="/floor/transfer" element={<FloorTransfer />} />
           <Route path="/floor/receive" element={<FloorReceive />} />
           <Route path="/floor/pack" element={<FloorPack />} />
-          <Route path="/floor/shortages" element={<FloorShortages />} />
           <Route path="/floor/scan" element={<FloorScan />} />
         </Route>
         <Route path="*" element={<Navigate to="/floor" replace />} />
@@ -189,7 +187,6 @@ const AuthenticatedApp = () => {
         <Route path="/floor/transfer" element={<FloorTransfer />} />
         <Route path="/floor/receive" element={<FloorReceive />} />
         <Route path="/floor/pack" element={<FloorPack />} />
-        <Route path="/floor/shortages" element={<FloorShortages />} />
         <Route path="/floor/scan" element={<FloorScan />} />
       </Route>
 

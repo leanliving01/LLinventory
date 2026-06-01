@@ -199,7 +199,7 @@ export default function CustomRolesManager() {
 
 /** Hook to get parsed custom roles for use in other components */
 export function useCustomRoles() {
-  const { data: settings = [] } = useQuery({
+  const { data: settings = [], isLoading, isFetched } = useQuery({
     queryKey: ['custom-roles'],
     queryFn: async () => {
       const all = await base44.entities.Setting.filter({ group: 'org' }, 'key', 100);
@@ -207,7 +207,12 @@ export function useCustomRoles() {
     },
   });
 
-  return settings.map(s => {
+  const roles = settings.map(s => {
     try { return JSON.parse(s.value); } catch { return null; }
   }).filter(Boolean);
+  // Expose load state (as properties on the array so existing array callers are unaffected)
+  // — consumers like RouteGuard must not evaluate custom-role permissions until loaded.
+  roles.isLoading = isLoading;
+  roles.isFetched = isFetched;
+  return roles;
 }

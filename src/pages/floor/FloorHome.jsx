@@ -10,7 +10,6 @@ import {
   ArrowLeftRight,
   Truck,
   ScanBarcode,
-  AlertTriangle,
   ChevronRight,
   Box,
 } from 'lucide-react';
@@ -43,15 +42,6 @@ const MODULES = [
     permission: 'pick_lists',
     iconColor: 'bg-indigo-500',
     accent: 'border-l-indigo-500',
-  },
-  {
-    path: '/floor/shortages',
-    label: 'Yield Tracker',
-    description: 'Shortages & surplus plating',
-    icon: AlertTriangle,
-    permission: 'yield_tracker',
-    iconColor: 'bg-red-500',
-    accent: 'border-l-red-500',
   },
   {
     path: '/floor/stock-take',

@@ -1,9 +1,9 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
-import { getUserPermissions } from '@/lib/permissions';
+import { getUserPermissions, BUILT_IN_ROLES } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
-import { ShieldAlert } from 'lucide-react';
+import { Loader2, ShieldAlert } from 'lucide-react';
 
 /**
  * Maps route paths (and path prefixes) to required permission keys.
@@ -89,6 +89,19 @@ export default function RouteGuard({ children }) {
 
   const requiredPerm = getRequiredPermission(location.pathname);
   if (!requiredPerm) return children;
+
+  // If this user's role isn't a built-in role, its permissions are defined in the
+  // custom-roles data. Until that has loaded, getUserPermissions falls back to the
+  // restrictive "viewer" defaults — which would wrongly flash "Access Denied". Wait
+  // for the data instead of denying.
+  const isBuiltInRole = BUILT_IN_ROLES.includes(user.role);
+  if (!isBuiltInRole && customRoles.isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const perms = getUserPermissions(user, customRoles);
   if (perms[requiredPerm]) return children;
