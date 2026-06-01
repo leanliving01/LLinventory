@@ -237,28 +237,40 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Bulk upsert shopify_orders (single query instead of N sequential updates)
-  const allOrderRows = [
-    ...toInsert,
-    ...toUpdate.map(u => ({ id: u.id, ...u.payload })),
-  ];
-  if (allOrderRows.length) {
-    const { error: soErr } = await supabase.from('shopify_orders').upsert(allOrderRows, { onConflict: 'id' });
-    if (soErr) {
-      await markError(supabase, SOURCE_KEY, `shopify_orders upsert: ${soErr.message}`);
+  // Inserts and updates MUST be separate calls. A single mixed upsert makes
+  // supabase-js union the keys across the batch, so created_date (present only on
+  // the insert rows) gets added to the column list for the update rows too and is
+  // sent as an explicit NULL → NOT NULL violation. Keep the two row-sets apart so
+  // each batch has a uniform column set.
+  if (toInsert.length) {
+    const { error: soInsErr } = await supabase.from('shopify_orders').insert(toInsert);
+    if (soInsErr) {
+      await markError(supabase, SOURCE_KEY, `shopify_orders insert: ${soInsErr.message}`);
       if (syncLogId) await finishSyncLog(supabase, syncLogId, 'failed', { records_fetched: totalProcessed });
-      return json({ status: 'error', error: `DB error: ${soErr.message}`, processedThisPage: 0, totalProcessed, hasMore: false });
+      return json({ status: 'error', error: `DB error: ${soInsErr.message}`, processedThisPage: 0, totalProcessed, hasMore: false });
+    }
+  }
+  if (toUpdate.length) {
+    const { error: soUpdErr } = await supabase
+      .from('shopify_orders')
+      .upsert(toUpdate.map(u => ({ id: u.id, ...u.payload })), { onConflict: 'id' });
+    if (soUpdErr) {
+      await markError(supabase, SOURCE_KEY, `shopify_orders update: ${soUpdErr.message}`);
+      if (syncLogId) await finishSyncLog(supabase, syncLogId, 'failed', { records_fetched: totalProcessed });
+      return json({ status: 'error', error: `DB error: ${soUpdErr.message}`, processedThisPage: 0, totalProcessed, hasMore: false });
     }
   }
 
-  // Bulk upsert sales_orders
-  const allSalesRows = [
-    ...salesToInsert,
-    ...salesToUpdate.map(u => ({ id: u.id, ...u.payload })),
-  ];
-  if (allSalesRows.length) {
-    const { error: siErr } = await supabase.from('sales_orders').upsert(allSalesRows, { onConflict: 'id' });
-    if (siErr) console.error('sales_orders upsert error:', siErr.message);
+  // sales_orders — same rule: never mix inserts and updates in one upsert.
+  if (salesToInsert.length) {
+    const { error: siErr } = await supabase.from('sales_orders').insert(salesToInsert);
+    if (siErr) console.error('sales_orders insert error:', siErr.message);
+  }
+  if (salesToUpdate.length) {
+    const { error: suErr } = await supabase
+      .from('sales_orders')
+      .upsert(salesToUpdate.map(u => ({ id: u.id, ...u.payload })), { onConflict: 'id' });
+    if (suErr) console.error('sales_orders update error:', suErr.message);
   }
 
   // Build salesIdMap: shopify_order_id → our sales_order id
