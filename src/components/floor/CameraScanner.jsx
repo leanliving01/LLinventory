@@ -27,13 +27,34 @@ function isNativePlatform() {
 
 // ─── Native (Capacitor ML Kit) scanner ────────────────────────────────────────
 
+// Toggle the CSS that makes the WebView transparent so the native camera shows through.
+function setScanningChrome(active) {
+  const root = document.documentElement;
+  if (active) {
+    root.classList.add('barcode-scanning-active');
+    document.body.classList.add('barcode-scanning-active');
+  } else {
+    root.classList.remove('barcode-scanning-active');
+    document.body.classList.remove('barcode-scanning-active');
+  }
+}
+
 function NativeBarcodeScanner({ onScan, onClose }) {
   const [status, setStatus] = useState('requesting'); // requesting | scanning | error
   const [error, setError] = useState(null);
-  const scanningRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    let listenerHandle = null;
+
+    async function endScan() {
+      setScanningChrome(false);
+      try {
+        const { BarcodeScanner } = await import('@capacitor-mlkit/barcode-scanning');
+        await BarcodeScanner.stopScan();
+      } catch { /* not scanning */ }
+      if (listenerHandle) { try { await listenerHandle.remove(); } catch { /* noop */ } listenerHandle = null; }
+    }
 
     async function startNativeScan() {
       try {
@@ -46,26 +67,20 @@ function NativeBarcodeScanner({ onScan, onClose }) {
           setStatus('error');
           return;
         }
-
         if (cancelled) return;
-        setStatus('scanning');
-        scanningRef.current = true;
 
-        // Start scanning — this opens the native camera view
-        const listener = await BarcodeScanner.addListener('barcodeScanned', (event) => {
+        listenerHandle = await BarcodeScanner.addListener('barcodeScanned', (event) => {
           if (cancelled) return;
           const code = event.barcode?.rawValue || event.barcode?.displayValue;
-          if (code) {
-            onScan(code);
-          }
+          if (code) onScan(code);
         });
 
+        // Make the WebView transparent, then start the native camera behind it.
+        setScanningChrome(true);
+        setStatus('scanning');
         await BarcodeScanner.startScan({ lensFacing: LensFacing.Back });
-
-        return () => {
-          listener.remove();
-        };
       } catch (err) {
+        setScanningChrome(false);
         if (!cancelled) {
           setError('Failed to start scanner: ' + (err?.message || String(err)));
           setStatus('error');
@@ -73,15 +88,11 @@ function NativeBarcodeScanner({ onScan, onClose }) {
       }
     }
 
-    const cleanup = startNativeScan();
+    startNativeScan();
 
     return () => {
       cancelled = true;
-      scanningRef.current = false;
-      import('@capacitor-mlkit/barcode-scanning').then(({ BarcodeScanner }) => {
-        BarcodeScanner.stopScan().catch(() => {});
-        cleanup.then(fn => fn?.()).catch(() => {});
-      });
+      endScan();
     };
   }, [onScan]);
 
@@ -91,9 +102,11 @@ function NativeBarcodeScanner({ onScan, onClose }) {
   };
 
   if (status === 'scanning') {
-    // Native scanner overlays the full screen — just show a close button
+    // Native scanner overlays the full screen — just show a close button.
+    // .barcode-scanning-ui keeps this overlay visible while the rest of the WebView is
+    // hidden (transparent) so the camera preview behind it is visible.
     return (
-      <div className="fixed inset-0 z-50 flex flex-col pointer-events-none">
+      <div className="barcode-scanning-ui fixed inset-0 z-50 flex flex-col pointer-events-none">
         <div className="flex items-center justify-between px-4 py-3 bg-black/60 pointer-events-auto safe-area-pt">
           <span className="text-white text-sm font-medium">Scan Barcode</span>
           <Button variant="ghost" size="icon" className="text-white h-11 w-11" onClick={onClose}>

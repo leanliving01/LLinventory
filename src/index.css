@@ -202,6 +202,22 @@
   padding-top: env(safe-area-inset-top, 0px);
 }
 
+/* ── Native ML Kit barcode scanner ──
+   The native camera preview renders BEHIND the WebView. To see it we must make the
+   WebView transparent while scanning: hide the web UI and clear backgrounds, keeping
+   only the scanner overlay (.barcode-scanning-ui) visible. */
+html.barcode-scanning-active,
+html.barcode-scanning-active body {
+  background: transparent !important;
+}
+body.barcode-scanning-active {
+  visibility: hidden;
+}
+body.barcode-scanning-active .barcode-scanning-ui,
+body.barcode-scanning-active .barcode-scanning-ui * {
+  visibility: visible;
+}
+
 /* ── Print styles ── */
 @media print {
   nav,
