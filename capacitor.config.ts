@@ -20,9 +20,14 @@ const config: CapacitorConfig = {
       '*.supabase.co',
     ],
   },
+  // NOTE: CapacitorHttp is intentionally DISABLED. When enabled it patches the WebView's
+  // global fetch to route through native HTTP, which breaks supabase-js (AbortSignal +
+  // response streaming) and makes every Supabase request hang until it times out — data
+  // never loads on the native app even though the web app works. Nothing in the codebase
+  // uses CapacitorHttp, and Supabase serves permissive CORS, so standard fetch is correct.
   plugins: {
     CapacitorHttp: {
-      enabled: true,
+      enabled: false,
     },
   },
 };

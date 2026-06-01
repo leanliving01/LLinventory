@@ -14,7 +14,8 @@
 // Next launch, any device on an older APK is blocked with a "Download update" screen.
 
 // Minimum Android versionCode allowed to run. Installed APKs below this are forced to update.
-export const REQUIRED_NATIVE_BUILD = 1;
+// Bumped to 2: build 1 had CapacitorHttp enabled, which broke all Supabase data loading.
+export const REQUIRED_NATIVE_BUILD = 2;
 
 // Stable public link to the latest APK. Supabase Storage, public bucket
 // "LL Floor App Release" (spaces URL-encoded as %20). Overwrite the file in place on
