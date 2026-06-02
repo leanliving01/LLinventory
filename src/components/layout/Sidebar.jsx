@@ -352,7 +352,7 @@ export default function Sidebar({ collapsed, onToggle, onAiOpen }) {
           className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium w-full text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-all"
         >
           <Sparkles className="w-5 h-5 shrink-0" strokeWidth={1.5} />
-          {!collapsed && <span>AI Assistant</span>}
+          {!collapsed && <span>Livi</span>}
         </button>
       </div>
 

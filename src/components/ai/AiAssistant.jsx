@@ -1,16 +1,35 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { supabase } from '@/api/supabaseClient';
-import { X, Send, Sparkles, Bot } from 'lucide-react';
+import { X, Send, Sparkles, Bot, Newspaper, HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import ReactMarkdown from 'react-markdown';
+import { useAuth } from '@/lib/AuthContext';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
+import { getUserPermissions } from '@/lib/permissions';
 
-const GREETING = `Hi! I'm your Lean Living assistant. I can answer questions about your invoices, suppliers, stock levels, production, sales, and anything else in your operations data.\n\nWhat would you like to know?`;
+const GREETING = `Hi, I'm **Livi** — your Lean Living assistant. I answer from your system manual and your live data (only what your role allows), and I'll tell you if something isn't documented yet.\n\nAsk me how something works, or about your stock, orders, suppliers, production or packing.`;
 
 const SUGGESTIONS = [
-  "What's our current stock on hand?",
-  "Compare this month's invoices to last month",
+  "How does split supplements/meals packing work?",
+  "What's below par level right now?",
   "Which suppliers have outstanding purchase orders?",
-  "What was our biggest wastage item this week?",
+  "How is each packer performing this week?",
 ];
+
+// Friendly name for the current screen (for "explain this screen").
+function pageNameFromPath(pathname) {
+  const map = {
+    '/': 'Dashboard', '/sales': 'Sales Orders', '/reports/dispatch': 'Dispatch Performance',
+    '/reports/employees': 'Employee Performance', '/reports/team': 'Team Performance',
+    '/purchasing/orders': 'Purchase Orders', '/purchasing/dashboard': 'Purchasing Dashboard',
+    '/purchasing/scorecard': 'Supplier Scorecard', '/reports/food-cost': 'Food Cost',
+    '/stock/overview': 'Inventory Overview', '/production/runs': 'Production Runs',
+  };
+  if (map[pathname]) return map[pathname];
+  const seg = (pathname || '').split('/').filter(Boolean).pop() || 'this page';
+  return seg.replace(/-/g, ' ');
+}
 
 function ThinkingDots() {
   return (
@@ -42,9 +61,15 @@ function MessageBubble({ message }) {
             ? 'bg-primary text-primary-foreground rounded-br-sm'
             : 'bg-muted text-foreground rounded-bl-sm',
         )}
-        style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+        style={{ wordBreak: 'break-word' }}
       >
-        {message.content}
+        {isUser ? (
+          <span style={{ whiteSpace: 'pre-wrap' }}>{message.content}</span>
+        ) : (
+          <div className="prose prose-sm dark:prose-invert max-w-none [&_table]:text-xs [&_p]:my-1 [&_ul]:my-1 [&_th]:px-2 [&_td]:px-2">
+            <ReactMarkdown>{message.content}</ReactMarkdown>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -57,6 +82,12 @@ export default function AiAssistant({ open, onClose }) {
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
+  const { user } = useAuth();
+  const customRoles = useCustomRoles();
+  const location = useLocation();
+  const perms = useMemo(() => getUserPermissions(user || {}, customRoles), [user, customRoles]);
+  const pageContext = useMemo(() => pageNameFromPath(location?.pathname), [location?.pathname]);
+
   useEffect(() => {
     if (open) {
       setTimeout(() => inputRef.current?.focus(), 100);
@@ -67,11 +98,12 @@ export default function AiAssistant({ open, onClose }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  const send = useCallback(async (text) => {
-    const trimmed = text.trim();
-    if (!trimmed || isLoading) return;
+  const send = useCallback(async (text, mode = 'chat') => {
+    const trimmed = (text || '').trim();
+    if ((!trimmed && mode === 'chat') || isLoading) return;
 
-    const userMessage = { role: 'user', content: trimmed };
+    const shown = trimmed || (mode === 'digest' ? "Today's digest" : mode === 'explain_screen' ? `Explain this screen (${pageContext})` : '');
+    const userMessage = { role: 'user', content: shown };
     const nextMessages = [...messages, userMessage];
     setMessages(nextMessages);
     setInput('');
@@ -79,11 +111,11 @@ export default function AiAssistant({ open, onClose }) {
 
     try {
       const { data, error } = await supabase.functions.invoke('ai-chat', {
-        body: { messages: nextMessages },
+        body: { messages: nextMessages, perms, pageContext, mode },
       });
 
       if (error) throw new Error(error.message);
-      const reply = data?.reply ?? 'Sorry, I could not get a response. Please try again.';
+      const reply = data?.reply ?? data?.error ?? 'Sorry, I could not get a response. Please try again.';
       setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
     } catch (err) {
       setMessages((prev) => [
@@ -93,7 +125,7 @@ export default function AiAssistant({ open, onClose }) {
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isLoading]);
+  }, [messages, isLoading, perms, pageContext]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -122,14 +154,32 @@ export default function AiAssistant({ open, onClose }) {
             <Sparkles className="w-4 h-4 text-primary" />
           </div>
           <div className="flex-1">
-            <p className="font-semibold text-sm">AI Assistant</p>
-            <p className="text-xs text-muted-foreground">Lean Living Operations</p>
+            <p className="font-semibold text-sm">Livi</p>
+            <p className="text-xs text-muted-foreground">Lean Living assistant</p>
           </div>
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Quick actions */}
+        <div className="flex gap-2 px-3 py-2 border-b border-border shrink-0">
+          <button
+            onClick={() => send('', 'digest')}
+            disabled={isLoading}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 text-xs px-2 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-50 transition-colors"
+          >
+            <Newspaper className="w-3.5 h-3.5" /> Today's digest
+          </button>
+          <button
+            onClick={() => send('', 'explain_screen')}
+            disabled={isLoading}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 text-xs px-2 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-50 transition-colors"
+          >
+            <HelpCircle className="w-3.5 h-3.5" /> Explain this screen
           </button>
         </div>
 
