@@ -32,7 +32,10 @@ export default function Sales() {
     if (statusFilter !== 'all') {
       list = list.filter(o => o.lifecycle_state === statusFilter);
     }
-    if (packFilter !== 'all') {
+    if (packFilter === 'partly') {
+      // one section packed but the order isn't fully packed yet (split supplements/meals)
+      list = list.filter(o => o.status === 'picking' && (o.sup_status === 'done' || o.mea_status === 'done'));
+    } else if (packFilter !== 'all') {
       list = list.filter(o => o.status === packFilter);
     }
     if (search.trim()) {

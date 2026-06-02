@@ -40,7 +40,8 @@ export default function SalesFilters({ search, onSearchChange, statusFilter, onS
             <SelectContent>
               <SelectItem value="all">All Pack Status</SelectItem>
               <SelectItem value="pending">Not Packed</SelectItem>
-              <SelectItem value="picking">Picking</SelectItem>
+              <SelectItem value="picking">Busy Packing</SelectItem>
+              <SelectItem value="partly">Part-Packed (1 section)</SelectItem>
               <SelectItem value="packed">Packed</SelectItem>
               <SelectItem value="shipped">Shipped</SelectItem>
             </SelectContent>
