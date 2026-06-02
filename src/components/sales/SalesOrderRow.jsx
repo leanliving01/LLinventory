@@ -146,6 +146,32 @@ export default function SalesOrderRow({ order }) {
 
       {expanded && (
         <div className="px-4 pb-4 pt-1 bg-muted/30">
+          {/* Packing proof photo(s) — per section, who packed it and when */}
+          {(order.sup_proof_url || order.mea_proof_url) && (
+            <div className="mb-3 rounded-lg border bg-card p-3">
+              <p className="text-xs font-semibold text-muted-foreground mb-2">Packing Proof</p>
+              <div className="flex flex-wrap gap-4">
+                {order.sup_proof_url && (
+                  <div className="text-center">
+                    <a href={order.sup_proof_url} target="_blank" rel="noreferrer">
+                      <img src={order.sup_proof_url} alt="Supplements proof" className="w-28 h-28 object-cover rounded-lg border hover:opacity-90" />
+                    </a>
+                    <p className="text-[11px] mt-1 font-medium">Supplements</p>
+                    <p className="text-[10px] text-muted-foreground">{order.sup_packer_name || '—'}{order.sup_packed_at ? ` · ${formatDateTimeSAST(order.sup_packed_at)}` : ''}</p>
+                  </div>
+                )}
+                {order.mea_proof_url && (
+                  <div className="text-center">
+                    <a href={order.mea_proof_url} target="_blank" rel="noreferrer">
+                      <img src={order.mea_proof_url} alt="Meals proof" className="w-28 h-28 object-cover rounded-lg border hover:opacity-90" />
+                    </a>
+                    <p className="text-[11px] mt-1 font-medium">Meals</p>
+                    <p className="text-[10px] text-muted-foreground">{order.mea_packer_name || '—'}{order.mea_packed_at ? ` · ${formatDateTimeSAST(order.mea_packed_at)}` : ''}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           <div className="rounded-lg border bg-card overflow-hidden">
             <table className="w-full text-sm">
               <thead>

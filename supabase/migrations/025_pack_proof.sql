@@ -26,10 +26,10 @@ CREATE POLICY "pack-proofs select" ON storage.objects
   FOR SELECT TO anon, authenticated
   USING (bucket_id = 'pack-proofs');
 
--- ── 90-day retention (optional — run once; needs the pg_cron extension) ──
+-- ── 45-day retention (optional — run once; needs the pg_cron extension) ──
 -- Enable pg_cron in Dashboard → Database → Extensions, then:
 --   create extension if not exists pg_cron;
 --   select cron.schedule('purge-pack-proofs','0 3 * * *',
 --     $$ delete from storage.objects
---        where bucket_id='pack-proofs' and created_at < now() - interval '90 days' $$);
--- (Removes proof photos older than 3 months so storage stays a rolling window.)
+--        where bucket_id='pack-proofs' and created_at < now() - interval '45 days' $$);
+-- (Removes proof photos older than 45 days so storage stays a rolling window.)
