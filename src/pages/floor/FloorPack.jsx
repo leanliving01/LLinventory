@@ -483,6 +483,14 @@ export default function FloorPack() {
     }
   }, [selectedOrder?.id, section]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Hide the floor bottom nav while a section is being packed, so the Finish button at the
+  // bottom is clear and reachable (and there's no nav to mis-tap during packing).
+  useEffect(() => {
+    const active = !!(selectedOrder && section);
+    document.body.classList.toggle('floor-packing', active);
+    return () => document.body.classList.remove('floor-packing');
+  }, [selectedOrder?.id, section]);
+
   const handlePause = async () => {
     if (!section) return;
     const cols = SECTION_COLS[section];
@@ -527,11 +535,16 @@ export default function FloorPack() {
     e.target.value = ''; // allow re-picking the same file
     if (!file || !section || !selectedOrder) return;
     setUploadingProof(true);
+    let proofUrl = null;
     try {
-      const proofUrl = await uploadPackProof(file, selectedOrder.id, section);
-      await finalizePacking(proofUrl);
+      proofUrl = await uploadPackProof(file, selectedOrder.id, section);
     } catch (err) {
-      toast.error('Photo upload failed — try again: ' + (err?.message || ''));
+      // Never block completion if the photo can't be saved (e.g. storage not configured) —
+      // the pack still finishes so the packer moves on to the next order.
+      toast.error('Photo not saved (' + (err?.message || 'upload failed') + ') — order still completed');
+    }
+    try {
+      await finalizePacking(proofUrl);
     } finally {
       setUploadingProof(false);
     }
@@ -728,10 +741,9 @@ export default function FloorPack() {
                 <Input
                   value={scanInput}
                   onChange={e => setScanInput(e.target.value)}
-                  placeholder={isPaused ? 'Paused — resume to scan' : 'Scan meal barcode...'}
+                  placeholder={isPaused ? 'Paused — resume to scan' : 'Scan barcode (or tap to type)…'}
                   className="h-14 text-lg font-mono pl-11"
                   disabled={isPaused}
-                  autoFocus={!isPaused}
                 />
               </div>
               <Button
@@ -783,7 +795,7 @@ export default function FloorPack() {
 
         {/* Finish bar */}
         {packingStartedAt && allPackItems.length > 0 && (
-          <div className="fixed bottom-[68px] left-0 right-0 px-4 pb-4 pt-2 bg-gradient-to-t from-background via-background to-transparent z-30">
+          <div className="fixed bottom-0 left-0 right-0 px-4 pb-4 pt-2 safe-area-pb bg-gradient-to-t from-background via-background to-transparent z-40">
             <input
               ref={proofInputRef}
               type="file"

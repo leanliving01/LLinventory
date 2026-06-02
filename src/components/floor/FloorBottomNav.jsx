@@ -29,7 +29,7 @@ export default function FloorBottomNav() {
   });
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-card border-t border-border z-40 safe-area-pb">
+    <nav className="floor-bottom-nav fixed bottom-0 left-0 right-0 bg-card border-t border-border z-40 safe-area-pb">
       <div className="flex items-stretch justify-around max-w-lg mx-auto">
         {visibleItems.map(item => {
           const isActive = location.pathname === item.path ||

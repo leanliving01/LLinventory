@@ -201,6 +201,10 @@
 .safe-area-pt {
   padding-top: env(safe-area-inset-top, 0px);
 }
+/* Hide the floor bottom nav while actively packing so the Finish button is clear */
+body.floor-packing .floor-bottom-nav {
+  display: none;
+}
 
 /* ── Native ML Kit barcode scanner ──
    The native camera preview renders BEHIND the WebView. To see it we must make the
