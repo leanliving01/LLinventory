@@ -2,11 +2,11 @@ import React, { useMemo } from 'react';
 import { Users, Package, ScanLine, Utensils, Pill, Clock } from 'lucide-react';
 import { formatDurationShort } from '@/lib/taskDuration';
 
-export default function DispatchStatCards({ orders = [], members = [], kpi }) {
+export default function DispatchStatCards({ events = [], members = [], kpi }) {
   const stats = useMemo(() => {
-    const sum = (k) => orders.reduce((s, o) => s + (Number(o[k]) || 0), 0);
-    const ordersCount = orders.length;
-    const totalSec = sum('packing_active_seconds');
+    const sum = (k) => events.reduce((s, e) => s + (Number(e[k]) || 0), 0);
+    const ordersCount = new Set(events.map(e => e.sales_order_id)).size;
+    const totalSec = sum('active_seconds');
     return [
       { label: 'Active Packers', value: members.length, icon: Users, color: 'text-blue-600 bg-blue-50' },
       { label: 'Orders Packed', value: ordersCount, icon: Package, color: 'text-indigo-600 bg-indigo-50' },
@@ -15,7 +15,7 @@ export default function DispatchStatCards({ orders = [], members = [], kpi }) {
       { label: 'Supplements Packed', value: sum('packed_supplements').toLocaleString(), icon: Pill, color: 'text-amber-600 bg-amber-50' },
       { label: 'Avg Time / Order', value: ordersCount > 0 ? formatDurationShort(totalSec / ordersCount) : '—', icon: Clock, color: 'text-rose-600 bg-rose-50' },
     ];
-  }, [orders, members, kpi]);
+  }, [events, members, kpi]);
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">

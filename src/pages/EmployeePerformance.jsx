@@ -24,9 +24,9 @@ export default function EmployeePerformance() {
     queryKey: ['all-task-logs-perf'],
     queryFn: () => base44.entities.ProductionTaskLog.list('-timestamp', 5000),
   });
-  const { data: packedOrders = [] } = useQuery({
-    queryKey: ['dispatch-packed-orders'],
-    queryFn: () => base44.entities.SalesOrder.filter({ status: 'packed' }, '-packed_at', 3000),
+  const { data: completedEvents = [] } = useQuery({
+    queryKey: ['dispatch-completed-events'],
+    queryFn: () => base44.entities.PackingEventLog.filter({ event_type: 'completed' }, '-timestamp', 5000),
   });
 
   const filteredTasks = useMemo(() => tasks.filter(t => {
@@ -35,11 +35,11 @@ export default function EmployeePerformance() {
     return d >= dateRange.from && d <= dateRange.to;
   }), [tasks, dateRange]);
 
-  const filteredOrders = useMemo(() => packedOrders.filter(o => {
-    if (!o.packed_at) return false;
-    const d = new Date(o.packed_at);
+  const filteredEvents = useMemo(() => completedEvents.filter(e => {
+    if (!e.timestamp) return false;
+    const d = new Date(e.timestamp);
     return d >= dateRange.from && d <= dateRange.to;
-  }), [packedOrders, dateRange]);
+  }), [completedEvents, dateRange]);
 
   const logsByTask = useMemo(() => {
     const map = {};
@@ -50,7 +50,7 @@ export default function EmployeePerformance() {
     return map;
   }, [taskLogs]);
 
-  const dispatchKpi = useMemo(() => computeDispatchKpis(filteredOrders, members), [filteredOrders, members]);
+  const dispatchKpi = useMemo(() => computeDispatchKpis(filteredEvents, members), [filteredEvents, members]);
   const packingByMember = useMemo(() => {
     const m = {};
     dispatchKpi.rows.forEach(r => { m[r.member_id] = r; });
@@ -69,7 +69,7 @@ export default function EmployeePerformance() {
         member={selected}
         production={computeMemberProductionStats(selected.id, filteredTasks, logsByTask)}
         packing={packingByMember[selected.id] || null}
-        packingOrders={filteredOrders.filter(o => o.packed_by_member_id === selected.id)}
+        packingEvents={filteredEvents.filter(e => e.member_id === selected.id)}
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
         onBack={() => setSelected(null)}

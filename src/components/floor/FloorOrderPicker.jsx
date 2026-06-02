@@ -151,7 +151,23 @@ export default function FloorOrderPicker({ orders, loading, onSelect }) {
                   </p>
                 </div>
                 {order.status === 'picking' ? (
-                  <Badge className="bg-orange-100 text-orange-700 text-xs shrink-0">In Progress</Badge>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <Badge className="bg-orange-100 text-orange-700 text-xs">In Progress</Badge>
+                    {(order.sup_status || order.mea_status) && (
+                      <div className="flex gap-1">
+                        {order.sup_status && (
+                          <Badge className={`text-[9px] ${order.sup_status === 'done' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                            Supp {order.sup_status === 'done' ? '✓' : '…'}
+                          </Badge>
+                        )}
+                        {order.mea_status && (
+                          <Badge className={`text-[9px] ${order.mea_status === 'done' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                            Meals {order.mea_status === 'done' ? '✓' : '…'}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <Badge className="bg-blue-100 text-blue-700 text-xs shrink-0">Pack</Badge>
                 )}

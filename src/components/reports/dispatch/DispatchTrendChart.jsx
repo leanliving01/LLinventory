@@ -17,18 +17,18 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
-export default function DispatchTrendChart({ orders = [], from, to }) {
+export default function DispatchTrendChart({ events = [], from, to }) {
   const data = useMemo(() => {
     const days = eachDayOfInterval({ start: startOfDay(from), end: startOfDay(to) }).slice(-30);
     return days.map(day => {
-      const dayOrders = orders.filter(o => o.packed_at && isSameDay(new Date(o.packed_at), day));
+      const dayEvents = events.filter(e => e.timestamp && isSameDay(new Date(e.timestamp), day));
       return {
         date: format(day, 'dd MMM'),
-        items: dayOrders.reduce((s, o) => s + (Number(o.packed_items) || 0), 0),
-        meals: dayOrders.reduce((s, o) => s + (Number(o.packed_meals) || 0), 0),
+        items: dayEvents.reduce((s, e) => s + (Number(e.packed_items) || 0), 0),
+        meals: dayEvents.reduce((s, e) => s + (Number(e.packed_meals) || 0), 0),
       };
     });
-  }, [orders, from, to]);
+  }, [events, from, to]);
 
   const empty = data.every(d => d.items === 0 && d.meals === 0)
     ? <div className="text-center py-12 text-sm text-muted-foreground">No packing in period</div>

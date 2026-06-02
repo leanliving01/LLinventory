@@ -25,10 +25,10 @@ const Tile = ({ label, value, cls }) => (
   </div>
 );
 
-export default function EmployeeDetailView({ member, production, packing, packingOrders = [], dateRange, onDateRangeChange, onBack }) {
+export default function EmployeeDetailView({ member, production, packing, packingEvents = [], dateRange, onDateRangeChange, onBack }) {
   const hasProduction = production.tasksCompleted > 0;
   const hasPacking = packing && packing.orders > 0;
-  const packOrders = [...packingOrders].sort((a, b) => new Date(b.packed_at) - new Date(a.packed_at));
+  const packEvents = [...packingEvents].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
   return (
     <div className="space-y-5">
@@ -129,7 +129,7 @@ export default function EmployeeDetailView({ member, production, packing, packin
               Fewer than 3 orders in this period — performance % may not be representative.
             </div>
           )}
-          <DispatchTrendChart orders={packingOrders} from={dateRange.from} to={dateRange.to} />
+          <DispatchTrendChart events={packingEvents} from={dateRange.from} to={dateRange.to} />
           <div className="bg-card border border-border rounded-xl overflow-hidden">
             <div className="px-6 py-4 border-b border-border"><h3 className="text-sm font-semibold">Packing History</h3></div>
             <div className="overflow-x-auto">
@@ -137,6 +137,7 @@ export default function EmployeeDetailView({ member, production, packing, packin
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
                     <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Order</th>
+                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Section</th>
                     <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Packed</th>
                     <th className="text-center px-4 py-2.5 font-medium text-muted-foreground">Items</th>
                     <th className="text-center px-4 py-2.5 font-medium text-muted-foreground">Meals</th>
@@ -145,14 +146,15 @@ export default function EmployeeDetailView({ member, production, packing, packin
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {packOrders.map(o => (
-                    <tr key={o.id}>
-                      <td className="px-4 py-3 font-medium">{o.order_number || o.shopify_order_id || o.id}</td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">{o.packed_at ? new Date(o.packed_at).toLocaleString('en-ZA') : '—'}</td>
-                      <td className="px-4 py-3 text-center">{Number(o.packed_items) || 0}</td>
-                      <td className="px-4 py-3 text-center">{Number(o.packed_meals) || 0}</td>
-                      <td className="px-4 py-3 text-center">{Number(o.packed_supplements) || 0}</td>
-                      <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationShort(Number(o.packing_active_seconds) || 0)}</td>
+                  {packEvents.map(e => (
+                    <tr key={e.id}>
+                      <td className="px-4 py-3 font-medium">{e.order_number || e.sales_order_id}</td>
+                      <td className="px-4 py-3 text-xs capitalize text-muted-foreground">{e.section || 'all'}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{e.timestamp ? new Date(e.timestamp).toLocaleString('en-ZA') : '—'}</td>
+                      <td className="px-4 py-3 text-center">{Number(e.packed_items) || 0}</td>
+                      <td className="px-4 py-3 text-center">{Number(e.packed_meals) || 0}</td>
+                      <td className="px-4 py-3 text-center">{Number(e.packed_supplements) || 0}</td>
+                      <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationShort(Number(e.active_seconds) || 0)}</td>
                     </tr>
                   ))}
                 </tbody>

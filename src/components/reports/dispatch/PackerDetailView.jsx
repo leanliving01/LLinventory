@@ -7,7 +7,7 @@ import DateRangeFilter from '@/components/reports/DateRangeFilter';
 import DispatchTrendChart from './DispatchTrendChart';
 import { perfColor } from './PackerPerformanceTable';
 
-export default function PackerDetailView({ row, orders = [], benchmarkTUh, dateRange, onDateRangeChange, onBack }) {
+export default function PackerDetailView({ row, events = [], benchmarkTUh, dateRange, onDateRangeChange, onBack }) {
   const cards = [
     { label: 'Performance', value: row.perfPct != null ? `${row.perfPct}%` : '—', cls: perfColor(row.perfPct) },
     { label: 'Orders Packed', value: row.orders },
@@ -18,7 +18,7 @@ export default function PackerDetailView({ row, orders = [], benchmarkTUh, dateR
     { label: 'Items / Active Hr', value: row.itemsPerHour },
     { label: 'Sec / Item', value: row.secPerItem },
   ];
-  const sorted = [...orders].sort((a, b) => new Date(b.packed_at) - new Date(a.packed_at));
+  const sorted = [...events].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
   return (
     <div className="space-y-6">
@@ -49,7 +49,7 @@ export default function PackerDetailView({ row, orders = [], benchmarkTUh, dateR
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2"><DispatchTrendChart orders={orders} from={dateRange.from} to={dateRange.to} /></div>
+        <div className="lg:col-span-2"><DispatchTrendChart events={events} from={dateRange.from} to={dateRange.to} /></div>
         <div className="bg-card border border-border rounded-xl p-4">
           <h3 className="text-sm font-semibold mb-3">Meal mix</h3>
           <div className="space-y-2 text-sm">
@@ -61,12 +61,13 @@ export default function PackerDetailView({ row, orders = [], benchmarkTUh, dateR
       </div>
 
       <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-border"><h3 className="text-sm font-semibold">Order history</h3></div>
+        <div className="px-6 py-4 border-b border-border"><h3 className="text-sm font-semibold">Packing history</h3></div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Order</th>
+                <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Section</th>
                 <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Packed</th>
                 <th className="text-center px-4 py-2.5 font-medium text-muted-foreground">Items</th>
                 <th className="text-center px-4 py-2.5 font-medium text-muted-foreground">Meals</th>
@@ -75,18 +76,19 @@ export default function PackerDetailView({ row, orders = [], benchmarkTUh, dateR
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {sorted.map(o => (
-                <tr key={o.id}>
-                  <td className="px-4 py-3 font-medium">{o.order_number || o.shopify_order_id || o.id}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{o.packed_at ? new Date(o.packed_at).toLocaleString('en-ZA') : '—'}</td>
-                  <td className="px-4 py-3 text-center">{Number(o.packed_items) || 0}</td>
-                  <td className="px-4 py-3 text-center">{Number(o.packed_meals) || 0}</td>
-                  <td className="px-4 py-3 text-center">{Number(o.packed_supplements) || 0}</td>
-                  <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationShort(Number(o.packing_active_seconds) || 0)}</td>
+              {sorted.map(e => (
+                <tr key={e.id}>
+                  <td className="px-4 py-3 font-medium">{e.order_number || e.sales_order_id}</td>
+                  <td className="px-4 py-3 text-xs capitalize text-muted-foreground">{e.section || 'all'}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{e.timestamp ? new Date(e.timestamp).toLocaleString('en-ZA') : '—'}</td>
+                  <td className="px-4 py-3 text-center">{Number(e.packed_items) || 0}</td>
+                  <td className="px-4 py-3 text-center">{Number(e.packed_meals) || 0}</td>
+                  <td className="px-4 py-3 text-center">{Number(e.packed_supplements) || 0}</td>
+                  <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationShort(Number(e.active_seconds) || 0)}</td>
                 </tr>
               ))}
               {sorted.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground text-sm">No orders in period</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground text-sm">No packing in period</td></tr>
               )}
             </tbody>
           </table>

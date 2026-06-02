@@ -25,6 +25,7 @@ export default function TeamMemberEditModal({ member, onSave, onCancel }) {
   });
   const [isManager, setIsManager] = useState(member?.is_manager || false);
   const [pin, setPin] = useState(member?.manager_pin || '');
+  const [packPin, setPackPin] = useState(member?.pin || '');
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
 
@@ -37,6 +38,7 @@ export default function TeamMemberEditModal({ member, onSave, onCancel }) {
     if (!name.trim()) e.name = 'Name is required';
     if (stations.length === 0) e.stations = 'Select at least one station';
     if (isManager && pin && !/^\d{4}$/.test(pin)) e.pin = 'PIN must be exactly 4 digits';
+    if (packPin && !/^\d{4}$/.test(packPin)) e.packPin = 'PIN must be exactly 4 digits';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -49,6 +51,7 @@ export default function TeamMemberEditModal({ member, onSave, onCancel }) {
       stations,
       is_manager: isManager,
       manager_pin: isManager ? pin : '',
+      pin: packPin,
     };
     await onSave(data, member?.id);
     setSaving(false);
@@ -104,6 +107,31 @@ export default function TeamMemberEditModal({ member, onSave, onCancel }) {
             </div>
             {errors.stations && <p className="text-xs text-destructive mt-1">{errors.stations}</p>}
           </div>
+
+          {/* Packing PIN — required for dispatch staff to identify themselves when packing */}
+          {stations.includes('dispatch') && (
+            <div className="bg-muted/40 rounded-xl p-4 space-y-2 border border-border">
+              <div className="flex items-center gap-2">
+                <Truck className="w-4 h-4 text-purple-600" />
+                <Label className="text-sm font-semibold">Packing PIN</Label>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                A 4-digit PIN this person enters when they pick their name to pack orders — so nobody packs under someone else's name.
+              </p>
+              <Input
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                pattern="\d{4}"
+                value={packPin}
+                onChange={e => setPackPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="e.g. 1234"
+                className="mt-1 w-32 text-center text-lg font-mono tracking-[0.5em]"
+              />
+              {errors.packPin && <p className="text-xs text-destructive mt-1">{errors.packPin}</p>}
+              {!packPin && <p className="text-[10px] text-amber-600 mt-1">No PIN set — this person won't be able to pack until you set one.</p>}
+            </div>
+          )}
 
           {/* Manager toggle */}
           <div className="bg-purple-50 dark:bg-purple-950/40 rounded-xl p-4 space-y-3 border border-purple-200 dark:border-purple-800">

@@ -36,12 +36,20 @@ export default function TeamMemberRow({ member, onEdit, onToggleActive }) {
             <Badge variant="outline" className="text-[10px] text-muted-foreground">Inactive</Badge>
           )}
         </div>
-        {member.is_manager && member.manager_pin && (
-          <span className="text-[10px] text-muted-foreground">PIN: ••••</span>
-        )}
-        {member.is_manager && !member.manager_pin && (
-          <span className="text-[10px] text-amber-600 font-medium">⚠ No PIN set</span>
-        )}
+        <div className="flex items-center gap-2">
+          {member.is_manager && member.manager_pin && (
+            <span className="text-[10px] text-muted-foreground">Mgr PIN: ••••</span>
+          )}
+          {member.is_manager && !member.manager_pin && (
+            <span className="text-[10px] text-amber-600 font-medium">⚠ No mgr PIN</span>
+          )}
+          {stations.includes('dispatch') && member.pin && (
+            <span className="text-[10px] text-muted-foreground">Pack PIN: ••••</span>
+          )}
+          {stations.includes('dispatch') && !member.pin && (
+            <span className="text-[10px] text-amber-600 font-medium">⚠ No packing PIN</span>
+          )}
+        </div>
       </div>
 
       {/* Station badges */}

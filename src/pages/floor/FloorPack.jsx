@@ -51,6 +51,14 @@ function resolvePackColor(parentSku, packBoms) {
   return prefix?.pack_color_theme || null;
 }
 
+// Per-section column maps + helpers (split packing: supplements vs meals).
+const SECTION_COLS = {
+  supplements: { status: 'sup_status', packerId: 'sup_packer_id', packerName: 'sup_packer_name', active: 'sup_active_seconds', seg: 'sup_segment_started_at', scanned: 'sup_scanned_map', packedAt: 'sup_packed_at' },
+  meals:       { status: 'mea_status', packerId: 'mea_packer_id', packerName: 'mea_packer_name', active: 'mea_active_seconds', seg: 'mea_segment_started_at', scanned: 'mea_scanned_map', packedAt: 'mea_packed_at' },
+};
+const SECTION_LABEL = { supplements: 'Supplements', meals: 'Meals' };
+const sectionOf = (groupKey) => (groupKey === 'supplements' ? 'supplements' : 'meals');
+
 export default function FloorPack() {
   const queryClient = useQueryClient();
   const { triggerFeedback, FeedbackWrapper } = useScanFeedback();
@@ -60,6 +68,7 @@ export default function FloorPack() {
 
   // Order & scanning
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [section, setSection] = useState(null); // 'supplements' | 'meals' | null (which section is being packed)
   const [scannedMap, setScannedMap] = useState({});
   const [scanInput, setScanInput] = useState('');
   const [showCamera, setShowCamera] = useState(false);
@@ -76,32 +85,6 @@ export default function FloorPack() {
   const bufferRef = useRef('');
   const timerRef = useRef(null);
   const saveDebounceRef = useRef(null);
-
-  // ── Restore timer state AND scan progress when re-entering a picking order ──
-  useEffect(() => {
-    if (selectedOrder && selectedOrder.status === 'picking' && selectedOrder.picking_started_at) {
-      setPackingStartedAt(selectedOrder.picking_started_at);
-      const savedSeconds = selectedOrder.packing_duration_seconds || 0;
-      setAccumulatedSeconds(savedSeconds);
-      if (selectedOrder.packing_paused) {
-        setIsPaused(true);
-        segmentStartRef.current = null;
-      } else {
-        setIsPaused(false);
-        segmentStartRef.current = Date.now();
-      }
-      if (selectedOrder.packed_by_name && !packer) {
-        setPacker({ name: selectedOrder.packed_by_name, id: selectedOrder.packed_by_member_id });
-      }
-      // Restore scanned progress
-      if (selectedOrder.packing_scanned_map) {
-        try {
-          const saved = JSON.parse(selectedOrder.packing_scanned_map);
-          if (saved && typeof saved === 'object') setScannedMap(saved);
-        } catch { /* ignore bad JSON */ }
-      }
-    }
-  }, [selectedOrder?.id]);
 
   // ── Data queries ──
   const { data: orders = [], isLoading: loadingOrders } = useQuery({
@@ -214,33 +197,39 @@ export default function FloorPack() {
         })),
       });
     }
-    if (trueStandalone.length > 0) {
-      // Determine what's in the standalone group using product type
-      let hasMeals = false;
-      let hasSupplements = false;
-      trueStandalone.forEach(ol => {
-        const info = skuTypeMap[(ol.sku || '').toLowerCase()];
-        if (info?.type === 'supplement') hasSupplements = true;
-        else if (info?.type === 'sauce' && info?.sellable) hasSupplements = true;
-        else if (info?.type === 'finished_meal') hasMeals = true;
-        else hasMeals = true; // default unknown to meals
-      });
-      const standaloneLabel = hasMeals && hasSupplements ? 'Meals & Supplements'
-        : hasSupplements ? 'Supplements'
-        : 'Meals';
-
-      result.push({
-        groupKey: 'standalone', label: standaloneLabel, subtitle: null,
-        items: trueStandalone.map(ol => ({
-          key: `sol-${ol.id}`, sku: ol.sku || '', skuLower: (ol.sku || '').toLowerCase(),
-          name: resolvedName(ol.sku, ol.name), qty: ol.qty || 0, variantTitle: ol.variant_title,
-        })),
-      });
+    // Split standalone lines into Meals vs Supplements so each is its own section/group.
+    const isSupplementLine = (ol) => {
+      const info = skuTypeMap[(ol.sku || '').toLowerCase()];
+      return info?.type === 'supplement' || (info?.type === 'sauce' && info?.sellable);
+    };
+    const mapStandalone = (ol) => ({
+      key: `sol-${ol.id}`, sku: ol.sku || '', skuLower: (ol.sku || '').toLowerCase(),
+      name: resolvedName(ol.sku, ol.name), qty: ol.qty || 0, variantTitle: ol.variant_title,
+    });
+    const standaloneSupps = trueStandalone.filter(isSupplementLine);
+    const standaloneMeals = trueStandalone.filter(ol => !isSupplementLine(ol));
+    if (standaloneMeals.length > 0) {
+      result.push({ groupKey: 'standalone', label: 'Meals', subtitle: null, items: standaloneMeals.map(mapStandalone) });
+    }
+    if (standaloneSupps.length > 0) {
+      result.push({ groupKey: 'supplements', label: 'Supplements', subtitle: null, items: standaloneSupps.map(mapStandalone) });
     }
     return result;
   }, [orderLines, skuNameMap, skuTypeMap, packBoms]);
 
-  const allPackItems = useMemo(() => groups.flatMap(g => g.items), [groups]);
+  // Which sections this order actually contains, the groups for the active section, and
+  // the active section's items (everything downstream — scan set, totals, finish gate —
+  // is scoped to these so a section can be packed independently).
+  const sectionsPresent = useMemo(() => {
+    const set = new Set();
+    groups.forEach(g => set.add(sectionOf(g.groupKey)));
+    return ['supplements', 'meals'].filter(s => set.has(s));
+  }, [groups]);
+  const sectionGroups = useMemo(
+    () => (section ? groups.filter(g => sectionOf(g.groupKey) === section) : groups),
+    [groups, section],
+  );
+  const allPackItems = useMemo(() => sectionGroups.flatMap(g => g.items), [sectionGroups]);
 
   // Build barcode/SKU → product SKU lookup.
   // Handles leading-zero ambiguity: scanners may add or strip a leading '0'.
@@ -318,18 +307,18 @@ export default function FloorPack() {
 
   // ── Auto-save scan progress after each scan (debounced 2s) ──
   useEffect(() => {
-    if (!selectedOrder?.id || !packingStartedAt) return;
+    if (!selectedOrder?.id || !packingStartedAt || !section) return;
     // Don't save empty maps (initial load)
     const hasScans = Object.keys(scannedMap).length > 0;
     if (!hasScans) return;
     clearTimeout(saveDebounceRef.current);
     saveDebounceRef.current = setTimeout(() => {
       base44.entities.SalesOrder.update(selectedOrder.id, {
-        packing_scanned_map: JSON.stringify(scannedMap),
+        [SECTION_COLS[section].scanned]: JSON.stringify(scannedMap),
       }).catch(() => {}); // silent — best-effort background save
     }, 2000);
     return () => clearTimeout(saveDebounceRef.current);
-  }, [scannedMap, selectedOrder?.id, packingStartedAt]);
+  }, [scannedMap, selectedOrder?.id, packingStartedAt, section]);
   useEffect(() => { packingStartedAtRef.current = packingStartedAt; }, [packingStartedAt]);
   useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
 
@@ -452,82 +441,134 @@ export default function FloorPack() {
     }).catch(() => {});
   };
 
-  const handleStartPacking = async () => {
-    const now = new Date().toISOString();
-    setPackingStartedAt(now);
+  // Auto-select the section: if only one section is left to pack, go straight in; if both
+  // are still open, the Section chooser (in render) lets the packer pick.
+  useEffect(() => {
+    if (!selectedOrder || section || loadingLines) return;
+    const open = sectionsPresent.filter(s => selectedOrder[SECTION_COLS[s].status] !== 'done');
+    if (open.length === 1) setSection(open[0]);
+    else if (open.length === 0 && sectionsPresent.length > 0) setSection(sectionsPresent[0]);
+    // open.length > 1 → render the chooser (section stays null)
+  }, [selectedOrder?.id, section, loadingLines, sectionsPresent]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-start / restore the active section's timer + scan progress on entry — entering the
+  // section starts the clock (no manual "Start Packing").
+  useEffect(() => {
+    if (!selectedOrder || !section) return;
+    const cols = SECTION_COLS[section];
+    setAccumulatedSeconds(selectedOrder[cols.active] || 0);
+    setPackingStartedAt(selectedOrder[cols.seg] || selectedOrder.picking_started_at || new Date().toISOString());
+    let restored = {};
+    if (selectedOrder[cols.scanned]) { try { const s = JSON.parse(selectedOrder[cols.scanned]); if (s && typeof s === 'object') restored = s; } catch { /* ignore */ } }
+    setScannedMap(restored);
     setIsPaused(false);
-    setAccumulatedSeconds(0);
-    setScannedMap({});
-    segmentStartRef.current = Date.now();
-    await base44.entities.SalesOrder.update(selectedOrder.id, {
-      status: 'picking',
-      picking_started_at: now,
-      packing_paused: false,
-      packing_duration_seconds: 0,
-      packing_scanned_map: '{}',
-      packed_by_name: packer?.name || '',
-      packed_by_member_id: packer?.id || '',
-    });
-    logPackingEvent('started');
-    toast.success('Packing started — scan items!');
-  };
+    const segAt = selectedOrder[cols.seg];
+    if (segAt) {
+      segmentStartRef.current = new Date(segAt).getTime();
+    } else {
+      segmentStartRef.current = Date.now();
+      const now = new Date().toISOString();
+      base44.entities.SalesOrder.update(selectedOrder.id, {
+        status: selectedOrder.status === 'pending' ? 'picking' : selectedOrder.status,
+        picking_started_at: selectedOrder.picking_started_at || now,
+        [cols.status]: 'in_progress',
+        [cols.packerId]: packer?.id || '',
+        [cols.packerName]: packer?.name || '',
+        [cols.seg]: now,
+      }).catch(() => {});
+      logPackingEvent('started', { section });
+    }
+  }, [selectedOrder?.id, section]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePause = async () => {
-    const segSec = getCurrentSegmentSeconds();
-    const newTotal = accumulatedSeconds + segSec;
+    if (!section) return;
+    const cols = SECTION_COLS[section];
+    const newTotal = accumulatedSeconds + getCurrentSegmentSeconds();
     setAccumulatedSeconds(newTotal);
     segmentStartRef.current = null;
     setIsPaused(true);
     await base44.entities.SalesOrder.update(selectedOrder.id, {
-      packing_paused: true,
-      packing_duration_seconds: newTotal,
-      packing_scanned_map: JSON.stringify(scannedMap),
+      [cols.active]: newTotal,
+      [cols.seg]: null,
+      [cols.scanned]: JSON.stringify(scannedMap),
     });
-    logPackingEvent('paused');
+    logPackingEvent('paused', { section });
     toast('Packing paused');
   };
 
   const handleResume = async () => {
+    if (!section) return;
+    const cols = SECTION_COLS[section];
+    const now = new Date().toISOString();
     segmentStartRef.current = Date.now();
     setIsPaused(false);
-    await base44.entities.SalesOrder.update(selectedOrder.id, {
-      packing_paused: false,
-    });
-    logPackingEvent('resumed');
+    await base44.entities.SalesOrder.update(selectedOrder.id, { [cols.seg]: now });
+    logPackingEvent('resumed', { section });
     toast.success('Resumed packing — scan items!');
   };
 
   const handleFinishPacking = async () => {
+    if (!section) return;
+    const cols = SECTION_COLS[section];
     const incomplete = allPackItems.find(i => (scannedMap[i.skuLower] || 0) < i.qty);
     if (incomplete) {
       toast.error(`Still need to scan ${incomplete.name} (${scannedMap[incomplete.skuLower] || 0}/${incomplete.qty})`);
       return;
     }
     setPacking(true);
-    const now = new Date().toISOString();
-    const totalSec = accumulatedSeconds + getCurrentSegmentSeconds();
-    // Freeze what was packed (line items, meals, supplements) for KPIs — packing_scanned_map
-    // is cleared below, so this snapshot is the historical record.
-    const snap = computePackedSnapshot(groups, skuTypeMap);
-    await base44.entities.SalesOrder.update(selectedOrder.id, {
-      status: 'packed',
-      packed_at: now,
-      packing_paused: false,
-      packing_duration_seconds: totalSec,
-      packing_active_seconds: totalSec,
-      packing_scanned_map: '',
-      ...snap,
-    });
-    logPackingEvent('completed', { ...snap, active_seconds: totalSec });
-    queryClient.invalidateQueries({ queryKey: ['floor-pack-orders'] });
-    toast.success(`Order ${selectedOrder.order_number || selectedOrder.shopify_order_id} packed in ${Math.floor(totalSec / 60)}m ${totalSec % 60}s!`);
-    setPacking(false);
-    setSelectedOrder(null);
-    setScannedMap({});
-    setPackingStartedAt(null);
-    setIsPaused(false);
-    setAccumulatedSeconds(0);
-    segmentStartRef.current = null;
+    try {
+      const now = new Date().toISOString();
+      const totalSec = accumulatedSeconds + getCurrentSegmentSeconds();
+      // This section's snapshot (KPI attribution is per section, from the 'completed' event).
+      const snap = computePackedSnapshot(sectionGroups, skuTypeMap);
+      await base44.entities.SalesOrder.update(selectedOrder.id, {
+        [cols.status]: 'done',
+        [cols.active]: totalSec,
+        [cols.seg]: null,
+        [cols.packedAt]: now,
+        [cols.packerId]: packer?.id || '',
+        [cols.packerName]: packer?.name || '',
+        [cols.scanned]: JSON.stringify(scannedMap),
+      });
+      logPackingEvent('completed', { section, ...snap, active_seconds: totalSec });
+
+      // Re-fetch the latest order so a concurrent section completion isn't missed, then roll
+      // the whole order up to 'packed' only once every present section is done.
+      const fresh = (await base44.entities.SalesOrder.filter({ id: selectedOrder.id }))[0] || selectedOrder;
+      const allDoneNow = sectionsPresent.every(s => (s === section ? true : fresh[SECTION_COLS[s].status] === 'done'));
+      if (allDoneNow) {
+        const rollupSnap = computePackedSnapshot(groups, skuTypeMap);
+        const otherActive = sectionsPresent
+          .filter(s => s !== section)
+          .reduce((sum, s) => sum + (Number(fresh[SECTION_COLS[s].active]) || 0), 0);
+        await base44.entities.SalesOrder.update(selectedOrder.id, {
+          status: 'packed',
+          packed_at: now,
+          packing_active_seconds: totalSec + otherActive,
+          packing_duration_seconds: totalSec + otherActive,
+          packed_by_name: packer?.name || fresh.packed_by_name || '',
+          packed_by_member_id: packer?.id || fresh.packed_by_member_id || '',
+          packing_scanned_map: '',
+          ...rollupSnap,
+        });
+        toast.success(`Order ${selectedOrder.order_number || selectedOrder.shopify_order_id} fully packed!`);
+      } else {
+        const remaining = sectionsPresent.filter(s => s !== section).map(s => SECTION_LABEL[s]).join(', ');
+        toast.success(`${SECTION_LABEL[section]} packed — ${remaining} still to pack`);
+      }
+      queryClient.invalidateQueries({ queryKey: ['floor-pack-orders'] });
+    } catch (err) {
+      toast.error('Failed: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setPacking(false);
+      setSelectedOrder(null);
+      setSection(null);
+      setScannedMap({});
+      setPackingStartedAt(null);
+      setIsPaused(false);
+      setAccumulatedSeconds(0);
+      segmentStartRef.current = null;
+    }
   };
 
   // Back button — if timer is running (not paused, not finished), prompt first
@@ -542,21 +583,22 @@ export default function FloorPack() {
 
   const doExit = async () => {
     setShowBackConfirm(false);
-    if (packingStartedAt && selectedOrder) {
-      const segSec = getCurrentSegmentSeconds();
-      const totalSoFar = accumulatedSeconds + segSec;
-      setAccumulatedSeconds(totalSoFar);
+    if (section && packingStartedAt && selectedOrder) {
+      const cols = SECTION_COLS[section];
+      const totalSoFar = accumulatedSeconds + getCurrentSegmentSeconds();
       segmentStartRef.current = null;
       setIsPaused(true);
       await base44.entities.SalesOrder.update(selectedOrder.id, {
-        packing_paused: true,
-        packing_duration_seconds: totalSoFar,
-        packing_scanned_map: JSON.stringify(scannedMap),
+        [cols.status]: 'in_progress',
+        [cols.active]: totalSoFar,
+        [cols.seg]: null,
+        [cols.scanned]: JSON.stringify(scannedMap),
       });
-      logPackingEvent('paused');
+      logPackingEvent('paused', { section });
       queryClient.invalidateQueries({ queryKey: ['floor-pack-orders'] });
     }
     setSelectedOrder(null);
+    setSection(null);
     setScannedMap({});
     setPackingStartedAt(null);
     setIsPaused(false);
@@ -582,6 +624,40 @@ export default function FloorPack() {
     );
   }
 
+  // ── Step 1.5: Section chooser (only when the order has BOTH sections still open) ──
+  if (selectedOrder && !section) {
+    if (loadingLines) {
+      return <FeedbackWrapper><div className="py-16 text-center text-sm text-muted-foreground">Loading order…</div></FeedbackWrapper>;
+    }
+    const openSections = sectionsPresent.filter(s => selectedOrder[SECTION_COLS[s].status] !== 'done');
+    if (openSections.length > 1) {
+      return (
+        <FeedbackWrapper>
+          <div className="space-y-5 max-w-md mx-auto">
+            <div className="flex items-center gap-3">
+              <button onClick={() => setSelectedOrder(null)} className="p-2 -ml-2 rounded-xl hover:bg-muted"><ArrowLeft className="w-5 h-5" /></button>
+              <div>
+                <h1 className="text-xl font-bold">{selectedOrder.order_number || selectedOrder.shopify_order_id}</h1>
+                <p className="text-xs text-muted-foreground">{selectedOrder.customer_name} — what are you packing?</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              {openSections.map(s => (
+                <button key={s} onClick={() => setSection(s)} className="bg-card border-2 border-border rounded-2xl p-6 flex items-center justify-between active:scale-[0.98] hover:border-primary/50 transition-transform">
+                  <span className="text-lg font-bold">{SECTION_LABEL[s]}</span>
+                  <PackageCheck className="w-6 h-6 text-primary" />
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground text-center">Each part is packed separately — supplements and meals are tracked on their own.</p>
+          </div>
+        </FeedbackWrapper>
+      );
+    }
+    // single open section → the auto-select effect sets it; brief loader meanwhile
+    return <FeedbackWrapper><div className="py-16 text-center text-sm text-muted-foreground">Opening…</div></FeedbackWrapper>;
+  }
+
   // ── Step 2: Packing ──
   return (
     <FeedbackWrapper>
@@ -592,7 +668,7 @@ export default function FloorPack() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold">Pack — {selectedOrder.order_number || selectedOrder.shopify_order_id}</h1>
+            <h1 className="text-xl font-bold">Pack {SECTION_LABEL[section]} — {selectedOrder.order_number || selectedOrder.shopify_order_id}</h1>
             <p className="text-xs text-muted-foreground">{selectedOrder.customer_name} · Packer: <strong>{packer.name}</strong></p>
           </div>
           <Badge className="bg-blue-100 text-blue-700 tabular-nums">{totalScanned}/{totalNeeded}</Badge>
@@ -601,7 +677,7 @@ export default function FloorPack() {
         {/* Timer with pause/resume */}
         <FloorPackTimer
           startedAt={packingStartedAt}
-          onStart={handleStartPacking}
+          onStart={() => {}}
           onPause={handlePause}
           onResume={handleResume}
           isPaused={isPaused}
@@ -670,7 +746,7 @@ export default function FloorPack() {
           </div>
         ) : (
           <>
-            <FloorPackList groups={groups} scannedMap={scannedMap} />
+            <FloorPackList groups={sectionGroups} scannedMap={scannedMap} />
             {allPackItems.length === 0 && (
               <div className="text-center py-12 text-sm text-muted-foreground">
                 No items found for this order.

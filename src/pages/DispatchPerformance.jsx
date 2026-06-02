@@ -24,29 +24,29 @@ export default function DispatchPerformance() {
     [allMembers]
   );
 
-  const { data: packedOrders = [] } = useQuery({
-    queryKey: ['dispatch-packed-orders'],
-    queryFn: () => base44.entities.SalesOrder.filter({ status: 'packed' }, '-packed_at', 3000),
+  const { data: completedEvents = [] } = useQuery({
+    queryKey: ['dispatch-completed-events'],
+    queryFn: () => base44.entities.PackingEventLog.filter({ event_type: 'completed' }, '-timestamp', 5000),
   });
 
-  const filteredOrders = useMemo(() => packedOrders.filter(o => {
-    if (!o.packed_at) return false;
-    const d = new Date(o.packed_at);
+  const filteredEvents = useMemo(() => completedEvents.filter(e => {
+    if (!e.timestamp) return false;
+    const d = new Date(e.timestamp);
     return d >= dateRange.from && d <= dateRange.to;
-  }), [packedOrders, dateRange]);
+  }), [completedEvents, dateRange]);
 
   const kpi = useMemo(
-    () => computeDispatchKpis(filteredOrders, dispatchMembers),
-    [filteredOrders, dispatchMembers]
+    () => computeDispatchKpis(filteredEvents, dispatchMembers),
+    [filteredEvents, dispatchMembers]
   );
 
   if (selectedPacker) {
     const row = kpi.rows.find(r => r.member_id === selectedPacker.member_id) || selectedPacker;
-    const memberOrders = filteredOrders.filter(o => o.packed_by_member_id === selectedPacker.member_id);
+    const memberEvents = filteredEvents.filter(e => e.member_id === selectedPacker.member_id);
     return (
       <PackerDetailView
         row={row}
-        orders={memberOrders}
+        events={memberEvents}
         benchmarkTUh={kpi.benchmarkTUh}
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
@@ -65,7 +65,7 @@ export default function DispatchPerformance() {
         <DateRangeFilter dateRange={dateRange} onChange={setDateRange} />
       </div>
 
-      <DispatchStatCards orders={filteredOrders} members={dispatchMembers} kpi={kpi} />
+      <DispatchStatCards events={filteredEvents} members={dispatchMembers} kpi={kpi} />
       <PackerPerformanceTable rows={kpi.rows} onSelect={setSelectedPacker} />
     </div>
   );
