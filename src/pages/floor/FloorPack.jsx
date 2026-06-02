@@ -14,6 +14,7 @@ import PackerSelectModal from '@/components/floor/PackerSelectModal';
 import { useScanFeedback } from '@/components/floor/ScanFeedback';
 import ScanResultBanner from '@/components/floor/ScanResultBanner';
 import { computePackedSnapshot } from '@/lib/packingMetrics';
+import { uploadPackProof } from '@/lib/packProof';
 
 /* ── SKU-to-friendly-name map ── */
 const SKU_LABELS = {
@@ -53,8 +54,8 @@ function resolvePackColor(parentSku, packBoms) {
 
 // Per-section column maps + helpers (split packing: supplements vs meals).
 const SECTION_COLS = {
-  supplements: { status: 'sup_status', packerId: 'sup_packer_id', packerName: 'sup_packer_name', active: 'sup_active_seconds', seg: 'sup_segment_started_at', scanned: 'sup_scanned_map', packedAt: 'sup_packed_at' },
-  meals:       { status: 'mea_status', packerId: 'mea_packer_id', packerName: 'mea_packer_name', active: 'mea_active_seconds', seg: 'mea_segment_started_at', scanned: 'mea_scanned_map', packedAt: 'mea_packed_at' },
+  supplements: { status: 'sup_status', packerId: 'sup_packer_id', packerName: 'sup_packer_name', active: 'sup_active_seconds', seg: 'sup_segment_started_at', scanned: 'sup_scanned_map', packedAt: 'sup_packed_at', proof: 'sup_proof_url' },
+  meals:       { status: 'mea_status', packerId: 'mea_packer_id', packerName: 'mea_packer_name', active: 'mea_active_seconds', seg: 'mea_segment_started_at', scanned: 'mea_scanned_map', packedAt: 'mea_packed_at', proof: 'mea_proof_url' },
 };
 const SECTION_LABEL = { supplements: 'Supplements', meals: 'Meals' };
 const sectionOf = (groupKey) => (groupKey === 'supplements' ? 'supplements' : 'meals');
@@ -73,6 +74,8 @@ export default function FloorPack() {
   const [scanInput, setScanInput] = useState('');
   const [showCamera, setShowCamera] = useState(false);
   const [packing, setPacking] = useState(false);
+  const [uploadingProof, setUploadingProof] = useState(false);
+  const proofInputRef = useRef(null);
   const [showBackConfirm, setShowBackConfirm] = useState(false);
   const [lastScanResult, setLastScanResult] = useState(null); // { type: 'success'|'error', message: string }
 
@@ -507,18 +510,40 @@ export default function FloorPack() {
     toast.success('Resumed packing — scan items!');
   };
 
-  const handleFinishPacking = async () => {
+  // Finish = scan-gate check, then capture a proof photo. The timer keeps running until the
+  // photo is taken (the true end — box taped + labelled), then we finalize.
+  const handleFinishClick = () => {
     if (!section) return;
-    const cols = SECTION_COLS[section];
     const incomplete = allPackItems.find(i => (scannedMap[i.skuLower] || 0) < i.qty);
     if (incomplete) {
       toast.error(`Still need to scan ${incomplete.name} (${scannedMap[incomplete.skuLower] || 0}/${incomplete.qty})`);
       return;
     }
+    proofInputRef.current?.click(); // opens the camera
+  };
+
+  const onProofSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file || !section || !selectedOrder) return;
+    setUploadingProof(true);
+    try {
+      const proofUrl = await uploadPackProof(file, selectedOrder.id, section);
+      await finalizePacking(proofUrl);
+    } catch (err) {
+      toast.error('Photo upload failed — try again: ' + (err?.message || ''));
+    } finally {
+      setUploadingProof(false);
+    }
+  };
+
+  const finalizePacking = async (proofUrl) => {
+    if (!section) return;
+    const cols = SECTION_COLS[section];
     setPacking(true);
     try {
       const now = new Date().toISOString();
-      const totalSec = accumulatedSeconds + getCurrentSegmentSeconds();
+      const totalSec = accumulatedSeconds + getCurrentSegmentSeconds(); // timer stops now (after the photo)
       // This section's snapshot (KPI attribution is per section, from the 'completed' event).
       const snap = computePackedSnapshot(sectionGroups, skuTypeMap);
       await base44.entities.SalesOrder.update(selectedOrder.id, {
@@ -529,8 +554,9 @@ export default function FloorPack() {
         [cols.packerId]: packer?.id || '',
         [cols.packerName]: packer?.name || '',
         [cols.scanned]: JSON.stringify(scannedMap),
+        [cols.proof]: proofUrl || null,
       });
-      logPackingEvent('completed', { section, ...snap, active_seconds: totalSec });
+      logPackingEvent('completed', { section, ...snap, active_seconds: totalSec, proof_url: proofUrl || null });
 
       // Re-fetch the latest order so a concurrent section completion isn't missed, then roll
       // the whole order up to 'packed' only once every present section is done.
@@ -758,13 +784,21 @@ export default function FloorPack() {
         {/* Finish bar */}
         {packingStartedAt && allPackItems.length > 0 && (
           <div className="fixed bottom-[68px] left-0 right-0 px-4 pb-4 pt-2 bg-gradient-to-t from-background via-background to-transparent z-30">
+            <input
+              ref={proofInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={onProofSelected}
+              className="hidden"
+            />
             <Button
-              onClick={handleFinishPacking}
-              disabled={packing || !allDone || isPaused}
+              onClick={handleFinishClick}
+              disabled={packing || uploadingProof || !allDone || isPaused}
               className="w-full h-14 text-base gap-2 bg-green-600 hover:bg-green-700 text-white disabled:opacity-50"
             >
               <PackageCheck className="w-5 h-5" />
-              {packing ? 'Saving...' : allDone ? 'Finish Packing' : `Scan all items (${totalScanned}/${totalNeeded})`}
+              {uploadingProof ? 'Uploading photo…' : packing ? 'Saving...' : allDone ? 'Finish — photograph the box' : `Scan all items (${totalScanned}/${totalNeeded})`}
             </Button>
           </div>
         )}

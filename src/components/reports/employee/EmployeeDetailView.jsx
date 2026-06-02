@@ -143,6 +143,7 @@ export default function EmployeeDetailView({ member, production, packing, packin
                     <th className="text-center px-4 py-2.5 font-medium text-muted-foreground">Meals</th>
                     <th className="text-center px-4 py-2.5 font-medium text-muted-foreground">Supp.</th>
                     <th className="text-center px-4 py-2.5 font-medium text-muted-foreground">Time</th>
+                    <th className="text-center px-4 py-2.5 font-medium text-muted-foreground">Proof</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -155,6 +156,7 @@ export default function EmployeeDetailView({ member, production, packing, packin
                       <td className="px-4 py-3 text-center">{Number(e.packed_meals) || 0}</td>
                       <td className="px-4 py-3 text-center">{Number(e.packed_supplements) || 0}</td>
                       <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationShort(Number(e.active_seconds) || 0)}</td>
+                      <td className="px-4 py-3 text-center">{e.proof_url ? <a href={e.proof_url} target="_blank" rel="noreferrer" className="text-primary underline">view</a> : <span className="text-muted-foreground">—</span>}</td>
                     </tr>
                   ))}
                 </tbody>
