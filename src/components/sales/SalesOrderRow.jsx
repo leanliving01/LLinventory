@@ -33,12 +33,18 @@ const packStatusColors = {
 
 const packStatusLabels = {
   pending: 'Not Packed',
-  picking: 'Picking',
+  picking: 'Busy Packing',
   packed: 'Packed',
   shipped: 'Shipped',
   cancelled: 'Cancelled',
   refunded: 'Refunded',
 };
+
+// Short per-section progress for split orders, e.g. "Supplements ✓ · Meals in progress".
+function sectionProgress(order) {
+  const part = (status, label) => status ? `${label} ${status === 'done' ? '✓' : 'in progress'}` : null;
+  return [part(order.sup_status, 'Supplements'), part(order.mea_status, 'Meals')].filter(Boolean).join(' · ');
+}
 
 function formatDuration(seconds) {
   if (!seconds || seconds <= 0) return null;
@@ -52,13 +58,10 @@ function getPackLabel(order) {
     return lifecycleLabels[order.lifecycle_state] || order.lifecycle_state;
   }
   const base = packStatusLabels[order.status] || 'Awaiting Fulfilment';
-  if (order.status === 'picking' && order.packing_paused) {
-    const dur = formatDuration(order.packing_duration_seconds);
-    return dur ? `Picking (Paused) · ${dur}` : 'Picking (Paused)';
-  }
   if (order.status === 'picking') {
-    const dur = formatDuration(order.packing_duration_seconds);
-    return dur ? `${base} · ${dur}` : base;
+    const secs = sectionProgress(order);
+    const label = order.packing_paused ? 'Busy Packing (Paused)' : 'Busy Packing';
+    return secs ? `${label} — ${secs}` : label;
   }
   if (order.status === 'packed') {
     const dur = formatDuration(order.packing_duration_seconds);
@@ -73,7 +76,11 @@ function getPackColor(order) {
       ? (packStatusColors[order.status] || lifecycleColors[order.lifecycle_state] || '')
       : (lifecycleColors[order.lifecycle_state] || '');
   }
-  if (order.status === 'picking' && order.packing_paused) return 'bg-orange-100 text-orange-700';
+  if (order.status === 'picking') {
+    if (order.packing_paused) return 'bg-orange-100 text-orange-700';
+    if (order.sup_status === 'done' || order.mea_status === 'done') return 'bg-amber-100 text-amber-700'; // one section done, one pending
+    return 'bg-blue-100 text-blue-700';
+  }
   return packStatusColors[order.status] || lifecycleColors[order.lifecycle_state] || '';
 }
 
