@@ -26,7 +26,8 @@ const TABS = [
 const DEFAULT_FORM = {
   name: '', sku: '', barcode: '', type: 'raw', status: 'active',
   inventory_tracked: true, sellable: false, purchasable: true, stock_uom: 'kg',
-  category_id: '', subcategory_id: '', pick_category: '', weight_g: null,
+  category_id: '', subcategory_id: '', pick_category: '', weight_g: null, weight_unit: 'g',
+  length_cm: null, width_cm: null, height_cm: null,
   cost_avg: 0, cost_current: 0, price: 0, par_level: 0,
   min_before_reorder: 0, reorder_qty: 0, lead_time_days: 0,
   supplier_id: '', supplier_sku: '', description: '', internal_note: '',

@@ -113,6 +113,7 @@ const ENTITY_TABLE_MAP = {
   ImportLog:                'import_logs',
   BugReport:                'bug_reports',
   TaxRate:                  'tax_rates',
+  AccountingAccount:        'accounting_accounts',
   DocNumberSequence:        'doc_number_sequences',
   SupplierCreditNote:       'supplier_credit_notes',
   SupplierCreditNoteLine:   'supplier_credit_note_lines',

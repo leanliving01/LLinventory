@@ -5,9 +5,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import UomSelect from '@/components/shared/UomSelect';
-import useXeroChartData from '@/lib/useXeroChartData';
 import ProductPurchaseUomEditor from '@/components/catalog/ProductPurchaseUomEditor';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Plus, Check, X as XIcon } from 'lucide-react';
 
@@ -51,11 +50,25 @@ function FormField({ label, children, hint }) {
 
 export default function ProductEditForm({ formData, onChange, locations, suppliers, categories = [], productCategories = [], productSubcategories = [], productId }) {
   const set = (field, value) => onChange({ ...formData, [field]: value });
-  const { accounts: xeroAccounts, taxRates: xeroTaxRates, isLoading: xeroLoading } = useXeroChartData();
   const queryClient = useQueryClient();
   const [showNewCat, setShowNewCat] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [savingCat, setSavingCat] = useState(false);
+  const [showNewSub, setShowNewSub] = useState(false);
+  const [newSubName, setNewSubName] = useState('');
+  const [savingSub, setSavingSub] = useState(false);
+
+  // Locally-managed tax rates + chart of accounts (replaces Xero source).
+  const { data: taxRates = [] } = useQuery({
+    queryKey: ['tax-rates'],
+    queryFn: () => base44.entities.TaxRate.filter({ active: true }, 'name', 50),
+    staleTime: 300000,
+  });
+  const { data: accountingAccounts = [] } = useQuery({
+    queryKey: ['accounting-accounts', 'all-active'],
+    queryFn: () => base44.entities.AccountingAccount.filter({ is_active: true }, 'sort_order', 500),
+    staleTime: 300000,
+  });
 
   const handleCreateCategory = async () => {
     if (!newCatName.trim()) return;
@@ -73,10 +86,31 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
     setSavingCat(false);
   };
 
-  // Filter accounts by class for each dropdown
-  const cogsAccounts = xeroAccounts.filter(a => a.class === 'EXPENSE' || a.type === 'DIRECTCOSTS');
-  const inventoryAccounts = xeroAccounts.filter(a => a.type === 'INVENTORY' || a.type === 'CURRLIAB' || a.type === 'CURRENT' || a.class === 'ASSET');
-  const revenueAccounts = xeroAccounts.filter(a => a.class === 'REVENUE');
+  const handleCreateSubcategory = async () => {
+    if (!newSubName.trim() || !formData.category_id) return;
+    setSavingSub(true);
+    const parentCat = productCategories.find(c => c.id === formData.category_id);
+    const created = await base44.entities.ProductSubcategory.create({
+      name: newSubName.trim(),
+      category_id: formData.category_id,
+      category_name: parentCat?.name || '',
+      product_type: formData.type || 'raw',
+      is_active: true,
+      sort_order: 999,
+    });
+    queryClient.invalidateQueries({ queryKey: ['product-subcategories'] });
+    onChange({ ...formData, subcategory_id: created.id });
+    setNewSubName('');
+    setShowNewSub(false);
+    setSavingSub(false);
+  };
+
+  // Accounts split by type for each dropdown (sourced locally from Settings → Accounting).
+  const cogsAccounts = accountingAccounts.filter(a => a.account_type === 'cogs');
+  const inventoryAccounts = accountingAccounts.filter(a => a.account_type === 'inventory');
+  const revenueAccounts = accountingAccounts.filter(a => a.account_type === 'revenue');
+  // The value stored on the product is the account code (falling back to name).
+  const acctValue = (a) => a.code || a.name;
 
   return (
     <div className="space-y-5">
@@ -150,12 +184,44 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               <p className="text-[10px] text-amber-600">Legacy: {formData.category}</p>
             )}
           </div>
-          <FormField label="Subcategory">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">Subcategory</Label>
+              {formData.category_id && (
+                <button
+                  type="button"
+                  onClick={() => { setShowNewSub(v => !v); setNewSubName(''); }}
+                  className="text-xs text-primary hover:underline flex items-center gap-0.5"
+                >
+                  <Plus className="w-3 h-3" /> New subcategory
+                </button>
+              )}
+            </div>
+            {showNewSub && formData.category_id && (
+              <div className="flex gap-1.5 items-center">
+                <Input
+                  value={newSubName}
+                  onChange={e => setNewSubName(e.target.value)}
+                  placeholder="Subcategory name"
+                  className="h-8 text-sm flex-1"
+                  onKeyDown={e => { if (e.key === 'Enter') handleCreateSubcategory(); if (e.key === 'Escape') setShowNewSub(false); }}
+                  autoFocus
+                />
+                <button type="button" onClick={handleCreateSubcategory} disabled={savingSub || !newSubName.trim()}
+                  className="h-8 w-8 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                  <Check className="w-3.5 h-3.5" />
+                </button>
+                <button type="button" onClick={() => setShowNewSub(false)}
+                  className="h-8 w-8 flex items-center justify-center rounded-md border border-border hover:bg-muted">
+                  <XIcon className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
             <Select
               value={formData.subcategory_id || 'none'}
               onValueChange={v => set('subcategory_id', v === 'none' ? '' : v)}
             >
-              <SelectTrigger><SelectValue placeholder="Select subcategory" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder={formData.category_id ? 'Select subcategory' : 'Select a category first'} /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">— None —</SelectItem>
                 {productSubcategories
@@ -166,10 +232,47 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
             {formData.subcategory && !formData.subcategory_id && (
               <p className="text-[10px] text-amber-600">Legacy: {formData.subcategory}</p>
             )}
+          </div>
+          <FormField label="Weight" hint="Stored in grams; choose how you enter it">
+            <div className="flex gap-1.5">
+              <Input
+                type="number"
+                step="any"
+                className="flex-1"
+                value={(() => {
+                  const g = formData.weight_g;
+                  if (g == null || g === '') return '';
+                  return (formData.weight_unit || 'g') === 'kg' ? g / 1000 : g;
+                })()}
+                onChange={e => {
+                  const v = e.target.value;
+                  if (v === '') { set('weight_g', null); return; }
+                  const num = Number(v);
+                  const grams = (formData.weight_unit || 'g') === 'kg' ? num * 1000 : num;
+                  set('weight_g', grams);
+                }}
+              />
+              <Select
+                value={formData.weight_unit || 'g'}
+                onValueChange={v => set('weight_unit', v)}
+              >
+                <SelectTrigger className="w-20"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="g">g</SelectItem>
+                  <SelectItem value="kg">kg</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </FormField>
-          <FormField label="Weight (grams)">
-            <Input type="number" value={formData.weight_g || ''} onChange={e => set('weight_g', e.target.value ? Number(e.target.value) : null)} />
-          </FormField>
+        </div>
+        {/* Dimensions — optional */}
+        <div className="space-y-1.5">
+          <Label className="text-sm font-medium">Dimensions (cm) <span className="text-xs font-normal text-muted-foreground">— optional</span></Label>
+          <div className="grid grid-cols-3 gap-3">
+            <Input type="number" step="any" placeholder="Length" value={formData.length_cm ?? ''} onChange={e => set('length_cm', e.target.value ? Number(e.target.value) : null)} />
+            <Input type="number" step="any" placeholder="Width" value={formData.width_cm ?? ''} onChange={e => set('width_cm', e.target.value ? Number(e.target.value) : null)} />
+            <Input type="number" step="any" placeholder="Height" value={formData.height_cm ?? ''} onChange={e => set('height_cm', e.target.value ? Number(e.target.value) : null)} />
+          </div>
         </div>
         <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
           <div>
@@ -245,7 +348,7 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
       <Section title="Pricing & Costing">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Selling price — editable */}
-          <FormField label="Selling Price (ZAR)" hint="Set by ops manager — authoritative for margin calc">
+          <FormField label="Selling Price (excl. VAT, ZAR)" hint="Set by ops manager — authoritative for margin calc">
             <Input type="number" step="0.01" value={formData.selling_price ?? formData.price ?? ''} onChange={e => set('selling_price', e.target.value ? Number(e.target.value) : 0)} />
           </FormField>
           {/* Gross margin — computed, read-only */}
@@ -264,7 +367,7 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Current cost — read-only */}
-          <FormField label="Current Cost (ZAR)" hint="Last GRN receipt price — auto-updated">
+          <FormField label="Current Cost (excl. VAT, ZAR)" hint="Last GRN receipt price — auto-updated">
             <div className="flex items-center gap-2">
               <div className="flex-1 h-9 px-3 flex items-center rounded-md border border-border bg-muted/40 text-sm text-muted-foreground font-mono">
                 {formData.cost_current != null ? Number(formData.cost_current).toFixed(4) : '—'}
@@ -273,7 +376,7 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
             </div>
           </FormField>
           {/* Weighted avg cost — read-only */}
-          <FormField label="Weighted Avg Cost (ZAR)" hint="Running weighted average — auto-updated on receipt">
+          <FormField label="Weighted Avg Cost (excl. VAT, ZAR)" hint="Running weighted average — auto-updated on receipt">
             <div className="flex items-center gap-2">
               <div className="flex-1 h-9 px-3 flex items-center rounded-md border border-border bg-muted/40 text-sm text-muted-foreground font-mono">
                 {formData.cost_avg != null ? Number(formData.cost_avg).toFixed(4) : '—'}
@@ -356,9 +459,9 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
         </div>
       </Section>
 
-      {/* ── Accounting / Xero ── */}
-      <Section title="Accounting (Xero)">
-        {xeroLoading && <p className="text-xs text-muted-foreground">Loading Xero accounts…</p>}
+      {/* ── Accounting ── */}
+      <Section title="Accounting">
+        <p className="text-xs text-muted-foreground">Tax rules and accounts are managed in Settings → Accounting.</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <FormField label="COGS Account" hint="Cost of Goods Sold account">
             <Select value={formData.cogs_account || 'none'} onValueChange={v => set('cogs_account', v === 'none' ? '' : v)}>
@@ -366,7 +469,7 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               <SelectContent>
                 <SelectItem value="none">— None —</SelectItem>
                 {cogsAccounts.map(a => (
-                  <SelectItem key={a.code} value={a.code}>{a.code} — {a.name}</SelectItem>
+                  <SelectItem key={a.id} value={acctValue(a)}>{a.code ? `${a.code} — ` : ''}{a.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -377,7 +480,7 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               <SelectContent>
                 <SelectItem value="none">— None —</SelectItem>
                 {inventoryAccounts.map(a => (
-                  <SelectItem key={a.code} value={a.code}>{a.code} — {a.name}</SelectItem>
+                  <SelectItem key={a.id} value={acctValue(a)}>{a.code ? `${a.code} — ` : ''}{a.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -388,7 +491,7 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               <SelectContent>
                 <SelectItem value="none">— None —</SelectItem>
                 {revenueAccounts.map(a => (
-                  <SelectItem key={a.code} value={a.code}>{a.code} — {a.name}</SelectItem>
+                  <SelectItem key={a.id} value={acctValue(a)}>{a.code ? `${a.code} — ` : ''}{a.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -400,8 +503,8 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               <SelectTrigger><SelectValue placeholder="Select tax rule" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">— None —</SelectItem>
-                {xeroTaxRates.map(t => (
-                  <SelectItem key={t.taxType} value={t.name}>{t.name}{t.rate != null ? ` (${t.rate}%)` : ''}</SelectItem>
+                {taxRates.map(t => (
+                  <SelectItem key={t.id} value={t.name}>{t.name}{t.rate != null ? ` (${(t.rate * 100).toFixed(2)}%)` : ''}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -411,8 +514,8 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               <SelectTrigger><SelectValue placeholder="Select tax rule" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">— None —</SelectItem>
-                {xeroTaxRates.map(t => (
-                  <SelectItem key={t.taxType + '-sale'} value={t.name}>{t.name}{t.rate != null ? ` (${t.rate}%)` : ''}</SelectItem>
+                {taxRates.map(t => (
+                  <SelectItem key={t.id + '-sale'} value={t.name}>{t.name}{t.rate != null ? ` (${(t.rate * 100).toFixed(2)}%)` : ''}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

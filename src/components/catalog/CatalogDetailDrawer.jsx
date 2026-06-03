@@ -102,7 +102,16 @@ export default function CatalogDetailDrawer({ product, onClose }) {
           <div className="divide-y divide-border">
             <Field icon={Tag} label="Category" value={p.category} />
             <Field icon={Barcode} label="Barcode" value={p.barcode} />
-            <Field icon={Weight} label="Weight" value={p.weight_g ? `${p.weight_g} g` : null} />
+            <Field
+              icon={Weight}
+              label="Weight"
+              value={p.weight_g ? ((p.weight_unit || 'g') === 'kg' ? `${(p.weight_g / 1000)} kg` : `${p.weight_g} g`) : null}
+            />
+            <Field
+              icon={Package}
+              label="Dimensions (L×W×H cm)"
+              value={(p.length_cm || p.width_cm || p.height_cm) ? `${p.length_cm ?? '–'} × ${p.width_cm ?? '–'} × ${p.height_cm ?? '–'}` : null}
+            />
             <Field icon={Package} label="Stock UoM" value={p.stock_uom} />
             <Field icon={Package} label="Purchase UoM" value={p.purchase_uom} />
             <Field icon={Info} label="Purchase → Stock Factor" value={p.purchase_to_stock_factor} />
@@ -113,8 +122,8 @@ export default function CatalogDetailDrawer({ product, onClose }) {
           <div>
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Pricing</h3>
             <div className="divide-y divide-border">
-              <Field icon={DollarSign} label="Average Cost" value={p.cost_avg ? `R ${p.cost_avg.toFixed(2)}` : null} />
-              <Field icon={DollarSign} label="Selling Price" value={p.price ? `R ${p.price.toFixed(2)}` : null} />
+              <Field icon={DollarSign} label="Average Cost (excl. VAT)" value={p.cost_avg ? `R ${p.cost_avg.toFixed(2)}` : null} />
+              <Field icon={DollarSign} label="Selling Price (excl. VAT)" value={(p.selling_price ?? p.price) ? `R ${Number(p.selling_price ?? p.price).toFixed(2)}` : null} />
             </div>
           </div>
 

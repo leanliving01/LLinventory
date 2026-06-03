@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Users, Database, Building2, Bell, Ruler, Package, UserCog, FolderTree, ShoppingBag, RefreshCw, Percent } from 'lucide-react';
+import { Users, Database, Building2, Bell, Ruler, Package, UserCog, FolderTree, ShoppingBag, RefreshCw, Calculator } from 'lucide-react';
 import SettingsOrgTab from '@/components/settings/SettingsOrgTab';
 import SettingsSyncTab from '@/components/settings/SettingsSyncTab';
-import SettingsTaxRatesTab from '@/components/settings/SettingsTaxRatesTab';
+import SettingsAccountingTab from '@/components/settings/SettingsAccountingTab';
 import SettingsUsersTab from '@/components/settings/SettingsUsersTab';
 import SettingsCin7Tab from '@/components/settings/SettingsCin7Tab';
 import SettingsShopifyTab from '@/components/settings/SettingsShopifyTab';
@@ -31,7 +31,7 @@ export default function SettingsPage() {
       <Tabs defaultValue="org">
         <TabsList>
           <TabsTrigger value="org" className="gap-1.5"><Building2 className="w-3.5 h-3.5" />Organisation</TabsTrigger>
-          <TabsTrigger value="tax" className="gap-1.5"><Percent className="w-3.5 h-3.5" />Tax Rates</TabsTrigger>
+          <TabsTrigger value="accounting" className="gap-1.5"><Calculator className="w-3.5 h-3.5" />Accounting</TabsTrigger>
           {perms.user_management && <TabsTrigger value="users" className="gap-1.5"><Users className="w-3.5 h-3.5" />Users &amp; Roles</TabsTrigger>}
           <TabsTrigger value="team" className="gap-1.5"><UserCog className="w-3.5 h-3.5" />Production Team</TabsTrigger>
           {perms.category_manage && <TabsTrigger value="categories" className="gap-1.5"><FolderTree className="w-3.5 h-3.5" />Categories</TabsTrigger>}
@@ -43,7 +43,7 @@ export default function SettingsPage() {
           <TabsTrigger value="sync" className="gap-1.5"><RefreshCw className="w-3.5 h-3.5" />Sync &amp; Logs</TabsTrigger>
         </TabsList>
         <TabsContent value="org" className="mt-4"><SettingsOrgTab /></TabsContent>
-        <TabsContent value="tax" className="mt-4"><SettingsTaxRatesTab /></TabsContent>
+        <TabsContent value="accounting" className="mt-4"><SettingsAccountingTab /></TabsContent>
         {perms.user_management && <TabsContent value="users" className="mt-4"><SettingsUsersTab /></TabsContent>}
         <TabsContent value="team" className="mt-4"><SettingsProductionTab /></TabsContent>
         {perms.category_manage && <TabsContent value="categories" className="mt-4"><SettingsCategoriesTab /></TabsContent>}
