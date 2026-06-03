@@ -374,8 +374,8 @@ export default function Catalog() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Name</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Type</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Category</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Cost (ZAR)</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Price (ZAR)</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Cost (excl. VAT)</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Price (excl. VAT)</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">UoM</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">On Hand</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Inventory</th>
@@ -414,7 +414,7 @@ export default function Catalog() {
                     {p.cost_avg ? `R ${p.cost_avg.toFixed(2)}` : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-sm text-right tabular-nums">
-                    {p.price ? `R ${p.price.toFixed(2)}` : '—'}
+                    {(p.selling_price ?? p.price) ? `R ${Number(p.selling_price ?? p.price).toFixed(2)}` : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-sm text-center">{p.stock_uom}</td>
                   <td className="px-4 py-2.5 text-sm text-right tabular-nums">
