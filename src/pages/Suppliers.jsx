@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Search, X, ChevronRight, Truck, Plus, Utensils, Package, MoreHorizontal, ShoppingBag } from 'lucide-react';
+import { Search, X, ChevronRight, Truck, Plus, Utensils, Package, MoreHorizontal, ShoppingBag, Pencil } from 'lucide-react';
 
 const CATEGORY_META = {
   food:      { label: 'Food', color: 'bg-green-100 text-green-700', icon: Utensils },
@@ -13,6 +13,7 @@ const CATEGORY_META = {
   other:     { label: 'Other', color: 'bg-gray-100 text-gray-500', icon: MoreHorizontal },
 };
 import SupplierDetailDrawer from '@/components/suppliers/SupplierDetailDrawer';
+import SupplierBulkEditModal from '@/components/suppliers/SupplierBulkEditModal';
 import TablePagination from '@/components/shared/TablePagination';
 import CreateSupplierModal from '@/components/suppliers/CreateSupplierModal';
 import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
@@ -26,6 +27,8 @@ export default function Suppliers() {
   const [showCreate, setShowCreate] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(15);
+  const [selected, setSelected] = useState([]);
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
 
   const { data: suppliers = [], isLoading } = useQuery({
     queryKey: ['suppliers-list'],
@@ -82,6 +85,12 @@ export default function Suppliers() {
     });
     return { ...c, production: c.food + c.packaging };
   }, [suppliers]);
+
+  const pageSuppliers = filtered.slice(page * pageSize, (page + 1) * pageSize);
+  const pageIds = pageSuppliers.map(s => s.id);
+  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selected.includes(id));
+  const toggleRow = (id) => setSelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const togglePage = () => setSelected(p => allPageSelected ? p.filter(id => !pageIds.includes(id)) : [...new Set([...p, ...pageIds])]);
 
   return (
     <div className="space-y-4">
@@ -169,6 +178,19 @@ export default function Suppliers() {
         )}
       </div>
 
+      {/* Bulk action bar */}
+      {selected.length > 0 && (
+        <div className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-lg px-4 py-2">
+          <span className="text-sm font-medium">{selected.length} selected</span>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setSelected([])}>Clear selection</Button>
+            <Button size="sm" className="gap-1.5" onClick={() => setShowBulkEdit(true)}>
+              <Pencil className="w-3.5 h-3.5" /> Bulk edit
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       {isLoading ? (
         <div className="text-center py-12 text-sm text-muted-foreground">Loading suppliers...</div>
@@ -177,6 +199,9 @@ export default function Suppliers() {
           <table className="w-full">
             <thead>
               <tr className="bg-muted/50 border-b border-border">
+                <th className="px-3 py-3 w-10">
+                  <input type="checkbox" className="rounded w-4 h-4" checked={allPageSelected} onChange={togglePage} />
+                </th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Supplier</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Category</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Contact</th>
@@ -191,12 +216,15 @@ export default function Suppliers() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.slice(page * pageSize, (page + 1) * pageSize).map(s => (
+              {pageSuppliers.map(s => (
                 <tr
                   key={s.id}
-                  className="hover:bg-muted/30 transition-colors cursor-pointer"
+                  className={`hover:bg-muted/30 transition-colors cursor-pointer ${selected.includes(s.id) ? 'bg-primary/5' : ''}`}
                   onClick={() => setSelectedSupplier(s)}
                 >
+                  <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" className="rounded w-4 h-4" checked={selected.includes(s.id)} onChange={() => toggleRow(s.id)} />
+                  </td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -251,7 +279,7 @@ export default function Suppliers() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={11} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     {suppliers.length === 0 ? 'No suppliers imported yet.' : 'No suppliers match your search.'}
                   </td>
                 </tr>
@@ -274,6 +302,18 @@ export default function Suppliers() {
           onClose={() => setSelectedSupplier(null)}
           onUpdated={(updated) => {
             if (updated) setSelectedSupplier(updated);
+            queryClient.invalidateQueries({ queryKey: ['suppliers-list'] });
+          }}
+        />
+      )}
+
+      {showBulkEdit && (
+        <SupplierBulkEditModal
+          supplierIds={selected}
+          onCancel={() => setShowBulkEdit(false)}
+          onDone={() => {
+            setShowBulkEdit(false);
+            setSelected([]);
             queryClient.invalidateQueries({ queryKey: ['suppliers-list'] });
           }}
         />

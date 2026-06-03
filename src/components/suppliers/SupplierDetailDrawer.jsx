@@ -206,8 +206,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
 
   return (
     <>
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
-      <div className="h-full w-full max-w-lg bg-card shadow-xl flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 bg-card flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="bg-card border-b border-border px-6 py-4 flex items-start justify-between shrink-0">
           <div>
@@ -581,7 +580,6 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
             </div>
           </div>
         )}
-      </div>
     </div>
 
     {showMerge && (

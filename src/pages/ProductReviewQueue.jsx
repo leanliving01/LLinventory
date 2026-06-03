@@ -48,6 +48,12 @@ export default function ProductReviewQueue() {
     queryFn: () => base44.entities.PurchaseInvoice.list('-created_date', 5000),
   });
 
+  // Full product catalogue — "Match to existing" searches this, then links it to the supplier.
+  const { data: products = [] } = useQuery({
+    queryKey: ['products-for-queue'],
+    queryFn: () => base44.entities.Product.list('name', 5000),
+  });
+
   // Build invoice lookup
   const invoiceMap = useMemo(() => {
     const map = {};
@@ -155,21 +161,50 @@ export default function ProductReviewQueue() {
     return Object.entries(groups).sort((a, b) => b[1].lines.length - a[1].lines.length);
   }, [paginated, invoiceMap]);
 
-  const handleMatch = async (line, sp) => {
-    await base44.entities.PurchaseInvoiceLine.update(line.id, {
-      supplier_product_id: sp.id,
-      product_id: sp.product_id,
-      product_name: sp.product_name,
-      product_sku: sp.product_sku,
-      match_status: 'manually_matched',
-    });
-    // Also save the xero_item_code on the SupplierProduct for future auto-matching
-    if (line.xero_item_code && !sp.xero_item_code) {
-      await base44.entities.SupplierProduct.update(sp.id, { xero_item_code: line.xero_item_code });
+  // Match a line to an existing CATALOGUE product, creating/updating the supplier link
+  // with the supplier SKU + purchase UOM captured from the review form.
+  const handleMatch = async (line, { product, supplierSku, description, purchaseUom, conversion, unitCost }) => {
+    const inv = invoiceMap[line.invoice_id];
+    if (!inv?.supplier_id) { toast.error('Invoice has no supplier'); return; }
+    try {
+      // Upsert the supplier_products link (UNIQUE on product_id + supplier_id).
+      const existing = await base44.entities.SupplierProduct.filter({ supplier_id: inv.supplier_id, product_id: product.id });
+      const spPayload = {
+        supplier_id: inv.supplier_id,
+        supplier_name: inv.supplier_name || '',
+        product_id: product.id,
+        product_name: product.name || '',
+        product_sku: product.sku || '',
+        supplier_sku: supplierSku || '',
+        supplier_description: description || '',
+        xero_item_code: line.xero_item_code || null,
+        purchase_uom: purchaseUom || 'each',
+        purchase_uom_label: purchaseUom || 'each',
+        conversion_factor: parseFloat(conversion) || 1,
+        last_purchase_price: parseFloat(unitCost) || 0,
+        active: true,
+      };
+      let sp = existing[0];
+      if (sp) {
+        await base44.entities.SupplierProduct.update(sp.id, spPayload);
+      } else {
+        sp = await base44.entities.SupplierProduct.create(spPayload);
+      }
+
+      await base44.entities.PurchaseInvoiceLine.update(line.id, {
+        supplier_product_id: sp.id,
+        product_id: product.id,
+        product_name: product.name,
+        product_sku: product.sku,
+        match_status: 'manually_matched',
+      });
+      await recountInvoice(line.invoice_id);
+      queryClient.invalidateQueries({ queryKey: ['unmatched-invoice-lines'] });
+      queryClient.invalidateQueries({ queryKey: ['sps-for-queue'] });
+      toast.success(`Matched to ${product.name} & linked to ${inv.supplier_name}`);
+    } catch (err) {
+      toast.error(err.message || 'Match failed');
     }
-    await recountInvoice(line.invoice_id);
-    queryClient.invalidateQueries({ queryKey: ['unmatched-invoice-lines'] });
-    toast.success(`Matched to ${sp.product_name}`);
   };
 
   const handleMarkNonStock = async (line) => {
@@ -253,7 +288,7 @@ export default function ProductReviewQueue() {
                       key={line.id}
                       line={line}
                       invoice={invoice}
-                      supplierProducts={spBySupplier[group.supplier_id] || []}
+                      products={products}
                       onMatch={handleMatch}
                       onCreateProduct={(l, inv) => setCreateLineData({ line: l, invoice: inv })}
                       onMarkNonStock={handleMarkNonStock}

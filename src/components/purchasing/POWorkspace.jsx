@@ -66,6 +66,7 @@ function emptyLine() {
     // Pending state: null | 'no_sp' | 'multi_sp'
     _pendingProductId: null,
     _spOptions: [],
+    _uomOptions: [], // supplier_products for this (supplier, product) — drives the UoM dropdown
   };
 }
 
@@ -242,6 +243,7 @@ export default function POWorkspace() {
             ...l,
             _pendingProductId: null,
             _spOptions: [],
+            _uomOptions: [],
             // Keep product set, but no auto-fill
           };
         }
@@ -263,14 +265,16 @@ export default function POWorkspace() {
             supplier_product_id: sp.id,
             _pendingProductId: null,
             _spOptions: [],
+            _uomOptions: sps,
           };
         }
 
-        // Multiple — show selector
+        // Multiple — keep options for the UoM dropdown (no auto-pick)
         return {
           ...l,
           _pendingProductId: productId,
           _spOptions: sps,
+          _uomOptions: sps,
         };
       }));
     } catch (err) {
@@ -299,6 +303,52 @@ export default function POWorkspace() {
         supplier_product_id: sp.id,
         _pendingProductId: null,
         _spOptions: [],
+      };
+    }));
+  };
+
+  // UoM dropdown: pick a supplier purchase option (sp.id) or our stock unit ('__stock__').
+  const setLineUom = (lineKey, value) => {
+    setLocalLines(prev => prev.map(l => {
+      if (l._key !== lineKey) return l;
+      const product = products.find(p => p.id === l.product_id);
+      const opts = l._uomOptions || [];
+
+      if (value === '__stock__') {
+        // Order in our stock unit. Default cost = supplier pack price ÷ conversion (cheapest known).
+        let perStock = '';
+        const candidates = opts
+          .map(sp => {
+            const cost = sp.nominal_cost || sp.last_purchase_price || 0;
+            const conv = sp.conversion_factor || sp.purchase_to_stock_factor || 1;
+            return cost > 0 && conv > 0 ? cost / conv : null;
+          })
+          .filter(v => v != null);
+        if (candidates.length) perStock = String(Math.round(Math.min(...candidates) * 100) / 100);
+        return {
+          ...l,
+          purchase_uom: product?.stock_uom || 'pcs',
+          supplier_product_id: null,
+          unit_cost: perStock || l.unit_cost,
+          _pendingProductId: null,
+        };
+      }
+
+      const sp = opts.find(s => s.id === value);
+      if (!sp) return l;
+      const taxRateRecord = resolveTaxRateRecord(sp, selectedSupplier, taxRates);
+      const unitCost = sp.nominal_cost || sp.last_purchase_price || 0;
+      return {
+        ...l,
+        supplier_sku: sp.supplier_sku || l.supplier_sku,
+        description: sp.supplier_description || l.description || product?.name || '',
+        purchase_uom: sp.purchase_uom_label || sp.purchase_uom || product?.stock_uom || '',
+        unit_cost: unitCost > 0 ? String(unitCost) : l.unit_cost,
+        tax_rule: taxRateRecord?.name || l.tax_rule,
+        tax_rate: taxRateRecord?.rate ?? l.tax_rate,
+        tax_rate_id: taxRateRecord?.id || l.tax_rate_id,
+        supplier_product_id: sp.id,
+        _pendingProductId: null,
       };
     }));
   };
@@ -968,6 +1018,7 @@ export default function POWorkspace() {
                       onRemove={removeLine}
                       onSelectProduct={selectProduct}
                       onSelectSupplierProduct={selectSupplierProduct}
+                      onSetLineUom={setLineUom}
                     />
                   ))}
                   {linesWithTotals.length === 0 && (
@@ -1029,10 +1080,13 @@ function LineRow({
   line, idx, isViewOnly,
   products, filteredProducts, productSearch, setProductSearch,
   taxRates, supplierId,
-  onUpdate, onRemove, onSelectProduct, onSelectSupplierProduct,
+  onUpdate, onRemove, onSelectProduct, onSelectSupplierProduct, onSetLineUom,
 }) {
-  const hasMultiSP = line._spOptions.length > 1;
-  const hasNoSP = line._pendingProductId && line._spOptions.length === 0 && !line.supplier_sku;
+  const hasNoSP = line._pendingProductId && (line._uomOptions?.length || 0) === 0 && !line.supplier_sku;
+  const lineProduct = products.find(p => p.id === line.product_id);
+  const stockUom = lineProduct?.stock_uom || '';
+  const uomOptions = line._uomOptions || [];
+  const uomValue = line.supplier_product_id || (line.purchase_uom ? '__stock__' : '');
 
   return (
     <tr className={`${hasNoSP ? 'bg-amber-50/60' : ''}`}>
@@ -1052,23 +1106,6 @@ function LineRow({
                 <AlertTriangle className="w-3 h-3" />
                 No supplier purchase option found. Create one in Supplier Catalog first.
               </p>
-            )}
-            {hasMultiSP && (
-              <div className="mt-1">
-                <Select onValueChange={v => onSelectSupplierProduct(line._key, v)}>
-                  <SelectTrigger className="h-7 text-xs">
-                    <SelectValue placeholder="Select purchase option..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {line._spOptions.map(sp => (
-                      <SelectItem key={sp.id} value={sp.id}>
-                        {sp.purchase_uom_label || sp.purchase_uom}
-                        {sp.nominal_cost ? ` @ R${Number(sp.nominal_cost).toFixed(2)}` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
             )}
           </div>
         ) : (
@@ -1128,10 +1165,25 @@ function LineRow({
         )}
       </td>
 
-      {/* Purchase UOM */}
+      {/* Purchase UOM — supplier pack options OR our stock unit */}
       <td className="px-3 py-2">
         {isViewOnly ? (
           <span className="text-xs">{line.purchase_uom || '—'}</span>
+        ) : (uomOptions.length > 0 || stockUom) ? (
+          <Select value={uomValue} onValueChange={v => onSetLineUom(line._key, v)}>
+            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Unit..." /></SelectTrigger>
+            <SelectContent>
+              {uomOptions.map(sp => {
+                const cost = sp.nominal_cost || sp.last_purchase_price || 0;
+                return (
+                  <SelectItem key={sp.id} value={sp.id}>
+                    {sp.purchase_uom_label || sp.purchase_uom}{cost ? ` @ R${Number(cost).toFixed(2)}` : ''}
+                  </SelectItem>
+                );
+              })}
+              {stockUom && <SelectItem value="__stock__">Our stock unit ({stockUom})</SelectItem>}
+            </SelectContent>
+          </Select>
         ) : (
           <Input
             value={line.purchase_uom}
