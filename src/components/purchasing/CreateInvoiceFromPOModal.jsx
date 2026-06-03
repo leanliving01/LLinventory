@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { X, FileText, AlertTriangle, Loader2, Calendar, CheckCircle2, Plus, Search, Trash2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { computeDueDate } from '@/lib/utils';
-import { upsertShortage, resolveShortageKind, shortageKind } from '@/lib/shortageEngine';
+import { updateShortageIfExists, resolveShortageKind, shortageKind } from '@/lib/shortageEngine';
 
 const PRICE_VARIANCE_THRESHOLD = 5; // percent
 
@@ -425,14 +425,17 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
                 : existing.await ? 'receive_later'
                 : existing.review ? 'review'
                 : 'request_credit');
+            // Shortages are only ever CREATED by a confirmed GRN. Here we only
+            // reconcile an existing GRN-created shortage for this line — never
+            // create one from the invoice (no receiver = no shortage).
             if (effective === 'request_credit') {
-              await upsertShortage({ ...baseFields, decision: 'request_credit', shortage_qty: billedShort, credit_qty: billedShort, awaiting_qty: 0, credit_follow_up_status: 'credit_required' });
+              await updateShortageIfExists({ ...baseFields, decision: 'request_credit', shortage_qty: billedShort, credit_qty: billedShort, awaiting_qty: 0, credit_follow_up_status: 'credit_required' });
               anyCredit = true;
             } else if (effective === 'review') {
-              await upsertShortage({ ...baseFields, decision: 'review', shortage_qty: billedShort });
+              await updateShortageIfExists({ ...baseFields, decision: 'review', shortage_qty: billedShort });
               anyAwait = true;
             } else {
-              await upsertShortage({ ...baseFields, decision: 'await_receival', shortage_qty: billedShort, awaiting_qty: billedShort, credit_qty: 0 });
+              await updateShortageIfExists({ ...baseFields, decision: 'await_receival', shortage_qty: billedShort, awaiting_qty: billedShort, credit_qty: 0 });
               anyAwait = true;
             }
           } else {

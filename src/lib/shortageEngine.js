@@ -91,6 +91,7 @@ export async function upsertShortage({ poLineId, purchaseOrderId, productId, ...
   }
 
   const kind = shortageKind(derived.decision);
+  derived.shortage_kind = kind;
   const existing = await findShortageForPOLine({ poLineId, purchaseOrderId, productId, kind });
 
   if (existing) {
@@ -100,12 +101,51 @@ export async function upsertShortage({ poLineId, purchaseOrderId, productId, ...
     return base44.entities.SupplierShortage.update(existing.id, payload);
   }
 
-  return base44.entities.SupplierShortage.create({
-    po_line_id: poLineId || null,
-    purchase_order_id: purchaseOrderId || null,
-    product_id: productId,
-    ...derived,
-  });
+  try {
+    return await base44.entities.SupplierShortage.create({
+      po_line_id: poLineId || null,
+      purchase_order_id: purchaseOrderId || null,
+      product_id: productId,
+      ...derived,
+    });
+  } catch (err) {
+    // A concurrent call may have created the same (po_line_id, kind) row first
+    // (enforced by the uq_supplier_shortages_poline_kind unique index). Recover
+    // by updating that row instead of leaving a duplicate / surfacing an error.
+    const dupe = /duplicate key|unique constraint|23505/i.test(err?.message || '');
+    if (dupe && poLineId) {
+      const now = await findShortageForPOLine({ poLineId, purchaseOrderId, productId, kind });
+      if (now) {
+        const payload = { ...derived, po_line_id: poLineId };
+        if (purchaseOrderId) payload.purchase_order_id = purchaseOrderId;
+        return base44.entities.SupplierShortage.update(now.id, payload);
+      }
+    }
+    throw err;
+  }
+}
+
+/**
+ * Update the shortage for a PO line ONLY if one already exists for its kind.
+ * Never creates a new record — shortages originate solely from a confirmed GRN.
+ * Returns the updated record, or null if there was nothing to update.
+ */
+export async function updateShortageIfExists({ poLineId, purchaseOrderId, productId, ...fields }) {
+  const derived = { ...fields };
+  if (derived.shortage_qty == null && derived.ordered_qty != null && derived.received_qty != null) {
+    derived.shortage_qty = Math.max(0, (parseFloat(derived.ordered_qty) || 0) - (parseFloat(derived.received_qty) || 0));
+  }
+  if (derived.shortage_value == null && derived.shortage_qty != null) {
+    derived.shortage_value = computeShortageValue(derived.shortage_qty, derived.unit_cost);
+  }
+  const kind = shortageKind(derived.decision);
+  derived.shortage_kind = kind;
+  const existing = await findShortageForPOLine({ poLineId, purchaseOrderId, productId, kind });
+  if (!existing) return null;
+  const payload = { ...derived };
+  if (poLineId) payload.po_line_id = poLineId;
+  if (purchaseOrderId) payload.purchase_order_id = purchaseOrderId;
+  return base44.entities.SupplierShortage.update(existing.id, payload);
 }
 
 /**

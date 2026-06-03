@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Link, useNavigate } from 'react-router-dom';
 import { format, differenceInDays, isBefore, parseISO, startOfToday } from 'date-fns';
-import { Truck, Receipt, FileText, PackageCheck, AlertTriangle, TrendingUp, CheckCircle2, Clock, DollarSign, ArrowRight, Plus, RefreshCw, ArrowLeftRight, Upload } from 'lucide-react';
+import { Truck, Receipt, FileText, AlertTriangle, TrendingUp, CheckCircle2, Clock, DollarSign, ArrowRight, Plus, RefreshCw, ArrowLeftRight, Upload } from 'lucide-react';
 import SyncHealthIndicator from '@/components/shared/SyncHealthIndicator';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,8 +11,6 @@ import PageHelp from '@/components/help/PageHelp';
 import PurchasingKPIStrip from '@/components/purchasing/PurchasingKPIStrip';
 import PurchasingActivityFeed from '@/components/purchasing/PurchasingActivityFeed';
 import PurchasingAgingChart from '@/components/purchasing/PurchasingAgingChart';
-import CreatePOModal from '@/components/purchasing/CreatePOModal';
-import CreateBlindReceiptModal from '@/components/grn/CreateBlindReceiptModal';
 import InvoiceScanDialog from '@/components/purchasing/InvoiceScanDialog';
 import PaymentsDueWidget from '@/components/purchasing/PaymentsDueWidget';
 import { toast } from 'sonner';
@@ -27,8 +25,6 @@ export default function PurchasingDashboard() {
   const qOpts = { staleTime: 60000 };
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [showCreatePO, setShowCreatePO] = useState(false);
-  const [showBlindReceipt, setShowBlindReceipt] = useState(false);
   const [showInvoiceScan, setShowInvoiceScan] = useState(false);
   const [syncingXero, setSyncingXero] = useState(false);
 
@@ -194,17 +190,14 @@ export default function PurchasingDashboard() {
 
       {/* Quick actions */}
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => setShowCreatePO(true)} className="gap-2">
+        <Button onClick={() => navigate('/purchasing/purchase-orders/new')} className="gap-2">
           <Plus className="w-4 h-4" /> New Purchase Order
-        </Button>
-        <Button variant="outline" onClick={() => setShowBlindReceipt(true)} className="gap-2">
-          <PackageCheck className="w-4 h-4" /> Blind Receipt
         </Button>
         <Button variant="outline" onClick={() => setShowInvoiceScan(true)} className="gap-2">
           <Upload className="w-4 h-4" /> Upload Invoice
         </Button>
         <Button variant="outline" asChild>
-          <Link to="/purchasing/grns" className="gap-2 flex items-center">
+          <Link to="/purchasing/grn" className="gap-2 flex items-center">
             <Truck className="w-4 h-4" /> Receive Against PO
           </Link>
         </Button>
@@ -248,18 +241,6 @@ export default function PurchasingDashboard() {
         </div>
       </div>
 
-      {showCreatePO && (
-        <CreatePOModal
-          onCreated={() => { setShowCreatePO(false); queryClient.invalidateQueries({ queryKey: ['pdash-pos'] }); }}
-          onCancel={() => setShowCreatePO(false)}
-        />
-      )}
-      {showBlindReceipt && (
-        <CreateBlindReceiptModal
-          onCreated={() => { setShowBlindReceipt(false); queryClient.invalidateQueries({ queryKey: ['pdash-pos'] }); queryClient.invalidateQueries({ queryKey: ['pdash-grns'] }); }}
-          onCancel={() => setShowBlindReceipt(false)}
-        />
-      )}
       {showInvoiceScan && (
         <InvoiceScanDialog
           onSaved={() => { setShowInvoiceScan(false); queryClient.invalidateQueries({ queryKey: ['pdash-invoices'] }); }}
