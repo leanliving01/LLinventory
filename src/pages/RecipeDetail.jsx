@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, Package, Utensils, Plus, Trash2, Save, Loader2, ArrowRightLeft, BookOpen, FileText, Copy } from 'lucide-react';
+import { ArrowLeft, Package, Utensils, Plus, Trash2, Save, Loader2, ArrowRightLeft, BookOpen, FileText, Copy, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import AddComponentModal from '@/components/recipes/AddComponentModal';
@@ -256,12 +256,31 @@ export default function RecipeDetail() {
                 ? <Badge className="text-[10px] bg-green-100 text-green-700">Active</Badge>
                 : <Badge className="text-[10px] bg-gray-100 text-gray-500">Inactive</Badge>}
             </div>
-            <h1 className="text-2xl font-bold">{bom.product_name}</h1>
-            <p className="text-sm text-muted-foreground font-mono">{bom.product_sku}</p>
+            {bom.product_id ? (
+              <button
+                type="button"
+                onClick={() => navigate(`/catalog/${bom.product_id}`)}
+                className="text-left group"
+                title="Open this product"
+              >
+                <h1 className="text-2xl font-bold group-hover:text-primary group-hover:underline transition-colors">{bom.product_name}</h1>
+                <p className="text-sm text-muted-foreground font-mono group-hover:text-primary">{bom.product_sku}</p>
+              </button>
+            ) : (
+              <>
+                <h1 className="text-2xl font-bold">{bom.product_name}</h1>
+                <p className="text-sm text-muted-foreground font-mono">{bom.product_sku}</p>
+              </>
+            )}
             <p className="text-xs text-muted-foreground mt-1">{LAYER_DESC[bom.bom_type]}</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
+          {bom.product_id && (
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate(`/catalog/${bom.product_id}`)}>
+              <ExternalLink className="w-4 h-4" /> Open Product
+            </Button>
+          )}
           <Button variant="outline" size="sm" className="gap-1.5" onClick={handleDuplicateBom} disabled={saving}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />} Duplicate
           </Button>
