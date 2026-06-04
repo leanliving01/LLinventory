@@ -4,21 +4,11 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Trash2, ChevronDown, ChevronRight, Loader2, FolderTree, Tag } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, ChevronRight, Loader2, FolderTree, Tag, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import { CATEGORY_LABELS, CATEGORY_ORDER, SUBCATEGORIES_BY_CATEGORY } from '@/lib/productClassification';
 
-const TYPE_LABELS = {
-  raw: 'Raw Material',
-  packaging: 'Packaging',
-  wip_bulk: 'Bulk Cooked',
-  finished_meal: 'Finished Meal',
-  supplement: 'Supplement',
-  package: 'Package',
-  sauce: 'Sauce',
-  solo_serve: 'Solo Serve',
-  bundle: 'Bundle',
-  service: 'Service',
-};
+const TYPE_LABELS = CATEGORY_LABELS;
 
 const TYPE_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label }));
 
@@ -31,6 +21,7 @@ export default function SettingsCategoriesTab() {
   const [expandedCats, setExpandedCats] = useState({});
   const [newSubNames, setNewSubNames] = useState({});
   const [addingSub, setAddingSub] = useState({});
+  const [seeding, setSeeding] = useState(false);
 
   const { data: categories = [], isLoading: loadingCats } = useQuery({
     queryKey: ['product-categories'],
@@ -53,6 +44,49 @@ export default function SettingsCategoriesTab() {
   });
 
   const toggleCat = (id) => setExpandedCats(prev => ({ ...prev, [id]: !prev[id] }));
+
+  // One-click seed: create one category per product type (named after the type)
+  // and its standard subcategories from the canonical list. Idempotent.
+  const handleSeedDefaults = async () => {
+    setSeeding(true);
+    try {
+      let created = 0;
+      for (const type of CATEGORY_ORDER) {
+        const label = CATEGORY_LABELS[type] || type;
+        let cat = categories.find(c => c.product_type === type && (c.name || '').toLowerCase() === label.toLowerCase());
+        if (!cat) {
+          cat = await base44.entities.ProductCategory.create({
+            name: label,
+            product_type: type,
+            sort_order: CATEGORY_ORDER.indexOf(type),
+          });
+          created++;
+        }
+        const existing = new Set(
+          subcategories.filter(s => s.category_id === cat.id).map(s => (s.name || '').toLowerCase())
+        );
+        const subs = SUBCATEGORIES_BY_CATEGORY[type] || [];
+        for (let i = 0; i < subs.length; i++) {
+          if (existing.has(subs[i].toLowerCase())) continue;
+          await base44.entities.ProductSubcategory.create({
+            name: subs[i],
+            category_id: cat.id,
+            category_name: cat.name,
+            product_type: type,
+            sort_order: i,
+          });
+          created++;
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ['product-categories'] });
+      queryClient.invalidateQueries({ queryKey: ['product-subcategories'] });
+      toast.success(created ? `Loaded ${created} default categories & subcategories` : 'Defaults already present');
+    } catch (err) {
+      toast.error('Load defaults failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSeeding(false);
+    }
+  };
 
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
@@ -112,13 +146,19 @@ export default function SettingsCategoriesTab() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <div>
-        <h3 className="text-lg font-bold flex items-center gap-2">
-          <FolderTree className="w-5 h-5" /> Product Categories
-        </h3>
-        <p className="text-sm text-muted-foreground mt-1">
-          Manage categories and subcategories. Products are grouped by these in the catalog.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-bold flex items-center gap-2">
+            <FolderTree className="w-5 h-5" /> Product Categories
+          </h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Manage categories and subcategories. Products are grouped by these in the catalog.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={handleSeedDefaults} disabled={seeding} className="gap-1.5 shrink-0">
+          {seeding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+          Load defaults
+        </Button>
       </div>
 
       {/* Filter by type */}
@@ -161,9 +201,15 @@ export default function SettingsCategoriesTab() {
 
       {/* Category list */}
       {filteredCats.length === 0 && (
-        <p className="text-sm text-muted-foreground py-8 text-center">
-          No categories yet. Add one above to get started.
-        </p>
+        <div className="text-center py-10 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            No categories yet. Load the standard list to get started, then add your own.
+          </p>
+          <Button onClick={handleSeedDefaults} disabled={seeding} className="gap-1.5">
+            {seeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            Load default categories & subcategories
+          </Button>
+        </div>
       )}
 
       <div className="space-y-2">
