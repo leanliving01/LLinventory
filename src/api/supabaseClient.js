@@ -100,6 +100,8 @@ const ENTITY_TABLE_MAP = {
   ShopifyOrder:             'shopify_orders',
   ShopifyOrderLine:         'shopify_order_lines',
   ShopifyWebhookEvent:      'shopify_webhook_events',
+  ShopifyReturn:            'shopify_returns',
+  ShopifyReturnLine:        'shopify_return_lines',
   HistoricalOrder:          'historical_orders',
   Meal:                     'meals',
   SKU:                      'skus',

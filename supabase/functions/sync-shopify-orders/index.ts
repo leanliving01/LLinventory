@@ -4,6 +4,7 @@ import {
 } from '../_shared/sync-state.ts';
 import { chainNext } from '../_shared/chain.ts';
 import { startSyncLog, finishSyncLog } from '../_shared/sync-log.ts';
+import { upsertDraftReturnFromRefund } from '../_shared/returns.ts';
 
 const SOURCE_KEY = 'shopify_orders';
 const FN_NAME = 'sync-shopify-orders';
@@ -24,6 +25,8 @@ interface ShopifyOrder {
   total_price?: string;
   shipping_address?: { city?: string };
   line_items: ShopifyLineItem[];
+  // deno-lint-ignore no-explicit-any
+  refunds?: any[];
 }
 
 interface ShopifyLineItem {
@@ -361,6 +364,19 @@ Deno.serve(async (req) => {
   if (allSalesLines.length) {
     const { error: slErr } = await supabase.from('sales_order_lines').insert(allSalesLines);
     if (slErr) console.error('sales_order_lines insert error:', slErr.message);
+  }
+
+  // Import any Shopify refunds on these orders as Draft Returns (no stock movement).
+  // Runs after sales_order_lines exist so the helper can map line items → products.
+  for (const o of orders) {
+    if (!o.refunds?.length) continue;
+    for (const refund of o.refunds) {
+      try {
+        await upsertDraftReturnFromRefund(supabase, refund, o.id);
+      } catch (e) {
+        console.error('upsertDraftReturnFromRefund error:', (e as Error).message);
+      }
+    }
   }
 
   const processedThisPage = orders.length;

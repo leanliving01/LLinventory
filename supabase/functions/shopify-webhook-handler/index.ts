@@ -1,8 +1,29 @@
 // Shopify webhook receiver. Validates HMAC signature then upserts the order
 // into shopify_orders + sales_orders using the same mapping as sync-shopify-orders.
 import { getSupabase, corsHeaders, json } from '../_shared/shopify.ts';
+import { upsertDraftReturnFromRefund, upsertDraftReturnFromReturn } from '../_shared/returns.ts';
 
 const WEBHOOK_SECRET = Deno.env.get('SHOPIFY_WEBHOOK_SECRET') || '';
+
+// Normalizes a Shopify returns/* webhook payload for upsertDraftReturnFromReturn.
+// deno-lint-ignore no-explicit-any
+function normalizeReturnWebhook(p: any) {
+  const lineItems: any[] = p?.return_line_items || p?.returnLineItems || [];
+  return {
+    shopify_return_id: String(p?.id ?? ''),
+    shopify_order_id: String(p?.order_id ?? p?.order?.id ?? ''),
+    name: p?.name ?? null,
+    status: p?.status ?? null,
+    reason: p?.return_reason ?? null,
+    created_at: p?.created_at ?? p?.requested_at ?? null,
+    lines: lineItems.map((rli) => ({
+      shopify_line_item_id: String(rli?.line_item_id ?? rli?.fulfillment_line_item?.line_item_id ?? rli?.fulfillmentLineItem?.lineItem?.id ?? ''),
+      quantity: Number(rli?.quantity) || 0,
+      value: null,
+      reason: rli?.return_reason ?? rli?.return_reason_note ?? null,
+    })),
+  };
+}
 
 async function verifyHmac(rawBody: string, hmacHeader: string | null): Promise<boolean> {
   if (!hmacHeader || !WEBHOOK_SECRET) return false;
@@ -66,6 +87,32 @@ Deno.serve(async (req) => {
     if (!valid) {
       return new Response('Unauthorized', { status: 401 });
     }
+  }
+
+  // Refund / native-return events → import as Draft Returns (no stock movement).
+  if (topic.startsWith('refunds/') || topic.startsWith('returns/')) {
+    let payload: Record<string, unknown>;
+    try { payload = JSON.parse(rawBody); } catch { return new Response('bad json', { status: 400 }); }
+    const supabase = getSupabase();
+    try {
+      if (topic.startsWith('refunds/')) {
+        await upsertDraftReturnFromRefund(supabase, payload, (payload.order_id as number | string | undefined));
+      } else {
+        await upsertDraftReturnFromReturn(supabase, normalizeReturnWebhook(payload));
+      }
+    } catch (e) {
+      console.error(`[webhook ${topic}] error:`, (e as Error).message);
+    }
+    await supabase.from('shopify_webhook_events').insert({
+      id: crypto.randomUUID(),
+      topic,
+      shopify_order_id: String(payload.order_id ?? payload.id ?? ''),
+      received_at: new Date().toISOString(),
+      processed: true,
+      created_date: new Date().toISOString(),
+      updated_date: new Date().toISOString(),
+    });
+    return json({ status: 'ok', topic });
   }
 
   // Only process order events

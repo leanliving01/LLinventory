@@ -48,6 +48,11 @@ Deno.serve(async (req) => {
   results.mismatch_scan = reconRes.ok ? 'triggered' : `error_${reconRes.status}`;
   if (!reconRes.ok) errors++;
 
+  // 4. Backfill Shopify native returns (no-op if store has no Returns feature)
+  const returnsRes = await invokeFn('sync-shopify-returns', { maxPages: 20 });
+  results.shopify_returns = returnsRes.ok ? 'triggered' : `error_${returnsRes.status}`;
+  if (!returnsRes.ok) errors++;
+
   await finishSyncLog(supabase, logId, errors === 0 ? 'completed' : 'partial', {
     records_fetched: 0,
     errors_count: errors,

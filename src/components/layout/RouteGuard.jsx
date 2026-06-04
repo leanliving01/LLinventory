@@ -31,6 +31,7 @@ const ROUTE_PERMISSIONS = {
   '/purchasing/scorecard': 'supplier_scorecard',
   '/purchasing/pack-bom':  'recipes_edit',
   '/sales':                'sales_view',
+  '/sales/returns':        'sales_view',
   '/production':           'planning_view',
   '/production/plan-review': 'planning_view',
   '/production/runs':      'runs_view',

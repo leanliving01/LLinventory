@@ -26,6 +26,8 @@ jobs:
           supabase functions deploy sync-xero-invoices --project-ref cpzkmzcohujpybcocipe --no-verify-jwt
           supabase functions deploy sync-xero-purchase-orders --project-ref cpzkmzcohujpybcocipe --no-verify-jwt
           supabase functions deploy shopify-webhook-handler --project-ref cpzkmzcohujpybcocipe --no-verify-jwt
+          supabase functions deploy sync-shopify-returns --project-ref cpzkmzcohujpybcocipe --no-verify-jwt
+          supabase functions deploy register-shopify-webhooks --project-ref cpzkmzcohujpybcocipe --no-verify-jwt
           supabase functions deploy reconcile-daily --project-ref cpzkmzcohujpybcocipe --no-verify-jwt
           supabase functions deploy recalc-demand --project-ref cpzkmzcohujpybcocipe --no-verify-jwt
           supabase functions deploy recalc-committed-stock --project-ref cpzkmzcohujpybcocipe --no-verify-jwt

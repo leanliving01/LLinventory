@@ -6,6 +6,13 @@ const WEBHOOK_TOPICS = [
   'orders/updated',
   'orders/paid',
   'orders/fulfilled',
+  // Customer returns / refunds — import as Draft Returns (no stock movement).
+  'refunds/create',
+  'returns/request',
+  'returns/approve',
+  'returns/update',
+  'returns/cancel',
+  'returns/close',
 ] as const;
 
 interface WebhookRegistration {

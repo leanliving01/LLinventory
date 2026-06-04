@@ -39,6 +39,7 @@ import {
   FileX2,
   Sparkles,
   RefreshCw,
+  RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
@@ -73,6 +74,7 @@ const PATH_PERMISSION_MAP = {
   '/purchasing/pack-bom': 'recipes_edit',
   '/stock/overview': 'inventory_overview',
   '/sales': 'sales_view',
+  '/sales/returns': 'sales_view',
   '/production': 'planning_view',
   '/production/runs': 'runs_view',
   '/production/plan-review': 'planning_view',
@@ -135,8 +137,14 @@ const navItems = [
       { label: 'Supplier Scorecard', path: '/purchasing/scorecard', icon: Award },
     ]
   },
-  { label: 'Sales', path: '/sales', icon: ShoppingCart },
-  { 
+  {
+    label: 'Sales & Returns', icon: ShoppingCart,
+    children: [
+      { label: 'Orders', path: '/sales', icon: ShoppingCart },
+      { label: 'Returns', path: '/sales/returns', icon: RotateCcw },
+    ]
+  },
+  {
     label: 'Production', icon: Factory,
     children: [
       { label: 'Production Plan', path: '/production', icon: Factory },

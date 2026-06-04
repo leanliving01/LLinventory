@@ -105,6 +105,7 @@ export const PERMISSION_GROUPS = [
     keys: [
       { key: 'sales_view',    label: 'View Sales / Orders' },
       { key: 'sales_fulfill', label: 'Fulfill Orders' },
+      { key: 'shopify_returns_process', label: 'Process Customer Returns' },
       { key: 'customers',     label: 'Customers' },
     ],
   },
@@ -167,7 +168,7 @@ export const ROLE_DEFAULTS = {
     'cooking_runs_view', 'cooking_runs_create', 'cooking_runs_release', 'wip_view', 'wip_manage', 'wip_qc_override', 'yield_review', 'supplier_yield_view', 'wip_planning', 'wastage_review',
     'stocktake_view', 'stocktake_create', 'stock_transfers', 'receiving', 'wastage', 'par_levels', 'movements_view', 'inventory_overview', 'inventory_recalc_committed', 'stock_writeoff_view', 'stock_writeoff_create',
     'po_view', 'po_create', 'po_approve', 'po_delete', 'grn_create', 'blind_receipt_create', 'product_review', 'product_create_from_queue', 'returns_process', 'supplier_product_edit', 'xero_invoice_sync', 'purchasing_dashboard', 'shortages_view', 'returns_view', 'suppliers', 'price_variance_view', 'three_way_match_view',
-    'sales_view', 'sales_fulfill', 'customers',
+    'sales_view', 'sales_fulfill', 'shopify_returns_process', 'customers',
     'reports_view', 'reports_costs', 'reports_team', 'reports_dispatch', 'forecasting', 'food_cost_view', 'food_cost_run',
     'equipment', 'shopify_sync', 'supplier_scorecard', 'activity_log_view',
   ),

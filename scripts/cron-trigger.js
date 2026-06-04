@@ -92,6 +92,15 @@ async function run() {
     console.error('[deduct-fulfilled-stock] Error:', e.message);
   }
 
+  // Shopify native returns (RMAs) — every 15 min. Imports as Draft Returns;
+  // no-op for stores without the Returns feature. Refunds ride on the order sync.
+  try {
+    const r = await invoke('sync-shopify-returns', { maxPages: 5 });
+    console.log(`[shopify-returns] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);
+  } catch (e) {
+    console.error('[shopify-returns] Error:', e.message);
+  }
+
   // Xero invoices — every 4 hours (guard: the function itself checks for concurrent runs)
   try {
     const r = await invoke('sync-xero-invoices', { mode: 'start' });

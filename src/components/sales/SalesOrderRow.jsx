@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, Package } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ChevronDown, ChevronRight, Package, RotateCcw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
 import { formatDateTimeSAST } from '@/lib/dateUtils';
+import { STATUS_LABELS as RETURN_STATUS_LABELS, STATUS_COLORS as RETURN_STATUS_COLORS } from '@/lib/shopifyReturns';
 import PackageComponentsPopup from './PackageComponentsPopup';
 
 const lifecycleColors = {
@@ -92,6 +94,12 @@ export default function SalesOrderRow({ order }) {
     queryKey: ['sales-order-lines', order.id],
     queryFn: () => base44.entities.SalesOrderLine.filter({ sales_order_id: order.id }),
     enabled: expanded, // only fetch when expanded
+  });
+
+  const { data: returns = [] } = useQuery({
+    queryKey: ['order-returns', order.id],
+    queryFn: () => base44.entities.ShopifyReturn.filter({ sales_order_id: order.id }, '-created_date', 50),
+    enabled: expanded,
   });
 
   const orderDate = order.order_date ? new Date(order.order_date) : null;
@@ -254,6 +262,31 @@ export default function SalesOrderRow({ order }) {
               </tbody>
             </table>
           </div>
+          {/* Returns on this order */}
+          {returns.length > 0 && (
+            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50/50 p-3">
+              <p className="text-xs font-semibold text-rose-700 mb-2 flex items-center gap-1.5">
+                <RotateCcw className="w-3.5 h-3.5" /> {returns.length} Return{returns.length > 1 ? 's' : ''}
+              </p>
+              <div className="space-y-1.5">
+                {returns.map(r => (
+                  <Link
+                    key={r.id}
+                    to={`/sales/returns/${r.id}`}
+                    className="flex items-center gap-2 text-xs hover:underline"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <span className="font-mono">{r.return_number}</span>
+                    <Badge className={`text-[10px] py-0 ${RETURN_STATUS_COLORS[r.status] || ''}`}>{RETURN_STATUS_LABELS[r.status] || r.status}</Badge>
+                    <span className="text-muted-foreground">R {(r.total_return_value || 0).toFixed(2)}</span>
+                    {(r.total_write_off_value || 0) > 0 && <span className="text-rose-600">write-off R {r.total_write_off_value.toFixed(2)}</span>}
+                    {r.courier_responsibility && <span className="text-muted-foreground">· {r.courier_responsibility === 'us' ? 'we book courier' : 'customer courier'}{r.courier_status ? ` (${r.courier_status})` : ''}</span>}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Order metadata */}
           <div className="flex flex-wrap gap-4 mt-3 text-xs text-muted-foreground">
             {order.customer_email && <span>Email: {order.customer_email}</span>}
