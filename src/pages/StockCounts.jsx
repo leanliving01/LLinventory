@@ -4,12 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ClipboardCheck, Plus, MapPin, ChevronRight } from 'lucide-react';
+import { ClipboardCheck, Plus, MapPin, ChevronRight, FileSpreadsheet } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import CreatePlannedCountModal from '@/components/stock-count/CreatePlannedCountModal';
+import StockCountCSVImport from '@/components/stock-count/StockCountCSVImport';
 import { COUNT_STATUS } from '@/lib/stockCount';
 
 const STATUS_STYLES = {
@@ -44,6 +45,7 @@ export default function StockCounts() {
 
   const [filter, setFilter] = useState('active');
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const { data: counts = [], isLoading } = useQuery({
     queryKey: ['stock-counts'],
@@ -67,9 +69,14 @@ export default function StockCounts() {
           </p>
         </div>
         {canCreate && (
-          <Button onClick={() => setShowCreate(true)} className="gap-2">
-            <Plus className="w-4 h-4" /> New Planned Count
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setShowImport(true)} className="gap-2">
+              <FileSpreadsheet className="w-4 h-4" /> Import CSV
+            </Button>
+            <Button onClick={() => setShowCreate(true)} className="gap-2">
+              <Plus className="w-4 h-4" /> New Planned Count
+            </Button>
+          </div>
         )}
       </div>
 
@@ -142,6 +149,17 @@ export default function StockCounts() {
             navigate(`/stock/stock-take/${header.id}`);
           }}
           onCancel={() => setShowCreate(false)}
+        />
+      )}
+
+      {showImport && (
+        <StockCountCSVImport
+          onImported={(header) => {
+            setShowImport(false);
+            queryClient.invalidateQueries({ queryKey: ['stock-counts'] });
+            navigate(`/stock/stock-take/${header.id}`);
+          }}
+          onCancel={() => setShowImport(false)}
         />
       )}
     </div>

@@ -115,6 +115,57 @@ export function createLiveCount({ location, assignedTo, assignedToName }) {
 }
 
 // ---------------------------------------------------------------------------
+// Web: create a count from a validated CSV. Rows are already matched to products
+// with a count UOM + conversion factor. Lands directly Under Review.
+// `rows` = [{ product_id, product_sku, product_name, stock_uom, count_uom,
+//             count_uom_label, conversion_factor, counted_qty }]
+// ---------------------------------------------------------------------------
+export async function createCsvCount({ location, date, rows, userName }) {
+  const reference = await nextDocNumber('SCN');
+
+  const sohRows = await base44.entities.StockOnHand.filter({ location_id: location.id }, 'product_name', 5000);
+  const systemByProduct = {};
+  sohRows.forEach(s => { systemByProduct[s.product_id] = (systemByProduct[s.product_id] || 0) + (Number(s.qty_on_hand) || 0); });
+
+  const header = await base44.entities.NewStockTake.create({
+    reference,
+    stocktake_date: date || new Date().toISOString().slice(0, 10),
+    location_id: location.id,
+    location_name: location.name,
+    status: 'under_review',
+    count_type: 'planned',
+    total_lines: rows.length,
+    uncounted_count: 0,
+    submitted_by: userName || null,
+    submitted_at: new Date().toISOString(),
+  });
+
+  if (rows.length) {
+    await base44.entities.StockTakeLine.bulkCreate(rows.map(r => {
+      const cf = Number(r.conversion_factor) || 1;
+      const qty = Number(r.counted_qty) || 0;
+      return {
+        stocktake_id: header.id,
+        product_id: r.product_id,
+        product_sku: r.product_sku || '',
+        product_name: r.product_name || '',
+        stock_uom: r.stock_uom || 'pcs',
+        count_uom: r.count_uom || r.stock_uom || 'pcs',
+        count_uom_label: r.count_uom_label || '',
+        conversion_factor: cf,
+        counted_qty: qty,
+        converted_qty: round(qty * cf, 3),
+        system_qty: round(systemByProduct[r.product_id] || 0, 3),
+        counted: true,
+        count_attempt: 1,
+      };
+    }));
+  }
+
+  return header;
+}
+
+// ---------------------------------------------------------------------------
 // Floor: persist entered counts. Updates existing lines; never writes SOH.
 // `entries` = [{ id, counted_qty }]. Sets header → in_progress.
 // ---------------------------------------------------------------------------
