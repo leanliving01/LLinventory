@@ -206,9 +206,9 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
 
   return (
     <>
-    <div className="fixed inset-0 z-50 bg-card flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className="max-w-4xl space-y-4">
         {/* Header */}
-        <div className="bg-card border-b border-border px-6 py-4 flex items-start justify-between shrink-0">
+        <div className="bg-card border border-border rounded-xl px-6 py-4 flex items-start justify-between">
           <div>
             <Badge className={`text-[10px] mb-1 ${liveSupplier.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
               {liveSupplier.status || 'active'}
@@ -236,7 +236,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+        <div className="bg-card border border-border rounded-xl px-6 py-5 space-y-6">
           <div className="space-y-3">
             <h3 className="text-sm font-semibold">Contact Details</h3>
             {editing ? (
@@ -565,7 +565,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
 
         {/* Footer — save when editing */}
         {editing && (
-          <div className="bg-card border-t border-border px-6 py-3 shrink-0 space-y-2">
+          <div className="sticky bottom-0 bg-card border border-border rounded-xl px-6 py-3 space-y-2">
             {saveError && (
               <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
                 Save failed: {saveError}

@@ -94,6 +94,17 @@ export default function Suppliers() {
 
   return (
     <div className="space-y-4">
+      {selectedSupplier ? (
+        <SupplierDetailDrawer
+          supplier={selectedSupplier}
+          onClose={() => setSelectedSupplier(null)}
+          onUpdated={(updated) => {
+            if (updated) setSelectedSupplier(updated);
+            queryClient.invalidateQueries({ queryKey: ['suppliers-list'] });
+          }}
+        />
+      ) : (
+      <>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Suppliers</h1>
@@ -295,16 +306,7 @@ export default function Suppliers() {
           />
         </div>
       )}
-
-      {selectedSupplier && (
-        <SupplierDetailDrawer
-          supplier={selectedSupplier}
-          onClose={() => setSelectedSupplier(null)}
-          onUpdated={(updated) => {
-            if (updated) setSelectedSupplier(updated);
-            queryClient.invalidateQueries({ queryKey: ['suppliers-list'] });
-          }}
-        />
+      </>
       )}
 
       {showBulkEdit && (
