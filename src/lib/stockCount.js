@@ -50,6 +50,14 @@ export async function createPlannedCount({ location, date, itemGroup, assignedTo
     candidates.push({ soh, product });
   }
 
+  // Default Stock Count UOM per product (falls back to the main stock UOM).
+  const productIds = candidates.map(c => c.soh.product_id);
+  const countUoms = productIds.length
+    ? await base44.entities.StockCountUom.filter({ product_id: productIds }, 'count_uom', 5000)
+    : [];
+  const defaultUomByProduct = {};
+  countUoms.forEach(u => { if (u.is_default && !defaultUomByProduct[u.product_id]) defaultUomByProduct[u.product_id] = u; });
+
   const header = await base44.entities.NewStockTake.create({
     reference,
     stocktake_date: date,
@@ -65,17 +73,22 @@ export async function createPlannedCount({ location, date, itemGroup, assignedTo
   });
 
   if (candidates.length) {
-    await base44.entities.StockTakeLine.bulkCreate(candidates.map(({ soh, product }) => ({
-      stocktake_id: header.id,
-      product_id: soh.product_id,
-      product_sku: soh.product_sku || product?.sku || '',
-      product_name: soh.product_name || product?.name || '',
-      stock_uom: product?.stock_uom || soh.uom || 'pcs',
-      count_uom: product?.stock_uom || soh.uom || 'pcs',
-      conversion_factor: 1,
-      counted: false,
-      count_attempt: 1,
-    })));
+    await base44.entities.StockTakeLine.bulkCreate(candidates.map(({ soh, product }) => {
+      const stockUom = product?.stock_uom || soh.uom || 'pcs';
+      const def = defaultUomByProduct[soh.product_id];
+      return {
+        stocktake_id: header.id,
+        product_id: soh.product_id,
+        product_sku: soh.product_sku || product?.sku || '',
+        product_name: soh.product_name || product?.name || '',
+        stock_uom: stockUom,
+        count_uom: def?.count_uom || stockUom,
+        count_uom_label: def?.count_uom_label || '',
+        conversion_factor: def ? (Number(def.conversion_factor) || 1) : 1,
+        counted: false,
+        count_attempt: 1,
+      };
+    }));
   }
 
   return header;
@@ -93,6 +106,12 @@ export async function saveFloorCounts(countId, entries, userName) {
     counted: e.counted_qty !== '' && e.counted_qty != null,
     counted_at: now,
     counted_by: userName || null,
+    // Persist the chosen count UOM + conversion when the floor user switched units.
+    ...(e.count_uom ? {
+      count_uom: e.count_uom,
+      count_uom_label: e.count_uom_label ?? null,
+      conversion_factor: Number(e.conversion_factor) || 1,
+    } : {}),
   }));
   if (updates.length) await base44.entities.StockTakeLine.bulkUpdate(updates);
 

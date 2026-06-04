@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ArrowLeft, Search, Camera, Save, CheckCircle2, Loader2, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -21,6 +22,7 @@ export default function FloorCountSession({ count, onBack }) {
   const userName = user?.full_name || user?.email || 'Floor';
 
   const [counts, setCounts] = useState({});       // lineId → value (string)
+  const [uomKey, setUomKey] = useState({});       // lineId → selected option key
   const [seeded, setSeeded] = useState(false);
   const [search, setSearch] = useState('');
   const [showCamera, setShowCamera] = useState(false);
@@ -35,14 +37,44 @@ export default function FloorCountSession({ count, onBack }) {
     queryFn: () => base44.entities.StockTakeLine.filter({ stocktake_id: count.id }, 'product_name', 5000),
   });
 
-  // Seed local inputs from saved counts (once).
+  // Count UOM options per product (default + alternates) for the unit dropdown.
+  const productIds = useMemo(() => Array.from(new Set(lines.map(l => l.product_id))), [lines]);
+  const { data: countUoms = [] } = useQuery({
+    queryKey: ['floor-count-uoms', count.id, productIds.length],
+    queryFn: () => base44.entities.StockCountUom.filter({ product_id: productIds }, 'count_uom', 5000),
+    enabled: productIds.length > 0,
+  });
+
+  // optionsByProduct: list of selectable units, always including the base stock UOM.
+  const optionsByLine = useMemo(() => {
+    const byProduct = {};
+    countUoms.forEach(u => { (byProduct[u.product_id] = byProduct[u.product_id] || []).push(u); });
+    const map = {};
+    lines.forEach(l => {
+      const base = { key: '__stock__', count_uom: l.stock_uom || 'unit', conversion_factor: 1, count_uom_label: '' };
+      const extras = (byProduct[l.product_id] || []).map(u => ({
+        key: u.id, count_uom: u.count_uom, conversion_factor: Number(u.conversion_factor) || 1, count_uom_label: u.count_uom_label || '',
+      }));
+      map[l.id] = [base, ...extras];
+    });
+    return map;
+  }, [lines, countUoms]);
+
+  // Seed local inputs + selected UOM key from saved lines (once).
   useEffect(() => {
     if (seeded || !lines.length) return;
-    const init = {};
-    lines.forEach(l => { if (l.counted_qty != null) init[l.id] = String(l.counted_qty); });
-    setCounts(init);
+    const initCounts = {};
+    const initUom = {};
+    lines.forEach(l => {
+      if (l.counted_qty != null) initCounts[l.id] = String(l.counted_qty);
+      const opts = optionsByLine[l.id] || [];
+      const match = opts.find(o => o.key !== '__stock__' && o.count_uom === l.count_uom && Number(o.conversion_factor) === Number(l.conversion_factor));
+      initUom[l.id] = match ? match.key : '__stock__';
+    });
+    setCounts(initCounts);
+    setUomKey(initUom);
     setSeeded(true);
-  }, [lines, seeded]);
+  }, [lines, optionsByLine, seeded]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return lines;
@@ -75,7 +107,17 @@ export default function FloorCountSession({ count, onBack }) {
   const entriesPayload = () =>
     Object.entries(counts)
       .filter(([, v]) => v !== '' && v != null)
-      .map(([id, v]) => ({ id, counted_qty: v }));
+      .map(([id, v]) => {
+        const opts = optionsByLine[id] || [];
+        const sel = opts.find(o => o.key === uomKey[id]) || opts[0];
+        return {
+          id,
+          counted_qty: v,
+          count_uom: sel?.count_uom,
+          count_uom_label: sel?.count_uom_label || null,
+          conversion_factor: sel?.conversion_factor || 1,
+        };
+      });
 
   const handleSave = async () => {
     setSaving(true);
@@ -147,7 +189,20 @@ export default function FloorCountSession({ count, onBack }) {
                 <p className="text-sm font-medium truncate">{l.product_name}</p>
                 <div className="flex items-center gap-2 mt-0.5">
                   <span className="text-[11px] font-mono text-muted-foreground">{l.product_sku}</span>
-                  <Badge variant="outline" className="text-[10px]">{l.count_uom || l.stock_uom || 'unit'}</Badge>
+                  {(optionsByLine[l.id]?.length || 0) > 1 ? (
+                    <Select value={uomKey[l.id] || '__stock__'} onValueChange={v => setUomKey(prev => ({ ...prev, [l.id]: v }))} disabled={locked}>
+                      <SelectTrigger className="h-6 text-[11px] w-auto gap-1 px-2"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {optionsByLine[l.id].map(o => (
+                          <SelectItem key={o.key} value={o.key}>
+                            {o.count_uom}{o.count_uom_label ? ` — ${o.count_uom_label}` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px]">{l.count_uom || l.stock_uom || 'unit'}</Badge>
+                  )}
                 </div>
               </div>
               <Input

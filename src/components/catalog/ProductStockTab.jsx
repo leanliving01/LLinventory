@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Warehouse, PenLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import StockAdjustmentModal from './StockAdjustmentModal';
+import ProductCountUomEditor from './ProductCountUomEditor';
 
 export default function ProductStockTab({ productId }) {
   const [showAdjust, setShowAdjust] = useState(false);
@@ -78,6 +79,9 @@ export default function ProductStockTab({ productId }) {
           </table>
         )}
       </div>
+
+      <ProductCountUomEditor productId={productId} product={product} />
+
       {showAdjust && product && (
         <StockAdjustmentModal
           product={product}

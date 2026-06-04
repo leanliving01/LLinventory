@@ -96,6 +96,7 @@ const ENTITY_TABLE_MAP = {
   StockMovement:            'stock_movements',
   NewStockTake:             'new_stock_takes',
   StockTakeLine:            'stock_take_lines',
+  StockCountUom:            'stock_count_uoms',
   ShopifyOrder:             'shopify_orders',
   ShopifyOrderLine:         'shopify_order_lines',
   ShopifyWebhookEvent:      'shopify_webhook_events',
