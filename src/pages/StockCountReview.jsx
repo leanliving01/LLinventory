@@ -5,7 +5,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  ArrowLeft, Loader2, MapPin, CheckCircle2, Ban, ClipboardCheck, AlertTriangle,
+  ArrowLeft, Loader2, MapPin, CheckCircle2, Ban, ClipboardCheck, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -14,7 +14,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import StockCountVarianceTable from '@/components/stock-count/StockCountVarianceTable';
-import { buildVarianceRows, postStockCount, cancelStockCount, COUNT_STATUS } from '@/lib/stockCount';
+import { buildVarianceRows, postStockCount, cancelStockCount, requestRecount, RECOUNT_STATUSES, COUNT_STATUS } from '@/lib/stockCount';
 
 const STATUS_STYLES = {
   open: 'bg-blue-100 text-blue-700',
@@ -36,6 +36,9 @@ export default function StockCountReview() {
   const userName = user?.full_name || user?.email || 'System';
 
   const [posting, setPosting] = useState(false);
+  const [recountMode, setRecountMode] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
+  const [requesting, setRequesting] = useState(false);
 
   const { data: header, isLoading: loadingHeader } = useQuery({
     queryKey: ['stock-count', id],
@@ -65,8 +68,36 @@ export default function StockCountReview() {
     return { surplus, shortage, value: Math.round(value * 100) / 100, counted: rows.length };
   }, [rows]);
 
-  const isReviewable = header && ['floor_completed', 'under_review', 'recount_completed'].includes(header.status);
+  const isReviewable = header && ['floor_completed', 'under_review'].includes(header.status);
+  const isRecounting = header && RECOUNT_STATUSES.includes(header.status);
   const isLocked = header?.status === 'completed';
+  const hasPrev = useMemo(() => rows.some(r => r.previous_counted_qty != null), [rows]);
+
+  const toggle = (lineId) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(lineId) ? next.delete(lineId) : next.add(lineId);
+    return next;
+  });
+  const toggleAll = () => setSelected(prev =>
+    prev.size === rows.length ? new Set() : new Set(rows.map(r => r.id))
+  );
+
+  const handleRequestRecount = async () => {
+    setRequesting(true);
+    try {
+      await requestRecount(id, [...selected], userName);
+      setRecountMode(false);
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ['stock-count', id] });
+      queryClient.invalidateQueries({ queryKey: ['stock-count-lines', id] });
+      queryClient.invalidateQueries({ queryKey: ['stock-counts'] });
+      toast.success('Recount requested — sent back to the floor');
+    } catch (err) {
+      toast.error('Failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setRequesting(false);
+    }
+  };
 
   const handlePost = async () => {
     setPosting(true);
@@ -122,7 +153,12 @@ export default function StockCountReview() {
               <Ban className="w-4 h-4" /> Cancel
             </Button>
           )}
-          {canPost && isReviewable && (
+          {canPost && isReviewable && !recountMode && (
+            <Button variant="outline" size="sm" onClick={() => setRecountMode(true)} className="gap-1.5">
+              <RefreshCw className="w-4 h-4" /> Request Recount
+            </Button>
+          )}
+          {canPost && isReviewable && !recountMode && (
             <Button size="sm" onClick={handlePost} disabled={posting} className="gap-1.5 bg-green-600 hover:bg-green-700">
               {posting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               Post Stock Take
@@ -153,6 +189,29 @@ export default function StockCountReview() {
           <span>Posted on {header.posted_at ? format(new Date(header.posted_at), 'dd MMM yyyy HH:mm') : ''} — stock-on-hand was updated. This report is locked.</span>
         </div>
       )}
+      {isRecounting && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-orange-50 border border-orange-200 text-orange-700 text-sm">
+          <RefreshCw className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>A recount is in progress on the floor for {header.uncounted_count || 0} item(s). The variance updates once the floor team resubmits.</span>
+        </div>
+      )}
+
+      {/* Recount selection bar */}
+      {recountMode && (
+        <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20 text-sm flex-wrap">
+          <span className="font-medium">{selected.size} selected</span>
+          <Button variant="ghost" size="sm" onClick={toggleAll}>
+            {selected.size === rows.length ? 'Clear all' : 'Select all'}
+          </Button>
+          <div className="ml-auto flex gap-2">
+            <Button variant="ghost" size="sm" onClick={() => { setRecountMode(false); setSelected(new Set()); }}>Cancel</Button>
+            <Button size="sm" onClick={handleRequestRecount} disabled={requesting || selected.size === 0} className="gap-1.5 bg-orange-600 hover:bg-orange-700">
+              {requesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              Request Recount ({selected.size})
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Variance summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -163,7 +222,14 @@ export default function StockCountReview() {
       </div>
 
       {/* Variance table */}
-      <StockCountVarianceTable rows={rows} />
+      <StockCountVarianceTable
+        rows={rows}
+        selectable={recountMode}
+        selected={selected}
+        onToggle={toggle}
+        onToggleAll={toggleAll}
+        showPrev={hasPrev}
+      />
     </div>
   );
 }

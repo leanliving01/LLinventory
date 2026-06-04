@@ -18,6 +18,9 @@ export const COUNT_STATUS = {
 
 // Statuses where the count is still being captured on the floor.
 export const FLOOR_OPEN_STATUSES = ['open', 'in_progress'];
+export const RECOUNT_STATUSES = ['recount_requested', 'recount_in_progress'];
+// All statuses where the floor may edit counts (initial capture or recount).
+export const FLOOR_EDITABLE_STATUSES = [...FLOOR_OPEN_STATUSES, ...RECOUNT_STATUSES];
 
 const round = (n, dp = 2) => {
   const f = 10 ** dp;
@@ -116,8 +119,12 @@ export async function saveFloorCounts(countId, entries, userName) {
   if (updates.length) await base44.entities.StockTakeLine.bulkUpdate(updates);
 
   const header = await base44.entities.NewStockTake.filter({ id: countId }).then(r => r[0]);
-  if (header && FLOOR_OPEN_STATUSES.includes(header.status) && header.status !== 'in_progress') {
-    await base44.entities.NewStockTake.update(countId, { status: 'in_progress' });
+  if (header) {
+    if (FLOOR_OPEN_STATUSES.includes(header.status) && header.status !== 'in_progress') {
+      await base44.entities.NewStockTake.update(countId, { status: 'in_progress' });
+    } else if (RECOUNT_STATUSES.includes(header.status) && header.status !== 'recount_in_progress') {
+      await base44.entities.NewStockTake.update(countId, { status: 'recount_in_progress' });
+    }
   }
 }
 
@@ -157,6 +164,7 @@ export async function completeFloorCount(countId, userName) {
       id: l.id,
       system_qty: round(systemByProduct[l.product_id] || 0, 3),
       converted_qty: converted,
+      recount_requested: false, // resolved — clears the flag after a recount
     };
   });
   if (updates.length) await base44.entities.StockTakeLine.bulkUpdate(updates);
@@ -166,6 +174,34 @@ export async function completeFloorCount(countId, userName) {
     uncounted_count: lines.length - counted.length,
     submitted_by: userName || null,
     submitted_at: new Date().toISOString(),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Web: request a recount of selected lines. Keeps the previous floor count for
+// comparison, clears the counted value so the floor re-enters it, and bumps the
+// attempt counter. Header → recount_requested.
+// ---------------------------------------------------------------------------
+export async function requestRecount(countId, lineIds, userName) {
+  const lines = await base44.entities.StockTakeLine.filter({ stocktake_id: countId }, 'product_name', 5000);
+  const targets = lines.filter(l => lineIds.includes(l.id));
+  if (!targets.length) throw new Error('Select at least one item to recount');
+
+  await base44.entities.StockTakeLine.bulkUpdate(targets.map(l => ({
+    id: l.id,
+    previous_counted_qty: l.counted_qty,
+    counted_qty: null,
+    converted_qty: null,
+    counted: false,
+    recount_requested: true,
+    count_attempt: (Number(l.count_attempt) || 1) + 1,
+  })));
+
+  await base44.entities.NewStockTake.update(countId, {
+    status: 'recount_requested',
+    uncounted_count: targets.length,
+    reviewed_by: userName || null,
+    reviewed_at: new Date().toISOString(),
   });
 }
 

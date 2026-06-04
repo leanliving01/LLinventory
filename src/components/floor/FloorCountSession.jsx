@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import CameraScanner from '@/components/floor/CameraScanner';
-import { saveFloorCounts, completeFloorCount } from '@/lib/stockCount';
+import { saveFloorCounts, completeFloorCount, RECOUNT_STATUSES } from '@/lib/stockCount';
 
 /**
  * Floor counting screen. One row per product. NEVER shows system qty, variance,
@@ -31,11 +31,18 @@ export default function FloorCountSession({ count, onBack }) {
   const [completing, setCompleting] = useState(false);
 
   const locked = count.status === 'completed' || count.status === 'cancelled';
+  const isRecount = RECOUNT_STATUSES.includes(count.status);
 
-  const { data: lines = [], isLoading } = useQuery({
+  const { data: allLines = [], isLoading } = useQuery({
     queryKey: ['floor-count-lines', count.id],
     queryFn: () => base44.entities.StockTakeLine.filter({ stocktake_id: count.id }, 'product_name', 5000),
   });
+
+  // In a recount, only the items flagged for recount are shown.
+  const lines = useMemo(
+    () => (isRecount ? allLines.filter(l => l.recount_requested) : allLines),
+    [allLines, isRecount]
+  );
 
   // Count UOM options per product (default + alternates) for the unit dropdown.
   const productIds = useMemo(() => Array.from(new Set(lines.map(l => l.product_id))), [lines]);
@@ -187,6 +194,9 @@ export default function FloorCountSession({ count, onBack }) {
             >
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{l.product_name}</p>
+                {isRecount && l.previous_counted_qty != null && (
+                  <p className="text-[11px] text-orange-600">Previous count: {l.previous_counted_qty}</p>
+                )}
                 <div className="flex items-center gap-2 mt-0.5">
                   <span className="text-[11px] font-mono text-muted-foreground">{l.product_sku}</span>
                   {(optionsByLine[l.id]?.length || 0) > 1 ? (
