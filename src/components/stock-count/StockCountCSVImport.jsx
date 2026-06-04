@@ -150,7 +150,7 @@ export default function StockCountCSVImport({ onImported, onCancel }) {
             <Label className="text-xs">Stock Location *</Label>
             <Select value={locationId} onValueChange={v => { setLocationId(v); setParsed(null); }}>
               <SelectTrigger><SelectValue placeholder="Select location..." /></SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[70]">
                 {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name} ({l.code})</SelectItem>)}
               </SelectContent>
             </Select>

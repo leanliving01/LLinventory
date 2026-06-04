@@ -75,7 +75,7 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
             <Label className="text-xs">Stock Location *</Label>
             <Select value={locationId} onValueChange={setLocationId}>
               <SelectTrigger><SelectValue placeholder="Select location..." /></SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[70]">
                 {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name} ({l.code})</SelectItem>)}
               </SelectContent>
             </Select>
@@ -90,7 +90,7 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
               <Label className="text-xs">Item Group</Label>
               <Select value={itemGroup} onValueChange={setItemGroup}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
+                <SelectContent className="z-[70]">
                   <SelectItem value="all">All items</SelectItem>
                   {itemGroups.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
                 </SelectContent>
@@ -102,7 +102,7 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
             <Label className="text-xs">Assign To (optional)</Label>
             <Select value={assignedTo} onValueChange={setAssignedTo}>
               <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[70]">
                 <SelectItem value="none">Unassigned</SelectItem>
                 {team.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
               </SelectContent>
