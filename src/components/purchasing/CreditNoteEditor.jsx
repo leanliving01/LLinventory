@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { resolveTaxRateRecord } from '@/lib/taxResolution';
 import { shortageKind, createCreditNote, saveCreditNoteDraft, computeShortageValue } from '@/lib/shortageEngine';
+import TruncatedCell from '@/components/ui/TruncatedCell';
 
 const RESOLVED = ['resolved', 'cancelled', 'credit_received'];
 const rnd2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
@@ -557,8 +558,8 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
                 ) : rows.map(r => (
                   <tr key={r.key}>
                     <td className="px-3 py-2">
-                      <p className="font-medium">{r.product_name}</p>
-                      <p className="text-[10px] font-mono text-muted-foreground">{r.product_sku}</p>
+                      <TruncatedCell text={r.product_name} className="font-medium max-w-[280px]" />
+                      <TruncatedCell text={r.product_sku} className="text-[10px] font-mono text-muted-foreground max-w-[280px]" placeholder="" />
                     </td>
                     <td className="px-3 py-2 text-xs">
                       {(r.shortage_id || r.return_id)

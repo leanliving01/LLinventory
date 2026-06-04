@@ -1,5 +1,6 @@
 import { Toaster } from "@/components/ui/toaster"
 import { Toaster as SonnerToaster } from "@/components/ui/sonner"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
@@ -293,13 +294,15 @@ function App() {
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>
         <NativeUpdateGate>
-          <SessionBanner />
-          <Router>
-            <AuthenticatedApp />
-          </Router>
-          <ConnectionWatchdog />
-          <Toaster />
-          <SonnerToaster />
+          <TooltipProvider delayDuration={300}>
+            <SessionBanner />
+            <Router>
+              <AuthenticatedApp />
+            </Router>
+            <ConnectionWatchdog />
+            <Toaster />
+            <SonnerToaster />
+          </TooltipProvider>
         </NativeUpdateGate>
       </QueryClientProvider>
     </AuthProvider>

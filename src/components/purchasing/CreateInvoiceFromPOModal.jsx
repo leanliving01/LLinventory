@@ -8,6 +8,7 @@ import { X, FileText, AlertTriangle, Loader2, Calendar, CheckCircle2, Plus, Sear
 import { toast } from 'sonner';
 import { computeDueDate } from '@/lib/utils';
 import { updateShortageIfExists, resolveShortageKind, shortageKind } from '@/lib/shortageEngine';
+import TruncatedCell from '@/components/ui/TruncatedCell';
 
 const PRICE_VARIANCE_THRESHOLD = 5; // percent
 
@@ -652,8 +653,8 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
                         return (
                         <tr key={idx}>
                           <td className="px-3 py-2">
-                            <div className="font-medium">{bl.product_name}</div>
-                            <div className="text-[10px] font-mono text-muted-foreground">{bl.product_sku}</div>
+                            <TruncatedCell text={bl.product_name} className="font-medium max-w-[280px]" />
+                            <TruncatedCell text={bl.product_sku} className="text-[10px] font-mono text-muted-foreground max-w-[280px]" placeholder="" />
                             {bl.purchase_uom && <div className="text-[10px] text-muted-foreground">{bl.purchase_uom}</div>}
                           </td>
                           <td className="px-3 py-2 text-right">
@@ -754,9 +755,9 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
                       className={`border-b border-border last:border-0 ${row.qtyMismatch ? 'bg-amber-50/60' : ''}`}
                     >
                       <td className="px-3 py-2">
-                        <div className="font-medium">{row.poLine.product_name}</div>
+                        <TruncatedCell text={row.poLine.product_name} className="font-medium max-w-[280px]" />
                         {row.poLine.product_sku && (
-                          <div className="text-[10px] text-muted-foreground">{row.poLine.product_sku}</div>
+                          <TruncatedCell text={row.poLine.product_sku} className="text-[10px] text-muted-foreground max-w-[280px]" />
                         )}
                         {row.poLine.purchase_uom && (
                           <div className="text-[10px] text-muted-foreground">{row.poLine.purchase_uom}</div>

@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Trash2 } from 'lucide-react';
+import TruncatedCell from '@/components/ui/TruncatedCell';
 
 const CONDITION_STYLES = {
   accepted: 'bg-green-100 text-green-700',
@@ -27,8 +28,8 @@ export default function GRNLineRow({ line, index, editable, onUpdate, onRemove }
     return (
       <tr className="hover:bg-muted/20">
         <td className="px-3 py-2">
-          <div className="text-sm font-medium">{line?.product_name || '—'}</div>
-          <div className="text-[11px] font-mono text-muted-foreground">{line?.product_sku || '—'}</div>
+          <TruncatedCell text={line?.product_name} className="text-sm font-medium max-w-[280px]" />
+          <TruncatedCell text={line?.product_sku} className="text-[11px] font-mono text-muted-foreground max-w-[280px]" />
         </td>
         <td className="px-3 py-2 text-xs">{line?.purchase_uom || '—'}</td>
         <td className="px-3 py-2 text-sm text-right tabular-nums">{line?.expected_qty ?? '—'}</td>
@@ -55,8 +56,8 @@ export default function GRNLineRow({ line, index, editable, onUpdate, onRemove }
   return (
     <tr className="hover:bg-muted/20">
       <td className="px-3 py-2">
-        <div className="text-sm font-medium">{line?.product_name || '—'}</div>
-        <div className="text-[11px] font-mono text-muted-foreground">{line?.product_sku || '—'}</div>
+        <TruncatedCell text={line?.product_name} className="text-sm font-medium max-w-[280px]" />
+        <TruncatedCell text={line?.product_sku} className="text-[11px] font-mono text-muted-foreground max-w-[280px]" />
       </td>
       <td className="px-3 py-2 text-xs">{line?.purchase_uom || '—'}</td>
       <td className="px-3 py-2 text-sm text-right tabular-nums text-muted-foreground">

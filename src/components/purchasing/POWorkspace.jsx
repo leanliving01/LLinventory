@@ -15,6 +15,7 @@ import { resolveTaxRate, resolveTaxRateId, resolveTaxRateRecord } from '@/lib/ta
 import { formatPaymentTerms, computeDueDate } from '@/lib/utils';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
 import CreditNoteModal from './CreditNoteModal';
+import TruncatedCell from '@/components/ui/TruncatedCell';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -828,15 +829,15 @@ export default function POWorkspace() {
       {/* ================================================================== */}
       {/* Main body                                                           */}
       {/* ================================================================== */}
-      <div className="flex gap-6 px-6 py-6 flex-1 items-start">
-        {/* ---- Left panel: Header fields ---- */}
-        <div className="w-96 shrink-0 sticky top-[69px]">
-          <div className="bg-card border border-border rounded-xl p-5 space-y-5">
-            <h3 className="text-sm font-semibold text-foreground">{isBlindReceipt ? 'Blind Receipt Details' : 'Order Details'}</h3>
+      <div className="px-6 py-6 flex-1 space-y-6">
+        {/* ---- Document details — full-width block ---- */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-foreground mb-4">{isBlindReceipt ? 'Blind Receipt Details' : 'Order Details'}</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
             {/* Blind receipt toggle — only when creating a new document */}
             {isNew && (
-              <div className="flex items-start justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+              <div className="sm:col-span-2 lg:col-span-3 flex items-start justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
                 <div>
                   <p className="text-xs font-semibold">Blind Receipt</p>
                   <p className="text-[10px] text-muted-foreground mt-0.5">Goods arrived with an invoice but no prior PO. Captures the invoice now and raises a PO automatically.</p>
@@ -942,7 +943,7 @@ export default function POWorkspace() {
             </div>
 
             {/* Notes */}
-            <div>
+            <div className="sm:col-span-2 lg:col-span-3">
               <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
                 Notes
               </label>
@@ -971,8 +972,8 @@ export default function POWorkspace() {
           </div>
         </div>
 
-        {/* ---- Right panel: Line items ---- */}
-        <div className="flex-1 min-w-0 space-y-4">
+        {/* ---- Line items — full width ---- */}
+        <div className="space-y-4">
           <div className="bg-card border border-border rounded-xl overflow-hidden">
             {/* Table header row with Add Line button */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
@@ -990,10 +991,10 @@ export default function POWorkspace() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
-                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[180px]">Product</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-32">Supplier SKU</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[140px]">Description</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-24">UOM</th>
+                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[220px]">Product</th>
+                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[130px]">Supplier SKU</th>
+                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[200px]">Description</th>
+                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[110px]">UOM</th>
                     <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-20">Qty</th>
                     <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-28">Unit Cost</th>
                     <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-28">Tax</th>
@@ -1094,13 +1095,13 @@ function LineRow({
       <td className="px-3 py-2">
         {isViewOnly ? (
           <div>
-            <p className="text-xs font-medium">{line.product_name}</p>
-            <p className="text-[10px] font-mono text-muted-foreground">{line.product_sku}</p>
+            <TruncatedCell text={line.product_name} className="text-xs font-medium" />
+            <TruncatedCell text={line.product_sku} className="text-[10px] font-mono text-muted-foreground" placeholder="" />
           </div>
         ) : line.product_id ? (
           <div>
-            <p className="text-xs font-medium">{line.product_name}</p>
-            <p className="text-[10px] font-mono text-muted-foreground">{line.product_sku}</p>
+            <TruncatedCell text={line.product_name} className="text-xs font-medium" />
+            <TruncatedCell text={line.product_sku} className="text-[10px] font-mono text-muted-foreground" placeholder="" />
             {hasNoSP && supplierId && (
               <p className="text-[10px] text-amber-700 mt-0.5 flex items-center gap-0.5">
                 <AlertTriangle className="w-3 h-3" />
@@ -1140,12 +1141,13 @@ function LineRow({
       {/* Supplier SKU */}
       <td className="px-3 py-2">
         {isViewOnly ? (
-          <span className="text-xs font-mono">{line.supplier_sku || '—'}</span>
+          <TruncatedCell text={line.supplier_sku} className="text-xs font-mono" />
         ) : (
           <Input
             value={line.supplier_sku}
             onChange={e => onUpdate(line._key, 'supplier_sku', e.target.value)}
             placeholder="SKU..."
+            title={line.supplier_sku || undefined}
             className="h-8 text-xs"
           />
         )}
@@ -1154,12 +1156,13 @@ function LineRow({
       {/* Description */}
       <td className="px-3 py-2">
         {isViewOnly ? (
-          <span className="text-xs">{line.description || '—'}</span>
+          <TruncatedCell text={line.description} className="text-xs" />
         ) : (
           <Input
             value={line.description}
             onChange={e => onUpdate(line._key, 'description', e.target.value)}
             placeholder="Description..."
+            title={line.description || undefined}
             className="h-8 text-xs"
           />
         )}
