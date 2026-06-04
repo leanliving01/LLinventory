@@ -10,7 +10,7 @@ const fmtQty = (n) => {
 /**
  * Web variance report for a stock count. `rows` come from buildVarianceRows().
  */
-export default function StockCountVarianceTable({ rows, selectable = false, selected, onToggle, onToggleAll, showPrev = false }) {
+export default function StockCountVarianceTable({ rows, selectable = false, selected, onToggle, onToggleAll, showPrev = false, showConversion = false }) {
   if (!rows.length) {
     return <p className="text-sm text-muted-foreground py-8 text-center">No counted lines yet.</p>;
   }
@@ -32,6 +32,7 @@ export default function StockCountVarianceTable({ rows, selectable = false, sele
             {showPrev && <th className="text-right px-3 py-2 font-semibold">Prev Count</th>}
             <th className="text-right px-3 py-2 font-semibold">Counted</th>
             <th className="text-left px-3 py-2 font-semibold">UOM</th>
+            {showConversion && <th className="text-right px-3 py-2 font-semibold">Conv. Factor</th>}
             <th className="text-right px-3 py-2 font-semibold">Converted</th>
             <th className="text-right px-3 py-2 font-semibold">Variance</th>
             <th className="text-right px-3 py-2 font-semibold">Unit Cost</th>
@@ -61,6 +62,11 @@ export default function StockCountVarianceTable({ rows, selectable = false, sele
                 )}
                 <td className="px-3 py-2 text-right tabular-nums">{fmtQty(r.counted_qty)}</td>
                 <td className="px-3 py-2 text-xs">{r.count_uom || r.stock_uom || '—'}</td>
+                {showConversion && (
+                  <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                    ×{fmtQty(Number(r.conversion_factor) || 1)}
+                  </td>
+                )}
                 <td className="px-3 py-2 text-right tabular-nums">{fmtQty(r._converted)} {r.stock_uom || ''}</td>
                 <td className={`px-3 py-2 text-right tabular-nums font-medium ${negative ? 'text-red-600' : positive ? 'text-green-600' : 'text-muted-foreground'}`}>
                   {positive ? '+' : ''}{fmtQty(r._variance)}

@@ -14,6 +14,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import StockCountVarianceTable from '@/components/stock-count/StockCountVarianceTable';
+import LockedCountReport from '@/components/stock-count/LockedCountReport';
 import { buildVarianceRows, postStockCount, cancelStockCount, requestRecount, RECOUNT_STATUSES, COUNT_STATUS } from '@/lib/stockCount';
 
 const STATUS_STYLES = {
@@ -221,15 +222,19 @@ export default function StockCountReview() {
         <SummaryCard label="Net variance value" value={formatZAR(totals.value)} className={totals.value < 0 ? 'text-red-600' : 'text-foreground'} />
       </div>
 
-      {/* Variance table */}
-      <StockCountVarianceTable
-        rows={rows}
-        selectable={recountMode}
-        selected={selected}
-        onToggle={toggle}
-        onToggleAll={toggleAll}
-        showPrev={hasPrev}
-      />
+      {/* Variance table / locked final report */}
+      {isLocked ? (
+        <LockedCountReport header={header} rows={rows} />
+      ) : (
+        <StockCountVarianceTable
+          rows={rows}
+          selectable={recountMode}
+          selected={selected}
+          onToggle={toggle}
+          onToggleAll={toggleAll}
+          showPrev={hasPrev}
+        />
+      )}
     </div>
   );
 }

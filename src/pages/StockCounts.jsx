@@ -11,6 +11,7 @@ import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import CreatePlannedCountModal from '@/components/stock-count/CreatePlannedCountModal';
 import StockCountCSVImport from '@/components/stock-count/StockCountCSVImport';
+import StockCountFilters, { EMPTY_STOCK_COUNT_FILTERS } from '@/components/stock-count/StockCountFilters';
 import { COUNT_STATUS } from '@/lib/stockCount';
 
 const STATUS_STYLES = {
@@ -44,6 +45,7 @@ export default function StockCounts() {
   const canCreate = !!perms.stocktake_create;
 
   const [filter, setFilter] = useState('active');
+  const [advFilters, setAdvFilters] = useState({ ...EMPTY_STOCK_COUNT_FILTERS });
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
@@ -54,8 +56,38 @@ export default function StockCounts() {
 
   const filtered = useMemo(() => {
     const f = FILTERS.find(x => x.key === filter) || FILTERS[0];
-    return counts.filter(c => f.match(c.status));
-  }, [counts, filter]);
+    const search = (advFilters.search || '').trim().toLowerCase();
+    const assignee = (advFilters.assignee || '').trim().toLowerCase();
+    return counts.filter(c => {
+      if (!f.match(c.status)) return false;
+
+      if (search) {
+        const hay = `${c.reference || ''} ${c.location_name || ''}`.toLowerCase();
+        if (!hay.includes(search)) return false;
+      }
+
+      if (advFilters.locationId && advFilters.locationId !== 'all') {
+        if (c.location_id !== advFilters.locationId) return false;
+      }
+
+      if (advFilters.countType && advFilters.countType !== 'all') {
+        if (c.count_type !== advFilters.countType) return false;
+      }
+
+      if (advFilters.dateFrom) {
+        if (!c.stocktake_date || c.stocktake_date < advFilters.dateFrom) return false;
+      }
+      if (advFilters.dateTo) {
+        if (!c.stocktake_date || c.stocktake_date > advFilters.dateTo) return false;
+      }
+
+      if (assignee) {
+        if (!(c.assigned_to_name || '').toLowerCase().includes(assignee)) return false;
+      }
+
+      return true;
+    });
+  }, [counts, filter, advFilters]);
 
   return (
     <div className="space-y-4">
@@ -93,6 +125,8 @@ export default function StockCounts() {
           </button>
         ))}
       </div>
+
+      <StockCountFilters filters={advFilters} onChange={setAdvFilters} />
 
       {isLoading ? (
         <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>
