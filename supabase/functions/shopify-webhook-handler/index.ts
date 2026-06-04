@@ -201,6 +201,15 @@ Deno.serve(async (req) => {
     await supabase.from('sales_order_lines').insert(salesLines);
   }
 
+  // Deduct physical stock the moment an order becomes fulfilled. Runs after the
+  // line items above are written (the RPC reads sales_order_lines). Idempotent via
+  // the sticky stock_deducted flag + stock_movements.reference_key, so it is safe
+  // even though the 15-min cron also sweeps fulfilled orders.
+  if (lifecycleState === 'fulfilled') {
+    const { error: deductErr } = await supabase.rpc('deduct_fulfilled_stock', { p_order_id: ourSalesId });
+    if (deductErr) console.error('deduct_fulfilled_stock error:', deductErr.message);
+  }
+
   // Store raw event for audit
   await supabase.from('shopify_webhook_events').insert({
     id: crypto.randomUUID(),

@@ -71,6 +71,27 @@ async function run() {
     console.error('[recalc-committed-stock] Error:', e.message);
   }
 
+  // Deduct physical stock for newly-fulfilled orders — every 15 min.
+  // Sweeps any order in lifecycle_state='fulfilled' with stock_deducted=false.
+  // Idempotent (sticky flag + stock_movements.reference_key), so re-runs are safe.
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/deduct_fulfilled_stock`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SERVICE_KEY}`,
+        'apikey': SERVICE_KEY,
+      },
+      body: '{}',
+    });
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    console.log(`[deduct-fulfilled-stock] ${res.status} — orders=${data?.orders_processed ?? '?'} rows_written=${data?.rows_written ?? '?'}`);
+  } catch (e) {
+    console.error('[deduct-fulfilled-stock] Error:', e.message);
+  }
+
   // Xero invoices — every 4 hours (guard: the function itself checks for concurrent runs)
   try {
     const r = await invoke('sync-xero-invoices', { mode: 'start' });

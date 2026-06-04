@@ -260,6 +260,11 @@ export default function SalesOrderRow({ order }) {
             {order.customer_phone && <span>Phone: {order.customer_phone}</span>}
             {order.shipping_city && <span>City: {order.shipping_city}</span>}
             {order.tags && <span>Tags: {order.tags.replace(/\|/g, ', ')}</span>}
+            {order.stock_deducted && order.stock_deducted_at && (
+              <span className="text-emerald-600 font-medium">
+                Stock deducted: {formatDateTimeSAST(order.stock_deducted_at)}
+              </span>
+            )}
           </div>
         </div>
       )}
