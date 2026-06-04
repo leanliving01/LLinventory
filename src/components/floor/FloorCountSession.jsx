@@ -141,6 +141,10 @@ export default function FloorCountSession({ count, onBack }) {
   };
 
   const handleComplete = async () => {
+    const uncounted = lines.length - countedCount;
+    if (uncounted > 0 && !window.confirm(`${uncounted} item(s) not counted yet. Complete the count anyway?`)) {
+      return;
+    }
     setCompleting(true);
     try {
       await saveFloorCounts(count.id, entriesPayload(), userName);

@@ -21,6 +21,11 @@ export const FLOOR_OPEN_STATUSES = ['open', 'in_progress'];
 export const RECOUNT_STATUSES = ['recount_requested', 'recount_in_progress'];
 // All statuses where the floor may edit counts (initial capture or recount).
 export const FLOOR_EDITABLE_STATUSES = [...FLOOR_OPEN_STATUSES, ...RECOUNT_STATUSES];
+// A count that is still "live" — blocks a duplicate count for the same location.
+export const ACTIVE_STATUSES = [
+  'open', 'in_progress', 'floor_completed', 'under_review',
+  'recount_requested', 'recount_in_progress',
+];
 
 const round = (n, dp = 2) => {
   const f = 10 ** dp;
@@ -35,6 +40,13 @@ const costOf = (product) =>
 // at the selected location (optionally narrowed to an item group / category).
 // ---------------------------------------------------------------------------
 async function createCount({ location, date, countType, status, itemGroup, assignedTo, assignedToName }) {
+  // Guard: don't allow two active counts for the same location (avoids confusion).
+  const existing = await base44.entities.NewStockTake.filter({ location_id: location.id }, '-created_date', 200);
+  const active = existing.find(c => ACTIVE_STATUSES.includes(c.status));
+  if (active) {
+    throw new Error(`An active count (${active.reference || 'in progress'}) already exists for ${location.name}. Complete or cancel it first.`);
+  }
+
   const reference = await nextDocNumber('SCN');
 
   // Candidate products = those with a stock-on-hand row at this location.
