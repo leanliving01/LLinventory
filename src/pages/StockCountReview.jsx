@@ -15,7 +15,7 @@ import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import StockCountVarianceTable from '@/components/stock-count/StockCountVarianceTable';
 import LockedCountReport from '@/components/stock-count/LockedCountReport';
-import { buildVarianceRows, postStockCount, cancelStockCount, requestRecount, RECOUNT_STATUSES, COUNT_STATUS } from '@/lib/stockCount';
+import { buildVarianceRows, buildProgressRows, postStockCount, cancelStockCount, requestRecount, RECOUNT_STATUSES, COUNT_STATUS } from '@/lib/stockCount';
 
 const STATUS_STYLES = {
   open: 'bg-blue-100 text-blue-700',
@@ -44,11 +44,20 @@ export default function StockCountReview() {
   const { data: header, isLoading: loadingHeader } = useQuery({
     queryKey: ['stock-count', id],
     queryFn: () => base44.entities.NewStockTake.filter({ id }).then(r => r[0]),
+    // Poll while the floor is still counting so the web view tracks progress live.
+    refetchInterval: (q) => {
+      const s = q?.state?.data?.status;
+      return s && !['completed', 'cancelled'].includes(s) ? 12000 : false;
+    },
   });
+
+  const locked = header?.status === 'completed';
+  const live = header && !['completed', 'cancelled'].includes(header.status);
 
   const { data: lines = [], isLoading: loadingLines } = useQuery({
     queryKey: ['stock-count-lines', id],
     queryFn: () => base44.entities.StockTakeLine.filter({ stocktake_id: id }, 'product_name', 5000),
+    refetchInterval: live ? 12000 : false,
   });
 
   const { data: products = [] } = useQuery({
@@ -57,21 +66,43 @@ export default function StockCountReview() {
   });
   const productById = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products]);
 
-  const rows = useMemo(() => buildVarianceRows(lines, productById), [lines, productById]);
+  // Live stock-on-hand for the count's locations — so the web shows system qty
+  // (and forming variances) before the floor completes/snapshots.
+  const locIds = useMemo(() => [...new Set(lines.map(l => l.location_id).filter(Boolean))], [lines]);
+  const { data: sohRows = [] } = useQuery({
+    queryKey: ['stock-count-soh', id, locIds.join(',')],
+    queryFn: () => locIds.length
+      ? base44.entities.StockOnHand.filter({ location_id: locIds }, 'product_name', 20000)
+      : [],
+    enabled: locIds.length > 0 && !locked,
+    refetchInterval: live ? 12000 : false,
+  });
+  const sohByKey = useMemo(() => {
+    const m = {};
+    sohRows.forEach(s => { const k = `${s.product_id}_${s.location_id}`; m[k] = (m[k] || 0) + (Number(s.qty_on_hand) || 0); });
+    return m;
+  }, [sohRows]);
+
+  // Locked = the official snapshot report; otherwise the live progress view (all lines).
+  const rows = useMemo(
+    () => (locked ? buildVarianceRows(lines, productById) : buildProgressRows(lines, productById, sohByKey)),
+    [locked, lines, productById, sohByKey]
+  );
 
   const totals = useMemo(() => {
-    let surplus = 0, shortage = 0, value = 0;
+    let surplus = 0, shortage = 0, value = 0, counted = 0;
     rows.forEach(r => {
+      if (r._counted !== false) counted++;
       if (r._variance > 0) surplus++;
       else if (r._variance < 0) shortage++;
-      value += r._varianceValue;
+      value += r._varianceValue || 0;
     });
-    return { surplus, shortage, value: Math.round(value * 100) / 100, counted: rows.length };
+    return { surplus, shortage, value: Math.round(value * 100) / 100, counted, total: rows.length };
   }, [rows]);
 
   const isReviewable = header && ['floor_completed', 'under_review'].includes(header.status);
   const isRecounting = header && RECOUNT_STATUSES.includes(header.status);
-  const isLocked = header?.status === 'completed';
+  const isLocked = locked;
   const hasPrev = useMemo(() => rows.some(r => r.previous_counted_qty != null), [rows]);
   const multiLocation = useMemo(
     () => !header?.location_id || new Set(lines.map(l => l.location_id || '').filter(Boolean)).size > 1,
@@ -176,7 +207,7 @@ export default function StockCountReview() {
       <div className="bg-card border border-border rounded-xl px-5 py-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
         <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-muted-foreground" /> {header.location_name || '—'}</span>
         <span className="text-muted-foreground">{header.stocktake_date ? format(new Date(header.stocktake_date), 'dd MMM yyyy') : '—'}</span>
-        <span className="text-muted-foreground">{totals.counted} counted</span>
+        <span className="text-muted-foreground">{totals.counted}/{totals.total} counted</span>
         {header.assigned_to_name && <span className="text-muted-foreground">Counter: {header.assigned_to_name}</span>}
         {header.posted_by && <span className="text-muted-foreground">Posted by {header.posted_by}</span>}
       </div>
@@ -185,7 +216,7 @@ export default function StockCountReview() {
       {header.status === 'open' || header.status === 'in_progress' ? (
         <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>This count is still being captured on the floor. The variance can be reviewed once the floor team completes it.</span>
+          <span>Counting in progress on the floor — {totals.counted} of {totals.total} captured. The table below updates live; you can post once the floor completes the count.</span>
         </div>
       ) : null}
       {isLocked && (
@@ -220,7 +251,7 @@ export default function StockCountReview() {
 
       {/* Variance summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <SummaryCard label="Counted lines" value={totals.counted} />
+        <SummaryCard label="Counted lines" value={`${totals.counted}/${totals.total}`} />
         <SummaryCard label="Surplus (+)" value={totals.surplus} className="text-green-600" />
         <SummaryCard label="Shortage (−)" value={totals.shortage} className="text-red-600" />
         <SummaryCard label="Net variance value" value={formatZAR(totals.value)} className={totals.value < 0 ? 'text-red-600' : 'text-foreground'} />

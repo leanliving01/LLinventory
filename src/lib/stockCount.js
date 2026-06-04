@@ -341,6 +341,37 @@ export function buildVarianceRows(lines, productById) {
 }
 
 // ---------------------------------------------------------------------------
+// Web: progress view — EVERY line (counted or not), so the web user can watch
+// the count fill in live. Uses the snapshot system qty if present, else the
+// current stock-on-hand (sohByKey, keyed `${product_id}_${location_id}`).
+// Uncounted lines have null counted/converted/variance.
+// ---------------------------------------------------------------------------
+export function buildProgressRows(lines, productById, sohByKey = {}) {
+  return lines.map(l => {
+    const product = productById[l.product_id];
+    const cf = Number(l.conversion_factor) || 1;
+    const isCounted = l.counted && l.counted_qty != null;
+    const counted = isCounted ? Number(l.counted_qty) : null;
+    const converted = isCounted
+      ? (l.converted_qty != null ? Number(l.converted_qty) : round(counted * cf, 3))
+      : null;
+    const live = sohByKey[`${l.product_id}_${l.location_id || ''}`];
+    const system = l.system_qty != null ? Number(l.system_qty) : (live != null ? Number(live) : 0);
+    const unitCost = l.unit_cost != null ? Number(l.unit_cost) : costOf(product);
+    const variance = isCounted ? round(converted - system, 3) : null;
+    return {
+      ...l,
+      _counted: isCounted,
+      _system: system,
+      _converted: converted,
+      _variance: variance,
+      _unitCost: unitCost,
+      _varianceValue: variance != null ? round(variance * unitCost, 2) : null,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Web: post the reviewed count → overwrite SOH with the counted qty (in the main
 // stock UOM), create movements for non-zero variances, lock the count.
 // ---------------------------------------------------------------------------

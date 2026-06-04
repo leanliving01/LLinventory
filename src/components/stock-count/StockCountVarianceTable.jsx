@@ -12,7 +12,7 @@ const fmtQty = (n) => {
  */
 export default function StockCountVarianceTable({ rows, selectable = false, selected, onToggle, onToggleAll, showPrev = false, showConversion = false, showLocation = false }) {
   if (!rows.length) {
-    return <p className="text-sm text-muted-foreground py-8 text-center">No counted lines yet.</p>;
+    return <p className="text-sm text-muted-foreground py-8 text-center">No lines in this count — there was no stock at the selected location/category when it was created.</p>;
   }
   const allSelected = selectable && rows.length > 0 && rows.every(r => selected?.has(r.id));
 
@@ -42,11 +42,13 @@ export default function StockCountVarianceTable({ rows, selectable = false, sele
         </thead>
         <tbody className="divide-y divide-border">
           {rows.map(r => {
-            const negative = r._variance < 0;
-            const positive = r._variance > 0;
+            const pending = r._variance == null;
+            const negative = !pending && r._variance < 0;
+            const positive = !pending && r._variance > 0;
             const isSel = selected?.has(r.id);
+            const varClass = negative ? 'text-red-600' : positive ? 'text-green-600' : 'text-muted-foreground';
             return (
-              <tr key={r.id} className={`hover:bg-muted/20 ${isSel ? 'bg-primary/5' : ''}`}>
+              <tr key={r.id} className={`hover:bg-muted/20 ${isSel ? 'bg-primary/5' : ''} ${pending ? 'opacity-70' : ''}`}>
                 {selectable && (
                   <td className="px-3 py-2">
                     <input type="checkbox" checked={!!isSel} onChange={() => onToggle(r.id)} className="rounded" />
@@ -62,20 +64,22 @@ export default function StockCountVarianceTable({ rows, selectable = false, sele
                     {r.count_attempt > 1 && <span className="text-[10px] ml-1">(#{r.count_attempt})</span>}
                   </td>
                 )}
-                <td className="px-3 py-2 text-right tabular-nums">{fmtQty(r.counted_qty)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {r.counted_qty != null ? fmtQty(r.counted_qty) : <span className="text-muted-foreground italic text-xs">not counted</span>}
+                </td>
                 <td className="px-3 py-2 text-xs">{r.count_uom || r.stock_uom || '—'}</td>
                 {showConversion && (
                   <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                     ×{fmtQty(Number(r.conversion_factor) || 1)}
                   </td>
                 )}
-                <td className="px-3 py-2 text-right tabular-nums">{fmtQty(r._converted)} {r.stock_uom || ''}</td>
-                <td className={`px-3 py-2 text-right tabular-nums font-medium ${negative ? 'text-red-600' : positive ? 'text-green-600' : 'text-muted-foreground'}`}>
-                  {positive ? '+' : ''}{fmtQty(r._variance)}
+                <td className="px-3 py-2 text-right tabular-nums">{r._converted != null ? `${fmtQty(r._converted)} ${r.stock_uom || ''}` : '—'}</td>
+                <td className={`px-3 py-2 text-right tabular-nums font-medium ${varClass}`}>
+                  {pending ? '—' : `${positive ? '+' : ''}${fmtQty(r._variance)}`}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{formatZAR(r._unitCost)}</td>
-                <td className={`px-3 py-2 text-right tabular-nums font-medium ${negative ? 'text-red-600' : positive ? 'text-green-600' : 'text-muted-foreground'}`}>
-                  {formatZAR(r._varianceValue)}
+                <td className={`px-3 py-2 text-right tabular-nums font-medium ${varClass}`}>
+                  {r._varianceValue != null ? formatZAR(r._varianceValue) : '—'}
                 </td>
               </tr>
             );
