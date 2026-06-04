@@ -5,7 +5,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  ArrowLeft, Loader2, MapPin, CheckCircle2, Ban, ClipboardCheck, AlertTriangle, RefreshCw,
+  ArrowLeft, Loader2, MapPin, CheckCircle2, Ban, ClipboardCheck, AlertTriangle, RefreshCw, Lock,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -229,6 +229,12 @@ export default function StockCountReview() {
         <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-orange-50 border border-orange-200 text-orange-700 text-sm">
           <RefreshCw className="w-4 h-4 mt-0.5 shrink-0" />
           <span>A recount is in progress on the floor for {header.uncounted_count || 0} item(s). The variance updates once the floor team resubmits.</span>
+        </div>
+      )}
+      {live && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-sm">
+          <Lock className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>Stock is frozen for the items in this count — GRNs, production, sales, transfers and adjustments at these locations are blocked until the count is posted or cancelled.</span>
         </div>
       )}
 
