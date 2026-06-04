@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Package, RotateCcw } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ChevronDown, ChevronRight, Package, RotateCcw, Send, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { formatDateTimeSAST } from '@/lib/dateUtils';
 import { STATUS_LABELS as RETURN_STATUS_LABELS, STATUS_COLORS as RETURN_STATUS_COLORS } from '@/lib/shopifyReturns';
+import { RESEND_STATUS_LABELS, RESEND_STATUS_COLORS } from '@/lib/salesResends';
+import { createResendFromOrder } from '@/lib/createResend';
 import PackageComponentsPopup from './PackageComponentsPopup';
 
 const lifecycleColors = {
@@ -87,8 +90,23 @@ function getPackColor(order) {
 }
 
 export default function SalesOrderRow({ order }) {
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const [popupPackage, setPopupPackage] = useState(null);
+  const [creatingResend, setCreatingResend] = useState(false);
+
+  const handleAddResend = async (e) => {
+    e.stopPropagation();
+    setCreatingResend(true);
+    try {
+      const id = await createResendFromOrder(order.id);
+      toast.success('Draft re-send created');
+      navigate(`/sales/resends/${id}`);
+    } catch (err) {
+      toast.error(err.message || 'Could not create re-send');
+      setCreatingResend(false);
+    }
+  };
 
   const { data: lines = [] } = useQuery({
     queryKey: ['sales-order-lines', order.id],
@@ -99,6 +117,12 @@ export default function SalesOrderRow({ order }) {
   const { data: returns = [] } = useQuery({
     queryKey: ['order-returns', order.id],
     queryFn: () => base44.entities.ShopifyReturn.filter({ sales_order_id: order.id }, '-created_date', 50),
+    enabled: expanded,
+  });
+
+  const { data: resends = [] } = useQuery({
+    queryKey: ['order-resends', order.id],
+    queryFn: () => base44.entities.SalesResend.filter({ sales_order_id: order.id }, '-created_date', 50),
     enabled: expanded,
   });
 
@@ -262,9 +286,20 @@ export default function SalesOrderRow({ order }) {
               </tbody>
             </table>
           </div>
+          {/* Add Re-send action */}
+          <div className="mt-3 flex justify-end">
+            <button
+              onClick={handleAddResend}
+              disabled={creatingResend}
+              className="inline-flex items-center gap-1.5 text-xs border rounded-md px-3 py-1.5 hover:bg-muted disabled:opacity-60"
+            >
+              {creatingResend ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Add Re-send
+            </button>
+          </div>
+
           {/* Returns on this order */}
           {returns.length > 0 && (
-            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50/50 p-3">
+            <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50/50 p-3">
               <p className="text-xs font-semibold text-rose-700 mb-2 flex items-center gap-1.5">
                 <RotateCcw className="w-3.5 h-3.5" /> {returns.length} Return{returns.length > 1 ? 's' : ''}
               </p>
@@ -273,14 +308,39 @@ export default function SalesOrderRow({ order }) {
                   <Link
                     key={r.id}
                     to={`/sales/returns/${r.id}`}
-                    className="flex items-center gap-2 text-xs hover:underline"
+                    className="flex flex-wrap items-center gap-2 text-xs hover:underline"
                     onClick={e => e.stopPropagation()}
                   >
                     <span className="font-mono">{r.return_number}</span>
                     <Badge className={`text-[10px] py-0 ${RETURN_STATUS_COLORS[r.status] || ''}`}>{RETURN_STATUS_LABELS[r.status] || r.status}</Badge>
-                    <span className="text-muted-foreground">R {(r.total_return_value || 0).toFixed(2)}</span>
+                    <span className="text-muted-foreground">return R {(r.total_return_value || 0).toFixed(2)}</span>
+                    {(r.refund_amount || 0) > 0 && <span className="text-purple-600">refund R {r.refund_amount.toFixed(2)}</span>}
                     {(r.total_write_off_value || 0) > 0 && <span className="text-rose-600">write-off R {r.total_write_off_value.toFixed(2)}</span>}
                     {r.courier_responsibility && <span className="text-muted-foreground">· {r.courier_responsibility === 'us' ? 'we book courier' : 'customer courier'}{r.courier_status ? ` (${r.courier_status})` : ''}</span>}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Re-sends on this order */}
+          {resends.length > 0 && (
+            <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50/50 p-3">
+              <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-1.5">
+                <Send className="w-3.5 h-3.5" /> {resends.length} Re-send{resends.length > 1 ? 's' : ''}
+              </p>
+              <div className="space-y-1.5">
+                {resends.map(r => (
+                  <Link
+                    key={r.id}
+                    to={`/sales/resends/${r.id}`}
+                    className="flex flex-wrap items-center gap-2 text-xs hover:underline"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <span className="font-mono">{r.resend_number}</span>
+                    <Badge className={`text-[10px] py-0 ${RESEND_STATUS_COLORS[r.status] || ''}`}>{RESEND_STATUS_LABELS[r.status] || r.status}</Badge>
+                    {r.stock_deducted && <span className="text-emerald-600">stock out</span>}
+                    {r.courier_company && <span className="text-muted-foreground">· {r.courier_company}{r.courier_tracking_ref ? ` ${r.courier_tracking_ref}` : ''}</span>}
                   </Link>
                 ))}
               </div>

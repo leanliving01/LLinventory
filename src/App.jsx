@@ -53,6 +53,8 @@ import XeroCallback from '@/pages/XeroCallback';
 import Sales from '@/pages/Sales';
 import ShopifyReturns from '@/pages/ShopifyReturns';
 import ShopifyReturnDetail from '@/pages/ShopifyReturnDetail';
+import SalesResends from '@/pages/SalesResends';
+import SalesResendDetail from '@/pages/SalesResendDetail';
 import Customers from '@/pages/Customers';
 import EquipmentManager from '@/pages/EquipmentManager';
 import Bugs from '@/pages/Bugs';
@@ -247,6 +249,8 @@ const AuthenticatedApp = () => {
         <Route path="/sales" element={<Sales />} />
         <Route path="/sales/returns" element={<ShopifyReturns />} />
         <Route path="/sales/returns/:returnId" element={<ShopifyReturnDetail />} />
+        <Route path="/sales/resends" element={<SalesResends />} />
+        <Route path="/sales/resends/:resendId" element={<SalesResendDetail />} />
         <Route path="/customers" element={<Customers />} />
         <Route path="/equipment" element={<EquipmentManager />} />
         <Route path="/bugs" element={<Bugs />} />

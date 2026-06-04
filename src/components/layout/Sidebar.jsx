@@ -40,6 +40,7 @@ import {
   Sparkles,
   RefreshCw,
   RotateCcw,
+  Send,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DarkModeToggle from './DarkModeToggle';
@@ -75,6 +76,7 @@ const PATH_PERMISSION_MAP = {
   '/stock/overview': 'inventory_overview',
   '/sales': 'sales_view',
   '/sales/returns': 'sales_view',
+  '/sales/resends': 'sales_view',
   '/production': 'planning_view',
   '/production/runs': 'runs_view',
   '/production/plan-review': 'planning_view',
@@ -142,6 +144,7 @@ const navItems = [
     children: [
       { label: 'Orders', path: '/sales', icon: ShoppingCart },
       { label: 'Returns', path: '/sales/returns', icon: RotateCcw },
+      { label: 'Re-sends', path: '/sales/resends', icon: Send },
     ]
   },
   {

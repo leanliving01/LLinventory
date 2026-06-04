@@ -102,6 +102,8 @@ const ENTITY_TABLE_MAP = {
   ShopifyWebhookEvent:      'shopify_webhook_events',
   ShopifyReturn:            'shopify_returns',
   ShopifyReturnLine:        'shopify_return_lines',
+  SalesResend:              'sales_resends',
+  SalesResendLine:          'sales_resend_lines',
   HistoricalOrder:          'historical_orders',
   Meal:                     'meals',
   SKU:                      'skus',

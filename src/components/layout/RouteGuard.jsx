@@ -32,6 +32,7 @@ const ROUTE_PERMISSIONS = {
   '/purchasing/pack-bom':  'recipes_edit',
   '/sales':                'sales_view',
   '/sales/returns':        'sales_view',
+  '/sales/resends':        'sales_view',
   '/production':           'planning_view',
   '/production/plan-review': 'planning_view',
   '/production/runs':      'runs_view',

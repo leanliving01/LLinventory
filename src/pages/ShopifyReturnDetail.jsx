@@ -18,6 +18,9 @@ import ShopifyReturnReceipt from '@/components/returns/ShopifyReturnReceipt';
 import {
   STATUS_LABELS, STATUS_COLORS, COURIER_LABELS, NOT_RECEIVING_REASONS,
 } from '@/lib/shopifyReturns';
+import { REFUND_DECISIONS, REFUND_STATUSES } from '@/lib/salesResends';
+import { createResendFromOrder } from '@/lib/createResend';
+import { Send } from 'lucide-react';
 
 export default function ShopifyReturnDetail() {
   const { returnId } = useParams();
@@ -52,6 +55,9 @@ export default function ShopifyReturnDetail() {
       courier_collection_date: ret.courier_collection_date || '',
       courier_notes: ret.courier_notes || '',
       notes: ret.notes || '',
+      refund_decision: ret.refund_decision || 'undecided',
+      refund_amount: ret.refund_amount || 0,
+      refund_status: ret.refund_status || '',
     });
   }, [ret]);
 
@@ -112,6 +118,27 @@ export default function ShopifyReturnDetail() {
   }, 'Courier booking confirmed', 'courier');
 
   const markCompleted = () => persist({ status: 'completed', completed_at: new Date().toISOString() }, 'Return completed', 'complete');
+
+  const saveRefund = () => persist({
+    refund_decision: form.refund_decision || 'undecided',
+    refund_amount: Number(form.refund_amount) || 0,
+    refund_status: form.refund_status || null,
+    refund_recorded_at: new Date().toISOString(),
+    refund_recorded_by: userName,
+  }, 'Refund details saved', 'refund');
+
+  const createLinkedResend = async () => {
+    if (!ret.sales_order_id) { toast.error('No linked sales order to re-send against'); return; }
+    setSaving(true);
+    try {
+      const id = await createResendFromOrder(ret.sales_order_id, { returnId: ret.id });
+      toast.success('Draft re-send created from return');
+      navigate(`/sales/resends/${id}`);
+    } catch (e) {
+      toast.error(e.message || 'Could not create re-send');
+      setSaving(false);
+    }
+  };
 
   const showCourier = form.stock_path === 'expecting' || ret.stock_path === 'expecting';
   const showReceipt = ['expected_return', 'partially_received', 'received_pending_qc'].includes(ret.status);
@@ -282,6 +309,38 @@ export default function ShopifyReturnDetail() {
           }} />
         </Section>
       )}
+
+      {/* Refund + replacement */}
+      <Section title="Refund & Replacement">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-2xl">
+          <div>
+            <label className="text-xs text-muted-foreground">Decision</label>
+            <Select value={form.refund_decision} onValueChange={v => set({ refund_decision: v })} disabled={!canProcess}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{REFUND_DECISIONS.map(d => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Refund amount (R)</label>
+            <Input type="number" min="0" step="0.01" value={form.refund_amount} onChange={e => set({ refund_amount: e.target.value })} disabled={!canProcess} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Refund status</label>
+            <Select value={form.refund_status} onValueChange={v => set({ refund_status: v })} disabled={!canProcess}>
+              <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+              <SelectContent>{REFUND_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+        </div>
+        {canProcess && (
+          <div className="flex flex-wrap gap-2 mt-2">
+            <Button variant="outline" size="sm" onClick={saveRefund} disabled={saving} className="gap-1.5"><Save className="w-4 h-4" /> Save Refund Details</Button>
+            <Button variant="outline" size="sm" onClick={createLinkedResend} disabled={saving} className="gap-1.5"><Send className="w-4 h-4" /> Create Re-send from this return</Button>
+            {ret.linked_resend_id && <Link to={`/sales/resends/${ret.linked_resend_id}`} className="text-xs text-primary hover:underline self-center">View linked re-send →</Link>}
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground mt-1">Refunds are recorded for tracking only — they do not move stock. Use a re-send to ship a replacement (deducts stock on approval).</p>
+      </Section>
 
       {/* Notes + actions */}
       <Section title="Notes">
