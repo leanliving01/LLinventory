@@ -69,6 +69,16 @@ export function computeDueDate(invoiceDate, basis, days, cutoffDay) {
   return null;
 }
 
+// Assemble a location's structured address parts into a single display string.
+// Returns '' when no parts are populated.
+export function formatLocationAddress(loc) {
+  if (!loc) return '';
+  return [loc.address_line1, loc.address_line2, loc.suburb, loc.city, loc.province, loc.postal_code]
+    .map(p => (p == null ? '' : String(p).trim()))
+    .filter(Boolean)
+    .join(', ');
+}
+
 // Format a Date or ISO string as DD/MM/YYYY (SAST display)
 export function formatDate(date) {
   if (!date) return '';

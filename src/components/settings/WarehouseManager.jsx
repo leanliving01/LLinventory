@@ -6,12 +6,14 @@ import { Input } from '@/components/ui/input';
 import { Plus, Warehouse as WarehouseIcon, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import WarehouseCard from './WarehouseCard';
+import LocationAddressFields, { EMPTY_ADDRESS } from './LocationAddressFields';
 
 export default function WarehouseManager() {
   const queryClient = useQueryClient();
   const [showAddWarehouse, setShowAddWarehouse] = useState(false);
   const [newWhName, setNewWhName] = useState('');
   const [newWhCode, setNewWhCode] = useState('');
+  const [newWhAddress, setNewWhAddress] = useState(EMPTY_ADDRESS);
   const [creating, setCreating] = useState(false);
 
   const { data: locations = [], isLoading } = useQuery({
@@ -47,11 +49,13 @@ export default function WarehouseManager() {
       type: 'ambient',
       is_stock_bearing: true,
       parent_location_id: null,
+      ...newWhAddress,
     });
     invalidate();
     toast.success(`Warehouse "${newWhName.trim()}" created`);
     setNewWhName('');
     setNewWhCode('');
+    setNewWhAddress(EMPTY_ADDRESS);
     setShowAddWarehouse(false);
     setCreating(false);
   };
@@ -60,6 +64,12 @@ export default function WarehouseManager() {
     await base44.entities.Location.update(id, { name: newName });
     invalidate();
     toast.success('Warehouse renamed');
+  };
+
+  const handleSaveWarehouseAddress = async (id, address) => {
+    await base44.entities.Location.update(id, address);
+    invalidate();
+    toast.success('Warehouse address saved');
   };
 
   const handleSaveZone = async (id, data) => {
@@ -107,19 +117,27 @@ export default function WarehouseManager() {
       </div>
 
       {showAddWarehouse && (
-        <div className="bg-card border border-border rounded-lg p-4 flex items-end gap-3">
-          <div className="flex-1 space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Warehouse Name</label>
-            <Input value={newWhName} onChange={e => setNewWhName(e.target.value)} placeholder="e.g. Satellite Warehouse" className="h-9" />
+        <div className="bg-card border border-border rounded-lg p-4 space-y-3">
+          <div className="flex items-end gap-3">
+            <div className="flex-1 space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Warehouse Name</label>
+              <Input value={newWhName} onChange={e => setNewWhName(e.target.value)} placeholder="e.g. Satellite Warehouse" className="h-9" />
+            </div>
+            <div className="w-24 space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Code</label>
+              <Input value={newWhCode} onChange={e => setNewWhCode(e.target.value.toUpperCase())} placeholder="SW" className="h-9 font-mono" maxLength={8} />
+            </div>
           </div>
-          <div className="w-24 space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Code</label>
-            <Input value={newWhCode} onChange={e => setNewWhCode(e.target.value.toUpperCase())} placeholder="SW" className="h-9 font-mono" maxLength={8} />
+          <div>
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase mb-2">Physical Address (optional)</p>
+            <LocationAddressFields value={newWhAddress} onChange={(k, v) => setNewWhAddress(prev => ({ ...prev, [k]: v }))} />
           </div>
-          <Button size="sm" className="h-9 gap-1.5" onClick={handleAddWarehouse} disabled={creating || !newWhName.trim() || !newWhCode.trim()}>
-            {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <WarehouseIcon className="w-3.5 h-3.5" strokeWidth={1.5} />}
-            Create
-          </Button>
+          <div className="flex justify-end">
+            <Button size="sm" className="h-9 gap-1.5" onClick={handleAddWarehouse} disabled={creating || !newWhName.trim() || !newWhCode.trim()}>
+              {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <WarehouseIcon className="w-3.5 h-3.5" strokeWidth={1.5} />}
+              Create
+            </Button>
+          </div>
         </div>
       )}
 
@@ -129,6 +147,7 @@ export default function WarehouseManager() {
           warehouse={wh}
           zones={zonesByWarehouse[wh.id] || []}
           onRenameWarehouse={handleRenameWarehouse}
+          onSaveWarehouseAddress={handleSaveWarehouseAddress}
           onSaveZone={handleSaveZone}
           onDeleteZone={handleDeleteZone}
           onAddZone={handleAddZone}

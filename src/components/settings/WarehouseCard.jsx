@@ -1,21 +1,40 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Warehouse, Pencil, Check, X, ChevronDown, ChevronRight } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Warehouse, Pencil, Check, X, ChevronDown, ChevronRight, MapPin, Loader2 } from 'lucide-react';
+import { cn, formatLocationAddress } from '@/lib/utils';
 import WarehouseZoneRow from './WarehouseZoneRow';
 import AddZoneForm from './AddZoneForm';
+import LocationAddressFields from './LocationAddressFields';
 
-export default function WarehouseCard({ warehouse, zones, onRenameWarehouse, onSaveZone, onDeleteZone, onAddZone }) {
+const ADDRESS_KEYS = ['address_line1', 'address_line2', 'suburb', 'city', 'province', 'postal_code'];
+const pickAddress = (loc) => Object.fromEntries(ADDRESS_KEYS.map(k => [k, loc?.[k] || '']));
+
+export default function WarehouseCard({ warehouse, zones, onRenameWarehouse, onSaveWarehouseAddress, onSaveZone, onDeleteZone, onAddZone }) {
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
   const [newName, setNewName] = useState(warehouse.name);
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [address, setAddress] = useState(() => pickAddress(warehouse));
+  const [savingAddress, setSavingAddress] = useState(false);
+
+  const formattedAddress = formatLocationAddress(warehouse);
 
   const handleRename = () => {
     if (newName.trim() && newName.trim() !== warehouse.name) {
       onRenameWarehouse(warehouse.id, newName.trim());
     }
     setEditing(false);
+  };
+
+  const handleSaveAddress = async () => {
+    setSavingAddress(true);
+    try {
+      await onSaveWarehouseAddress?.(warehouse.id, address);
+      setEditingAddress(false);
+    } finally {
+      setSavingAddress(false);
+    }
   };
 
   return (
@@ -53,6 +72,34 @@ export default function WarehouseCard({ warehouse, zones, onRenameWarehouse, onS
           </div>
         )}
       </div>
+
+      {/* Address */}
+      {expanded && (
+        <div className="px-5 py-3 border-b border-border bg-muted/20">
+          {editingAddress ? (
+            <div className="space-y-3">
+              <LocationAddressFields value={address} onChange={(k, v) => setAddress(prev => ({ ...prev, [k]: v }))} />
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="ghost" onClick={() => { setAddress(pickAddress(warehouse)); setEditingAddress(false); }}>Cancel</Button>
+                <Button size="sm" className="gap-1.5" onClick={handleSaveAddress} disabled={savingAddress}>
+                  {savingAddress ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  Save Address
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2">
+              <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" strokeWidth={1.5} />
+              <p className="text-xs text-muted-foreground flex-1">
+                {formattedAddress || <span className="italic">No physical address set</span>}
+              </p>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs gap-1" onClick={() => { setAddress(pickAddress(warehouse)); setEditingAddress(true); }}>
+                <Pencil className="w-3 h-3" strokeWidth={1.5} /> {formattedAddress ? 'Edit' : 'Add'}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Zones */}
       {expanded && (

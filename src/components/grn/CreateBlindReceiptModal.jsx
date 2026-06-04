@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { calculateDueDate, formatPaymentTerms, toISODate } from '@/lib/utils';
 import { resolveTaxRate } from '@/lib/taxResolution';
+import SupplierInfoBlock from '@/components/purchasing/SupplierInfoBlock';
 
 export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
   const { user } = useAuth();
@@ -302,6 +303,8 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
               </Select>
             </div>
           </div>
+
+          {selectedSupplier && <SupplierInfoBlock supplier={selectedSupplier} />}
 
           <div className="grid grid-cols-2 gap-4">
             <div>

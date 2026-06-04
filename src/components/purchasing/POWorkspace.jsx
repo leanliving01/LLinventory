@@ -12,10 +12,11 @@ import { CheckCircle2, ArrowLeft, Save, Loader2, Receipt, AlertTriangle, Ban, Pa
 import { toast } from 'sonner';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { resolveTaxRate, resolveTaxRateId, resolveTaxRateRecord } from '@/lib/taxResolution';
-import { formatPaymentTerms, computeDueDate } from '@/lib/utils';
+import { formatPaymentTerms, calculateDueDate, formatLocationAddress, toISODate } from '@/lib/utils';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
 import CreditNoteModal from './CreditNoteModal';
 import TruncatedCell from '@/components/ui/TruncatedCell';
+import SupplierInfoBlock from './SupplierInfoBlock';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -124,6 +125,8 @@ export default function POWorkspace() {
   // Blind receipt mode — raises a PO + invoice simultaneously, no prior order
   const [isBlindReceipt, setIsBlindReceipt] = useState(false);
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState('');
+  const [dueDateOverridden, setDueDateOverridden] = useState(false);
 
   // ---- Local lines state ----
   const [localLines, setLocalLines] = useState([emptyLine()]);
@@ -150,6 +153,10 @@ export default function POWorkspace() {
     setLocationId(po.location_id || '');
     setNotes(po.notes || '');
     setInvoiceNumber(po.supplier_invoice_number || '');
+    if (po.due_date_calculated || po.due_date) {
+      setDueDate(po.due_date_calculated || po.due_date);
+      setDueDateOverridden(!!po.due_date_overridden);
+    }
   }, [po]);
 
   useEffect(() => {
@@ -177,6 +184,14 @@ export default function POWorkspace() {
 
   // ---- Derived ----
   const selectedSupplier = useMemo(() => suppliers.find(s => s.id === supplierId), [suppliers, supplierId]);
+
+  // Auto-calculate the blind-receipt due date from supplier payment terms + invoice date.
+  useEffect(() => {
+    if (!isBlindReceipt || dueDateOverridden) return;
+    if (!selectedSupplier?.payment_term_type || !invoiceDate) { setDueDate(''); return; }
+    const calc = calculateDueDate(invoiceDate, selectedSupplier.payment_term_type, selectedSupplier.payment_term_value);
+    setDueDate(calc ? toISODate(calc) : '');
+  }, [isBlindReceipt, invoiceDate, dueDateOverridden, selectedSupplier]);
 
   const isViewOnly = useMemo(() => {
     if (isNew) return false;
@@ -568,12 +583,9 @@ export default function POWorkspace() {
     setValidationErrors([]);
     setSaving(true);
     try {
-      // Due date from supplier payment terms
-      let dueDate = null;
-      if (selectedSupplier?.payment_terms_basis) {
-        const calc = computeDueDate(invoiceDate, selectedSupplier.payment_terms_basis, selectedSupplier.payment_terms_days, selectedSupplier.payment_terms_cutoff_day);
-        if (calc) dueDate = calc.toISOString().slice(0, 10);
-      }
+      // Due date from supplier payment terms (state value, already auto-calculated /
+      // overridable via the Due Date field).
+      const dueDateValue = dueDate || null;
 
       // 1. Create or update the PO (status approved — invoice is authorised on creation)
       let poId2;
@@ -600,8 +612,9 @@ export default function POWorkspace() {
         supplier_name: selectedSupplier?.name || '',
         purchase_order_id: poId2,
         invoice_date: invoiceDate,
-        due_date: dueDate,
-        due_date_calculated: dueDate,
+        due_date: dueDateValue,
+        due_date_calculated: dueDateValue,
+        due_date_overridden: dueDateOverridden,
         source: 'manual',
         status: 'approved',
         payment_status: 'unpaid',
@@ -704,6 +717,9 @@ export default function POWorkspace() {
   const termsText = selectedSupplier?.payment_term_type
     ? formatPaymentTerms(selectedSupplier.payment_term_type, selectedSupplier.payment_term_value)
     : null;
+
+  const selectedLocation = locations.find(l => l.id === (locationId || po?.location_id));
+  const deliveryAddress = formatLocationAddress(selectedLocation);
 
   const canSave = !isViewOnly && (currentStatus === 'draft' || currentStatus === 'approved' || currentStatus === 'confirmed');
   const canApprove = !isViewOnly && currentStatus === 'draft';
@@ -870,6 +886,13 @@ export default function POWorkspace() {
               )}
             </div>
 
+            {/* Supplier detail — name, address, VAT (blind receipt = standalone invoice) */}
+            {isBlindReceipt && selectedSupplier && (
+              <div className="sm:col-span-2 lg:col-span-3">
+                <SupplierInfoBlock supplier={selectedSupplier} />
+              </div>
+            )}
+
             {/* Order date (formal PO) OR Invoice number + date (blind receipt) */}
             {isBlindReceipt ? (
               <>
@@ -891,6 +914,26 @@ export default function POWorkspace() {
                     <p className="text-sm">{po?.order_date || '—'}</p>
                   ) : (
                     <Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} />
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
+                    Payment Due Date
+                  </label>
+                  {isViewOnly ? (
+                    <p className="text-sm">{po?.due_date_calculated || po?.due_date || '—'}</p>
+                  ) : (
+                    <>
+                      <Input type="date" value={dueDate} onChange={e => { setDueDate(e.target.value); setDueDateOverridden(true); }} />
+                      {selectedSupplier?.payment_term_type && !dueDateOverridden && (
+                        <p className="text-[10px] text-muted-foreground mt-1">Auto from terms: {termsText}</p>
+                      )}
+                      {dueDateOverridden && selectedSupplier?.payment_term_type && (
+                        <button type="button" onClick={() => setDueDateOverridden(false)} className="text-[10px] text-primary mt-1 underline">
+                          Reset to payment terms
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               </>
@@ -919,7 +962,7 @@ export default function POWorkspace() {
               )}
             </div>
 
-            {/* Delivery location */}
+            {/* Delivery location + full address */}
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
                 Delivery Location
@@ -939,6 +982,11 @@ export default function POWorkspace() {
                     ))}
                   </SelectContent>
                 </Select>
+              )}
+              {deliveryAddress && (
+                <p className="text-xs text-muted-foreground mt-1.5 whitespace-pre-line leading-relaxed">
+                  {deliveryAddress}
+                </p>
               )}
             </div>
 

@@ -6,9 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, FileText, AlertTriangle, Loader2, Calendar, CheckCircle2, Plus, Search, Trash2, Save } from 'lucide-react';
 import { toast } from 'sonner';
-import { computeDueDate } from '@/lib/utils';
+import { calculateDueDate, formatPaymentTerms, toISODate } from '@/lib/utils';
 import { updateShortageIfExists, resolveShortageKind, shortageKind } from '@/lib/shortageEngine';
 import TruncatedCell from '@/components/ui/TruncatedCell';
+import SupplierInfoBlock from './SupplierInfoBlock';
 
 const PRICE_VARIANCE_THRESHOLD = 5; // percent
 
@@ -16,6 +17,9 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
   const [invoiceNumber, setInvoiceNumber] = useState(existingInvoice?.invoice_number || '');
   const [invoiceDate, setInvoiceDate] = useState(existingInvoice?.invoice_date || new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState(existingInvoice?.due_date || '');
+  // True once the user manually edits the due date (or an existing invoice already
+  // has one) — stops the supplier-term auto-calc from overwriting it.
+  const [dueDateOverridden, setDueDateOverridden] = useState(!!existingInvoice?.due_date);
   const [notes, setNotes] = useState(existingInvoice?.notes || '');
   const [lineEdits, setLineEdits] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -182,11 +186,13 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
 
   // Recalculate due date whenever invoice date or supplier payment terms change.
   // supplier loads async so this handles both the initial load and manual date changes.
+  // Skips once the user has manually set the due date.
   useEffect(() => {
-    if (!supplier?.payment_terms_basis || !invoiceDate) return;
-    const calc = computeDueDate(invoiceDate, supplier.payment_terms_basis, supplier.payment_terms_days, supplier.payment_terms_cutoff_day);
-    if (calc) setDueDate(calc.toISOString().slice(0, 10));
-  }, [supplier?.payment_terms_basis, supplier?.payment_terms_days, supplier?.payment_terms_cutoff_day, invoiceDate]);
+    if (dueDateOverridden) return;
+    if (!supplier?.payment_term_type || !invoiceDate) return;
+    const calc = calculateDueDate(invoiceDate, supplier.payment_term_type, supplier.payment_term_value);
+    if (calc) setDueDate(toISODate(calc));
+  }, [supplier?.payment_term_type, supplier?.payment_term_value, invoiceDate, dueDateOverridden]);
 
   const handleInvoiceDateChange = (date) => {
     setInvoiceDate(date);
@@ -309,6 +315,7 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
         invoice_date: invoiceDate,
         due_date: dueDate || null,
         due_date_calculated: dueDate || null,
+        due_date_overridden: dueDateOverridden,
         source: 'manual',
         status: targetStatus,
         payment_status: 'unpaid',
@@ -566,6 +573,9 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+          {/* Supplier detail — name, address, VAT */}
+          <SupplierInfoBlock supplier={supplier} />
+
           {/* Invoice header fields */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="sm:col-span-2">
@@ -589,14 +599,16 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
             <div>
               <label className="text-[10px] font-semibold text-muted-foreground uppercase">
                 Due Date
-                {supplier?.payment_terms_label && (
-                  <span className="ml-1 normal-case font-normal text-muted-foreground/70">({supplier.payment_terms_label})</span>
+                {supplier?.payment_term_type && (
+                  <span className="ml-1 normal-case font-normal text-muted-foreground/70">
+                    ({formatPaymentTerms(supplier.payment_term_type, supplier.payment_term_value)})
+                  </span>
                 )}
               </label>
               <Input
                 type="date"
                 value={dueDate}
-                onChange={e => setDueDate(e.target.value)}
+                onChange={e => { setDueDate(e.target.value); setDueDateOverridden(true); }}
                 className="mt-1"
               />
             </div>

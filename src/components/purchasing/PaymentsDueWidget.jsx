@@ -1,19 +1,19 @@
 import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { computeDueDate, formatZAR } from '@/lib/utils';
+import { calculateDueDate, formatZAR } from '@/lib/utils';
 import { AlertCircle, Clock, CheckCircle2 } from 'lucide-react';
 import { differenceInCalendarDays } from 'date-fns';
 
 function dueDateFor(invoice, suppliers) {
+  // Prefer the due date already stored on the invoice; otherwise derive it from
+  // the supplier's payment terms and the invoice date.
+  if (invoice.due_date || invoice.due_date_calculated) {
+    return new Date(invoice.due_date || invoice.due_date_calculated);
+  }
   const supplier = suppliers.find(s => s.id === invoice.supplier_id);
-  if (!supplier) return null;
-  return computeDueDate(
-    invoice.invoice_date,
-    supplier.payment_terms_basis,
-    supplier.payment_terms_days,
-    supplier.payment_terms_cutoff_day,
-  );
+  if (!supplier?.payment_term_type) return null;
+  return calculateDueDate(invoice.invoice_date, supplier.payment_term_type, supplier.payment_term_value);
 }
 
 export default function PaymentsDueWidget({ suppliers = [] }) {
