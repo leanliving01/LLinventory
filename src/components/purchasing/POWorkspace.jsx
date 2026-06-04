@@ -127,6 +127,8 @@ export default function POWorkspace() {
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState('');
   const [dueDateOverridden, setDueDateOverridden] = useState(false);
+  // Supplier's stated invoice total (incl VAT) — compared to the recalculated total
+  const [capturedTotal, setCapturedTotal] = useState('');
 
   // ---- Local lines state ----
   const [localLines, setLocalLines] = useState([emptyLine()]);
@@ -374,8 +376,9 @@ export default function POWorkspace() {
     const qty = parseFloat(l.ordered_qty) || 0;
     const cost = parseFloat(l.unit_cost) || 0;
     const rate = parseFloat(l.tax_rate) || 0;
-    const lineTotal = qty * cost * (1 + rate);
-    return { ...l, _computedTotal: lineTotal };
+    const excl = qty * cost;
+    const incl = excl * (1 + rate);
+    return { ...l, _computedExcl: excl, _computedIncl: incl, _computedTotal: incl };
   }), [localLines]);
 
   const subtotalExcl = useMemo(() =>
@@ -394,6 +397,12 @@ export default function POWorkspace() {
     }, 0), [linesWithTotals]);
 
   const totalIncl = subtotalExcl + totalVat;
+
+  // Supplier's captured invoice total vs our recalculated total (blind receipt = invoice)
+  const capturedTotalNum = capturedTotal === '' ? null : parseFloat(capturedTotal);
+  const totalVariance = capturedTotalNum != null
+    ? Math.round((capturedTotalNum - totalIncl) * 100) / 100
+    : null;
 
   // ---- Approval validation ----
   const validateForApproval = () => {
@@ -621,6 +630,8 @@ export default function POWorkspace() {
         subtotal: Math.round(subtotalExcl * 100) / 100,
         tax_amount: Math.round(totalVat * 100) / 100,
         total: Math.round(totalIncl * 100) / 100,
+        captured_total: capturedTotalNum,
+        total_variance: totalVariance,
         currency: 'ZAR',
         unmatched_line_count: 0,
       });
@@ -1046,7 +1057,8 @@ export default function POWorkspace() {
                     <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-20">Qty</th>
                     <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-28">Unit Cost</th>
                     <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-28">Tax</th>
-                    <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-28">Line Total</th>
+                    <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-28">Line Total (excl)</th>
+                    <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-28">Line Total (incl)</th>
                     {!isViewOnly && <th className="w-10"></th>}
                   </tr>
                 </thead>
@@ -1072,7 +1084,7 @@ export default function POWorkspace() {
                   ))}
                   {linesWithTotals.length === 0 && (
                     <tr>
-                      <td colSpan={isViewOnly ? 8 : 9} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      <td colSpan={isViewOnly ? 9 : 10} className="px-4 py-8 text-center text-sm text-muted-foreground">
                         No line items. Click "+ Add Line" to begin.
                       </td>
                     </tr>
@@ -1084,19 +1096,43 @@ export default function POWorkspace() {
 
           {/* ---- Totals footer ---- */}
           <div className="bg-card border border-border rounded-xl p-5">
-            <div className="max-w-xs ml-auto space-y-1.5">
+            <div className="max-w-sm ml-auto space-y-1.5">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Subtotal excl. VAT</span>
-                <span className="font-medium">R {subtotalExcl.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                <span className="font-medium tabular-nums">R {subtotalExcl.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Total VAT</span>
-                <span className="font-medium">R {totalVat.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                <span className="font-medium tabular-nums">R {totalVat.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between text-base font-bold pt-1.5 border-t border-border">
                 <span>Total incl. VAT</span>
-                <span>R {totalIncl.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                <span className="tabular-nums">R {totalIncl.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
               </div>
+
+              {/* Blind receipt = invoice: capture the supplier's stated total and flag any variance */}
+              {isBlindReceipt && !isViewOnly && (
+                <>
+                  <div className="flex justify-between items-center text-sm pt-2 mt-1 border-t border-border">
+                    <span className="text-muted-foreground">Invoice Total (incl, per supplier)</span>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={capturedTotal}
+                      onChange={e => setCapturedTotal(e.target.value)}
+                      placeholder="0.00"
+                      className="h-8 w-32 text-right text-sm"
+                    />
+                  </div>
+                  {totalVariance != null && Math.abs(totalVariance) > 0.001 && (
+                    <div className="flex justify-between text-sm text-amber-700 font-medium">
+                      <span className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Total variance</span>
+                      <span className="tabular-nums">R {totalVariance.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1315,11 +1351,20 @@ function LineRow({
         )}
       </td>
 
-      {/* Line Total */}
+      {/* Line Total (excl) */}
       <td className="px-3 py-2 text-right whitespace-nowrap">
-        <span className="text-sm font-medium">
-          {line._computedTotal > 0
-            ? `R ${line._computedTotal.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`
+        <span className="text-sm text-muted-foreground tabular-nums">
+          {line._computedExcl > 0
+            ? `R ${line._computedExcl.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`
+            : '—'}
+        </span>
+      </td>
+
+      {/* Line Total (incl) */}
+      <td className="px-3 py-2 text-right whitespace-nowrap">
+        <span className="text-sm font-medium tabular-nums">
+          {line._computedIncl > 0
+            ? `R ${line._computedIncl.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`
             : '—'}
         </span>
       </td>
