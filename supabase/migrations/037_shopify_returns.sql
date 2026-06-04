@@ -1,5 +1,5 @@
 -- ============================================================================
--- 034_shopify_returns
+-- 037_shopify_returns
 -- Customer Shopify Returns module.
 --
 -- Returns NEVER auto-restore stock. A Shopify refund/return imports as a
