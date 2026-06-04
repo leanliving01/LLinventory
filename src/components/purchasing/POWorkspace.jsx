@@ -116,6 +116,17 @@ export default function POWorkspace() {
     enabled: !isNew,
   });
 
+  // Linked supplier invoice — used to surface the captured invoice total / variance
+  // on an approved blind receipt (read-only).
+  const { data: linkedInvoice = null } = useQuery({
+    queryKey: ['po-invoice', poId],
+    queryFn: async () => {
+      const list = await base44.entities.PurchaseInvoice.filter({ purchase_order_id: poId }, '-created_date', 1);
+      return list[0] || null;
+    },
+    enabled: !isNew && po?.type === 'blind_receipt',
+  });
+
   // ---- Local header state ----
   const [supplierId, setSupplierId] = useState('');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10));
@@ -1129,6 +1140,22 @@ export default function POWorkspace() {
                     <div className="flex justify-between text-sm text-amber-700 font-medium">
                       <span className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Total variance</span>
                       <span className="tabular-nums">R {totalVariance.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Approved blind receipt (read-only): show the captured invoice total + variance */}
+              {isBlindReceipt && isViewOnly && linkedInvoice?.captured_total != null && (
+                <>
+                  <div className="flex justify-between text-sm pt-2 mt-1 border-t border-border">
+                    <span className="text-muted-foreground">Invoice Total (incl, per supplier)</span>
+                    <span className="font-medium tabular-nums">R {Number(linkedInvoice.captured_total).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  {linkedInvoice.total_variance != null && Math.abs(linkedInvoice.total_variance) > 0.001 && (
+                    <div className="flex justify-between text-sm text-amber-700 font-medium">
+                      <span className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Total variance</span>
+                      <span className="tabular-nums">R {Number(linkedInvoice.total_variance).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
                     </div>
                   )}
                 </>
