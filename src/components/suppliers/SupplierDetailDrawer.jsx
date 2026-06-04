@@ -155,6 +155,9 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
       const legacy = deriveLegacyTerms(form.payment_term_type, form.payment_term_value);
       const updated = await base44.entities.Supplier.update(supplier.id, {
         ...form,
+        // Production status is coupled to active/archived — only production
+        // suppliers stay active; non-production suppliers are archived.
+        status: form.is_production_supplier ? 'active' : 'inactive',
         payment_term_type: form.payment_term_type || null,
         payment_term_value: form.payment_term_value ? parseInt(form.payment_term_value) : null,
         payment_terms_basis: legacy.basis || form.payment_terms_basis || null,

@@ -111,9 +111,14 @@ export default function Suppliers() {
     const next = !s.is_production_supplier;
     setTogglingProd(s.id);
     try {
-      await base44.entities.Supplier.update(s.id, { is_production_supplier: next });
+      // Production status is coupled to active/archived: production suppliers are
+      // active; non-production suppliers are archived (inactive).
+      await base44.entities.Supplier.update(s.id, {
+        is_production_supplier: next,
+        status: next ? 'active' : 'inactive',
+      });
       queryClient.invalidateQueries({ queryKey: ['suppliers-list'] });
-      toast.success(next ? `${s.name} marked as production supplier` : `${s.name} unmarked`);
+      toast.success(next ? `${s.name} marked as production supplier (active)` : `${s.name} archived (non-production)`);
     } catch (err) {
       console.error('[Suppliers] toggle production supplier failed:', err);
       toast.error(`Update failed: ${err.message || 'Unknown error'}`);

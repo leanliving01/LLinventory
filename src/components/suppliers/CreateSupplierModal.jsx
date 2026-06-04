@@ -148,7 +148,9 @@ export default function CreateSupplierModal({ onCreated, onCancel }) {
         physical_address: form.physical_address || null,
         billing_address: form.billing_address || null,
         shipping_address: form.shipping_address || null,
-        status: 'active',
+        // Production status is coupled to active/archived — a new supplier is
+        // only active if it's flagged as a production supplier.
+        status: form.is_production_supplier ? 'active' : 'inactive',
       };
 
       const newSupplier = await base44.entities.Supplier.create(payload);
