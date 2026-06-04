@@ -1,0 +1,178 @@
+import React, { useState, useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  ArrowLeft, Loader2, MapPin, CheckCircle2, Ban, ClipboardCheck, AlertTriangle,
+} from 'lucide-react';
+import { format } from 'date-fns';
+import { toast } from 'sonner';
+import { formatZAR } from '@/lib/utils';
+import { useAuth } from '@/lib/AuthContext';
+import { getUserPermissions } from '@/lib/permissions';
+import { useCustomRoles } from '@/components/settings/CustomRolesManager';
+import StockCountVarianceTable from '@/components/stock-count/StockCountVarianceTable';
+import { buildVarianceRows, postStockCount, cancelStockCount, COUNT_STATUS } from '@/lib/stockCount';
+
+const STATUS_STYLES = {
+  open: 'bg-blue-100 text-blue-700',
+  in_progress: 'bg-amber-100 text-amber-700',
+  under_review: 'bg-purple-100 text-purple-700',
+  floor_completed: 'bg-purple-100 text-purple-700',
+  completed: 'bg-green-100 text-green-700',
+  cancelled: 'bg-red-100 text-red-600',
+};
+
+export default function StockCountReview() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const customRoles = useCustomRoles();
+  const perms = getUserPermissions(user || {}, customRoles);
+  const canPost = !!perms.stocktake_create;
+  const userName = user?.full_name || user?.email || 'System';
+
+  const [posting, setPosting] = useState(false);
+
+  const { data: header, isLoading: loadingHeader } = useQuery({
+    queryKey: ['stock-count', id],
+    queryFn: () => base44.entities.NewStockTake.filter({ id }).then(r => r[0]),
+  });
+
+  const { data: lines = [], isLoading: loadingLines } = useQuery({
+    queryKey: ['stock-count-lines', id],
+    queryFn: () => base44.entities.StockTakeLine.filter({ stocktake_id: id }, 'product_name', 5000),
+  });
+
+  const { data: products = [] } = useQuery({
+    queryKey: ['products-active-for-review'],
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 5000),
+  });
+  const productById = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products]);
+
+  const rows = useMemo(() => buildVarianceRows(lines, productById), [lines, productById]);
+
+  const totals = useMemo(() => {
+    let surplus = 0, shortage = 0, value = 0;
+    rows.forEach(r => {
+      if (r._variance > 0) surplus++;
+      else if (r._variance < 0) shortage++;
+      value += r._varianceValue;
+    });
+    return { surplus, shortage, value: Math.round(value * 100) / 100, counted: rows.length };
+  }, [rows]);
+
+  const isReviewable = header && ['floor_completed', 'under_review', 'recount_completed'].includes(header.status);
+  const isLocked = header?.status === 'completed';
+
+  const handlePost = async () => {
+    setPosting(true);
+    try {
+      await postStockCount(id, userName);
+      queryClient.invalidateQueries({ queryKey: ['stock-count', id] });
+      queryClient.invalidateQueries({ queryKey: ['stock-count-lines', id] });
+      queryClient.invalidateQueries({ queryKey: ['stock-counts'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
+      toast.success('Stock count posted — stock-on-hand updated');
+    } catch (err) {
+      toast.error('Post failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    try {
+      await cancelStockCount(id);
+      queryClient.invalidateQueries({ queryKey: ['stock-count', id] });
+      queryClient.invalidateQueries({ queryKey: ['stock-counts'] });
+      toast.success('Count cancelled');
+    } catch (err) {
+      toast.error('Failed: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  if (loadingHeader || loadingLines) {
+    return <div className="flex items-center justify-center h-96"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  }
+  if (!header) {
+    return <div className="text-center py-16 text-sm text-muted-foreground">Count not found.</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <Button variant="ghost" size="sm" onClick={() => navigate('/stock/stock-take')} className="gap-1.5 text-muted-foreground">
+          <ArrowLeft className="w-4 h-4" /> Back
+        </Button>
+        <ClipboardCheck className="w-5 h-5 text-primary" />
+        <span className="font-mono font-semibold text-base">{header.reference || header.id.slice(0, 8)}</span>
+        <Badge className={`text-[10px] ${STATUS_STYLES[header.status] || 'bg-gray-100 text-gray-600'}`}>
+          {COUNT_STATUS[header.status] || header.status}
+        </Badge>
+        <span className="text-[10px] text-muted-foreground uppercase">{header.count_type}</span>
+
+        <div className="ml-auto flex items-center gap-2">
+          {!isLocked && header.status !== 'cancelled' && canPost && (
+            <Button variant="outline" size="sm" onClick={handleCancel} className="gap-1.5 text-destructive border-destructive/40 hover:bg-destructive/10">
+              <Ban className="w-4 h-4" /> Cancel
+            </Button>
+          )}
+          {canPost && isReviewable && (
+            <Button size="sm" onClick={handlePost} disabled={posting} className="gap-1.5 bg-green-600 hover:bg-green-700">
+              {posting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              Post Stock Take
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Meta */}
+      <div className="bg-card border border-border rounded-xl px-5 py-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+        <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-muted-foreground" /> {header.location_name || '—'}</span>
+        <span className="text-muted-foreground">{header.stocktake_date ? format(new Date(header.stocktake_date), 'dd MMM yyyy') : '—'}</span>
+        <span className="text-muted-foreground">{totals.counted} counted</span>
+        {header.assigned_to_name && <span className="text-muted-foreground">Counter: {header.assigned_to_name}</span>}
+        {header.posted_by && <span className="text-muted-foreground">Posted by {header.posted_by}</span>}
+      </div>
+
+      {/* Status hints */}
+      {header.status === 'open' || header.status === 'in_progress' ? (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>This count is still being captured on the floor. The variance can be reviewed once the floor team completes it.</span>
+        </div>
+      ) : null}
+      {isLocked && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+          <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>Posted on {header.posted_at ? format(new Date(header.posted_at), 'dd MMM yyyy HH:mm') : ''} — stock-on-hand was updated. This report is locked.</span>
+        </div>
+      )}
+
+      {/* Variance summary */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <SummaryCard label="Counted lines" value={totals.counted} />
+        <SummaryCard label="Surplus (+)" value={totals.surplus} className="text-green-600" />
+        <SummaryCard label="Shortage (−)" value={totals.shortage} className="text-red-600" />
+        <SummaryCard label="Net variance value" value={formatZAR(totals.value)} className={totals.value < 0 ? 'text-red-600' : 'text-foreground'} />
+      </div>
+
+      {/* Variance table */}
+      <StockCountVarianceTable rows={rows} />
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, className = '' }) {
+  return (
+    <div className="bg-card border border-border rounded-xl px-4 py-3">
+      <p className="text-[10px] text-muted-foreground uppercase font-semibold">{label}</p>
+      <p className={`text-lg font-bold tabular-nums ${className}`}>{value}</p>
+    </div>
+  );
+}

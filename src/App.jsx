@@ -34,6 +34,8 @@ import Suppliers from '@/pages/Suppliers';
 import StockTransfer from '@/pages/StockTransfer';
 import Receiving from '@/pages/Receiving';
 import StockTakeNew from '@/pages/StockTakeNew';
+import StockCounts from '@/pages/StockCounts';
+import StockCountReview from '@/pages/StockCountReview';
 import StockMovements from '@/pages/StockMovements';
 import PickList from '@/pages/PickList';
 import Kanban from '@/pages/Kanban';
@@ -259,7 +261,9 @@ const AuthenticatedApp = () => {
         <Route path="/stock/new-production" element={<Navigate to="/production/runs" replace />} />
         <Route path="/stock/wastage" element={<Wastage />} />
         <Route path="/stock/write-offs" element={<StockWriteOffs />} />
-        <Route path="/stock/stock-take" element={<StockTakeNew />} />
+        <Route path="/stock/stock-take" element={<StockCounts />} />
+        <Route path="/stock/stock-take/:id" element={<StockCountReview />} />
+        <Route path="/stock/stock-take-direct" element={<StockTakeNew />} />
         <Route path="/stock/overview" element={<InventoryOverview />} />
         <Route path="/stock/movements" element={<StockMovements />} />
         <Route path="/stock/stock-take-legacy" element={<StockTake />} />
