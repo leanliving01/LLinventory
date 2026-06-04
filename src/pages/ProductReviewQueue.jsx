@@ -8,13 +8,15 @@ import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import UnmatchedLineCard from '@/components/review-queue/UnmatchedLineCard';
 import CreateProductFromLineModal from '@/components/review-queue/CreateProductFromLineModal';
+import MatchToExistingModal from '@/components/review-queue/MatchToExistingModal';
 import PageHelp from '@/components/help/PageHelp';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
 
 const HELP_ITEMS = [
   { title: 'What is this queue?', text: 'When invoices are synced from Xero, lines that cannot be automatically matched to a Supplier Product appear here for manual review.' },
-  { title: 'Match to existing product', text: 'Click "Match Existing" to search and link the line to an existing Supplier Product. The Xero item code will be saved for future auto-matching.' },
+  { title: 'Match to existing product', text: 'Click "Match Existing" to open a pop-up: search the catalogue, pick a product, and capture its purchasing unit (label, conversion, cost) — pre-filled from the line. The Xero item code is saved for future auto-matching.' },
+  { title: 'Repeated SKUs are grouped', text: 'When the same supplier SKU appears on several invoices it is collapsed into one card. Matching, creating, or marking it non-stock resolves every invoice line at once and clears it from the queue.' },
   { title: 'Create a new product', text: 'Click "Create Product" to create a brand new Product and Supplier Product link in one step. The system pre-fills details from the Xero line.' },
   { title: 'Mark as non-stock', text: 'Click "Non-stock" for items like delivery charges or admin fees that don\'t need product tracking.' },
 ];
@@ -25,7 +27,8 @@ export default function ProductReviewQueue() {
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
 
-  const [createLineData, setCreateLineData] = useState(null); // { line, invoice }
+  const [createGroup, setCreateGroup] = useState(null);   // lineGroup → Create Product modal
+  const [matchGroup, setMatchGroup] = useState(null);     // lineGroup → Match Existing modal
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [filters, setFilters] = useState({
@@ -140,48 +143,102 @@ export default function ProductReviewQueue() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [unmatchedLines, invoiceMap]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  // Collapse filtered lines into supplier + SKU groups, so a SKU that appears on
+  // several invoices shows as one card. Lines with no SKU stay as their own card.
+  const lineGroups = useMemo(() => {
+    const order = [];
+    const byKey = new Map();
+    filtered.forEach(l => {
+      const inv = invoiceMap[l.invoice_id];
+      const sku = (l.xero_item_code || '').trim().toLowerCase();
+      const key = (sku && inv?.supplier_id) ? `${inv.supplier_id}|${sku}` : `line-${l.id}`;
+      let g = byKey.get(key);
+      if (!g) {
+        g = { key, supplier_id: inv?.supplier_id, representativeLine: l, representativeInvoice: inv, lines: [] };
+        byKey.set(key, g);
+        order.push(g);
+      }
+      g.lines.push({ line: l, invoice: inv });
+    });
+    return order;
+  }, [filtered, invoiceMap]);
+
+  const totalPages = Math.max(1, Math.ceil(lineGroups.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const paginated = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const paginated = lineGroups.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const handleFiltersChange = (newFilters) => {
     setFilters(newFilters);
     setPage(1);
   };
 
-  // Group paginated slice by supplier for display
+  // Group paginated cards by supplier for display
   const grouped = useMemo(() => {
     const groups = {};
-    paginated.forEach(l => {
-      const inv = invoiceMap[l.invoice_id];
-      const supplierName = inv?.supplier_name || 'Unknown Supplier';
-      if (!groups[supplierName]) groups[supplierName] = { supplier_id: inv?.supplier_id, lines: [] };
-      groups[supplierName].lines.push({ line: l, invoice: inv });
+    paginated.forEach(g => {
+      const supplierName = g.representativeInvoice?.supplier_name || 'Unknown Supplier';
+      if (!groups[supplierName]) groups[supplierName] = { supplier_id: g.supplier_id, items: [] };
+      groups[supplierName].items.push(g);
     });
-    return Object.entries(groups).sort((a, b) => b[1].lines.length - a[1].lines.length);
-  }, [paginated, invoiceMap]);
+    return Object.entries(groups).sort((a, b) => b[1].items.length - a[1].items.length);
+  }, [paginated]);
 
-  // Match a line to an existing CATALOGUE product, creating/updating the supplier link
-  // with the supplier SKU + purchase UOM captured from the review form.
-  const handleMatch = async (line, { product, supplierSku, description, purchaseUom, conversion, unitCost }) => {
-    const inv = invoiceMap[line.invoice_id];
+  // Resolve every line in a group to a matched supplier product, then recount
+  // each affected invoice. Used by both Match Existing and Create Product.
+  const resolveGroupLines = async (lineGroup, sp, product) => {
+    const invoiceIds = new Set();
+    for (const { line } of lineGroup.lines) {
+      await base44.entities.PurchaseInvoiceLine.update(line.id, {
+        supplier_product_id: sp.id,
+        product_id: product.id,
+        product_name: product.name,
+        product_sku: product.sku,
+        match_status: 'manually_matched',
+      });
+      invoiceIds.add(line.invoice_id);
+    }
+    for (const id of invoiceIds) await recountInvoice(id);
+  };
+
+  // Match a whole supplier+SKU group to an existing CATALOGUE product, capturing a
+  // full purchasing unit (label / conversion / yield / nominal cost → price/stock).
+  const handleMatch = async (lineGroup, { product, form }) => {
+    const inv = lineGroup.representativeInvoice;
     if (!inv?.supplier_id) { toast.error('Invoice has no supplier'); return; }
     try {
+      const cf = parseFloat(form.conversion_factor) || 1;
+      const yf = parseFloat(form.yield_factor) || 1;
+      const nc = parseFloat(form.nominal_cost) || 0;
+
       // Upsert the supplier_products link (UNIQUE on product_id + supplier_id).
       const existing = await base44.entities.SupplierProduct.filter({ supplier_id: inv.supplier_id, product_id: product.id });
+
+      if (form.is_default) {
+        const siblings = await base44.entities.SupplierProduct.filter({ product_id: product.id });
+        for (const s of siblings.filter(s => s.is_default_supplier && s.id !== existing[0]?.id)) {
+          await base44.entities.SupplierProduct.update(s.id, { is_default_supplier: false });
+        }
+      }
+
       const spPayload = {
         supplier_id: inv.supplier_id,
         supplier_name: inv.supplier_name || '',
         product_id: product.id,
         product_name: product.name || '',
         product_sku: product.sku || '',
-        supplier_sku: supplierSku || '',
-        supplier_description: description || '',
-        xero_item_code: line.xero_item_code || null,
-        purchase_uom: purchaseUom || 'each',
-        purchase_uom_label: purchaseUom || 'each',
-        conversion_factor: parseFloat(conversion) || 1,
-        last_purchase_price: parseFloat(unitCost) || 0,
+        supplier_sku: (form.supplier_sku || '').trim(),
+        supplier_description: (form.supplier_description || '').trim(),
+        xero_item_code: lineGroup.representativeLine.xero_item_code || null,
+        purchase_uom: form.purchase_uom || 'each',
+        purchase_uom_label: (form.purchase_uom_label || '').trim(),
+        purchase_uom_name: (form.purchase_uom_label || '').trim(),
+        conversion_factor: cf,
+        yield_factor: yf,
+        effective_internal_qty: Math.round(cf * yf * 1000) / 1000,
+        nominal_cost: nc,
+        price_per_stock_unit: cf > 0 && yf > 0 ? nc / (cf * yf) : 0,
+        last_purchase_price: nc,
+        is_default_supplier: !!form.is_default,
         active: true,
       };
       let sp = existing[0];
@@ -191,43 +248,35 @@ export default function ProductReviewQueue() {
         sp = await base44.entities.SupplierProduct.create(spPayload);
       }
 
-      await base44.entities.PurchaseInvoiceLine.update(line.id, {
-        supplier_product_id: sp.id,
-        product_id: product.id,
-        product_name: product.name,
-        product_sku: product.sku,
-        match_status: 'manually_matched',
-      });
-      await recountInvoice(line.invoice_id);
+      await resolveGroupLines(lineGroup, sp, product);
       queryClient.invalidateQueries({ queryKey: ['unmatched-invoice-lines'] });
       queryClient.invalidateQueries({ queryKey: ['sps-for-queue'] });
-      toast.success(`Matched to ${product.name} & linked to ${inv.supplier_name}`);
+      const n = lineGroup.lines.length;
+      toast.success(`Matched to ${product.name} & linked to ${inv.supplier_name}${n > 1 ? ` (${n} lines)` : ''}`);
+      setMatchGroup(null);
     } catch (err) {
       toast.error(err.message || 'Match failed');
     }
   };
 
-  const handleMarkNonStock = async (line) => {
-    await base44.entities.PurchaseInvoiceLine.update(line.id, {
-      match_status: 'non_stock_item',
-    });
-    await recountInvoice(line.invoice_id);
+  const handleMarkNonStock = async (lineGroup) => {
+    const invoiceIds = new Set();
+    for (const { line } of lineGroup.lines) {
+      await base44.entities.PurchaseInvoiceLine.update(line.id, { match_status: 'non_stock_item' });
+      invoiceIds.add(line.invoice_id);
+    }
+    for (const id of invoiceIds) await recountInvoice(id);
     queryClient.invalidateQueries({ queryKey: ['unmatched-invoice-lines'] });
-    toast.success('Marked as non-stock item');
+    const n = lineGroup.lines.length;
+    toast.success(`Marked as non-stock item${n > 1 ? ` (${n} lines)` : ''}`);
   };
 
   const handleProductCreated = async (line, sp) => {
-    await base44.entities.PurchaseInvoiceLine.update(line.id, {
-      supplier_product_id: sp.id,
-      product_id: sp.product_id,
-      product_name: sp.product_name,
-      product_sku: sp.product_sku,
-      match_status: 'manually_matched',
-    });
-    await recountInvoice(line.invoice_id);
+    const product = { id: sp.product_id, name: sp.product_name, sku: sp.product_sku };
+    if (createGroup) await resolveGroupLines(createGroup, sp, product);
     queryClient.invalidateQueries({ queryKey: ['unmatched-invoice-lines'] });
     queryClient.invalidateQueries({ queryKey: ['sps-for-queue'] });
-    setCreateLineData(null);
+    setCreateGroup(null);
   };
 
   const recountInvoice = async (invoiceId) => {
@@ -280,17 +329,15 @@ export default function ProductReviewQueue() {
               <div key={supplierName}>
                 <h3 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
                   {supplierName}
-                  <span className="text-xs font-normal bg-muted px-2 py-0.5 rounded-full">{group.lines.length}</span>
+                  <span className="text-xs font-normal bg-muted px-2 py-0.5 rounded-full">{group.items.length}</span>
                 </h3>
                 <div className="space-y-2">
-                  {group.lines.map(({ line, invoice }) => (
+                  {group.items.map(lineGroup => (
                     <UnmatchedLineCard
-                      key={line.id}
-                      line={line}
-                      invoice={invoice}
-                      products={products}
-                      onMatch={handleMatch}
-                      onCreateProduct={(l, inv) => setCreateLineData({ line: l, invoice: inv })}
+                      key={lineGroup.key}
+                      lineGroup={lineGroup}
+                      onOpenMatch={setMatchGroup}
+                      onCreateProduct={setCreateGroup}
                       onMarkNonStock={handleMarkNonStock}
                     />
                   ))}
@@ -309,12 +356,22 @@ export default function ProductReviewQueue() {
         </>
       )}
 
-      {createLineData && (
+      {createGroup && (
         <CreateProductFromLineModal
-          line={createLineData.line}
-          invoice={createLineData.invoice}
+          line={createGroup.representativeLine}
+          invoice={createGroup.representativeInvoice}
           onCreated={handleProductCreated}
-          onCancel={() => setCreateLineData(null)}
+          onCancel={() => setCreateGroup(null)}
+        />
+      )}
+
+      {matchGroup && (
+        <MatchToExistingModal
+          lineGroup={matchGroup}
+          invoice={matchGroup.representativeInvoice}
+          products={products}
+          onMatch={handleMatch}
+          onCancel={() => setMatchGroup(null)}
         />
       )}
     </div>
