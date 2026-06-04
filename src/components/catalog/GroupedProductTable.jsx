@@ -240,6 +240,7 @@ export default function GroupedProductTable({
   sohMap,
   locationMap,
   search,
+  subcategoryOrder,
 }) {
   const navigate = useNavigate();
   const dndEnabled = viewMode === 'grouped' && !!onProductReclassify;
@@ -251,7 +252,7 @@ export default function GroupedProductTable({
       if (!groups[name]) groups[name] = [];
       groups[name].push(p);
     }
-    const sorter = makeSubcategorySorter(type);
+    const sorter = makeSubcategorySorter(type, subcategoryOrder);
     return Object.entries(groups)
       .sort(([a], [b]) => sorter(a, b))
       .map(([name, items]) => ({ name, items }));

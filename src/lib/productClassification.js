@@ -139,8 +139,8 @@ export function resolveSubcategory(product) {
  * (following SUBCATEGORIES_BY_CATEGORY), then alphabetical, with any
  * "Other"-style group pushed last.
  */
-export function makeSubcategorySorter(type) {
-  const order = SUBCATEGORIES_BY_CATEGORY[type] || [];
+export function makeSubcategorySorter(type, customOrder) {
+  const order = (customOrder && customOrder.length) ? customOrder : (SUBCATEGORIES_BY_CATEGORY[type] || []);
   const index = (name) => {
     const i = order.indexOf(name);
     return i === -1 ? Number.MAX_SAFE_INTEGER : i;

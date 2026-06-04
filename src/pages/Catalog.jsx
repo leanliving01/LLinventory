@@ -14,6 +14,7 @@ import ProductBulkEditModal from '@/components/catalog/ProductBulkEditModal';
 import TypeDropChips from '@/components/catalog/TypeDropChips';
 import TypeChangeConfirmDialog from '@/components/catalog/TypeChangeConfirmDialog';
 import { SUBCATEGORIZED_TYPES, TYPE_LABELS, resolveSubcategory } from '@/lib/productClassification';
+import { useSubcategories } from '@/lib/useSubcategories';
 import { DragDropContext } from '@hello-pangea/dnd';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
@@ -43,6 +44,7 @@ export default function Catalog() {
   const hoveredTypeRef = React.useRef(null);
   const [typeChangeRequest, setTypeChangeRequest] = useState(null); // { product, fromType, toType }
   const queryClient = useQueryClient();
+  const { getSubcategoriesForType } = useSubcategories();
 
   React.useEffect(() => { hoveredTypeRef.current = hoveredType; }, [hoveredType]);
   useEffect(() => { localStorage.setItem('catalog_view_mode', viewMode); }, [viewMode]);
@@ -408,6 +410,7 @@ export default function Catalog() {
           sohMap={sohMap}
           locationMap={locationMap}
           search={search}
+          subcategoryOrder={typeFilter !== 'all' ? getSubcategoriesForType(typeFilter) : undefined}
         />
       )}
 

@@ -8,8 +8,8 @@ import { toast } from 'sonner';
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
-  getSubcategoriesForCategory,
 } from '@/lib/productClassification';
+import { useSubcategories } from '@/lib/useSubcategories';
 
 const UOM_OPTIONS = ['g', 'kg', 'ml', 'L', 'pcs', 'box'];
 
@@ -40,6 +40,7 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
   const [purchasable, setPurchasable] = useState(true);
   const [inventoryTracked, setInventoryTracked] = useState(true);
 
+  const { getSubcategoriesForType } = useSubcategories();
   const toggleApply = (key) => setApply(prev => ({ ...prev, [key]: !prev[key] }));
 
   // Determine the effective category for the subcategory dropdown.
@@ -48,7 +49,7 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
   // The category that constrains subcategory options: the chosen new category
   // (if applying one) else the single shared category of the selection.
   const effectiveCategory = apply.type ? type : (multipleCategories ? '' : selectedTypes[0]);
-  const subcategoryOptions = effectiveCategory ? getSubcategoriesForCategory(effectiveCategory) : [];
+  const subcategoryOptions = effectiveCategory ? getSubcategoriesForType(effectiveCategory) : [];
   const subcategoryDisabled = !effectiveCategory;
 
   const categoryChanged = apply.type && type && selectedTypes.some(t => t !== type);
