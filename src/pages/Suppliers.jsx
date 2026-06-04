@@ -5,6 +5,19 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Search, X, ChevronRight, Truck, Plus, Utensils, Package, MoreHorizontal, ShoppingBag, Pencil } from 'lucide-react';
+import { formatPaymentTerms, computePaymentTermsLabel } from '@/lib/utils';
+import { toast } from 'sonner';
+
+// Unified payment-terms display — prefers the structured (v2) fields, then the
+// computed label, then legacy fields, then the raw free-text. Keeps the table
+// in sync with what's edited in the supplier drawer.
+function supplierTermsDisplay(s) {
+  if (s.payment_term_type) return formatPaymentTerms(s.payment_term_type, s.payment_term_value);
+  return s.payment_terms_label
+    || computePaymentTermsLabel(s.payment_terms_basis, s.payment_terms_days, s.payment_terms_cutoff_day)
+    || s.payment_terms
+    || '—';
+}
 
 const CATEGORY_META = {
   food:      { label: 'Food', color: 'bg-green-100 text-green-700', icon: Utensils },
@@ -91,6 +104,23 @@ export default function Suppliers() {
   const allPageSelected = pageIds.length > 0 && pageIds.every(id => selected.includes(id));
   const toggleRow = (id) => setSelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   const togglePage = () => setSelected(p => allPageSelected ? p.filter(id => !pageIds.includes(id)) : [...new Set([...p, ...pageIds])]);
+
+  // Inline toggle for "Production Supplier" (these pull in from Xero).
+  const [togglingProd, setTogglingProd] = useState(null);
+  const toggleProduction = async (s) => {
+    const next = !s.is_production_supplier;
+    setTogglingProd(s.id);
+    try {
+      await base44.entities.Supplier.update(s.id, { is_production_supplier: next });
+      queryClient.invalidateQueries({ queryKey: ['suppliers-list'] });
+      toast.success(next ? `${s.name} marked as production supplier` : `${s.name} unmarked`);
+    } catch (err) {
+      console.error('[Suppliers] toggle production supplier failed:', err);
+      toast.error(`Update failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setTogglingProd(null);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -215,6 +245,7 @@ export default function Suppliers() {
                 </th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Supplier</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Category</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Production Supplier</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Contact</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Phone</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Email</th>
@@ -251,10 +282,20 @@ export default function Suppliers() {
                       return <Badge className={`text-[10px] ${meta.color}`}>{meta.label}</Badge>;
                     })()}
                   </td>
+                  <td className="px-4 py-2.5 text-center" onClick={e => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      className="rounded w-4 h-4 cursor-pointer disabled:opacity-50"
+                      checked={!!s.is_production_supplier}
+                      disabled={togglingProd === s.id}
+                      onChange={() => toggleProduction(s)}
+                      title="Production suppliers pull in from Xero"
+                    />
+                  </td>
                   <td className="px-4 py-2.5 text-sm text-muted-foreground">{s.contact_name || '—'}</td>
                   <td className="px-4 py-2.5 text-sm text-muted-foreground">{s.phone || '—'}</td>
                   <td className="px-4 py-2.5 text-sm text-muted-foreground">{s.email || '—'}</td>
-                  <td className="px-4 py-2.5 text-sm text-muted-foreground">{s.payment_terms || '—'}</td>
+                  <td className="px-4 py-2.5 text-sm text-muted-foreground">{supplierTermsDisplay(s)}</td>
                   <td className="px-4 py-2.5 text-right">
                     {supplierPOStats[s.id]?.count ? (
                       <Badge variant="outline" className="text-[10px]">{supplierPOStats[s.id].count}</Badge>
@@ -290,7 +331,7 @@ export default function Suppliers() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={13} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     {suppliers.length === 0 ? 'No suppliers imported yet.' : 'No suppliers match your search.'}
                   </td>
                 </tr>
