@@ -83,6 +83,11 @@ export default function FloorCountSession({ count, onBack }) {
     setSeeded(true);
   }, [lines, optionsByLine, seeded]);
 
+  const multiLocation = useMemo(
+    () => new Set(lines.map(l => l.location_id || '').filter(Boolean)).size > 1,
+    [lines]
+  );
+
   const filtered = useMemo(() => {
     if (!search.trim()) return lines;
     const q = search.trim().toLowerCase();
@@ -198,6 +203,9 @@ export default function FloorCountSession({ count, onBack }) {
             >
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{l.product_name}</p>
+                {multiLocation && l.location_name && (
+                  <p className="text-[11px] text-primary flex items-center gap-1"><MapPin className="w-3 h-3" /> {l.location_name}</p>
+                )}
                 {isRecount && l.previous_counted_qty != null && (
                   <p className="text-[11px] text-orange-600">Previous count: {l.previous_counted_qty}</p>
                 )}

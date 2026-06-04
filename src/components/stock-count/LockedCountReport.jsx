@@ -23,7 +23,7 @@ function escapeCSV(val) {
 }
 
 const CSV_HEADERS = [
-  'reference', 'sku', 'product', 'system_qty', 'counted_qty', 'count_uom',
+  'reference', 'sku', 'product', 'location', 'system_qty', 'counted_qty', 'count_uom',
   'conversion_factor', 'converted_qty', 'variance_qty', 'unit_cost', 'variance_value',
 ];
 
@@ -31,7 +31,7 @@ const CSV_HEADERS = [
  * Locked, immutable final report for a completed (posted) stock count.
  * `rows` come from buildVarianceRows(); `header` is the new_stock_takes record.
  */
-export default function LockedCountReport({ header, rows }) {
+export default function LockedCountReport({ header, rows, multiLocation = false }) {
   const counter = header.assigned_to_name || header.submitted_by || '—';
   const totalVariance =
     header.total_variance_rand != null
@@ -45,6 +45,7 @@ export default function LockedCountReport({ header, rows }) {
         escapeCSV(header.reference || header.id),
         escapeCSV(r.product_sku),
         escapeCSV(r.product_name),
+        escapeCSV(r.location_name || ''),
         fmtQty(r._system),
         fmtQty(r.counted_qty),
         escapeCSV(r.count_uom || r.stock_uom || ''),
@@ -97,7 +98,7 @@ export default function LockedCountReport({ header, rows }) {
         </div>
       </div>
 
-      <StockCountVarianceTable rows={rows} showConversion />
+      <StockCountVarianceTable rows={rows} showConversion showLocation={multiLocation} />
 
       <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
         <Lock className="w-3 h-3" /> This report is locked and immutable. Stock-on-hand was updated when it was posted.

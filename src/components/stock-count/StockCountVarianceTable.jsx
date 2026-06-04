@@ -10,7 +10,7 @@ const fmtQty = (n) => {
 /**
  * Web variance report for a stock count. `rows` come from buildVarianceRows().
  */
-export default function StockCountVarianceTable({ rows, selectable = false, selected, onToggle, onToggleAll, showPrev = false, showConversion = false }) {
+export default function StockCountVarianceTable({ rows, selectable = false, selected, onToggle, onToggleAll, showPrev = false, showConversion = false, showLocation = false }) {
   if (!rows.length) {
     return <p className="text-sm text-muted-foreground py-8 text-center">No counted lines yet.</p>;
   }
@@ -28,6 +28,7 @@ export default function StockCountVarianceTable({ rows, selectable = false, sele
             )}
             <th className="text-left px-3 py-2 font-semibold min-w-[200px]">Product</th>
             <th className="text-left px-3 py-2 font-semibold min-w-[110px]">SKU</th>
+            {showLocation && <th className="text-left px-3 py-2 font-semibold min-w-[120px]">Location</th>}
             <th className="text-right px-3 py-2 font-semibold">System</th>
             {showPrev && <th className="text-right px-3 py-2 font-semibold">Prev Count</th>}
             <th className="text-right px-3 py-2 font-semibold">Counted</th>
@@ -53,6 +54,7 @@ export default function StockCountVarianceTable({ rows, selectable = false, sele
                 )}
                 <td className="px-3 py-2"><TruncatedCell text={r.product_name} className="font-medium max-w-[260px]" /></td>
                 <td className="px-3 py-2"><TruncatedCell text={r.product_sku} className="text-xs font-mono text-muted-foreground max-w-[140px]" /></td>
+                {showLocation && <td className="px-3 py-2 text-xs text-muted-foreground">{r.location_name || '—'}</td>}
                 <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{fmtQty(r._system)}</td>
                 {showPrev && (
                   <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">

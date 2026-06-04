@@ -40,33 +40,50 @@ const costOf = (product) =>
 // at the selected location (optionally narrowed to an item group / category).
 // ---------------------------------------------------------------------------
 async function createCount({ location, date, countType, status, itemGroup, assignedTo, assignedToName }) {
-  // Guard: don't allow two active counts for the same location (avoids confusion).
-  const existing = await base44.entities.NewStockTake.filter({ location_id: location.id }, '-created_date', 200);
-  const active = existing.find(c => ACTIVE_STATUSES.includes(c.status));
-  if (active) {
-    throw new Error(`An active count (${active.reference || 'in progress'}) already exists for ${location.name}. Complete or cancel it first.`);
+  const cat = itemGroup && itemGroup !== 'all' ? itemGroup : null;
+  // scope: by location (all categories), by location + category, or by category (all locations).
+  const scope = location ? (cat ? 'location_category' : 'location') : 'category';
+  if (!location && !cat) throw new Error('Pick a location or a category to count');
+
+  // Guard: don't allow two overlapping active counts (avoids confusion).
+  if (location) {
+    const existing = await base44.entities.NewStockTake.filter({ location_id: location.id }, '-created_date', 200);
+    const active = existing.find(c => ACTIVE_STATUSES.includes(c.status));
+    if (active) {
+      throw new Error(`An active count (${active.reference || 'in progress'}) already exists for ${location.name}. Complete or cancel it first.`);
+    }
+  } else {
+    const existing = await base44.entities.NewStockTake.filter({ item_group: cat }, '-created_date', 200);
+    const active = existing.find(c => ACTIVE_STATUSES.includes(c.status) && c.location_id == null);
+    if (active) {
+      throw new Error(`An active count (${active.reference || 'in progress'}) already exists for category "${cat}". Complete or cancel it first.`);
+    }
   }
 
   const reference = await nextDocNumber('SCN');
 
-  // Candidate products = those with a stock-on-hand row at this location.
-  const sohRows = await base44.entities.StockOnHand.filter({ location_id: location.id }, 'product_name', 5000);
+  // Candidate stock-on-hand rows. By location → that location; by category → every location.
+  const sohRows = location
+    ? await base44.entities.StockOnHand.filter({ location_id: location.id }, 'product_name', 5000)
+    : await base44.entities.StockOnHand.list('product_name', 20000);
   const products = await base44.entities.Product.filter({ status: 'active' }, 'name', 5000);
   const productById = Object.fromEntries(products.map(p => [p.id, p]));
 
-  // De-dupe to one line per product; apply optional item-group (category) filter.
+  // One line per product+location (SOH is unique per product+location), category-filtered.
   const seen = new Set();
   const candidates = [];
   for (const soh of sohRows) {
-    if (!soh.product_id || seen.has(soh.product_id)) continue;
+    if (!soh.product_id || !soh.location_id) continue;
+    const key = `${soh.product_id}_${soh.location_id}`;
+    if (seen.has(key)) continue;
     const product = productById[soh.product_id];
-    if (itemGroup && itemGroup !== 'all' && product?.category !== itemGroup) continue;
-    seen.add(soh.product_id);
+    if (cat && product?.category !== cat) continue;
+    seen.add(key);
     candidates.push({ soh, product });
   }
 
   // Default Stock Count UOM per product (falls back to the main stock UOM).
-  const productIds = candidates.map(c => c.soh.product_id);
+  const productIds = [...new Set(candidates.map(c => c.soh.product_id))];
   const countUoms = productIds.length
     ? await base44.entities.StockCountUom.filter({ product_id: productIds }, 'count_uom', 5000)
     : [];
@@ -76,11 +93,12 @@ async function createCount({ location, date, countType, status, itemGroup, assig
   const header = await base44.entities.NewStockTake.create({
     reference,
     stocktake_date: date,
-    location_id: location.id,
-    location_name: location.name,
+    location_id: location?.id || null,
+    location_name: location?.name || 'All locations',
+    scope,
     status,
     count_type: countType,
-    item_group: itemGroup && itemGroup !== 'all' ? itemGroup : null,
+    item_group: cat,
     assigned_to: assignedTo || null,
     assigned_to_name: assignedToName || null,
     total_lines: candidates.length,
@@ -96,6 +114,8 @@ async function createCount({ location, date, countType, status, itemGroup, assig
         product_id: soh.product_id,
         product_sku: soh.product_sku || product?.sku || '',
         product_name: soh.product_name || product?.name || '',
+        location_id: soh.location_id,
+        location_name: soh.location_name || location?.name || '',
         stock_uom: stockUom,
         count_uom: def?.count_uom || stockUom,
         count_uom_label: def?.count_uom_label || '',
@@ -110,6 +130,7 @@ async function createCount({ location, date, countType, status, itemGroup, assig
 }
 
 // Web: planned count (status Open — appears on the floor under Planned Counts).
+// `location` may be null for a category-across-all-locations count.
 export function createPlannedCount({ location, date, itemGroup, assignedTo, assignedToName }) {
   return createCount({ location, date, countType: 'planned', status: 'open', itemGroup, assignedTo, assignedToName });
 }
@@ -161,6 +182,8 @@ export async function createCsvCount({ location, date, rows, userName }) {
         product_id: r.product_id,
         product_sku: r.product_sku || '',
         product_name: r.product_name || '',
+        location_id: location.id,
+        location_name: location.name,
         stock_uom: r.stock_uom || 'pcs',
         count_uom: r.count_uom || r.stock_uom || 'pcs',
         count_uom_label: r.count_uom_label || '',
@@ -231,18 +254,26 @@ export async function completeFloorCount(countId, userName) {
   const header = await base44.entities.NewStockTake.filter({ id: countId }).then(r => r[0]);
   if (!header) throw new Error('Count not found');
   const lines = await base44.entities.StockTakeLine.filter({ stocktake_id: countId }, 'product_name', 5000);
-  const sohRows = await base44.entities.StockOnHand.filter({ location_id: header.location_id }, 'product_name', 5000);
 
-  const systemByProduct = {};
-  sohRows.forEach(s => { systemByProduct[s.product_id] = (systemByProduct[s.product_id] || 0) + (Number(s.qty_on_hand) || 0); });
+  // System qty snapshot per product+location (each line carries its own location).
+  const locIds = [...new Set(lines.map(l => l.location_id || header.location_id).filter(Boolean))];
+  const sohRows = locIds.length
+    ? await base44.entities.StockOnHand.filter({ location_id: locIds }, 'product_name', 20000)
+    : [];
+  const systemByKey = {};
+  sohRows.forEach(s => {
+    const k = `${s.product_id}_${s.location_id}`;
+    systemByKey[k] = (systemByKey[k] || 0) + (Number(s.qty_on_hand) || 0);
+  });
 
   const counted = lines.filter(l => l.counted && l.counted_qty != null);
   const updates = counted.map(l => {
     const cf = Number(l.conversion_factor) || 1;
     const converted = round((Number(l.counted_qty) || 0) * cf, 3);
+    const loc = l.location_id || header.location_id;
     return {
       id: l.id,
-      system_qty: round(systemByProduct[l.product_id] || 0, 3),
+      system_qty: round(systemByKey[`${l.product_id}_${loc}`] || 0, 3),
       converted_qty: converted,
       recount_requested: false, // resolved — clears the flag after a recount
     };
@@ -321,9 +352,13 @@ export async function postStockCount(countId, userName) {
   const lines = await base44.entities.StockTakeLine.filter({ stocktake_id: countId }, 'product_name', 5000);
   const products = await base44.entities.Product.filter({ status: 'active' }, 'name', 5000);
   const productById = Object.fromEntries(products.map(p => [p.id, p]));
-  const sohRows = await base44.entities.StockOnHand.filter({ location_id: header.location_id }, 'product_name', 5000);
-  const sohByProduct = {};
-  sohRows.forEach(s => { if (!sohByProduct[s.product_id]) sohByProduct[s.product_id] = s; });
+  // SOH keyed per product+location (each line posts back to its own location).
+  const locIds = [...new Set(lines.map(l => l.location_id || header.location_id).filter(Boolean))];
+  const sohRows = locIds.length
+    ? await base44.entities.StockOnHand.filter({ location_id: locIds }, 'product_name', 20000)
+    : [];
+  const sohByKey = {};
+  sohRows.forEach(s => { const k = `${s.product_id}_${s.location_id}`; if (!sohByKey[k]) sohByKey[k] = s; });
 
   const rows = buildVarianceRows(lines, productById);
   let totalVarianceRand = 0;
@@ -345,6 +380,7 @@ export async function postStockCount(countId, userName) {
 
     if (variance === 0) continue;
 
+    const loc = r.location_id || header.location_id;
     const product = productById[r.product_id];
     await base44.entities.StockMovement.create({
       product_id: r.product_id,
@@ -357,13 +393,13 @@ export async function postStockCount(countId, userName) {
       ref_id: countId,
       ref_number: header.reference || header.id,
       unit_cost_at_movement: unitCost,
-      to_location_id: variance > 0 ? header.location_id : undefined,
-      from_location_id: variance < 0 ? header.location_id : undefined,
-      notes: `Stock count ${header.reference}: system ${r._system}, counted ${converted} ${r.stock_uom || ''}`.trim(),
+      to_location_id: variance > 0 ? loc : undefined,
+      from_location_id: variance < 0 ? loc : undefined,
+      notes: `Stock count ${header.reference}: system ${r._system}, counted ${converted} ${r.stock_uom || ''} @ ${r.location_name || ''}`.trim(),
     });
 
-    // Overwrite SOH absolute to the counted qty (in the main stock UOM).
-    const existing = sohByProduct[r.product_id];
+    // Overwrite SOH absolute to the counted qty (in the main stock UOM) at this line's location.
+    const existing = sohByKey[`${r.product_id}_${loc}`];
     if (existing) {
       await base44.entities.StockOnHand.update(existing.id, {
         qty_on_hand: converted,
@@ -375,8 +411,8 @@ export async function postStockCount(countId, userName) {
         product_id: r.product_id,
         product_sku: r.product_sku || product?.sku || '',
         product_name: r.product_name || product?.name || '',
-        location_id: header.location_id,
-        location_name: header.location_name || '',
+        location_id: loc,
+        location_name: r.location_name || header.location_name || '',
         qty_on_hand: converted,
         qty_committed: 0,
         qty_available: converted,

@@ -9,12 +9,22 @@ import { X, Loader2, ClipboardCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPlannedCount } from '@/lib/stockCount';
 
+const SCOPES = [
+  { key: 'location', label: 'By Location', hint: 'One location, all categories' },
+  { key: 'location_category', label: 'Location + Category', hint: 'One category in one location' },
+  { key: 'category', label: 'By Category', hint: 'One category across every location' },
+];
+
 export default function CreatePlannedCountModal({ onCreated, onCancel }) {
+  const [scope, setScope] = useState('location');
   const [locationId, setLocationId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [itemGroup, setItemGroup] = useState('all');
   const [assignedTo, setAssignedTo] = useState('none');
   const [saving, setSaving] = useState(false);
+
+  const needsLocation = scope !== 'category';
+  const needsCategory = scope !== 'location';
 
   const { data: locations = [] } = useQuery({
     queryKey: ['locations-stock-bearing'],
@@ -39,15 +49,16 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
 
   const handleCreate = async () => {
     const location = locations.find(l => l.id === locationId);
-    if (!location) { toast.error('Select a location'); return; }
+    if (needsLocation && !location) { toast.error('Select a location'); return; }
+    if (needsCategory && (!itemGroup || itemGroup === 'all')) { toast.error('Select a category'); return; }
     if (!date) { toast.error('Select a count date'); return; }
     setSaving(true);
     try {
       const member = team.find(t => t.id === assignedTo);
       const header = await createPlannedCount({
-        location,
+        location: needsLocation ? location : null,
         date,
-        itemGroup,
+        itemGroup: needsCategory ? itemGroup : 'all',
         assignedTo: assignedTo === 'none' ? null : assignedTo,
         assignedToName: member?.name || null,
       });
@@ -71,31 +82,54 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
         </div>
 
         <div className="px-6 py-4 space-y-4">
-          <div className="space-y-1">
-            <Label className="text-xs">Stock Location *</Label>
-            <Select value={locationId} onValueChange={setLocationId}>
-              <SelectTrigger><SelectValue placeholder="Select location..." /></SelectTrigger>
-              <SelectContent className="z-[70]">
-                {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name} ({l.code})</SelectItem>)}
-              </SelectContent>
-            </Select>
+          {/* Count scope */}
+          <div className="space-y-1.5">
+            <Label className="text-xs">Count Scope</Label>
+            <div className="grid grid-cols-3 gap-2">
+              {SCOPES.map(s => (
+                <button
+                  key={s.key}
+                  type="button"
+                  onClick={() => setScope(s.key)}
+                  className={`text-left rounded-lg border px-2.5 py-2 transition-colors ${
+                    scope === s.key ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted'
+                  }`}
+                >
+                  <p className="text-xs font-semibold">{s.label}</p>
+                  <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">{s.hint}</p>
+                </button>
+              ))}
+            </div>
           </div>
+
+          {needsLocation && (
+            <div className="space-y-1">
+              <Label className="text-xs">Stock Location *</Label>
+              <Select value={locationId} onValueChange={setLocationId}>
+                <SelectTrigger><SelectValue placeholder="Select location..." /></SelectTrigger>
+                <SelectContent className="z-[70]">
+                  {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name} ({l.code})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">Count Date *</Label>
               <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Item Group</Label>
-              <Select value={itemGroup} onValueChange={setItemGroup}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent className="z-[70]">
-                  <SelectItem value="all">All items</SelectItem>
-                  {itemGroups.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+            {needsCategory && (
+              <div className="space-y-1">
+                <Label className="text-xs">Category *</Label>
+                <Select value={itemGroup === 'all' ? '' : itemGroup} onValueChange={setItemGroup}>
+                  <SelectTrigger><SelectValue placeholder="Select category..." /></SelectTrigger>
+                  <SelectContent className="z-[70]">
+                    {itemGroups.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -110,8 +144,9 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
           </div>
 
           <p className="text-[11px] text-muted-foreground">
-            A count line is created for every product with stock at this location. The floor team
-            counts the quantities; nothing is posted to stock until you review and post it.
+            {scope === 'category'
+              ? 'A count line is created for the chosen category in every location it has stock. The floor counts each location; nothing posts until you review and post.'
+              : 'A count line is created for every matching product with stock at the location. The floor counts the quantities; nothing posts until you review and post.'}
           </p>
         </div>
 

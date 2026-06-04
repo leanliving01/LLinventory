@@ -73,6 +73,10 @@ export default function StockCountReview() {
   const isRecounting = header && RECOUNT_STATUSES.includes(header.status);
   const isLocked = header?.status === 'completed';
   const hasPrev = useMemo(() => rows.some(r => r.previous_counted_qty != null), [rows]);
+  const multiLocation = useMemo(
+    () => !header?.location_id || new Set(lines.map(l => l.location_id || '').filter(Boolean)).size > 1,
+    [header, lines]
+  );
 
   const toggle = (lineId) => setSelected(prev => {
     const next = new Set(prev);
@@ -224,7 +228,7 @@ export default function StockCountReview() {
 
       {/* Variance table / locked final report */}
       {isLocked ? (
-        <LockedCountReport header={header} rows={rows} />
+        <LockedCountReport header={header} rows={rows} multiLocation={multiLocation} />
       ) : (
         <StockCountVarianceTable
           rows={rows}
@@ -233,6 +237,7 @@ export default function StockCountReview() {
           onToggle={toggle}
           onToggleAll={toggleAll}
           showPrev={hasPrev}
+          showLocation={multiLocation}
         />
       )}
     </div>
