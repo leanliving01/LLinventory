@@ -114,29 +114,63 @@ function ProductRow({ product, index, dndEnabled, onNavigate, ...cellProps }) {
   );
 }
 
-function GroupHeadingRow({ name, count, groupIdx, colSpan, collapsible, isOpen, onToggle, isDraggingOver }) {
+function GroupHeadingRow({ name, count, groupIdx, colSpan, collapsible, isOpen, onToggle, isDraggingOver, items, showCheckbox, mergeSelection, setMergeSelection }) {
   const colorClass = GROUP_COLORS[groupIdx % GROUP_COLORS.length];
+  const checkboxRef = React.useRef(null);
+  const ids = items ? items.map(i => i.id) : [];
+  const selectedCount = mergeSelection ? ids.filter(id => mergeSelection.includes(id)).length : 0;
+  const allSelected = ids.length > 0 && selectedCount === ids.length;
+  const someSelected = selectedCount > 0 && !allSelected;
+
+  React.useEffect(() => {
+    if (checkboxRef.current) checkboxRef.current.indeterminate = someSelected;
+  }, [someSelected]);
+
+  const toggleGroup = () => {
+    setMergeSelection?.(prev => {
+      if (allSelected) {
+        const rm = new Set(ids);
+        return prev.filter(id => !rm.has(id));
+      }
+      return [...new Set([...prev, ...ids])];
+    });
+  };
+
   return (
     <tr>
       <td colSpan={colSpan} className="p-0">
-        <button
-          type="button"
-          onClick={() => collapsible && onToggle?.(name)}
-          className={`w-full flex items-center gap-3 px-4 py-2.5 border-y border-border transition-all text-left ${
-            isDraggingOver
-              ? 'bg-primary/10 border-primary/30'
-              : 'bg-muted/30 hover:bg-muted/50'
-          } ${collapsible ? '' : 'cursor-default'}`}
-        >
-          {collapsible && (isOpen
-            ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
-            : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />)}
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${colorClass}`}>{name}</span>
-          <span className="text-xs text-muted-foreground">{count} item{count !== 1 ? 's' : ''}</span>
-          {isDraggingOver && (
-            <span className="text-xs font-medium text-primary ml-auto">Drop here to move</span>
+        <div className={`flex items-center border-y border-border transition-all ${
+          isDraggingOver ? 'bg-primary/10 border-primary/30' : 'bg-muted/30'
+        }`}>
+          {showCheckbox && (
+            <span className="pl-4 pr-1 flex items-center" onClick={e => e.stopPropagation()} title="Select all in this group">
+              <input
+                ref={checkboxRef}
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleGroup}
+                className="rounded w-4 h-4 cursor-pointer"
+              />
+            </span>
           )}
-        </button>
+          <button
+            type="button"
+            onClick={() => collapsible && onToggle?.(name)}
+            className={`flex-1 flex items-center gap-3 ${showCheckbox ? 'pl-2' : 'pl-4'} pr-4 py-2.5 text-left hover:bg-muted/50 ${collapsible ? '' : 'cursor-default'}`}
+          >
+            {collapsible && (isOpen
+              ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+              : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />)}
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${colorClass}`}>{name}</span>
+            <span className="text-xs text-muted-foreground">{count} item{count !== 1 ? 's' : ''}</span>
+            {selectedCount > 0 && (
+              <span className="text-[10px] text-primary font-medium">· {selectedCount} selected</span>
+            )}
+            {isDraggingOver && (
+              <span className="text-xs font-medium text-primary ml-auto">Drop here to move</span>
+            )}
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -152,7 +186,12 @@ function GroupBody({ name, items, groupIdx, colSpan, viewMode, expanded, onToggl
   if (!dndEnabled) {
     return (
       <tbody className="divide-y divide-border">
-        <GroupHeadingRow name={name} count={items.length} groupIdx={groupIdx} colSpan={colSpan} collapsible={collapsible} isOpen={isOpen} onToggle={onToggle} />
+        <GroupHeadingRow
+          name={name} count={items.length} groupIdx={groupIdx} colSpan={colSpan}
+          collapsible={collapsible} isOpen={isOpen} onToggle={onToggle} isDraggingOver={false}
+          items={items} showCheckbox={cellProps.showCheckbox}
+          mergeSelection={cellProps.mergeSelection} setMergeSelection={cellProps.setMergeSelection}
+        />
         {isOpen && items.map((p, idx) => (
           <ProductRow key={p.id} product={p} index={idx} dndEnabled={false} onNavigate={onNavigate} {...cellProps} />
         ))}
@@ -173,6 +212,10 @@ function GroupBody({ name, items, groupIdx, colSpan, viewMode, expanded, onToggl
             isOpen={isOpen}
             onToggle={onToggle}
             isDraggingOver={snapshot.isDraggingOver}
+            items={items}
+            showCheckbox={cellProps.showCheckbox}
+            mergeSelection={cellProps.mergeSelection}
+            setMergeSelection={cellProps.setMergeSelection}
           />
           {(isOpen || snapshot.isDraggingOver) && items.map((p, idx) => (
             <ProductRow key={p.id} product={p} index={idx} dndEnabled onNavigate={onNavigate} {...cellProps} />
