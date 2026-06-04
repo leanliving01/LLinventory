@@ -31,10 +31,10 @@ const costOf = (product) =>
   Number(product?.cost_avg) || Number(product?.cost_current) || 0;
 
 // ---------------------------------------------------------------------------
-// Web: create a planned count and seed one line per product that has stock at
-// the selected location (optionally narrowed to an item group / product category).
+// Create a count (planned or live) and seed one line per product that has stock
+// at the selected location (optionally narrowed to an item group / category).
 // ---------------------------------------------------------------------------
-export async function createPlannedCount({ location, date, itemGroup, assignedTo, assignedToName }) {
+async function createCount({ location, date, countType, status, itemGroup, assignedTo, assignedToName }) {
   const reference = await nextDocNumber('SCN');
 
   // Candidate products = those with a stock-on-hand row at this location.
@@ -66,8 +66,8 @@ export async function createPlannedCount({ location, date, itemGroup, assignedTo
     stocktake_date: date,
     location_id: location.id,
     location_name: location.name,
-    status: 'open',
-    count_type: 'planned',
+    status,
+    count_type: countType,
     item_group: itemGroup && itemGroup !== 'all' ? itemGroup : null,
     assigned_to: assignedTo || null,
     assigned_to_name: assignedToName || null,
@@ -95,6 +95,23 @@ export async function createPlannedCount({ location, date, itemGroup, assignedTo
   }
 
   return header;
+}
+
+// Web: planned count (status Open — appears on the floor under Planned Counts).
+export function createPlannedCount({ location, date, itemGroup, assignedTo, assignedToName }) {
+  return createCount({ location, date, countType: 'planned', status: 'open', itemGroup, assignedTo, assignedToName });
+}
+
+// Floor: live count started on the floor (status In Progress immediately).
+export function createLiveCount({ location, assignedTo, assignedToName }) {
+  return createCount({
+    location,
+    date: new Date().toISOString().slice(0, 10),
+    countType: 'live',
+    status: 'in_progress',
+    assignedTo,
+    assignedToName,
+  });
 }
 
 // ---------------------------------------------------------------------------

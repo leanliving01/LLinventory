@@ -1,10 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
-import { ClipboardCheck, MapPin, ChevronRight, ClipboardList } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ClipboardCheck, MapPin, ChevronRight, ClipboardList, Play, Loader2, ArrowLeft } from 'lucide-react';
 import { format } from 'date-fns';
-import { COUNT_STATUS } from '@/lib/stockCount';
+import { toast } from 'sonner';
+import { useAuth } from '@/lib/AuthContext';
+import { COUNT_STATUS, createLiveCount } from '@/lib/stockCount';
+import FloorZonePicker from '@/components/floor/FloorZonePicker';
 import FloorCountSession from '@/components/floor/FloorCountSession';
 
 const STATUS_STYLES = {
@@ -14,49 +18,84 @@ const STATUS_STYLES = {
   recount_in_progress: 'bg-orange-100 text-orange-700',
 };
 
+const isFloorOpen = (s) => ['open', 'in_progress'].includes(s);
+
 /**
- * Floor Stock Count — list of counts to work on. Floor staff capture quantities;
- * nothing posts to stock-on-hand here. Counts go to the web for review/posting.
+ * Floor Stock Count — list of counts to work on, plus the ability to start a
+ * live count directly. Floor staff capture quantities; nothing posts to
+ * stock-on-hand here. Counts go to the web for review/posting.
  */
 export default function FloorStockTake() {
-  const [active, setActive] = useState(null); // selected count header
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const userName = user?.full_name || user?.email || 'Floor';
+  const [active, setActive] = useState(null);   // selected count header
+  const [starting, setStarting] = useState(false); // show zone picker for live count
+  const [creating, setCreating] = useState(false);
 
   const { data: counts = [], isLoading } = useQuery({
     queryKey: ['floor-stock-counts'],
     queryFn: () => base44.entities.NewStockTake.list('-created_date', 200),
-    enabled: !active,
+    enabled: !active && !starting,
   });
 
-  const planned = useMemo(
-    () => counts.filter(c => ['open', 'in_progress'].includes(c.status)),
-    [counts]
-  );
-  const recounts = useMemo(
-    () => counts.filter(c => ['recount_requested', 'recount_in_progress'].includes(c.status)),
-    [counts]
-  );
+  const planned = useMemo(() => counts.filter(c => c.count_type === 'planned' && isFloorOpen(c.status)), [counts]);
+  const live = useMemo(() => counts.filter(c => c.count_type === 'live' && isFloorOpen(c.status)), [counts]);
+  const recounts = useMemo(() => counts.filter(c => ['recount_requested', 'recount_in_progress'].includes(c.status)), [counts]);
+
+  const handleStartLive = async (location) => {
+    setCreating(true);
+    try {
+      const header = await createLiveCount({ location, assignedTo: user?.id || null, assignedToName: userName });
+      queryClient.invalidateQueries({ queryKey: ['floor-stock-counts'] });
+      toast.success(`Live count ${header.reference} started`);
+      setStarting(false);
+      setActive(header);
+    } catch (err) {
+      toast.error('Could not start count: ' + (err.message || 'Unknown error'));
+    } finally {
+      setCreating(false);
+    }
+  };
 
   if (active) {
     return <FloorCountSession count={active} onBack={() => setActive(null)} />;
   }
 
+  if (starting) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={() => setStarting(false)}><ArrowLeft className="w-5 h-5" /></Button>
+          <h1 className="text-lg font-bold">Start Live Count</h1>
+          {creating && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+        </div>
+        <FloorZonePicker title="Where are you counting?" subtitle="Pick the storage location" onSelect={handleStartLive} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5 pb-24">
-      <div>
-        <h1 className="text-xl font-bold flex items-center gap-2">
-          <ClipboardCheck className="w-6 h-6 text-green-600" /> Stock Count
-        </h1>
-        <p className="text-xs text-muted-foreground mt-0.5">Pick a count to capture quantities</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <ClipboardCheck className="w-6 h-6 text-green-600" /> Stock Count
+          </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Pick a count or start a live count</p>
+        </div>
+        <Button onClick={() => setStarting(true)} className="gap-1.5 bg-green-600 hover:bg-green-700">
+          <Play className="w-4 h-4" /> Start Live Count
+        </Button>
       </div>
 
       {isLoading ? (
         <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>
       ) : (
         <>
+          {recounts.length > 0 && <CountSection title="Recount Requests" items={recounts} onOpen={setActive} />}
           <CountSection title="Planned Counts" items={planned} onOpen={setActive} emptyText="No planned counts right now." />
-          {recounts.length > 0 && (
-            <CountSection title="Recount Requests" items={recounts} onOpen={setActive} emptyText="" />
-          )}
+          {live.length > 0 && <CountSection title="Live Counts" items={live} onOpen={setActive} />}
         </>
       )}
     </div>
