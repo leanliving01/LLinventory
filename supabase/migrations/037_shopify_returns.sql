@@ -116,11 +116,27 @@ CREATE TRIGGER trg_shopify_return_lines_updated_date
   BEFORE UPDATE ON shopify_return_lines FOR EACH ROW EXECUTE FUNCTION set_updated_date();
 
 -- 3. Allow 'shopify_return' as a stock_movements ref_type -------------------
+-- Self-correcting: the live table may already hold ref_type values beyond the
+-- documented enum, so rebuild the CHECK from (known set ∪ shopify_return ∪
+-- whatever values already exist) to avoid violating historical rows.
 ALTER TABLE stock_movements DROP CONSTRAINT IF EXISTS stock_movements_ref_type_check;
-ALTER TABLE stock_movements ADD CONSTRAINT stock_movements_ref_type_check
-  CHECK (ref_type IS NULL OR ref_type IN (
-    'sales_order','purchase_order','production_run','wastage_log','stock_take',
-    'transfer','grn','supplier_return','pick_list','manual','shopify_return'));
+DO $$
+DECLARE
+  v_list text;
+BEGIN
+  SELECT string_agg(quote_literal(v), ',') INTO v_list FROM (
+    SELECT unnest(ARRAY[
+      'sales_order','purchase_order','production_run','wastage_log','stock_take',
+      'transfer','grn','supplier_return','pick_list','manual','shopify_return'
+    ]) AS v
+    UNION
+    SELECT DISTINCT ref_type FROM stock_movements WHERE ref_type IS NOT NULL
+  ) s;
+  EXECUTE format(
+    'ALTER TABLE stock_movements ADD CONSTRAINT stock_movements_ref_type_check CHECK (ref_type IS NULL OR ref_type IN (%s))',
+    v_list
+  );
+END $$;
 
 -- 4. App-level security (RLS disabled project-wide) -------------------------
 ALTER TABLE shopify_returns      DISABLE ROW LEVEL SECURITY;
