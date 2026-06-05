@@ -4,6 +4,7 @@ import {
 } from '../_shared/sync-state.ts';
 import { chainNext } from '../_shared/chain.ts';
 import { startSyncLog, finishSyncLog } from '../_shared/sync-log.ts';
+import { loadClassificationRules, classifyLineItem } from '../_shared/order-classification.ts';
 
 const SOURCE_KEY = 'shopify_products';
 const FN_NAME = 'sync-shopify-products';
@@ -176,9 +177,15 @@ Deno.serve(async (req) => {
   for (const p of byShopifyId || []) existingByShopifyId.set(p.shopify_product_id as string, { id: p.id as string, sku: p.sku as string, type: (p.type as string | null) ?? null });
   for (const p of bySku || []) existingBySku.set(p.sku as string, { id: p.id as string, sku: p.sku as string, type: (p.type as string | null) ?? null, shopify_product_id: p.shopify_product_id as string | null });
 
+  // Classification rules — used to SKIP non-inventory catalog items (shipping,
+  // pickup, vouchers, store credit, refund products) so they never become
+  // inventory products.
+  const rules = await loadClassificationRules(supabase);
+
   // Process each product variant → upsert into products table
   let updated = 0;
   let created = 0;
+  let skippedNonInventory = 0;
 
   // Collect meal info for skus/meals sync (keyed by sku_code)
   const mealInfoBySku = new Map<string, MealInfo>();
@@ -186,6 +193,21 @@ Deno.serve(async (req) => {
   for (const p of products) {
     for (const v of (p.variants || [])) {
       if (!v.sku) continue;
+
+      // Skip non-inventory catalog items entirely — they must never become
+      // products. They surface on orders as financial lines via the order sync.
+      // Only skip on CREATE; existing matched products are left for migration
+      // 044 to reclassify (single authority — avoids two code paths fighting).
+      const cls = classifyLineItem(
+        { title: p.title, sku: v.sku, product_type: p.product_type },
+        rules,
+      );
+      const isNonInventory = cls.category !== 'inventory_product';
+      const alreadyExists = existingByShopifyId.has(String(p.id)) || existingBySku.has(v.sku);
+      if (isNonInventory && !alreadyExists) {
+        skippedNonInventory++;
+        continue;
+      }
 
       // Track meal info for this variant (used after products loop)
       const info = deriveMealInfo(v.sku, p.title, p.product_type);
@@ -220,8 +242,7 @@ Deno.serve(async (req) => {
         updated++;
       } else {
         // No match — create as finished_meal default (user can re-categorize).
-        // Seed both price and selling_price with the excl-VAT value so the catalog
-        // shows a sensible figure until ops sets the authoritative selling price.
+        // Seed price with the excl-VAT value so the catalog shows a sensible figure.
         const { error } = await supabase.from('products').insert({
           id: crypto.randomUUID(),
           sku: v.sku,
@@ -231,7 +252,7 @@ Deno.serve(async (req) => {
           shopify_product_id: String(p.id),
           shopify_variant_id: String(v.id),
           barcode: v.barcode || null,
-          ...(exclPrice !== null ? { price: exclPrice, selling_price: exclPrice } : {}),
+          ...(exclPrice !== null ? { price: exclPrice } : {}),
           price_vat_corrected: true,
           created_date: now,
           updated_date: now,
@@ -259,7 +280,7 @@ Deno.serve(async (req) => {
   if (!hasMore) {
     await markComplete(supabase, SOURCE_KEY, 0);
     if (syncLogId) await finishSyncLog(supabase, syncLogId, 'completed', { records_fetched: newTotal, records_created: created, records_updated: updated });
-    return json({ status: 'completed', processedThisPage, totalProcessed: newTotal, hasMore: false, debug: { created, updated } });
+    return json({ status: 'completed', processedThisPage, totalProcessed: newTotal, hasMore: false, debug: { created, updated, skippedNonInventory } });
   }
 
   EdgeRuntime.waitUntil(chainNext(FN_NAME, { mode: 'continue' }, nextDelay));
@@ -269,7 +290,7 @@ Deno.serve(async (req) => {
     totalProcessed: newTotal,
     hasMore: true,
     rateLimit: nearLimit ? { retryAfterSeconds: nextDelay } : undefined,
-    debug: { created, updated, apiCallLimit: res.apiCallLimit },
+    debug: { created, updated, skippedNonInventory, apiCallLimit: res.apiCallLimit },
   });
 });
 
