@@ -9,6 +9,7 @@ import {
   getCategoryColor,
 } from '@/lib/productClassification';
 import { Droppable, Draggable } from '@hello-pangea/dnd';
+import { locationLabels } from '@/lib/locationHierarchy';
 
 const GROUP_COLORS = [
   'bg-red-100 text-red-700',
@@ -28,10 +29,11 @@ const GROUP_COLORS = [
 
 // Render the data cells for a single product. Shared by dnd and plain rows so
 // the column set is guaranteed identical everywhere (alignment).
-function ProductCells({ product, showCheckbox, mergeSelection, setMergeSelection, dndEnabled, dragHandleProps, locationMap, sohMap }) {
+function ProductCells({ product, showCheckbox, mergeSelection, setMergeSelection, dndEnabled, dragHandleProps, locLabels, sohMap }) {
   const isSelected = mergeSelection?.includes(product.id);
   const onHand = sohMap ? sohMap[product.id] : undefined;
   const price = product.selling_price ?? product.price;
+  const loc = (locLabels && locLabels[product.default_location_id]) || { warehouse: '', zone: '' };
   return (
     <>
       {dndEnabled && (
@@ -58,8 +60,11 @@ function ProductCells({ product, showCheckbox, mergeSelection, setMergeSelection
           {getCategoryLabel(product.type)}
         </Badge>
       </td>
-      <td className="px-4 py-2.5 text-sm text-muted-foreground">
-        {(locationMap && locationMap[product.default_location_id]) || '—'}
+      <td className="px-4 py-2.5 text-sm text-muted-foreground truncate">
+        {loc.warehouse || '—'}
+      </td>
+      <td className="px-4 py-2.5 text-sm text-muted-foreground truncate">
+        {loc.zone || '—'}
       </td>
       <td className="px-4 py-2.5 text-sm text-right tabular-nums">
         {product.cost_avg ? `R ${product.cost_avg.toFixed(2)}` : '—'}
@@ -238,12 +243,25 @@ export default function GroupedProductTable({
   setMergeSelection,
   onProductReclassify,
   sohMap,
-  locationMap,
+  locations = [],
   search,
   subcategoryOrder,
 }) {
   const navigate = useNavigate();
   const dndEnabled = viewMode === 'grouped' && !!onProductReclassify;
+
+  // Resolve each product's stored location into Warehouse + Zone labels once.
+  const locLabels = useMemo(() => {
+    const cache = {};
+    const get = (id) => {
+      if (!id) return { warehouse: '', zone: '' };
+      if (!cache[id]) cache[id] = locationLabels(id, locations);
+      return cache[id];
+    };
+    const m = {};
+    for (const p of products) m[p.default_location_id] = get(p.default_location_id);
+    return m;
+  }, [products, locations]);
 
   const grouped = useMemo(() => {
     const groups = {};
@@ -268,10 +286,10 @@ export default function GroupedProductTable({
   const handleNavigate = useCallback((id) => navigate(`/catalog/${id}`), [navigate]);
 
   const hasDrag = dndEnabled;
-  const dataCols = 9; // SKU, Name, Category, Default Location, Cost, Price, UoM, On Hand, Inventory
+  const dataCols = 10; // SKU, Name, Category, Warehouse, Zone, Cost, Price, UoM, On Hand, Inventory
   const colSpan = (hasDrag ? 1 : 0) + (showCheckbox ? 1 : 0) + dataCols;
 
-  const cellProps = { showCheckbox, mergeSelection, setMergeSelection, locationMap, sohMap };
+  const cellProps = { showCheckbox, mergeSelection, setMergeSelection, locLabels, sohMap };
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -282,7 +300,8 @@ export default function GroupedProductTable({
           <col style={{ width: '14%' }} />{/* SKU */}
           <col />{/* Name */}
           <col style={{ width: 130 }} />{/* Category */}
-          <col style={{ width: 160 }} />{/* Default Location */}
+          <col style={{ width: 150 }} />{/* Warehouse */}
+          <col style={{ width: 140 }} />{/* Zone */}
           <col style={{ width: 110 }} />{/* Cost */}
           <col style={{ width: 110 }} />{/* Price */}
           <col style={{ width: 70 }} />{/* UoM */}
@@ -296,7 +315,8 @@ export default function GroupedProductTable({
             <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">SKU</th>
             <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Name</th>
             <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Category</th>
-            <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Default Location</th>
+            <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Warehouse</th>
+            <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Zone</th>
             <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Cost (ZAR)</th>
             <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Price (ZAR)</th>
             <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">UoM</th>

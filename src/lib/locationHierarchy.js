@@ -96,3 +96,15 @@ export function stockBearingZones(warehouseId, locations = []) {
   const { zonesByWarehouse } = splitLocations(locations);
   return (zonesByWarehouse[warehouseId] || []).filter(z => z.is_stock_bearing);
 }
+
+/**
+ * Display names for a stored `default_location_id`, resolved into its
+ * warehouse and zone parts. Either may be '' when unset.
+ * @returns {{ warehouse: string, zone: string }}
+ */
+export function locationLabels(locationId, locations = []) {
+  const { warehouseId, zoneId } = resolveLocation(locationId, locations);
+  const wh = locations.find(l => l.id === warehouseId);
+  const z = locations.find(l => l.id === zoneId);
+  return { warehouse: wh?.name || '', zone: z?.name || '' };
+}

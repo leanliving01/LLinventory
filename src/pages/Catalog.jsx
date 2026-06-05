@@ -74,12 +74,6 @@ export default function Catalog() {
     return map;
   }, [stockRecords]);
 
-  const locationMap = useMemo(() => {
-    const m = {};
-    locations.forEach(l => { m[l.id] = l.name; });
-    return m;
-  }, [locations]);
-
   // Subcategory reclassify (within same type)
   const handleProductReclassify = async (productId, fromCategory, toCategory) => {
     const product = products.find(p => p.id === productId);
@@ -408,7 +402,7 @@ export default function Catalog() {
           setMergeSelection={setMergeSelection}
           onProductReclassify={dndActive ? handleProductReclassify : undefined}
           sohMap={sohMap}
-          locationMap={locationMap}
+          locations={locations}
           search={search}
           subcategoryOrder={typeFilter !== 'all' ? getSubcategoriesForType(typeFilter) : undefined}
         />

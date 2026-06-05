@@ -15,6 +15,7 @@ import RecalcCommittedStock from '@/components/inventory/RecalcCommittedStock';
 import InventoryBulkEditModal from '@/components/inventory/InventoryBulkEditModal';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
+import { locationLabels } from '@/lib/locationHierarchy';
 import {
   CATEGORY_LABELS,
   CATEGORY_COLORS,
@@ -52,11 +53,16 @@ export default function InventoryOverview() {
     staleTime: 300_000,
   });
 
-  const locationMap = useMemo(() => {
+  const locationLabelMap = useMemo(() => {
+    const cache = {};
     const m = {};
-    locations.forEach(l => { m[l.id] = l.name; });
+    products.forEach(p => {
+      const id = p.default_location_id;
+      if (id && !cache[id]) cache[id] = locationLabels(id, locations);
+      m[id] = cache[id] || { warehouse: '', zone: '' };
+    });
     return m;
-  }, [locations]);
+  }, [products, locations]);
 
   // Aggregate SOH per product (sum across locations)
   const stockByProduct = useMemo(() => {
@@ -244,7 +250,8 @@ export default function InventoryOverview() {
                 <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Committed</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Available</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Reorder Pt</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Default Location</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Warehouse</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Zone</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -286,14 +293,17 @@ export default function InventoryOverview() {
                       {reorder > 0 ? reorder.toLocaleString('en-ZA', { maximumFractionDigits: 2 }) : '—'}
                     </td>
                     <td className="px-4 py-2.5 text-sm text-muted-foreground">
-                      {locationMap[p.default_location_id] || '—'}
+                      {locationLabelMap[p.default_location_id]?.warehouse || '—'}
+                    </td>
+                    <td className="px-4 py-2.5 text-sm text-muted-foreground">
+                      {locationLabelMap[p.default_location_id]?.zone || '—'}
                     </td>
                   </tr>
                 );
               })}
               {pageProducts.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={12} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     No products match your filters.
                   </td>
                 </tr>
