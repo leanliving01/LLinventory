@@ -18,12 +18,14 @@ const STATION_COLORS = {
   pack: 'bg-purple-100 text-purple-700',
 };
 
-export default function OperationsEditor({ bomId }) {
+export default function OperationsEditor({ bomId, defaultStation, ingredientsByStep = {} }) {
+  const baseStation = defaultStation && STATIONS.includes(defaultStation) ? defaultStation : 'cook';
+  const blankStep = { name: '', station: baseStation, cycle_time_min: '', notes: '', output_qty: '', output_uom: '' };
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const [addingNew, setAddingNew] = useState(false);
   const [insertAfter, setInsertAfter] = useState(null); // step_no to insert after, or 0 for top
-  const [newStep, setNewStep] = useState({ name: '', station: 'cook', cycle_time_min: '', notes: '' });
+  const [newStep, setNewStep] = useState(blankStep);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -87,9 +89,11 @@ export default function OperationsEditor({ bomId }) {
         station: newStep.station,
         cycle_time_min: newStep.cycle_time_min ? Number(newStep.cycle_time_min) : undefined,
         notes: newStep.notes || undefined,
+        output_qty: newStep.output_qty ? Number(newStep.output_qty) : undefined,
+        output_uom: newStep.output_uom || undefined,
       });
 
-      setNewStep({ name: '', station: 'cook', cycle_time_min: '', notes: '' });
+      setNewStep(blankStep);
       setAddingNew(false);
       setInsertAfter(null);
       invalidate();
@@ -124,9 +128,11 @@ export default function OperationsEditor({ bomId }) {
     setEditingId(op.id);
     setEditForm({
       name: op.name || '',
-      station: op.station || 'cook',
+      station: op.station || baseStation,
       cycle_time_min: op.cycle_time_min ?? '',
       notes: op.notes || '',
+      output_qty: op.output_qty ?? '',
+      output_uom: op.output_uom || '',
     });
   };
 
@@ -140,6 +146,8 @@ export default function OperationsEditor({ bomId }) {
         station: editForm.station,
         cycle_time_min: editForm.cycle_time_min ? Number(editForm.cycle_time_min) : null,
         notes: editForm.notes || null,
+        output_qty: editForm.output_qty ? Number(editForm.output_qty) : null,
+        output_uom: editForm.output_uom || null,
       });
       setEditingId(null);
       invalidate();
@@ -185,7 +193,7 @@ export default function OperationsEditor({ bomId }) {
           step={newStep}
           onChange={setNewStep}
           onSave={() => handleAddStep(-1)}
-          onCancel={() => { setInsertAfter(null); setNewStep({ name: '', station: 'cook', cycle_time_min: '', notes: '' }); }}
+          onCancel={() => { setInsertAfter(null); setNewStep(blankStep); }}
           saving={saving}
           label="Insert at top"
         />
@@ -234,6 +242,22 @@ export default function OperationsEditor({ bomId }) {
                               />
                               <span className="text-[10px] text-muted-foreground">min</span>
                             </div>
+                            <div className="flex items-center gap-2 pl-8">
+                              <span className="text-[10px] text-muted-foreground">Output →</span>
+                              <Input
+                                type="number"
+                                placeholder="Qty"
+                                value={editForm.output_qty}
+                                onChange={e => setEditForm(f => ({ ...f, output_qty: e.target.value }))}
+                                className="h-7 w-20 text-xs"
+                              />
+                              <Input
+                                placeholder="UoM"
+                                value={editForm.output_uom}
+                                onChange={e => setEditForm(f => ({ ...f, output_uom: e.target.value }))}
+                                className="h-7 w-20 text-xs"
+                              />
+                            </div>
                             <div className="pl-8">
                               <Textarea
                                 placeholder="Instructions / notes (optional)"
@@ -271,6 +295,20 @@ export default function OperationsEditor({ bomId }) {
                               {op.notes && (
                                 <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{op.notes}</p>
                               )}
+                              {(ingredientsByStep[op.step_no] || []).length > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {(ingredientsByStep[op.step_no] || []).map(ing => (
+                                    <span key={ing.id} className="text-[9px] bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground">
+                                      {ing.input_product_name} {ing.qty}{ing.uom}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {(op.output_qty != null && op.output_qty !== '') && (
+                                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5 font-medium">
+                                  Output → {op.output_qty} {op.output_uom || ''}
+                                </p>
+                              )}
                             </div>
                             <div className="flex items-center gap-0.5 shrink-0">
                               <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => moveStep(index, -1)} disabled={index === 0 || saving}>
@@ -297,7 +335,7 @@ export default function OperationsEditor({ bomId }) {
                     <div className="flex justify-center py-0.5 opacity-0 hover:opacity-100 transition-opacity">
                       <button
                         className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-1 px-2 py-0.5 rounded-full hover:bg-primary/5 transition-colors"
-                        onClick={() => { setInsertAfter(index); setAddingNew(false); setNewStep({ name: '', station: 'cook', cycle_time_min: '', notes: '' }); }}
+                        onClick={() => { setInsertAfter(index); setAddingNew(false); setNewStep(blankStep); }}
                       >
                         <Plus className="w-3 h-3" /> Insert here
                       </button>
@@ -310,7 +348,7 @@ export default function OperationsEditor({ bomId }) {
                       step={newStep}
                       onChange={setNewStep}
                       onSave={() => handleAddStep(index)}
-                      onCancel={() => { setInsertAfter(null); setNewStep({ name: '', station: 'cook', cycle_time_min: '', notes: '' }); }}
+                      onCancel={() => { setInsertAfter(null); setNewStep(blankStep); }}
                       saving={saving}
                       label={`Insert after step ${index + 1}`}
                     />
@@ -330,7 +368,7 @@ export default function OperationsEditor({ bomId }) {
             step={newStep}
             onChange={setNewStep}
             onSave={() => handleAddStep(sorted.length - 1)}
-            onCancel={() => { setAddingNew(false); setNewStep({ name: '', station: 'cook', cycle_time_min: '', notes: '' }); }}
+            onCancel={() => { setAddingNew(false); setNewStep(blankStep); }}
             saving={saving}
             label="Add to end"
           />
@@ -384,6 +422,23 @@ function StepForm({ step, onChange, onSave, onCancel, saving, label }) {
           className="h-7 w-24 text-xs"
         />
         <span className="text-[10px] text-muted-foreground">min</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] text-muted-foreground">Output →</span>
+        <Input
+          type="number"
+          placeholder="Qty"
+          value={step.output_qty}
+          onChange={e => onChange(prev => ({ ...prev, output_qty: e.target.value }))}
+          className="h-7 w-20 text-xs"
+        />
+        <Input
+          placeholder="UoM"
+          value={step.output_uom}
+          onChange={e => onChange(prev => ({ ...prev, output_uom: e.target.value }))}
+          className="h-7 w-20 text-xs"
+        />
+        <span className="text-[10px] text-muted-foreground">into next stage</span>
       </div>
       <Textarea
         placeholder="Instructions / notes (optional)"

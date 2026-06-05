@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   ArrowLeft, Package, Utensils, Save, Loader2, BookOpen, FileText, Copy,
-  ExternalLink, ChevronDown, ChevronRight, ListTree, CheckCircle2, AlertTriangle, Pencil, Eye,
+  ExternalLink, CheckCircle2, AlertTriangle, ArrowRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -21,23 +21,16 @@ import RecipeComponentTable from '@/components/recipes/RecipeComponentTable';
 import { getSubcategories, parseSubcategories, stringifySubcategories } from '@/lib/bomSubcategories';
 import { getCategoryLabel } from '@/lib/productClassification';
 
-const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack', prep: 'Prep' };
+// A BOM = a production layer. Ordered the way work flows on the floor.
+const LAYER_ORDER = ['prep', 'cook', 'portion', 'pack'];
+const LAYER_LABELS = { prep: 'Prep', cook: 'Cook', portion: 'Portion', pack: 'Pack' };
 const LAYER_COLORS = {
+  prep: 'bg-purple-100 text-purple-700',
   cook: 'bg-orange-100 text-orange-700',
   portion: 'bg-green-100 text-green-700',
   pack: 'bg-blue-100 text-blue-700',
-  prep: 'bg-purple-100 text-purple-700',
 };
-
-// Production layers (= operation.station) in floor-release order.
-const STATION_ORDER = ['prep', 'cook', 'portion', 'pack'];
-const STATION_LABELS = { prep: 'Prep', cook: 'Cook', portion: 'Portion', pack: 'Pack' };
-const STATION_COLORS = {
-  prep: 'bg-blue-100 text-blue-700',
-  cook: 'bg-amber-100 text-amber-700',
-  portion: 'bg-green-100 text-green-700',
-  pack: 'bg-purple-100 text-purple-700',
-};
+const layerRank = (t) => { const i = LAYER_ORDER.indexOf(t); return i === -1 ? 99 : i; };
 
 export default function RecipeProductDetail() {
   const { productId } = useParams();
@@ -47,13 +40,9 @@ export default function RecipeProductDetail() {
   const [saving, setSaving] = useState(false);
   const [editedQtys, setEditedQtys] = useState({});
   const [editedSteps, setEditedSteps] = useState({});
-  const [editedStations, setEditedStations] = useState({});
   const [bomEdits, setBomEdits] = useState({}); // { [bomId]: {yieldQty, yieldUom, chefNotes, notes, subcategory, files} }
   const [addModalBomId, setAddModalBomId] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
-  const [editingStepsFor, setEditingStepsFor] = useState({}); // { [bomId]: bool }
-  const [collapsedLayers, setCollapsedLayers] = useState({});
-  const [stationFilter, setStationFilter] = useState('all');
 
   const { data: product, isLoading: loadingProduct } = useQuery({
     queryKey: ['recipe-product', productId],
@@ -103,6 +92,22 @@ export default function RecipeProductDetail() {
     () => Object.fromEntries(productCategories.map(c => [c.id, c.name])), [productCategories]);
 
   // ── Derived maps ──────────────────────────────────────────────────────────
+  const sortedBoms = useMemo(() =>
+    [...boms].sort((a, b) =>
+      layerRank(a.bom_type) - layerRank(b.bom_type)
+      || (a.is_active === false ? 1 : 0) - (b.is_active === false ? 1 : 0)),
+  [boms]);
+
+  const bomTypeById = useMemo(
+    () => Object.fromEntries(boms.map(b => [b.id, b.bom_type])), [boms]);
+
+  // Layers that exist for this product — the move-ingredient dropdown options.
+  const availableLayers = useMemo(() => {
+    const seen = [];
+    sortedBoms.forEach(b => { if (b.bom_type && !seen.includes(b.bom_type)) seen.push(b.bom_type); });
+    return seen.map(t => ({ value: t, label: LAYER_LABELS[t] || t }));
+  }, [sortedBoms]);
+
   const operationsByBom = useMemo(() => {
     const m = {};
     operations.forEach(op => { (m[op.bom_id] ||= []).push(op); });
@@ -118,93 +123,38 @@ export default function RecipeProductDetail() {
 
   const subRecipeProductIds = useMemo(() => {
     const s = new Set(allBoms.map(b => b.product_id).filter(Boolean));
-    s.delete(productId); // a product isn't its own sub-recipe
+    s.delete(productId);
     return s;
   }, [allBoms, productId]);
 
   const activeBoms = useMemo(() => boms.filter(b => b.is_active !== false), [boms]);
   const inactiveBoms = useMemo(() => boms.filter(b => b.is_active === false), [boms]);
 
-  const repBom = useMemo(() =>
-    activeBoms.find(b => b.bom_type === 'portion')
-    || activeBoms.find(b => b.bom_type === 'cook')
-    || activeBoms[0] || boms[0] || null,
-  [activeBoms, boms]);
+  // The final output of the product = the last layer's yield (portion → cook → …).
+  const repBom = useMemo(() => {
+    const ordered = [...activeBoms].sort((a, b) => layerRank(b.bom_type) - layerRank(a.bom_type));
+    return ordered[0] || boms[0] || null;
+  }, [activeBoms, boms]);
 
   // Apply local component edits for display.
   const enrich = (c) => ({
     ...c,
     step_no: editedSteps[c.id] !== undefined ? editedSteps[c.id] : (c.step_no || 0),
-    station: editedStations[c.id] !== undefined ? editedStations[c.id] : (c.station || null),
+    _layer: bomTypeById[c.bom_id] || null,
   });
 
-  // Effective layer of a component (explicit station, else its step's station).
-  const layerOfComp = (c) => {
-    if (c.station) return c.station;
-    const op = (operationsByBom[c.bom_id] || []).find(o => o.step_no === (c.step_no || 0));
-    return op?.station || null;
-  };
-
-  // Change an ingredient's layer; clear a step pin that no longer fits the layer.
-  const handleStationChange = (compId, station) => {
-    setEditedStations(prev => ({ ...prev, [compId]: station }));
-    const comp = components.find(c => c.id === compId);
-    const curStep = editedSteps[compId] !== undefined ? editedSteps[compId] : (comp?.step_no || 0);
-    if (station && curStep) {
-      const op = (operationsByBom[comp?.bom_id] || []).find(o => o.step_no === curStep);
-      if (op && op.station !== station) setEditedSteps(prev => ({ ...prev, [compId]: 0 }));
-    }
-  };
-
-  // ── Process flow: merge ACTIVE boms' steps, grouped by station ──────────────
-  const stationSections = useMemo(() => {
-    const byStation = {};
-    activeBoms.forEach(bom => {
-      (operationsByBom[bom.id] || []).forEach(op => {
-        const st = op.station || 'cook';
-        (byStation[st] ||= []).push({ op, bom });
-      });
-    });
-    // Also surface layers that have ingredients assigned but no steps yet.
-    const stationsWithIngredients = new Set(
-      activeBoms
-        .flatMap(b => (componentsByBom[b.id] || []))
-        .filter(c => !c.is_consumable)
-        .map(c => {
-          const explicit = editedStations[c.id] !== undefined ? editedStations[c.id] : c.station;
-          if (explicit) return explicit;
-          const op = (operationsByBom[c.bom_id] || []).find(o => o.step_no === (c.step_no || 0));
-          return op?.station || null;
-        })
-        .filter(Boolean)
-    );
-    return STATION_ORDER
-      .filter(st => byStation[st]?.length || stationsWithIngredients.has(st))
-      .map(st => ({
-        station: st,
-        steps: (byStation[st] || []).sort((a, b) =>
-          (a.bom.bom_type || '').localeCompare(b.bom.bom_type || '')
-          || (a.op.step_no || 0) - (b.op.step_no || 0)),
-      }));
-  }, [activeBoms, operationsByBom, componentsByBom, editedStations]);
-
-  const ingredientsForStep = (bomId, stepNo) =>
-    (componentsByBom[bomId] || []).filter(c => !c.is_consumable && (c.step_no || 0) === stepNo);
-
-  // Ingredients assigned to a layer but not pinned to a specific step.
-  const layerIngredients = (station) =>
-    activeBoms
-      .flatMap(b => (componentsByBom[b.id] || []))
-      .filter(c => !c.is_consumable)
-      .map(enrich)
-      .filter(c => !c.step_no && layerOfComp(c) === station);
-
-  // ── Save ────────────────────────────────────────────────────────────────
+  // ── Save (qty, step, bom fields) ──────────────────────────────────────────
   const hasUnsavedChanges =
     Object.keys(editedQtys).length > 0 ||
     Object.keys(editedSteps).length > 0 ||
-    Object.keys(editedStations).length > 0 ||
     Object.keys(bomEdits).length > 0;
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ['recipe-product-boms', productId] });
+    queryClient.invalidateQueries({ queryKey: ['recipe-product-operations', productId] });
+    queryClient.invalidateQueries({ queryKey: ['recipe-product-components', productId] });
+    queryClient.invalidateQueries({ queryKey: ['recipes-boms'] });
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -227,10 +177,7 @@ export default function RecipeProductDetail() {
       for (const [compId, stepNo] of Object.entries(editedSteps)) {
         await base44.entities.BomComponent.update(compId, { step_no: stepNo || null });
       }
-      for (const [compId, station] of Object.entries(editedStations)) {
-        await base44.entities.BomComponent.update(compId, { station: station || null });
-      }
-      setEditedQtys({}); setEditedSteps({}); setEditedStations({}); setBomEdits({});
+      setEditedQtys({}); setEditedSteps({}); setBomEdits({});
       invalidateAll();
       toast.success('Recipe saved');
     } catch (err) {
@@ -240,11 +187,27 @@ export default function RecipeProductDetail() {
     }
   };
 
-  const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey: ['recipe-product-boms', productId] });
-    queryClient.invalidateQueries({ queryKey: ['recipe-product-operations', productId] });
-    queryClient.invalidateQueries({ queryKey: ['recipe-product-components', productId] });
-    queryClient.invalidateQueries({ queryKey: ['recipes-boms'] });
+  // ── Move an ingredient to a different layer (= different BOM) ───────────────
+  const handleLayerMove = async (comp, newType) => {
+    const currentType = bomTypeById[comp.bom_id];
+    if (newType === currentType) return;
+    const target = boms.find(b => b.bom_type === newType);
+    if (!target) {
+      toast.error(`Create a ${LAYER_LABELS[newType] || newType} layer first.`);
+      return;
+    }
+    setSaving(true);
+    try {
+      // Moving to another BOM means the old step pin no longer applies.
+      await base44.entities.BomComponent.update(comp.id, { bom_id: target.id, step_no: null });
+      setEditedSteps(prev => { const n = { ...prev }; delete n[comp.id]; return n; });
+      invalidateAll();
+      toast.success(`Moved to ${LAYER_LABELS[newType]} layer`);
+    } catch (err) {
+      toast.error('Move failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ── Bom field helpers ─────────────────────────────────────────────────────
@@ -265,20 +228,15 @@ export default function RecipeProductDetail() {
     if (comps.length === 0) issues.push('at least one ingredient');
     if (comps.some(c => !(Number(c.qty) > 0))) issues.push('every ingredient needs a quantity > 0');
     if (comps.some(c => !c.uom)) issues.push('every ingredient needs a UoM');
-    const yq = bomField(bom, 'yieldQty', bom.yield_qty);
-    const yu = bomField(bom, 'yieldUom', bom.yield_uom);
-    if (!(Number(yq) > 0)) issues.push('a yield quantity');
-    if (!yu) issues.push('a yield UoM');
+    if (!(Number(bomField(bom, 'yieldQty', bom.yield_qty)) > 0)) issues.push('a yield quantity');
+    if (!bomField(bom, 'yieldUom', bom.yield_uom)) issues.push('a yield UoM');
     return issues;
   };
 
   const toggleActive = async (bom) => {
     if (bom.is_active === false) {
       const issues = validateForActive(bom);
-      if (issues.length) {
-        toast.error(`Cannot activate — needs: ${issues.join(', ')}.`);
-        return;
-      }
+      if (issues.length) { toast.error(`Cannot activate — needs: ${issues.join(', ')}.`); return; }
     }
     setSaving(true);
     try {
@@ -292,10 +250,9 @@ export default function RecipeProductDetail() {
     }
   };
 
-  // ── Duplicate full structure (all layers + steps + ingredients) ────────────
+  // ── Duplicate / Delete ────────────────────────────────────────────────────
   const handleDuplicate = () => setConfirmAction({
-    type: 'duplicate',
-    title: 'Duplicate Full Recipe',
+    type: 'duplicate', title: 'Duplicate Full Recipe',
     message: <span>Create an inactive copy (version +1) of <strong>all {boms.length} layer(s)</strong> for <strong>{product?.name}</strong>, including every step, ingredient, note and yield?</span>,
     confirmLabel: 'Duplicate Everything', confirmVariant: 'default', icon: 'move',
   });
@@ -318,7 +275,7 @@ export default function RecipeProductDetail() {
       await Promise.all(ops.map(o => base44.entities.BomOperation.create({
         bom_id: newBom.id, step_no: o.step_no, name: o.name, station: o.station,
         equipment_id: o.equipment_id || undefined, cycle_time_min: o.cycle_time_min || undefined,
-        notes: o.notes || undefined,
+        notes: o.notes || undefined, output_qty: o.output_qty ?? undefined, output_uom: o.output_uom || undefined,
       })));
       await Promise.all(comps.map(c => base44.entities.BomComponent.create({
         bom_id: newBom.id, input_product_id: c.input_product_id,
@@ -331,10 +288,8 @@ export default function RecipeProductDetail() {
     toast.success('Recipe duplicated as inactive draft (version +1)');
   };
 
-  // ── Delete the whole product BOM (all layers) ─────────────────────────────
   const handleDelete = () => setConfirmAction({
-    type: 'delete',
-    title: 'Delete Entire Recipe',
+    type: 'delete', title: 'Delete Entire Recipe',
     message: <span>Permanently delete <strong>all {boms.length} layer(s)</strong> ({components.length} ingredients, {operations.length} steps) for <strong>{product?.name}</strong>? The product itself is not deleted.</span>,
     confirmLabel: 'Delete Permanently', icon: 'delete',
   });
@@ -409,12 +364,10 @@ export default function RecipeProductDetail() {
   const maxVersion = Math.max(...boms.map(b => Number(b.version || 1)));
   const anyActive = activeBoms.length > 0;
 
-  // Consolidated ingredient list across active boms, station-filtered.
-  const consolidatedIngredients = activeBoms
+  const consolidatedIngredients = sortedBoms
     .flatMap(b => (componentsByBom[b.id] || []))
     .filter(c => !c.is_consumable)
-    .map(enrich)
-    .filter(c => stationFilter === 'all' || layerOfComp(c) === stationFilter);
+    .map(enrich);
 
   return (
     <div className="space-y-6">
@@ -438,7 +391,7 @@ export default function RecipeProductDetail() {
               <p className="text-sm text-muted-foreground font-mono group-hover:text-primary">{product?.sku || repBom?.product_sku}</p>
             </button>
             <p className="text-xs text-muted-foreground mt-1">
-              Full production process — {boms.length} layer{boms.length !== 1 ? 's' : ''} (Prep → Cook → Portion → Pack)
+              Full production process — {boms.length} layer{boms.length !== 1 ? 's' : ''}: {sortedBoms.map(b => LAYER_LABELS[b.bom_type]).join(' → ')}
             </p>
           </div>
         </div>
@@ -467,7 +420,7 @@ export default function RecipeProductDetail() {
         </div>
         <div>
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Layers</p>
-          <p className="text-sm font-medium">{boms.map(b => LAYER_LABELS[b.bom_type]).join(', ')}</p>
+          <p className="text-sm font-medium">{sortedBoms.map(b => LAYER_LABELS[b.bom_type]).join(' → ')}</p>
         </div>
         <div>
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Status</p>
@@ -475,113 +428,117 @@ export default function RecipeProductDetail() {
         </div>
       </div>
 
-      {/* Process Flow (active recipe) */}
-      <div className="bg-card border border-border rounded-xl p-5">
-        <h3 className="text-sm font-semibold flex items-center gap-2 mb-1">
-          <ListTree className="w-4 h-4 text-primary" /> Process Flow
+      {/* Process Flow — one editable card per layer (= BOM), in flow order */}
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <Package className="w-4 h-4 text-primary" /> Process Flow — Production Layers
         </h3>
-        <p className="text-[11px] text-muted-foreground mb-4">Active recipe steps grouped by production layer (the order work is released to the floor).</p>
-        {stationSections.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No steps defined yet. Add steps in a layer below.</p>
-        ) : (
-          <div className="space-y-3">
-            {stationSections.map(({ station, steps }) => {
-              const collapsed = collapsedLayers[station];
-              return (
-                <div key={station} className="border border-border rounded-lg overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setCollapsedLayers(p => ({ ...p, [station]: !p[station] }))}
-                    className="w-full flex items-center justify-between px-4 py-2.5 bg-muted/40 hover:bg-muted/60"
-                  >
-                    <span className="flex items-center gap-2">
-                      {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                      <span className={cn("text-xs px-2 py-0.5 rounded-full font-semibold", STATION_COLORS[station])}>
-                        {STATION_LABELS[station]} Layer
-                      </span>
-                      <span className="text-xs text-muted-foreground">{steps.length} step{steps.length !== 1 ? 's' : ''}</span>
-                    </span>
-                  </button>
-                  {!collapsed && (
-                    <div className="divide-y divide-border">
-                      {steps.map(({ op, bom }, idx) => {
-                        const stepIngredients = ingredientsForStep(bom.id, op.step_no).map(enrich);
-                        return (
-                          <div key={op.id} className="px-4 py-3">
-                            <div className="flex items-start gap-3">
-                              <span className="shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center">{idx + 1}</span>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-sm font-medium">{op.name}</span>
-                                  {op.cycle_time_min ? <span className="text-[10px] text-muted-foreground">· {op.cycle_time_min} min</span> : null}
-                                  {boms.length > 1 && <Badge variant="outline" className="text-[9px]">{LAYER_LABELS[bom.bom_type]} BOM</Badge>}
-                                </div>
-                                {op.notes && <p className="text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap">{op.notes}</p>}
-                                {stepIngredients.length > 0 && (
-                                  <ul className="mt-1.5 space-y-0.5">
-                                    {stepIngredients.map(ing => (
-                                      <li key={ing.id} className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                                        <span className="font-mono">{ing.input_product_sku}</span>
-                                        <span>{ing.input_product_name}</span>
-                                        <span className="tabular-nums">— {ing.qty} {ing.uom}</span>
-                                        {subRecipeProductIds.has(ing.input_product_id) && (
-                                          <button type="button" onClick={() => navigate(`/recipes/product/${ing.input_product_id}`)}
-                                            className="inline-flex items-center gap-0.5 text-primary hover:underline">
-                                            <ExternalLink className="w-3 h-3" /> recipe
-                                          </button>
-                                        )}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {layerIngredients(station).length > 0 && (
-                        <div className="px-4 py-3 bg-muted/20">
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{STATION_LABELS[station]} ingredients (any step)</p>
-                          <ul className="space-y-0.5">
-                            {layerIngredients(station).map(ing => (
-                              <li key={ing.id} className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                                <span className="font-mono">{ing.input_product_sku}</span>
-                                <span>{ing.input_product_name}</span>
-                                <span className="tabular-nums">— {ing.qty} {ing.uom}</span>
-                                {subRecipeProductIds.has(ing.input_product_id) && (
-                                  <button type="button" onClick={() => navigate(`/recipes/product/${ing.input_product_id}`)}
-                                    className="inline-flex items-center gap-0.5 text-primary hover:underline">
-                                    <ExternalLink className="w-3 h-3" /> recipe
-                                  </button>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
+        <p className="text-[11px] text-muted-foreground">Each layer is one BOM. Steps, ingredients and outputs below are exactly what runs on the floor for that layer.</p>
+
+        {sortedBoms.map((bom, layerIdx) => {
+          const bomComps = (componentsByBom[bom.id] || []);
+          const ingredients = bomComps.filter(c => !c.is_consumable).map(enrich);
+          const consumables = bomComps.filter(c => c.is_consumable).map(enrich);
+          // ingredients grouped by step for inline display inside the steps editor
+          const ingredientsByStep = {};
+          ingredients.forEach(c => { (ingredientsByStep[c.step_no || 0] ||= []).push(c); });
+
+          return (
+            <React.Fragment key={bom.id}>
+              {layerIdx > 0 && (
+                <div className="flex justify-center text-muted-foreground"><ArrowRight className="w-4 h-4 rotate-90" /></div>
+              )}
+              <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Badge className={cn("text-[11px] px-2.5 py-0.5", LAYER_COLORS[bom.bom_type])}>{LAYER_LABELS[bom.bom_type]} Layer</Badge>
+                    <span className="text-xs text-muted-foreground">v{bom.version || 1}</span>
+                    {bom.is_active === false && <Badge className="text-[10px] bg-gray-100 text-gray-500">Inactive draft</Badge>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Layer output</span>
+                      <Input type="number" step="any" min="0" className="w-24 h-8"
+                        value={String(bomField(bom, 'yieldQty', bom.yield_qty ?? 1))}
+                        onChange={e => setBomField(bom.id, 'yieldQty', e.target.value)} />
+                      <Input className="w-20 h-8" placeholder="UoM"
+                        value={bomField(bom, 'yieldUom', bom.yield_uom || '')}
+                        onChange={e => setBomField(bom.id, 'yieldUom', e.target.value)} />
                     </div>
-                  )}
+                    <Button variant="outline" size="sm" className="gap-1.5"
+                      onClick={() => toggleActive(bom)} disabled={saving}>
+                      {bom.is_active === false
+                        ? <><CheckCircle2 className="w-3.5 h-3.5" /> Activate</>
+                        : <><AlertTriangle className="w-3.5 h-3.5" /> Set Inactive</>}
+                    </Button>
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
+
+                {/* Subcategory */}
+                {getSubcategories(bom.bom_type).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {getSubcategories(bom.bom_type).map(sub => {
+                      const current = parseSubcategories(bomField(bom, 'subcategory', bom.subcategory || ''));
+                      const active = current.includes(sub);
+                      return (
+                        <button key={sub} onClick={() => {
+                          const next = active ? current.filter(s => s !== sub) : [...current, sub];
+                          setBomField(bom.id, 'subcategory', stringifySubcategories(next));
+                        }}
+                          className={cn("text-[11px] px-2.5 py-1 rounded-full font-medium border transition-all",
+                            active ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/30')}>{sub}</button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Steps (editable, with per-step inputs + output) */}
+                <div className="border border-border rounded-lg p-4">
+                  <OperationsEditor bomId={bom.id} defaultStation={bom.bom_type} ingredientsByStep={ingredientsByStep} />
+                </div>
+
+                {/* Layer ingredients */}
+                <RecipeComponentTable
+                  title="Layer Ingredients" icon={<Utensils className="w-4 h-4 text-primary" />}
+                  components={ingredients}
+                  loading={loadingComps}
+                  editedQtys={editedQtys}
+                  onQtyChange={(id, v) => setEditedQtys(prev => ({ ...prev, [id]: v }))}
+                  onRemove={removeComponent}
+                  onAdd={() => setAddModalBomId(bom.id)}
+                  onStepChange={(id, stepNo) => setEditedSteps(prev => ({ ...prev, [id]: stepNo }))}
+                  onLayerChange={handleLayerMove}
+                  availableLayers={availableLayers}
+                  operationsByBom={operationsByBom}
+                  showLayer
+                  subRecipeProductIds={subRecipeProductIds}
+                  onOpenSubRecipe={(pid) => navigate(`/recipes/product/${pid}`)}
+                />
+
+                {consumables.length > 0 && (
+                  <RecipeComponentTable
+                    title="Packaging / Consumables" icon={<Package className="w-4 h-4 text-muted-foreground" />}
+                    components={consumables}
+                    loading={loadingComps}
+                    editedQtys={editedQtys}
+                    onQtyChange={(id, v) => setEditedQtys(prev => ({ ...prev, [id]: v }))}
+                    onRemove={removeComponent}
+                    onAdd={() => setAddModalBomId(bom.id)}
+                    onStepChange={(id, stepNo) => setEditedSteps(prev => ({ ...prev, [id]: stepNo }))}
+                    operationsByBom={operationsByBom}
+                  />
+                )}
+              </div>
+            </React.Fragment>
+          );
+        })}
       </div>
 
-      {/* Consolidated ingredients */}
+      {/* Consolidated ingredients overview */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold flex items-center gap-2">
-            <Utensils className="w-4 h-4 text-primary" /> Ingredients by Layer / Step
-          </h3>
-          <Select value={stationFilter} onValueChange={setStationFilter}>
-            <SelectTrigger className="h-8 w-40 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All layers</SelectItem>
-              {STATION_ORDER.map(s => <SelectItem key={s} value={s}>{STATION_LABELS[s]}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <Utensils className="w-4 h-4 text-primary" /> All Ingredients (across layers)
+        </h3>
         <RecipeComponentTable
           title="Ingredients" icon={<Utensils className="w-4 h-4 text-primary" />}
           components={consolidatedIngredients}
@@ -590,7 +547,8 @@ export default function RecipeProductDetail() {
           onQtyChange={(id, v) => setEditedQtys(prev => ({ ...prev, [id]: v }))}
           onRemove={removeComponent}
           onStepChange={(id, stepNo) => setEditedSteps(prev => ({ ...prev, [id]: stepNo }))}
-          onStationChange={handleStationChange}
+          onLayerChange={handleLayerMove}
+          availableLayers={availableLayers}
           operationsByBom={operationsByBom}
           showLayer
           subRecipeProductIds={subRecipeProductIds}
@@ -598,138 +556,28 @@ export default function RecipeProductDetail() {
         />
       </div>
 
-      {/* Per-layer management cards */}
-      <div className="space-y-4">
-        <h3 className="text-sm font-semibold flex items-center gap-2">
-          <Package className="w-4 h-4 text-primary" /> Production Layers
-        </h3>
-        {boms.map(bom => {
-          const bomComps = (componentsByBom[bom.id] || []);
-          const ingredients = bomComps.filter(c => !c.is_consumable).map(enrich);
-          const consumables = bomComps.filter(c => c.is_consumable).map(enrich);
-          const editing = editingStepsFor[bom.id];
-          return (
-            <div key={bom.id} className="bg-card border border-border rounded-xl p-5 space-y-4">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <Badge className={cn("text-[10px]", LAYER_COLORS[bom.bom_type])}>{LAYER_LABELS[bom.bom_type]} BOM</Badge>
-                  <span className="text-xs text-muted-foreground">v{bom.version || 1}</span>
-                  {bom.is_active === false && <Badge className="text-[10px] bg-gray-100 text-gray-500">Inactive draft</Badge>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Yield</span>
-                    <Input type="number" step="any" min="0" className="w-24 h-8"
-                      value={String(bomField(bom, 'yieldQty', bom.yield_qty ?? 1))}
-                      onChange={e => setBomField(bom.id, 'yieldQty', e.target.value)} />
-                    <Input className="w-20 h-8" placeholder="UoM"
-                      value={bomField(bom, 'yieldUom', bom.yield_uom || '')}
-                      onChange={e => setBomField(bom.id, 'yieldUom', e.target.value)} />
-                  </div>
-                  <Button variant="outline" size="sm" className="gap-1.5"
-                    onClick={() => toggleActive(bom)} disabled={saving}>
-                    {bom.is_active === false
-                      ? <><CheckCircle2 className="w-3.5 h-3.5" /> Activate</>
-                      : <><AlertTriangle className="w-3.5 h-3.5" /> Set Inactive</>}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Subcategory */}
-              {getSubcategories(bom.bom_type).length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {getSubcategories(bom.bom_type).map(sub => {
-                    const current = parseSubcategories(bomField(bom, 'subcategory', bom.subcategory || ''));
-                    const active = current.includes(sub);
-                    return (
-                      <button key={sub} onClick={() => {
-                        const next = active ? current.filter(s => s !== sub) : [...current, sub];
-                        setBomField(bom.id, 'subcategory', stringifySubcategories(next));
-                      }}
-                        className={cn("text-[11px] px-2.5 py-1 rounded-full font-medium border transition-all",
-                          active ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/30')}>{sub}</button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Steps: view vs edit */}
-              <div className="border border-border rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Layer Steps</span>
-                  <Button variant="ghost" size="sm" className="gap-1.5 h-7 text-xs"
-                    onClick={() => setEditingStepsFor(p => ({ ...p, [bom.id]: !p[bom.id] }))}>
-                    {editing ? <><Eye className="w-3.5 h-3.5" /> Done</> : <><Pencil className="w-3.5 h-3.5" /> Edit steps</>}
-                  </Button>
-                </div>
-                {editing ? (
-                  <OperationsEditor bomId={bom.id} />
-                ) : (
-                  (operationsByBom[bom.id] || []).length === 0
-                    ? <p className="text-xs text-muted-foreground">No steps. Click "Edit steps" to add.</p>
-                    : <ol className="space-y-1">
-                        {(operationsByBom[bom.id] || []).map((op, i) => (
-                          <li key={op.id} className="text-xs flex items-center gap-2">
-                            <span className="text-muted-foreground tabular-nums w-5">{i + 1}.</span>
-                            <span className={cn("text-[9px] px-1.5 py-0.5 rounded-full font-medium capitalize", STATION_COLORS[op.station] || '')}>{op.station}</span>
-                            <span>{op.name}</span>
-                          </li>
-                        ))}
-                      </ol>
-                )}
-              </div>
-
-              {/* Ingredients for this layer */}
-              <RecipeComponentTable
-                title="Layer Ingredients" icon={<Utensils className="w-4 h-4 text-primary" />}
-                components={ingredients}
-                loading={loadingComps}
-                editedQtys={editedQtys}
-                onQtyChange={(id, v) => setEditedQtys(prev => ({ ...prev, [id]: v }))}
-                onRemove={removeComponent}
-                onAdd={() => setAddModalBomId(bom.id)}
-                onStepChange={(id, stepNo) => setEditedSteps(prev => ({ ...prev, [id]: stepNo }))}
-                onStationChange={handleStationChange}
-                operationsByBom={operationsByBom}
-                showLayer
-                subRecipeProductIds={subRecipeProductIds}
-                onOpenSubRecipe={(pid) => navigate(`/recipes/product/${pid}`)}
-              />
-
-              {consumables.length > 0 && (
-                <RecipeComponentTable
-                  title="Packaging / Consumables" icon={<Package className="w-4 h-4 text-muted-foreground" />}
-                  components={consumables}
-                  loading={loadingComps}
-                  editedQtys={editedQtys}
-                  onQtyChange={(id, v) => setEditedQtys(prev => ({ ...prev, [id]: v }))}
-                  onRemove={removeComponent}
-                  onAdd={() => setAddModalBomId(bom.id)}
-                  operationsByBom={operationsByBom}
-                />
-              )}
-
-              {/* Notes */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <h4 className="text-xs font-semibold flex items-center gap-2 mb-1.5"><BookOpen className="w-3.5 h-3.5 text-primary" /> Chef Notes</h4>
-                  <Textarea className="min-h-[90px] text-sm" placeholder="Instructions shown to kitchen staff on the floor…"
-                    value={bomField(bom, 'chefNotes', bom.chef_notes || '')}
-                    onChange={e => setBomField(bom.id, 'chefNotes', e.target.value)} />
-                </div>
-                <div>
-                  <h4 className="text-xs font-semibold flex items-center gap-2 mb-1.5"><FileText className="w-3.5 h-3.5 text-muted-foreground" /> General Notes</h4>
-                  <Textarea className="min-h-[90px] text-sm" placeholder="Internal notes (not shown on floor)…"
-                    value={bomField(bom, 'notes', bom.notes || '')}
-                    onChange={e => setBomField(bom.id, 'notes', e.target.value)} />
-                </div>
-              </div>
-
-              <RecipeFilesEditor files={bomField(bom, 'files', bom.files || [])} onChange={f => setBomField(bom.id, 'files', f)} />
+      {/* Notes — one set for the whole recipe */}
+      {repBom && (
+        <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 className="text-xs font-semibold flex items-center gap-2 mb-1.5"><BookOpen className="w-3.5 h-3.5 text-primary" /> Chef Notes</h4>
+              <p className="text-[10px] text-muted-foreground mb-1.5">Shown to kitchen staff on the floor.</p>
+              <Textarea className="min-h-[100px] text-sm" placeholder="e.g. Sear chicken at 180°C until internal temp hits 74°C…"
+                value={bomField(repBom, 'chefNotes', repBom.chef_notes || '')}
+                onChange={e => setBomField(repBom.id, 'chefNotes', e.target.value)} />
             </div>
-          );
-        })}
-      </div>
+            <div>
+              <h4 className="text-xs font-semibold flex items-center gap-2 mb-1.5"><FileText className="w-3.5 h-3.5 text-muted-foreground" /> General Notes</h4>
+              <p className="text-[10px] text-muted-foreground mb-1.5">Internal — not shown on the floor.</p>
+              <Textarea className="min-h-[100px] text-sm" placeholder="Internal notes about this recipe…"
+                value={bomField(repBom, 'notes', repBom.notes || '')}
+                onChange={e => setBomField(repBom.id, 'notes', e.target.value)} />
+            </div>
+          </div>
+          <RecipeFilesEditor files={bomField(repBom, 'files', repBom.files || [])} onChange={f => setBomField(repBom.id, 'files', f)} />
+        </div>
+      )}
 
       {/* Sticky save bar */}
       {hasUnsavedChanges && (
@@ -744,7 +592,6 @@ export default function RecipeProductDetail() {
       {addModalBomId && (
         <AddComponentModal bomId={addModalBomId}
           existingProductIds={(componentsByBom[addModalBomId] || []).map(c => c.input_product_id)}
-          defaultStation={boms.find(b => b.id === addModalBomId)?.bom_type}
           onAdded={() => { invalidateAll(); setAddModalBomId(null); toast.success('Ingredient added'); }}
           onCancel={() => setAddModalBomId(null)} />
       )}

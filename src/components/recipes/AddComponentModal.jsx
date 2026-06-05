@@ -5,16 +5,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { X, Search, Plus, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-const STATION_LABELS = { prep: 'Prep', cook: 'Cook', portion: 'Portion', pack: 'Pack' };
-
-export default function AddComponentModal({ bomId, existingProductIds, defaultStation, onAdded, onCancel }) {
+export default function AddComponentModal({ bomId, existingProductIds, onAdded, onCancel }) {
   const [search, setSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [qty, setQty] = useState('');
   const [uom, setUom] = useState('');
-  const [station, setStation] = useState(STATION_LABELS[defaultStation] ? defaultStation : 'all');
   const [adding, setAdding] = useState(false);
 
   const { data: products = [] } = useQuery({
@@ -45,7 +41,6 @@ export default function AddComponentModal({ bomId, existingProductIds, defaultSt
       qty: Number(qty),
       uom: uom || selectedProduct.stock_uom || 'pcs',
       is_consumable: selectedProduct.type === 'packaging',
-      station: station === 'all' ? undefined : station,
     });
     setAdding(false);
     onAdded();
@@ -139,20 +134,6 @@ export default function AddComponentModal({ bomId, existingProductIds, defaultSt
                     placeholder="e.g. g, kg, pcs"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">Production Layer (phase)</label>
-                <Select value={station} onValueChange={setStation}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All / Any</SelectItem>
-                    {Object.entries(STATION_LABELS).map(([v, l]) => (
-                      <SelectItem key={v} value={v}>{l}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[10px] text-muted-foreground mt-1">Which phase this ingredient is added in.</p>
               </div>
             </>
           )}

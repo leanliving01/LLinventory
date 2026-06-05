@@ -307,10 +307,12 @@ CREATE TABLE bom_operations (
   bom_id          text NOT NULL,    -- FK -> boms (added below)
   step_no         integer NOT NULL,
   name            text NOT NULL,
-  station         text NOT NULL CHECK (station IN ('prep','cook','portion')),
+  station         text NOT NULL CHECK (station IN ('prep','cook','portion','pack')),
   equipment_id    text,             -- FK -> equipment (Equipment entity TBD)
   cycle_time_min  numeric,
-  notes           text
+  notes           text,
+  output_qty      numeric,          -- what this step outputs into the next stage
+  output_uom      text
 );
 
 CREATE UNIQUE INDEX uq_bom_operations_bom_step ON bom_operations(bom_id, step_no);
