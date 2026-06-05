@@ -12,6 +12,7 @@ import {
   CATEGORY_ORDER,
 } from '@/lib/productClassification';
 import { useSubcategories } from '@/lib/useSubcategories';
+import WarehouseZoneSelect from '@/components/shared/WarehouseZoneSelect';
 
 const NEW_SUBCATEGORY = '__new__';
 
@@ -239,12 +240,7 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
             </Row>
 
             <Row field="default_location_id" label="Default Location">
-              <Select value={locationId} onValueChange={setLocationId}>
-                <SelectTrigger className="h-9"><SelectValue placeholder="Select location" /></SelectTrigger>
-                <SelectContent>
-                  {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <WarehouseZoneSelect value={locationId} onChange={setLocationId} locations={locations} />
             </Row>
 
             <Row field="stock_uom" label="UOM">

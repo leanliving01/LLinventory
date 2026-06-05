@@ -5,30 +5,45 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ClipboardCheck, Search, X, Save, AlertTriangle, Eye, EyeOff, MapPin } from 'lucide-react';
+import { ClipboardCheck, Search, X, Save, AlertTriangle, Eye, EyeOff, MapPin, Warehouse, Layers } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import StockTakeCountTable from '@/components/stock-take/StockTakeCountTable';
 import StockTakeVarianceReport from '@/components/stock-take/StockTakeVarianceReport';
 import ZoneSelector from '@/components/stock-take/ZoneSelector';
 import { writeAuditLog } from '@/lib/auditLog';
+import { splitLocations, resolveLocation, getCountScopeIds, stockBearingZones } from '@/lib/locationHierarchy';
 
 export default function StockTakeNew() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [productType, setProductType] = useState('finished_meal');
-  const [locationId, setLocationId] = useState('');
+  const [warehouseId, setWarehouseId] = useState('');
+  const [zoneId, setZoneId] = useState('');
   const [counts, setCounts] = useState({}); // product_id → counted qty
   const [saving, setSaving] = useState(false);
   const [showUncounted, setShowUncounted] = useState(false);
+  const [showAll, setShowAll] = useState(false); // show products not assigned to the selected scope
   const [showVariance, setShowVariance] = useState(false);
   const [varianceData, setVarianceData] = useState([]);
 
+  // All locations (warehouses + zones) so we can present the hierarchy.
   const { data: locations = [] } = useQuery({
-    queryKey: ['locations'],
-    queryFn: () => base44.entities.Location.filter({ is_stock_bearing: true }, 'name', 50),
+    queryKey: ['locations-all'],
+    queryFn: () => base44.entities.Location.list('name', 200),
   });
+
+  const { warehouses, zonesByWarehouse } = useMemo(() => splitLocations(locations), [locations]);
+  const zonesForWarehouse = warehouseId ? (zonesByWarehouse[warehouseId] || []) : [];
+
+  // The set of stock-on-hand location_ids the current selection covers.
+  const scopeIds = useMemo(
+    () => getCountScopeIds(warehouseId, zoneId, locations),
+    [warehouseId, zoneId, locations]
+  );
+  const scopeSet = useMemo(() => (scopeIds ? new Set(scopeIds) : null), [scopeIds]);
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['products-stocktake', productType],
@@ -40,23 +55,40 @@ export default function StockTakeNew() {
     queryFn: () => base44.entities.StockOnHand.list('-updated_date', 2000),
   });
 
-  // Build stock lookup
+  // Build stock lookup — aggregate qty across every location in the selected scope.
   const stockMap = useMemo(() => {
     const map = {};
     stockRecords.forEach(s => {
-      const key = locationId ? `${s.product_id}_${s.location_id}` : s.product_id;
-      if (!locationId || s.location_id === locationId) {
+      if (!scopeSet || scopeSet.has(s.location_id)) {
         if (!map[s.product_id]) map[s.product_id] = { qty_on_hand: 0, stock_id: s.id };
         map[s.product_id].qty_on_hand += s.qty_on_hand || 0;
         map[s.product_id].stock_id = s.id;
       }
     });
     return map;
-  }, [stockRecords, locationId]);
+  }, [stockRecords, scopeSet]);
+
+  // Products assigned to the selected scope by their default location. When no
+  // warehouse/zone is selected (scopeSet null), this matches everything.
+  const inScope = useMemo(() => {
+    return (p) => {
+      if (!scopeSet) return true;
+      if (!p.default_location_id) return false;
+      const { warehouseId: wh, zoneId: z } = resolveLocation(p.default_location_id, locations);
+      // A product counts as in-scope if its zone is in the scope set, or (when
+      // only a warehouse is selected) it belongs to that warehouse.
+      if (z && scopeSet.has(z)) return true;
+      if (!zoneId && wh && wh === warehouseId) return true;
+      return scopeSet.has(p.default_location_id);
+    };
+  }, [scopeSet, locations, warehouseId, zoneId]);
 
   // Filter products
   const filteredProducts = useMemo(() => {
     let list = products;
+    if (scopeSet && !showAll) {
+      list = list.filter(inScope);
+    }
     if (search) {
       const s = search.toLowerCase();
       list = list.filter(p => p.name.toLowerCase().includes(s) || p.sku?.toLowerCase().includes(s));
@@ -65,7 +97,7 @@ export default function StockTakeNew() {
       list = list.filter(p => counts[p.id] === undefined || counts[p.id] === '');
     }
     return list.slice(0, 50);
-  }, [products, search, showUncounted, counts]);
+  }, [products, search, showUncounted, showAll, scopeSet, inScope, counts]);
 
   const handleCountChange = (productId, value) => {
     setCounts(prev => ({ ...prev, [productId]: value }));
@@ -77,7 +109,15 @@ export default function StockTakeNew() {
   const handleSave = async () => {
     const entries = Object.entries(counts).filter(([_, v]) => v !== '' && v !== undefined);
     if (entries.length === 0) { toast.error('No counts to save'); return; }
-    if (!locationId) { toast.error('Select a location before saving — adjustments must be applied to a specific location'); return; }
+    if (!warehouseId) { toast.error('Select a warehouse before saving — adjustments must be applied to a specific location'); return; }
+    // Adjustments must land on ONE concrete stock-bearing location: a specific
+    // zone, or a warehouse with no stock-bearing sub-zones.
+    const warehouseZones = stockBearingZones(warehouseId, locations);
+    if (!zoneId && warehouseZones.length > 0) {
+      toast.error('Pick a specific zone before saving — this warehouse has multiple zones');
+      return;
+    }
+    const targetLocationId = zoneId || warehouseId;
 
     setSaving(true);
 
@@ -111,15 +151,13 @@ export default function StockTakeNew() {
             reason: 'stocktake_adjustment',
             ref_type: 'stock_take',
             ref_number: `Count ${format(new Date(), 'dd MMM yyyy')}`,
-            to_location_id: variance > 0 ? (locationId || undefined) : undefined,
-            from_location_id: variance < 0 ? (locationId || undefined) : undefined,
+            to_location_id: variance > 0 ? targetLocationId : undefined,
+            from_location_id: variance < 0 ? targetLocationId : undefined,
             notes: `Stock take: system ${systemQty}, counted ${counted}, adj ${variance > 0 ? '+' : ''}${variance}`,
           });
 
           // Atomically apply the variance as a delta (counted - system = adjustment needed)
-          if (locationId) {
-            await adjustStockOnHand(productId, locationId, variance);
-          }
+          await adjustStockOnHand(productId, targetLocationId, variance);
         }
       }
 
@@ -172,19 +210,50 @@ export default function StockTakeNew() {
         </div>
       </div>
 
-      {/* Zone selector */}
-      <div className="bg-card border border-border rounded-xl px-5 py-4 space-y-3">
+      {/* Location selector — Warehouse, then Zone */}
+      <div className="bg-card border border-border rounded-xl px-5 py-4 space-y-4">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <MapPin className="w-4 h-4" strokeWidth={1.5} />
-          {locationId
-            ? <span>Counting in <span className="font-semibold text-foreground">{locations.find(l => l.id === locationId)?.name || 'Selected zone'}</span></span>
-            : <span>Counting across <span className="font-semibold text-foreground">all zones</span></span>}
+          {zoneId
+            ? <span>Counting in <span className="font-semibold text-foreground">{locations.find(l => l.id === zoneId)?.name || 'Selected zone'}</span></span>
+            : warehouseId
+              ? <span>Counting across <span className="font-semibold text-foreground">all zones</span> in <span className="font-semibold text-foreground">{locations.find(l => l.id === warehouseId)?.name || 'warehouse'}</span></span>
+              : <span>Counting across <span className="font-semibold text-foreground">all warehouses</span></span>}
         </div>
-        <ZoneSelector
-          locations={locations}
-          selectedId={locationId}
-          onSelect={(id) => setLocationId(id || '')}
-        />
+
+        {/* Warehouse chips */}
+        <div>
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Warehouse</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <WarehouseChip
+              icon={Layers}
+              label="All Warehouses"
+              active={!warehouseId}
+              onClick={() => { setWarehouseId(''); setZoneId(''); }}
+            />
+            {warehouses.map(w => (
+              <WarehouseChip
+                key={w.id}
+                icon={Warehouse}
+                label={w.name}
+                active={warehouseId === w.id}
+                onClick={() => { setWarehouseId(w.id); setZoneId(''); }}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Zone chips — only when a warehouse with zones is selected */}
+        {warehouseId && zonesForWarehouse.length > 0 && (
+          <div>
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Zone</p>
+            <ZoneSelector
+              locations={zonesForWarehouse}
+              selectedId={zoneId}
+              onSelect={(id) => setZoneId(id || '')}
+            />
+          </div>
+        )}
       </div>
 
       {/* Filters row */}
@@ -215,6 +284,19 @@ export default function StockTakeNew() {
           {showUncounted ? 'Show All' : `Uncounted (${uncountedCount})`}
         </Button>
 
+        {scopeSet && (
+          <Button
+            variant={showAll ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowAll(!showAll)}
+            className="gap-1.5"
+            title="Include products not assigned to the selected location"
+          >
+            <Layers className="w-3.5 h-3.5" />
+            {showAll ? 'In this location' : 'All products'}
+          </Button>
+        )}
+
         <div className="flex items-center gap-4 ml-auto">
           <div className="text-center">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Counted</p>
@@ -238,5 +320,24 @@ export default function StockTakeNew() {
         />
       )}
     </div>
+  );
+}
+
+function WarehouseChip({ icon: Icon, label, active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all border",
+        active
+          ? "border-primary bg-primary/10 text-primary shadow-xs"
+          : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground"
+      )}
+    >
+      <span className={cn("w-6 h-6 rounded-md flex items-center justify-center shrink-0", active ? 'bg-primary/15' : 'bg-muted')}>
+        <Icon className={cn("w-3.5 h-3.5", active ? 'text-primary' : 'text-muted-foreground')} strokeWidth={1.5} />
+      </span>
+      <span className="truncate max-w-[160px]">{label}</span>
+    </button>
   );
 }

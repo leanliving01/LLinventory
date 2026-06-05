@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Plus, Check, X as XIcon } from 'lucide-react';
 import { useSubcategories } from '@/lib/useSubcategories';
+import WarehouseZoneSelect from '@/components/shared/WarehouseZoneSelect';
 
 const PRODUCT_TYPES = [
   { value: 'raw', label: 'Raw Material' },
@@ -372,15 +373,12 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
 
       {/* ── Location ── */}
       <Section title="Default Location">
-        <FormField label="Default Storage Location">
-          <Select value={formData.default_location_id || 'none'} onValueChange={v => set('default_location_id', v === 'none' ? '' : v)}>
-            <SelectTrigger className="max-w-sm"><SelectValue placeholder="Select location" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">— None —</SelectItem>
-              {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name} ({l.code})</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </FormField>
+        <p className="text-xs text-muted-foreground">Where this product is stored — pick the warehouse, then optionally a specific zone.</p>
+        <WarehouseZoneSelect
+          value={formData.default_location_id || ''}
+          onChange={(id) => set('default_location_id', id)}
+          locations={locations}
+        />
       </Section>
 
       {/* ── Operational ── */}

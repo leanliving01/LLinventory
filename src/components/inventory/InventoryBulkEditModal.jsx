@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, Loader2, Gauge, MapPin, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import WarehouseZoneSelect from '@/components/shared/WarehouseZoneSelect';
 
 /**
  * Bulk-edit inventory fields for the selected products.
@@ -152,12 +153,7 @@ export default function InventoryBulkEditModal({ mode = 'reorder', products = []
               Assign a default location to all {products.length} selected products. This updates the product's preferred location only — it does not move or create stock.
             </p>
             <label className="text-sm font-medium">Default Location</label>
-            <Select value={locationId} onValueChange={setLocationId}>
-              <SelectTrigger className="h-9"><SelectValue placeholder="Select location" /></SelectTrigger>
-              <SelectContent>
-                {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <WarehouseZoneSelect value={locationId} onChange={setLocationId} locations={locations} />
           </div>
         )}
 
