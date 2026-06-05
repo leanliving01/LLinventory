@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Trash2, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+const STATION_ORDER = ['prep', 'cook', 'portion', 'pack'];
+const STATION_LABELS = { prep: 'Prep', cook: 'Cook', portion: 'Portion', pack: 'Pack' };
 const STATION_COLORS = {
   prep: 'bg-blue-100 text-blue-700',
   cook: 'bg-amber-100 text-amber-700',
@@ -17,24 +19,27 @@ const STATION_COLORS = {
  * Ingredients table for a BOM recipe — supports the consolidated multi-layer view.
  *
  * Props:
- *  - components: ingredient rows (each carries bom_id + step_no).
- *  - operationsByBom: { [bomId]: operation[] } — used to resolve each row's
- *    Layer (station) + Step label, and to build the per-row step dropdown.
+ *  - components: ingredient rows (each carries bom_id, station, step_no).
+ *  - operationsByBom: { [bomId]: operation[] } — used to build the per-row step
+ *    dropdown and resolve a fallback layer when station is unset.
  *  - showLayer: render the Layer column (consolidated view).
- *  - subRecipeProductIds: Set of input_product_ids that have their own BOM.
- *  - onOpenSubRecipe(productId): open that ingredient's own recipe.
+ *  - onStationChange(compId, station|null): assign the ingredient to a layer.
+ *  - onStepChange(compId, stepNo): pin the ingredient to a specific step.
+ *  - subRecipeProductIds / onOpenSubRecipe: open an in-house ingredient's recipe.
  */
 export default function RecipeComponentTable({
   title, icon, components, loading, editedQtys, onQtyChange,
-  onRemove, onAdd, operationsByBom = {}, onStepChange,
+  onRemove, onAdd, operationsByBom = {}, onStepChange, onStationChange,
   showLayer = false, subRecipeProductIds, onOpenSubRecipe,
 }) {
   const opsFor = (c) => operationsByBom[c.bom_id] || [];
   const anyHasSteps = !!onStepChange && Object.values(operationsByBom).some(ops => (ops || []).length > 0);
 
-  const matchedOpFor = (c) => {
-    const assigned = c.step_no || 0;
-    return opsFor(c).find(op => op.step_no === assigned) || null;
+  // Effective layer for a row: explicit station, else the station of its step.
+  const layerOf = (c) => {
+    if (c.station) return c.station;
+    const op = opsFor(c).find(o => o.step_no === (c.step_no || 0));
+    return op?.station || null;
   };
 
   const makeDayLabel = (c) =>
@@ -84,8 +89,10 @@ export default function RecipeComponentTable({
                 const isChanged = editedVal !== undefined && Number(editedVal) !== c.qty;
                 const assignedStep = c.step_no || 0;
                 const ops = opsFor(c);
-                const matchedOp = matchedOpFor(c);
+                const effLayer = layerOf(c);
+                // Steps shown in the Step dropdown — scoped to the chosen layer when set.
                 const stepOptions = [...ops]
+                  .filter(op => !c.station || op.station === c.station)
                   .sort((a, b) => (a.step_no || 0) - (b.step_no || 0))
                   .map(op => ({ value: String(op.step_no), label: `${op.step_no}. ${op.name}` }));
                 const hasSteps = !!onStepChange && stepOptions.length > 0;
@@ -94,10 +101,23 @@ export default function RecipeComponentTable({
                 return (
                   <tr key={c.id} className={cn("hover:bg-muted/20", isChanged && "bg-amber-50 dark:bg-amber-900/10")}>
                     {showLayer && (
-                      <td className="px-3 py-2">
-                        {matchedOp?.station ? (
-                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium capitalize", STATION_COLORS[matchedOp.station] || 'bg-muted text-muted-foreground')}>
-                            {matchedOp.station}
+                      <td className="px-3 py-1.5">
+                        {onStationChange ? (
+                          <Select
+                            value={c.station || 'all'}
+                            onValueChange={v => onStationChange(c.id, v === 'all' ? null : v)}
+                          >
+                            <SelectTrigger className="h-7 text-[11px] w-28"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all" className="text-xs">All / Any</SelectItem>
+                              {STATION_ORDER.map(s => (
+                                <SelectItem key={s} value={s} className="text-xs">{STATION_LABELS[s]}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : effLayer ? (
+                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium capitalize", STATION_COLORS[effLayer] || 'bg-muted text-muted-foreground')}>
+                            {effLayer}
                           </span>
                         ) : (
                           <span className="text-[10px] text-muted-foreground">All</span>
@@ -131,7 +151,7 @@ export default function RecipeComponentTable({
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="0" className="text-xs">All steps</SelectItem>
+                              <SelectItem value="0" className="text-xs">{c.station ? `Any ${STATION_LABELS[c.station]} step` : 'All steps'}</SelectItem>
                               {stepOptions.map(s => (
                                 <SelectItem key={s.value} value={s.value} className="text-xs">{s.label}</SelectItem>
                               ))}

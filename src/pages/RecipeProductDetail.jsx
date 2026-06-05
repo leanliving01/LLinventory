@@ -47,6 +47,7 @@ export default function RecipeProductDetail() {
   const [saving, setSaving] = useState(false);
   const [editedQtys, setEditedQtys] = useState({});
   const [editedSteps, setEditedSteps] = useState({});
+  const [editedStations, setEditedStations] = useState({});
   const [bomEdits, setBomEdits] = useState({}); // { [bomId]: {yieldQty, yieldUom, chefNotes, notes, subcategory, files} }
   const [addModalBomId, setAddModalBomId] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
@@ -134,7 +135,26 @@ export default function RecipeProductDetail() {
   const enrich = (c) => ({
     ...c,
     step_no: editedSteps[c.id] !== undefined ? editedSteps[c.id] : (c.step_no || 0),
+    station: editedStations[c.id] !== undefined ? editedStations[c.id] : (c.station || null),
   });
+
+  // Effective layer of a component (explicit station, else its step's station).
+  const layerOfComp = (c) => {
+    if (c.station) return c.station;
+    const op = (operationsByBom[c.bom_id] || []).find(o => o.step_no === (c.step_no || 0));
+    return op?.station || null;
+  };
+
+  // Change an ingredient's layer; clear a step pin that no longer fits the layer.
+  const handleStationChange = (compId, station) => {
+    setEditedStations(prev => ({ ...prev, [compId]: station }));
+    const comp = components.find(c => c.id === compId);
+    const curStep = editedSteps[compId] !== undefined ? editedSteps[compId] : (comp?.step_no || 0);
+    if (station && curStep) {
+      const op = (operationsByBom[comp?.bom_id] || []).find(o => o.step_no === curStep);
+      if (op && op.station !== station) setEditedSteps(prev => ({ ...prev, [compId]: 0 }));
+    }
+  };
 
   // ── Process flow: merge ACTIVE boms' steps, grouped by station ──────────────
   const stationSections = useMemo(() => {
@@ -145,23 +165,45 @@ export default function RecipeProductDetail() {
         (byStation[st] ||= []).push({ op, bom });
       });
     });
+    // Also surface layers that have ingredients assigned but no steps yet.
+    const stationsWithIngredients = new Set(
+      activeBoms
+        .flatMap(b => (componentsByBom[b.id] || []))
+        .filter(c => !c.is_consumable)
+        .map(c => {
+          const explicit = editedStations[c.id] !== undefined ? editedStations[c.id] : c.station;
+          if (explicit) return explicit;
+          const op = (operationsByBom[c.bom_id] || []).find(o => o.step_no === (c.step_no || 0));
+          return op?.station || null;
+        })
+        .filter(Boolean)
+    );
     return STATION_ORDER
-      .filter(st => byStation[st]?.length)
+      .filter(st => byStation[st]?.length || stationsWithIngredients.has(st))
       .map(st => ({
         station: st,
-        steps: byStation[st].sort((a, b) =>
+        steps: (byStation[st] || []).sort((a, b) =>
           (a.bom.bom_type || '').localeCompare(b.bom.bom_type || '')
           || (a.op.step_no || 0) - (b.op.step_no || 0)),
       }));
-  }, [activeBoms, operationsByBom]);
+  }, [activeBoms, operationsByBom, componentsByBom, editedStations]);
 
   const ingredientsForStep = (bomId, stepNo) =>
     (componentsByBom[bomId] || []).filter(c => !c.is_consumable && (c.step_no || 0) === stepNo);
+
+  // Ingredients assigned to a layer but not pinned to a specific step.
+  const layerIngredients = (station) =>
+    activeBoms
+      .flatMap(b => (componentsByBom[b.id] || []))
+      .filter(c => !c.is_consumable)
+      .map(enrich)
+      .filter(c => !c.step_no && layerOfComp(c) === station);
 
   // ── Save ────────────────────────────────────────────────────────────────
   const hasUnsavedChanges =
     Object.keys(editedQtys).length > 0 ||
     Object.keys(editedSteps).length > 0 ||
+    Object.keys(editedStations).length > 0 ||
     Object.keys(bomEdits).length > 0;
 
   const handleSave = async () => {
@@ -185,7 +227,10 @@ export default function RecipeProductDetail() {
       for (const [compId, stepNo] of Object.entries(editedSteps)) {
         await base44.entities.BomComponent.update(compId, { step_no: stepNo || null });
       }
-      setEditedQtys({}); setEditedSteps({}); setBomEdits({});
+      for (const [compId, station] of Object.entries(editedStations)) {
+        await base44.entities.BomComponent.update(compId, { station: station || null });
+      }
+      setEditedQtys({}); setEditedSteps({}); setEditedStations({}); setBomEdits({});
       invalidateAll();
       toast.success('Recipe saved');
     } catch (err) {
@@ -279,7 +324,7 @@ export default function RecipeProductDetail() {
         bom_id: newBom.id, input_product_id: c.input_product_id,
         input_product_name: c.input_product_name, input_product_sku: c.input_product_sku,
         qty: c.qty, uom: c.uom, is_consumable: c.is_consumable || false,
-        step_no: c.step_no ?? undefined, make_day: c.make_day || undefined,
+        step_no: c.step_no ?? undefined, station: c.station || undefined, make_day: c.make_day || undefined,
       })));
     }
     invalidateAll();
@@ -369,11 +414,7 @@ export default function RecipeProductDetail() {
     .flatMap(b => (componentsByBom[b.id] || []))
     .filter(c => !c.is_consumable)
     .map(enrich)
-    .filter(c => {
-      if (stationFilter === 'all') return true;
-      const op = (operationsByBom[c.bom_id] || []).find(o => o.step_no === (c.step_no || 0));
-      return op?.station === stationFilter;
-    });
+    .filter(c => stationFilter === 'all' || layerOfComp(c) === stationFilter);
 
   return (
     <div className="space-y-6">
@@ -498,6 +539,26 @@ export default function RecipeProductDetail() {
                           </div>
                         );
                       })}
+                      {layerIngredients(station).length > 0 && (
+                        <div className="px-4 py-3 bg-muted/20">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{STATION_LABELS[station]} ingredients (any step)</p>
+                          <ul className="space-y-0.5">
+                            {layerIngredients(station).map(ing => (
+                              <li key={ing.id} className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                                <span className="font-mono">{ing.input_product_sku}</span>
+                                <span>{ing.input_product_name}</span>
+                                <span className="tabular-nums">— {ing.qty} {ing.uom}</span>
+                                {subRecipeProductIds.has(ing.input_product_id) && (
+                                  <button type="button" onClick={() => navigate(`/recipes/product/${ing.input_product_id}`)}
+                                    className="inline-flex items-center gap-0.5 text-primary hover:underline">
+                                    <ExternalLink className="w-3 h-3" /> recipe
+                                  </button>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -529,6 +590,7 @@ export default function RecipeProductDetail() {
           onQtyChange={(id, v) => setEditedQtys(prev => ({ ...prev, [id]: v }))}
           onRemove={removeComponent}
           onStepChange={(id, stepNo) => setEditedSteps(prev => ({ ...prev, [id]: stepNo }))}
+          onStationChange={handleStationChange}
           operationsByBom={operationsByBom}
           showLayer
           subRecipeProductIds={subRecipeProductIds}
@@ -627,7 +689,9 @@ export default function RecipeProductDetail() {
                 onRemove={removeComponent}
                 onAdd={() => setAddModalBomId(bom.id)}
                 onStepChange={(id, stepNo) => setEditedSteps(prev => ({ ...prev, [id]: stepNo }))}
+                onStationChange={handleStationChange}
                 operationsByBom={operationsByBom}
+                showLayer
                 subRecipeProductIds={subRecipeProductIds}
                 onOpenSubRecipe={(pid) => navigate(`/recipes/product/${pid}`)}
               />
@@ -680,6 +744,7 @@ export default function RecipeProductDetail() {
       {addModalBomId && (
         <AddComponentModal bomId={addModalBomId}
           existingProductIds={(componentsByBom[addModalBomId] || []).map(c => c.input_product_id)}
+          defaultStation={boms.find(b => b.id === addModalBomId)?.bom_type}
           onAdded={() => { invalidateAll(); setAddModalBomId(null); toast.success('Ingredient added'); }}
           onCancel={() => setAddModalBomId(null)} />
       )}

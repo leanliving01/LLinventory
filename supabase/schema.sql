@@ -281,6 +281,8 @@ CREATE TABLE bom_components (
   uom                 text NOT NULL,
   is_consumable       boolean NOT NULL DEFAULT false,
   step_no             integer,         -- soft ref to bom_operations.step_no (same bom_id)
+  station             text             -- production layer/phase this ingredient enters at
+                      CHECK (station IS NULL OR station IN ('prep','cook','portion','pack')),
   make_day            text NOT NULL DEFAULT 'cook_day'
                       CHECK (make_day IN ('cook_day','portion_day'))
 );
