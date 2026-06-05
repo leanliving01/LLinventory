@@ -1,5 +1,6 @@
 // Portion variant codes and their display info
-export const VARIANT_CODES = ['MLM', 'MWL', 'WLM', 'WWL'];
+// Column display order: MWL (blue) → MLM (green) → WLM (orange) → WWL (pink)
+export const VARIANT_CODES = ['MWL', 'MLM', 'WLM', 'WWL'];
 export const LOW_CARB_CATEGORY = 'Smart Carb';
 
 export const VARIANT_INFO = {
