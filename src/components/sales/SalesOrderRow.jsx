@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Package, RotateCcw, Send, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Package, RotateCcw, Send, Loader2, Plus, Truck, Tag, Gift, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/api/supabaseClient';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { formatDateTimeSAST } from '@/lib/dateUtils';
 import { STATUS_LABELS as RETURN_STATUS_LABELS, STATUS_COLORS as RETURN_STATUS_COLORS } from '@/lib/shopifyReturns';
@@ -44,6 +45,26 @@ const packStatusLabels = {
   cancelled: 'Cancelled',
   refunded: 'Refunded',
 };
+
+const rand = () => (crypto?.randomUUID ? crypto.randomUUID() : String(Math.random()));
+const money = (n) => `R${(Number(n) || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// Display metadata for the non-inventory financial-line categories.
+const FIN_SECTIONS = [
+  { key: 'shipping',     label: 'Shipping / Delivery',     icon: Truck, categories: ['shipping'],                 border: 'border-sky-200',    bg: 'bg-sky-50/50',    text: 'text-sky-700' },
+  { key: 'discount',     label: 'Discounts',               icon: Tag,   categories: ['discount'],                 border: 'border-amber-200',  bg: 'bg-amber-50/50',  text: 'text-amber-700' },
+  { key: 'voucher',      label: 'Vouchers / Store Credit', icon: Gift,  categories: ['voucher', 'store_credit'],  border: 'border-violet-200', bg: 'bg-violet-50/50', text: 'text-violet-700' },
+  { key: 'adjustment',   label: 'Adjustments / Other',     icon: Tag,   categories: ['payment_adjustment', 'tip', 'other'], border: 'border-slate-200', bg: 'bg-slate-50/50', text: 'text-slate-700' },
+];
+
+const COST_TYPES = [
+  { value: 'courier_actual', label: 'Actual courier cost' },
+  { value: 'packaging',      label: 'Extra packaging' },
+  { value: 'resend',         label: 'Re-send cost' },
+  { value: 'write_off',      label: 'Write-off' },
+  { value: 'handling',       label: 'Handling' },
+  { value: 'other',          label: 'Other' },
+];
 
 // Short per-section progress for split orders, e.g. "Supplements ✓ · Meals in progress".
 function sectionProgress(order) {
@@ -126,6 +147,28 @@ export default function SalesOrderRow({ order }) {
     enabled: expanded,
   });
 
+  const { data: financialLines = [] } = useQuery({
+    queryKey: ['order-financial-lines', order.id],
+    queryFn: () => base44.entities.SalesOrderFinancialLine.filter({ sales_order_id: order.id }, '-created_date', 100),
+    enabled: expanded,
+  });
+
+  const { data: costs = [] } = useQuery({
+    queryKey: ['order-costs', order.id],
+    queryFn: () => base44.entities.SalesOrderCost.filter({ sales_order_id: order.id }, '-cost_date', 100),
+    enabled: expanded,
+  });
+
+  const { data: profit } = useQuery({
+    queryKey: ['order-profit', order.id, costs.length, financialLines.length],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('order_profitability', { p_order_id: order.id });
+      if (error) { console.error('order_profitability:', error.message); return null; }
+      return data;
+    },
+    enabled: expanded,
+  });
+
   const orderDate = order.order_date ? new Date(order.order_date) : null;
 
   // Split lines into packages and standalone/BYO (non-component lines)
@@ -140,6 +183,52 @@ export default function SalesOrderRow({ order }) {
   const handlePackageClick = (e, pkg) => {
     e.stopPropagation();
     setPopupPackage(pkg);
+  };
+
+  // Group non-inventory financial lines by display section.
+  const finBySection = FIN_SECTIONS.map(s => ({
+    ...s,
+    lines: financialLines.filter(l => s.categories.includes(l.category) && l.category !== 'refund'),
+  })).filter(s => s.lines.length > 0);
+
+  // Add-cost form -----------------------------------------------------------
+  const queryClient = useQueryClient();
+  const [showCostForm, setShowCostForm] = useState(false);
+  const [savingCost, setSavingCost] = useState(false);
+  const [costForm, setCostForm] = useState({
+    cost_type: 'courier_actual', description: '', reference: '',
+    amount: '', cost_date: new Date().toISOString().slice(0, 10), notes: '',
+  });
+
+  const handleAddCost = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const amount = parseFloat(costForm.amount);
+    if (!Number.isFinite(amount) || amount <= 0) { toast.error('Enter a cost amount'); return; }
+    setSavingCost(true);
+    try {
+      await base44.entities.SalesOrderCost.create({
+        id: rand(),
+        sales_order_id: order.id,
+        shopify_order_id: order.shopify_order_id || null,
+        order_number: order.order_number || null,
+        cost_type: costForm.cost_type,
+        description: costForm.description || null,
+        reference: costForm.reference || null,
+        amount,
+        cost_date: costForm.cost_date,
+        notes: costForm.notes || null,
+      });
+      toast.success('Cost added to order');
+      setCostForm({ cost_type: 'courier_actual', description: '', reference: '', amount: '', cost_date: new Date().toISOString().slice(0, 10), notes: '' });
+      setShowCostForm(false);
+      queryClient.invalidateQueries({ queryKey: ['order-costs', order.id] });
+      queryClient.invalidateQueries({ queryKey: ['order-profit', order.id] });
+    } catch (err) {
+      toast.error(err.message || 'Could not add cost');
+    } finally {
+      setSavingCost(false);
+    }
   };
 
   return (
@@ -211,6 +300,10 @@ export default function SalesOrderRow({ order }) {
               </div>
             </div>
           )}
+          <p className="text-xs font-semibold text-muted-foreground mb-1.5 flex items-center gap-1.5">
+            <Package className="w-3.5 h-3.5" /> Inventory Product Lines
+            <Badge variant="outline" className="text-[10px] py-0 border-emerald-300 text-emerald-700">affects stock</Badge>
+          </p>
           <div className="rounded-lg border bg-card overflow-hidden">
             <table className="w-full text-sm">
               <thead>
@@ -286,6 +379,134 @@ export default function SalesOrderRow({ order }) {
               </tbody>
             </table>
           </div>
+          {/* Non-inventory order-level lines — shipping / discount / voucher / adjustment */}
+          {finBySection.map(section => {
+            const Icon = section.icon;
+            const total = section.lines.reduce((s, l) => s + (Number(l.amount) || 0) * (l.sign || 1), 0);
+            return (
+              <div key={section.key} className={`mt-2 rounded-lg border ${section.border} ${section.bg} p-3`}>
+                <p className={`text-xs font-semibold ${section.text} mb-2 flex items-center gap-1.5`}>
+                  <Icon className="w-3.5 h-3.5" /> {section.label}
+                  <Badge variant="outline" className="text-[10px] py-0 text-muted-foreground">no stock</Badge>
+                </p>
+                <div className="space-y-1">
+                  {section.lines.map(l => (
+                    <div key={l.id} className="flex items-center justify-between text-xs">
+                      <span className="truncate">{l.label}</span>
+                      <span className={`font-medium ${l.sign < 0 ? 'text-rose-600' : ''}`}>
+                        {l.sign < 0 ? '−' : ''}{money(l.amount)}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between text-xs font-semibold border-t pt-1 mt-1">
+                    <span>Subtotal</span>
+                    <span className={total < 0 ? 'text-rose-600' : ''}>{total < 0 ? '−' : ''}{money(Math.abs(total))}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Additional order-level costs (manual) */}
+          <div className="mt-2 rounded-lg border border-orange-200 bg-orange-50/50 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-orange-700 flex items-center gap-1.5">
+                <Plus className="w-3.5 h-3.5" /> Additional Order Costs
+                <Badge variant="outline" className="text-[10px] py-0 text-muted-foreground">not product cost</Badge>
+              </p>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowCostForm(v => !v); }}
+                className="text-[11px] border rounded-md px-2 py-1 hover:bg-muted"
+              >
+                {showCostForm ? 'Cancel' : 'Add cost'}
+              </button>
+            </div>
+            {costs.length > 0 && (
+              <div className="space-y-1 mb-2">
+                {costs.map(c => (
+                  <div key={c.id} className="flex items-center justify-between text-xs">
+                    <span className="truncate">
+                      <span className="capitalize">{(c.cost_type || '').replace(/_/g, ' ')}</span>
+                      {c.description ? ` — ${c.description}` : ''}
+                      {c.cost_date ? <span className="text-muted-foreground"> · {c.cost_date}</span> : ''}
+                    </span>
+                    <span className="font-medium text-rose-600">−{money(c.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {showCostForm && (
+              <form onSubmit={handleAddCost} className="grid grid-cols-2 gap-2 mt-1" onClick={e => e.stopPropagation()}>
+                <select
+                  className="text-xs border rounded-md px-2 py-1 bg-background"
+                  value={costForm.cost_type}
+                  onChange={e => setCostForm(f => ({ ...f, cost_type: e.target.value }))}
+                >
+                  {COST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+                <input
+                  type="number" step="0.01" min="0" placeholder="Amount (R)"
+                  className="text-xs border rounded-md px-2 py-1 bg-background"
+                  value={costForm.amount}
+                  onChange={e => setCostForm(f => ({ ...f, amount: e.target.value }))}
+                />
+                <input
+                  type="text" placeholder="Description"
+                  className="text-xs border rounded-md px-2 py-1 bg-background"
+                  value={costForm.description}
+                  onChange={e => setCostForm(f => ({ ...f, description: e.target.value }))}
+                />
+                <input
+                  type="text" placeholder="Reference (optional)"
+                  className="text-xs border rounded-md px-2 py-1 bg-background"
+                  value={costForm.reference}
+                  onChange={e => setCostForm(f => ({ ...f, reference: e.target.value }))}
+                />
+                <input
+                  type="date"
+                  className="text-xs border rounded-md px-2 py-1 bg-background"
+                  value={costForm.cost_date}
+                  onChange={e => setCostForm(f => ({ ...f, cost_date: e.target.value }))}
+                />
+                <button
+                  type="submit" disabled={savingCost}
+                  className="text-xs bg-orange-600 text-white rounded-md px-2 py-1 hover:bg-orange-700 disabled:opacity-60 inline-flex items-center justify-center gap-1"
+                >
+                  {savingCost ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Save cost
+                </button>
+              </form>
+            )}
+          </div>
+
+          {/* Profitability summary */}
+          {profit && (
+            <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
+              <p className="text-xs font-semibold text-emerald-800 mb-2 flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5" /> Order Profitability
+              </p>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                <Row label="Product revenue"        value={money(profit.product_revenue)} />
+                <Row label="Discounts"              value={`−${money(profit.discounts)}`}            dim={!Number(profit.discounts)} />
+                <Row label="Shipping charged"       value={money(profit.shipping_charged)}           dim={!Number(profit.shipping_charged)} />
+                <Row label="Voucher / store credit" value={`−${money(profit.voucher_store_credit)}`} dim={!Number(profit.voucher_store_credit)} />
+                <Row label="Refunds / returns"      value={`−${money(Number(profit.refunds_financial) + Number(profit.refunds_returns))}`} dim={!(Number(profit.refunds_financial) + Number(profit.refunds_returns))} />
+                <Row label="Product cost (COGS)"    value={`−${money(profit.product_cogs)}`}          dim={!Number(profit.product_cogs)} />
+                <Row label="Added order costs"      value={`−${money(profit.added_order_costs)}`}     dim={!Number(profit.added_order_costs)} />
+              </div>
+              <div className="flex items-center justify-between border-t mt-2 pt-2 text-sm font-bold">
+                <span>Net profit</span>
+                <span className={Number(profit.net_profit) < 0 ? 'text-rose-600' : 'text-emerald-700'}>
+                  {Number(profit.net_profit) < 0 ? '−' : ''}{money(Math.abs(Number(profit.net_profit)))}
+                </span>
+              </div>
+              {(profit.missing_cost_skus?.length > 0 || profit.missing_boms?.length > 0) && (
+                <p className="text-[10px] text-amber-700 mt-1.5">
+                  ⚠ Cost incomplete — missing cost/BOM for: {[...(profit.missing_cost_skus || []), ...(profit.missing_boms || [])].join(', ')}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Add Re-send action */}
           <div className="mt-3 flex justify-end">
             <button
@@ -362,6 +583,7 @@ export default function SalesOrderRow({ order }) {
         </div>
       )}
 
+      {/* Profitability popup is rendered inline above; nothing else here. */}
       {/* Package components popup */}
       {popupPackage && (
         <PackageComponentsPopup
@@ -370,6 +592,16 @@ export default function SalesOrderRow({ order }) {
           onClose={() => setPopupPackage(null)}
         />
       )}
+    </div>
+  );
+}
+
+// One label/value row in the profitability summary grid.
+function Row({ label, value, dim }) {
+  return (
+    <div className={`flex items-center justify-between ${dim ? 'text-muted-foreground' : ''}`}>
+      <span>{label}</span>
+      <span className="font-medium tabular-nums">{value}</span>
     </div>
   );
 }

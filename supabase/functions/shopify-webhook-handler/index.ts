@@ -2,6 +2,9 @@
 // into shopify_orders + sales_orders using the same mapping as sync-shopify-orders.
 import { getSupabase, corsHeaders, json } from '../_shared/shopify.ts';
 import { upsertDraftReturnFromRefund, upsertDraftReturnFromReturn } from '../_shared/returns.ts';
+import {
+  loadClassificationRules, classifyLineItem, deriveOrderFinancialLines,
+} from '../_shared/order-classification.ts';
 
 const WEBHOOK_SECRET = Deno.env.get('SHOPIFY_WEBHOOK_SECRET') || '';
 
@@ -201,6 +204,14 @@ Deno.serve(async (req) => {
   await supabase.from('sales_order_lines').delete()
     .eq('sales_order_id', ourSalesId)
     .eq('source_platform', 'shopify');
+  // Replace synced order-level financial lines (manual lines preserved).
+  await supabase.from('sales_order_financial_lines').delete()
+    .eq('sales_order_id', ourSalesId)
+    .eq('source', 'shopify');
+
+  const orderNumber = String(o.order_number || o.name || o.id);
+  const rules = await loadClassificationRules(supabase);
+  const financialLines: Array<Record<string, unknown>> = [];
 
   if (lineItems.length) {
     const orderLines = lineItems.map((l) => ({
@@ -217,35 +228,88 @@ Deno.serve(async (req) => {
       updated_date: now,
     }));
 
-    const salesLines = lineItems.map((l) => {
-      const lineType = detectLineType((l.title as string) || '');
+    // Only real product lines deduct stock; everything else → financial lines.
+    const salesLines: Array<Record<string, unknown>> = [];
+    for (const l of lineItems) {
+      const { category, label, matchedRuleId } = classifyLineItem(l, rules);
       const unitPrice = parseFloat((l.price as string) || '0') || 0;
-      return {
-        id: crypto.randomUUID(),
-        sales_order_id: ourSalesId,
-        external_id: String(l.id),
-        shopify_variant_id: l.variant_id ? String(l.variant_id) : null,
-        sku: (l.sku as string) || '',
-        name: (l.title as string) || 'Untitled',
-        variant_title: (l.variant_title as string) || null,
-        qty: (l.quantity as number) || 0,
-        unit_price: unitPrice,
-        line_total: unitPrice * ((l.quantity as number) || 0),
-        is_package_parent: lineType !== 'standalone',
-        is_package_component: false,
-        parent_line_id: null,
-        line_type: lineType,
-        status: 'active',
-        source_platform: 'shopify',
-        last_synced_at: now,
-        raw_payload: l,
-        created_date: now,
-        updated_date: now,
-      };
-    });
+      const lineTotal = unitPrice * ((l.quantity as number) || 0);
+
+      if (category === 'inventory_product') {
+        const lineType = detectLineType((l.title as string) || '');
+        salesLines.push({
+          id: crypto.randomUUID(),
+          sales_order_id: ourSalesId,
+          external_id: String(l.id),
+          shopify_variant_id: l.variant_id ? String(l.variant_id) : null,
+          sku: (l.sku as string) || '',
+          name: (l.title as string) || 'Untitled',
+          variant_title: (l.variant_title as string) || null,
+          qty: (l.quantity as number) || 0,
+          unit_price: unitPrice,
+          line_total: lineTotal,
+          is_package_parent: lineType !== 'standalone',
+          is_package_component: false,
+          parent_line_id: null,
+          line_type: lineType,
+          status: 'active',
+          source_platform: 'shopify',
+          last_synced_at: now,
+          raw_payload: l,
+          created_date: now,
+          updated_date: now,
+        });
+      } else {
+        const sign = (category === 'discount' || category === 'voucher'
+          || category === 'store_credit' || category === 'refund') ? -1 : 1;
+        financialLines.push({
+          id: crypto.randomUUID(),
+          sales_order_id: ourSalesId,
+          shopify_order_id: shopifyOrderId,
+          order_number: orderNumber,
+          category,
+          label: label || ((l.title as string) || 'Untitled'),
+          amount: Math.abs(lineTotal),
+          sign,
+          tax_amount: 0,
+          source: 'shopify',
+          external_ref: String(l.id),
+          matched_rule_id: matchedRuleId,
+          raw_payload: l,
+          created_date: now,
+          updated_date: now,
+        });
+      }
+    }
 
     await supabase.from('shopify_order_lines').insert(orderLines);
-    await supabase.from('sales_order_lines').insert(salesLines);
+    if (salesLines.length) await supabase.from('sales_order_lines').insert(salesLines);
+  }
+
+  // Order-level financial lines from structural fields (shipping/discount/tip/refund).
+  // deno-lint-ignore no-explicit-any
+  for (const d of deriveOrderFinancialLines(o as any, rules)) {
+    financialLines.push({
+      id: crypto.randomUUID(),
+      sales_order_id: ourSalesId,
+      shopify_order_id: shopifyOrderId,
+      order_number: orderNumber,
+      category: d.category,
+      label: d.label,
+      amount: d.amount,
+      sign: d.sign,
+      tax_amount: d.tax_amount,
+      source: d.source,
+      external_ref: d.external_ref,
+      matched_rule_id: d.matched_rule_id,
+      raw_payload: d.raw_payload,
+      created_date: now,
+      updated_date: now,
+    });
+  }
+  if (financialLines.length) {
+    const { error: flErr } = await supabase.from('sales_order_financial_lines').insert(financialLines);
+    if (flErr) console.error('sales_order_financial_lines insert error:', flErr.message);
   }
 
   // Deduct physical stock the moment an order becomes fulfilled. Runs after the

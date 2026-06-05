@@ -5,6 +5,10 @@ import {
 import { chainNext } from '../_shared/chain.ts';
 import { startSyncLog, finishSyncLog } from '../_shared/sync-log.ts';
 import { upsertDraftReturnFromRefund } from '../_shared/returns.ts';
+import {
+  loadClassificationRules, classifyLineItem, deriveOrderFinancialLines,
+  type ClassificationRule,
+} from '../_shared/order-classification.ts';
 
 const SOURCE_KEY = 'shopify_orders';
 const FN_NAME = 'sync-shopify-orders';
@@ -23,10 +27,25 @@ interface ShopifyOrder {
   tags?: string;
   created_at: string;
   total_price?: string;
+  total_discounts?: string;
+  total_tip_received?: string;
   shipping_address?: { city?: string };
+  shipping_lines?: ShopifyShippingLine[];
+  // deno-lint-ignore no-explicit-any
+  discount_applications?: any[];
+  // deno-lint-ignore no-explicit-any
+  discount_codes?: any[];
   line_items: ShopifyLineItem[];
   // deno-lint-ignore no-explicit-any
   refunds?: any[];
+}
+
+interface ShopifyShippingLine {
+  id?: number | string;
+  title?: string;
+  price?: string;
+  // deno-lint-ignore no-explicit-any
+  tax_lines?: any[];
 }
 
 interface ShopifyLineItem {
@@ -38,6 +57,10 @@ interface ShopifyLineItem {
   price?: string;
   product_id?: number;
   variant_id?: number;
+  product_type?: string;
+  gift_card?: boolean;
+  // deno-lint-ignore no-explicit-any
+  discount_allocations?: any[];
 }
 
 function mapLifecycleState(financial: string | null, fulfilment: string | null): string {
@@ -296,8 +319,17 @@ Deno.serve(async (req) => {
     await supabase.from('sales_order_lines').delete()
       .in('sales_order_id', affectedSalesIds)
       .eq('source_platform', 'shopify');
+    // Replace previously-synced order-level financial lines (shipping/discount/
+    // voucher/refund/etc). Manual lines (source='manual') are preserved.
+    await supabase.from('sales_order_financial_lines').delete()
+      .in('sales_order_id', affectedSalesIds)
+      .eq('source', 'shopify');
   }
 
+  // Load classification rules once for this page.
+  const rules: ClassificationRule[] = await loadClassificationRules(supabase);
+
+  // Only real product lines become inventory-tracked sales_order_lines.
   function detectLineType(title: string): string {
     const t = (title || '').toLowerCase();
     if (t.includes('low carb')) return 'low_carb_package';
@@ -307,13 +339,15 @@ Deno.serve(async (req) => {
 
   const allLines: Record<string, unknown>[] = [];
   const allSalesLines: Record<string, unknown>[] = [];
+  const allFinancialLines: Record<string, unknown>[] = [];
 
   for (const o of orders) {
     const ourOrderId = orderIdMap.get(String(o.id));
     const ourSalesId = salesIdMap.get(String(o.id));
-    if (!o.line_items?.length) continue;
+    const orderNumber = String(o.order_number || o.name || o.id);
 
-    for (const l of o.line_items) {
+    for (const l of (o.line_items || [])) {
+      // Raw staging keeps EVERY line item (mapping/audit), product or not.
       if (ourOrderId) {
         allLines.push({
           id: crypto.randomUUID(),
@@ -330,10 +364,15 @@ Deno.serve(async (req) => {
         });
       }
 
-      if (ourSalesId) {
+      if (!ourSalesId) continue;
+
+      const { category, label, matchedRuleId } = classifyLineItem(l, rules);
+      const unitPrice = parseFloat(l.price || '0') || 0;
+      const lineTotal = unitPrice * (l.quantity || 0);
+
+      if (category === 'inventory_product') {
         const lineType = detectLineType(l.title || '');
         const isPackage = lineType !== 'standalone';
-        const unitPrice = parseFloat(l.price || '0') || 0;
         allSalesLines.push({
           id: crypto.randomUUID(),
           sales_order_id: ourSalesId,
@@ -344,7 +383,7 @@ Deno.serve(async (req) => {
           variant_title: l.variant_title || null,
           qty: l.quantity || 0,
           unit_price: unitPrice,
-          line_total: unitPrice * (l.quantity || 0),
+          line_total: lineTotal,
           is_package_parent: isPackage,
           is_package_component: false,
           parent_line_id: null,
@@ -356,6 +395,53 @@ Deno.serve(async (req) => {
           created_date: now,
           updated_date: now,
         });
+      } else {
+        // Non-inventory line item (e.g. a "Local pickup"/"Free shipping"/gift
+        // card line) → order-level financial line, no stock, no product master.
+        // Discounts reduce revenue; everything else here is a charge.
+        const sign = (category === 'discount' || category === 'voucher'
+          || category === 'store_credit' || category === 'refund') ? -1 : 1;
+        allFinancialLines.push({
+          id: crypto.randomUUID(),
+          sales_order_id: ourSalesId,
+          shopify_order_id: String(o.id),
+          order_number: orderNumber,
+          category,
+          label: label || (l.title || 'Untitled'),
+          amount: Math.abs(lineTotal),
+          sign,
+          tax_amount: 0,
+          source: 'shopify',
+          external_ref: String(l.id),
+          matched_rule_id: matchedRuleId,
+          raw_payload: l,
+          created_date: now,
+          updated_date: now,
+        });
+      }
+    }
+
+    // Order-level financial lines from structural fields (shipping_lines,
+    // total_discounts, tips, shipping-only/manual refunds).
+    if (ourSalesId) {
+      for (const d of deriveOrderFinancialLines(o, rules)) {
+        allFinancialLines.push({
+          id: crypto.randomUUID(),
+          sales_order_id: ourSalesId,
+          shopify_order_id: String(o.id),
+          order_number: orderNumber,
+          category: d.category,
+          label: d.label,
+          amount: d.amount,
+          sign: d.sign,
+          tax_amount: d.tax_amount,
+          source: d.source,
+          external_ref: d.external_ref,
+          matched_rule_id: d.matched_rule_id,
+          raw_payload: d.raw_payload,
+          created_date: now,
+          updated_date: now,
+        });
       }
     }
   }
@@ -364,6 +450,10 @@ Deno.serve(async (req) => {
   if (allSalesLines.length) {
     const { error: slErr } = await supabase.from('sales_order_lines').insert(allSalesLines);
     if (slErr) console.error('sales_order_lines insert error:', slErr.message);
+  }
+  if (allFinancialLines.length) {
+    const { error: flErr } = await supabase.from('sales_order_financial_lines').insert(allFinancialLines);
+    if (flErr) console.error('sales_order_financial_lines insert error:', flErr.message);
   }
 
   // Import any Shopify refunds on these orders as Draft Returns (no stock movement).

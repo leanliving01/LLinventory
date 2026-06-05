@@ -443,10 +443,23 @@ export default function RecipeProductDetail() {
           const ingredientsByStep = {};
           ingredients.forEach(c => { (ingredientsByStep[c.step_no || 0] ||= []).push(c); });
 
+          const nextBom = sortedBoms[layerIdx + 1] || null;
+          const isFinal = layerIdx === sortedBoms.length - 1;
+          const prevBom = layerIdx > 0 ? sortedBoms[layerIdx - 1] : null;
+          const prevQty = prevBom ? bomField(prevBom, 'yieldQty', prevBom.yield_qty ?? '') : '';
+          const prevUom = prevBom ? bomField(prevBom, 'yieldUom', prevBom.yield_uom || '') : '';
+
           return (
             <React.Fragment key={bom.id}>
               {layerIdx > 0 && (
-                <div className="flex justify-center text-muted-foreground"><ArrowRight className="w-4 h-4 rotate-90" /></div>
+                <div className="flex flex-col items-center text-muted-foreground py-0.5">
+                  <ArrowRight className="w-4 h-4 rotate-90" />
+                  {prevQty !== '' && (
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                      {prevQty} {prevUom} → {LAYER_LABELS[bom.bom_type]}
+                    </span>
+                  )}
+                </div>
               )}
               <div className="bg-card border border-border rounded-xl p-5 space-y-4">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -455,23 +468,12 @@ export default function RecipeProductDetail() {
                     <span className="text-xs text-muted-foreground">v{bom.version || 1}</span>
                     {bom.is_active === false && <Badge className="text-[10px] bg-gray-100 text-gray-500">Inactive draft</Badge>}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Layer output</span>
-                      <Input type="number" step="any" min="0" className="w-24 h-8"
-                        value={String(bomField(bom, 'yieldQty', bom.yield_qty ?? 1))}
-                        onChange={e => setBomField(bom.id, 'yieldQty', e.target.value)} />
-                      <Input className="w-20 h-8" placeholder="UoM"
-                        value={bomField(bom, 'yieldUom', bom.yield_uom || '')}
-                        onChange={e => setBomField(bom.id, 'yieldUom', e.target.value)} />
-                    </div>
-                    <Button variant="outline" size="sm" className="gap-1.5"
-                      onClick={() => toggleActive(bom)} disabled={saving}>
-                      {bom.is_active === false
-                        ? <><CheckCircle2 className="w-3.5 h-3.5" /> Activate</>
-                        : <><AlertTriangle className="w-3.5 h-3.5" /> Set Inactive</>}
-                    </Button>
-                  </div>
+                  <Button variant="outline" size="sm" className="gap-1.5"
+                    onClick={() => toggleActive(bom)} disabled={saving}>
+                    {bom.is_active === false
+                      ? <><CheckCircle2 className="w-3.5 h-3.5" /> Activate</>
+                      : <><AlertTriangle className="w-3.5 h-3.5" /> Set Inactive</>}
+                  </Button>
                 </div>
 
                 {/* Subcategory */}
@@ -499,7 +501,7 @@ export default function RecipeProductDetail() {
 
                 {/* Layer ingredients */}
                 <RecipeComponentTable
-                  title="Layer Ingredients" icon={<Utensils className="w-4 h-4 text-primary" />}
+                  title="Ingredients into this layer" icon={<Utensils className="w-4 h-4 text-primary" />}
                   components={ingredients}
                   loading={loadingComps}
                   editedQtys={editedQtys}
@@ -528,6 +530,22 @@ export default function RecipeProductDetail() {
                     operationsByBom={operationsByBom}
                   />
                 )}
+
+                {/* Layer output → next layer (= this layer's yield) */}
+                <div className="flex items-center gap-3 flex-wrap rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-900/10 px-4 py-3">
+                  <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                    {isFinal ? 'Final output (product yield)' : `Output → ${LAYER_LABELS[nextBom.bom_type]} layer`}
+                  </span>
+                  <Input type="number" step="any" min="0" className="w-24 h-8"
+                    value={String(bomField(bom, 'yieldQty', bom.yield_qty ?? 1))}
+                    onChange={e => setBomField(bom.id, 'yieldQty', e.target.value)} />
+                  <Input className="w-24 h-8" placeholder="UoM"
+                    value={bomField(bom, 'yieldUom', bom.yield_uom || '')}
+                    onChange={e => setBomField(bom.id, 'yieldUom', e.target.value)} />
+                  <span className="text-[10px] text-muted-foreground">
+                    {isFinal ? 'feeds the next process (e.g. portioning)' : 'becomes the input to the next layer'}
+                  </span>
+                </div>
               </div>
             </React.Fragment>
           );

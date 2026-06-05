@@ -32,7 +32,7 @@ export default function StockTakeNew() {
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['products-stocktake', productType],
-    queryFn: () => base44.entities.Product.filter({ type: productType, status: 'active' }, 'name', 500),
+    queryFn: () => base44.entities.Product.filter({ type: productType, status: 'active', inventory_tracked: true }, 'name', 500),
   });
 
   const { data: stockRecords = [] } = useQuery({
