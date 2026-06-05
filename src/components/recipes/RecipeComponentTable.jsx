@@ -32,9 +32,12 @@ export default function RecipeComponentTable({
   onRemove, onAdd, operationsByBom = {}, onStepChange,
   showLayer = false, onLayerChange, availableLayers = [],
   subRecipeProductIds, onOpenSubRecipe,
+  selectable = false, selectedIds, onToggleSelect, onToggleSelectAll,
 }) {
   const opsFor = (c) => operationsByBom[c.bom_id] || [];
   const anyHasSteps = !!onStepChange && Object.values(operationsByBom).some(ops => (ops || []).length > 0);
+  const isSel = (id) => selectedIds?.has?.(id);
+  const allSel = selectable && components.length > 0 && components.every(c => isSel(c.id));
 
   const makeDayLabel = (c) =>
     c.make_day === 'cook_day' ? 'Cook day'
@@ -62,6 +65,12 @@ export default function RecipeComponentTable({
           <table className="w-full">
             <thead>
               <tr className="bg-muted/50 border-b border-border">
+                {selectable && (
+                  <th className="px-3 py-2 w-9">
+                    <input type="checkbox" className="rounded w-4 h-4" checked={allSel}
+                      onChange={() => onToggleSelectAll?.(components.map(c => c.id), !allSel)} />
+                  </th>
+                )}
                 {showLayer && (
                   <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Layer</th>
                 )}
@@ -90,7 +99,13 @@ export default function RecipeComponentTable({
                 const layer = c._layer;
 
                 return (
-                  <tr key={c.id} className={cn("hover:bg-muted/20", isChanged && "bg-amber-50 dark:bg-amber-900/10")}>
+                  <tr key={c.id} className={cn("hover:bg-muted/20", isChanged && "bg-amber-50 dark:bg-amber-900/10", isSel(c.id) && "bg-primary/5")}>
+                    {selectable && (
+                      <td className="px-3 py-2">
+                        <input type="checkbox" className="rounded w-4 h-4" checked={!!isSel(c.id)}
+                          onChange={() => onToggleSelect?.(c.id)} />
+                      </td>
+                    )}
                     {showLayer && (
                       <td className="px-3 py-1.5">
                         {onLayerChange && availableLayers.length > 0 ? (

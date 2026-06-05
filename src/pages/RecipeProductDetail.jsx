@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   ArrowLeft, Package, Utensils, Save, Loader2, BookOpen, FileText, Copy,
-  ExternalLink, CheckCircle2, AlertTriangle, ArrowRight,
+  ExternalLink, CheckCircle2, AlertTriangle, ArrowRight, Trash2, Pencil, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -43,6 +43,10 @@ export default function RecipeProductDetail() {
   const [bomEdits, setBomEdits] = useState({}); // { [bomId]: {yieldQty, yieldUom, chefNotes, notes, subcategory, files} }
   const [addModalBomId, setAddModalBomId] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [bulkForm, setBulkForm] = useState({ layer: '', step: '', qty: '', uom: '' });
+  const [pendingNav, setPendingNav] = useState(null);
 
   const { data: product, isLoading: loadingProduct } = useQuery({
     queryKey: ['recipe-product', productId],
@@ -210,6 +214,95 @@ export default function RecipeProductDetail() {
     }
   };
 
+  // ── Bulk selection / edit / delete of ingredients ─────────────────────────
+  const toggleSelect = (id) => setSelectedIds(prev => {
+    const n = new Set(prev);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
+  const toggleSelectAll = (ids, checked) => setSelectedIds(prev => {
+    const n = new Set(prev);
+    ids.forEach(id => checked ? n.add(id) : n.delete(id));
+    return n;
+  });
+  const clearSelection = () => setSelectedIds(new Set());
+  const selectedComps = useMemo(
+    () => components.filter(c => selectedIds.has(c.id)), [components, selectedIds]);
+
+  const dropLocalEdits = (ids) => {
+    setEditedQtys(prev => { const n = { ...prev }; ids.forEach(id => delete n[id]); return n; });
+    setEditedSteps(prev => { const n = { ...prev }; ids.forEach(id => delete n[id]); return n; });
+  };
+
+  const handleBulkDelete = () => setConfirmAction({
+    type: 'bulk_delete', title: 'Delete Selected Ingredients',
+    message: <span>Remove <strong>{selectedComps.length}</strong> selected ingredient{selectedComps.length !== 1 ? 's' : ''} from this recipe?</span>,
+    confirmLabel: 'Delete Selected', icon: 'delete',
+  });
+
+  const doBulkDelete = async () => {
+    const ids = selectedComps.map(c => c.id);
+    for (const id of ids) await base44.entities.BomComponent.delete(id);
+    dropLocalEdits(ids);
+    clearSelection();
+    invalidateAll();
+    toast.success(`Removed ${ids.length} ingredient${ids.length !== 1 ? 's' : ''}`);
+  };
+
+  const applyBulkEdit = async () => {
+    const { layer, step, qty, uom } = bulkForm;
+    if (!layer && step === '' && qty === '' && uom === '') {
+      toast.error('Choose at least one thing to change.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const target = layer ? boms.find(b => b.bom_type === layer) : null;
+      if (layer && !target) { toast.error(`No ${LAYER_LABELS[layer]} layer exists — create it first.`); setSaving(false); return; }
+      for (const c of selectedComps) {
+        const update = {};
+        if (target && target.id !== c.bom_id) {
+          update.bom_id = target.id;
+          update.step_no = step ? Number(step) : null; // moving layer resets the step
+        } else if (layer && step !== '') {
+          update.step_no = step ? Number(step) : null;
+        }
+        if (qty !== '' && Number(qty) >= 0) update.qty = Number(qty);
+        if (uom !== '') update.uom = uom;
+        if (Object.keys(update).length) await base44.entities.BomComponent.update(c.id, update);
+      }
+      dropLocalEdits(selectedComps.map(c => c.id));
+      setShowBulkEdit(false);
+      setBulkForm({ layer: '', step: '', qty: '', uom: '' });
+      clearSelection();
+      invalidateAll();
+      toast.success('Selected ingredients updated');
+    } catch (err) {
+      toast.error('Bulk edit failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Steps available in the bulk-edit Step dropdown (for the chosen target layer).
+  const bulkStepOptions = useMemo(() => {
+    if (!bulkForm.layer) return [];
+    const target = boms.find(b => b.bom_type === bulkForm.layer);
+    return target ? (operationsByBom[target.id] || []) : [];
+  }, [bulkForm.layer, boms, operationsByBom]);
+
+  // ── Unsaved-changes guard ─────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e) => { if (hasUnsavedChanges) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [hasUnsavedChanges]);
+
+  const guardedNavigate = (to) => {
+    if (hasUnsavedChanges) setPendingNav(to);
+    else navigate(to);
+  };
+
   // ── Bom field helpers ─────────────────────────────────────────────────────
   const bomField = (bom, key, fallback) => {
     const e = bomEdits[bom.id];
@@ -328,6 +421,8 @@ export default function RecipeProductDetail() {
         await base44.entities.BomComponent.delete(confirmAction.data.id);
         invalidateAll();
         toast.success('Ingredient removed');
+      } else if (confirmAction.type === 'bulk_delete') {
+        await doBulkDelete();
       } else if (confirmAction.type === 'duplicate') {
         await doDuplicate();
       } else if (confirmAction.type === 'delete') {
@@ -398,7 +493,7 @@ export default function RecipeProductDetail() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/recipes')} className="mt-0.5">
+          <Button variant="ghost" size="icon" onClick={() => guardedNavigate('/recipes')} className="mt-0.5">
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
@@ -410,7 +505,7 @@ export default function RecipeProductDetail() {
                 : <Badge className="text-[10px] bg-gray-100 text-gray-500">Inactive</Badge>}
               <Badge variant="outline" className="text-[10px]">v{maxVersion}</Badge>
             </div>
-            <button type="button" onClick={() => navigate(`/catalog/${productId}`)} className="text-left group">
+            <button type="button" onClick={() => guardedNavigate(`/catalog/${productId}`)} className="text-left group">
               <h1 className="text-2xl font-bold group-hover:text-primary group-hover:underline transition-colors">{product?.name || repBom?.product_name}</h1>
               <p className="text-sm text-muted-foreground font-mono group-hover:text-primary">{product?.sku || repBom?.product_sku}</p>
             </button>
@@ -420,7 +515,7 @@ export default function RecipeProductDetail() {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate(`/catalog/${productId}`)}>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => guardedNavigate(`/catalog/${productId}`)}>
             <ExternalLink className="w-4 h-4" /> Open Product
           </Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={handleDuplicate} disabled={saving}>
@@ -451,6 +546,23 @@ export default function RecipeProductDetail() {
           <p className="text-sm font-medium">{anyActive ? 'Active' : 'Inactive'}{inactiveBoms.length > 0 && activeBoms.length > 0 ? ` (+${inactiveBoms.length} draft)` : ''}</p>
         </div>
       </div>
+
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="sticky top-0 z-20 flex items-center justify-between bg-primary/10 border border-primary/30 rounded-lg px-4 py-2">
+          <span className="text-sm font-medium">{selectedIds.size} ingredient{selectedIds.size !== 1 ? 's' : ''} selected</span>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={clearSelection}>Clear</Button>
+            <Button variant="outline" size="sm" className="gap-1.5"
+              onClick={() => { setBulkForm({ layer: '', step: '', qty: '', uom: '' }); setShowBulkEdit(true); }}>
+              <Pencil className="w-3.5 h-3.5" /> Edit selected
+            </Button>
+            <Button variant="destructive" size="sm" className="gap-1.5" onClick={handleBulkDelete}>
+              <Trash2 className="w-3.5 h-3.5" /> Delete selected
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Process Flow — one editable card per layer (= BOM), in flow order */}
       <div className="space-y-2">
@@ -520,7 +632,11 @@ export default function RecipeProductDetail() {
                   operationsByBom={operationsByBom}
                   showLayer
                   subRecipeProductIds={subRecipeProductIds}
-                  onOpenSubRecipe={(pid) => navigate(`/recipes/product/${pid}`)}
+                  onOpenSubRecipe={(pid) => guardedNavigate(`/recipes/product/${pid}`)}
+                  selectable
+                  selectedIds={selectedIds}
+                  onToggleSelect={toggleSelect}
+                  onToggleSelectAll={toggleSelectAll}
                 />
 
                 {consumables.length > 0 && (
@@ -598,7 +714,7 @@ export default function RecipeProductDetail() {
                         <span className="inline-flex items-center gap-1.5">
                           {ing.input_product_name}
                           {subRecipeProductIds.has(ing.input_product_id) && (
-                            <button type="button" onClick={() => navigate(`/recipes/product/${ing.input_product_id}`)}
+                            <button type="button" onClick={() => guardedNavigate(`/recipes/product/${ing.input_product_id}`)}
                               className="inline-flex items-center gap-0.5 text-[10px] text-primary hover:underline">
                               <ExternalLink className="w-3 h-3" /> recipe
                             </button>
@@ -659,6 +775,84 @@ export default function RecipeProductDetail() {
         <ConfirmActionModal title={confirmAction.title} message={confirmAction.message}
           confirmLabel={confirmAction.confirmLabel} confirmVariant={confirmAction.confirmVariant || 'destructive'}
           icon={confirmAction.icon} onConfirm={handleConfirm} onCancel={() => setConfirmAction(null)} loading={saving} />
+      )}
+
+      {/* Bulk edit modal */}
+      {showBulkEdit && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-card rounded-2xl border border-border w-full max-w-md shadow-xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <h3 className="text-lg font-bold">Edit {selectedComps.length} ingredient{selectedComps.length !== 1 ? 's' : ''}</h3>
+              <Button variant="ghost" size="icon" onClick={() => setShowBulkEdit(false)}><X className="w-5 h-5" /></Button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-[11px] text-muted-foreground">Only the fields you set are changed. Leave a field as “Keep” / blank to leave it unchanged.</p>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">Move to layer</label>
+                <Select value={bulkForm.layer || 'keep'} onValueChange={v => setBulkForm(f => ({ ...f, layer: v === 'keep' ? '' : v, step: '' }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="keep">Keep current layer</SelectItem>
+                    {availableLayers.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              {bulkForm.layer && (
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Step (in {LAYER_LABELS[bulkForm.layer]} layer)</label>
+                  <Select value={bulkForm.step || '0'} onValueChange={v => setBulkForm(f => ({ ...f, step: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">Any step</SelectItem>
+                      {bulkStepOptions.map(op => <SelectItem key={op.id} value={String(op.step_no)}>{op.step_no}. {op.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Set quantity</label>
+                  <Input type="number" step="any" min="0" placeholder="Keep" value={bulkForm.qty}
+                    onChange={e => setBulkForm(f => ({ ...f, qty: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Set UoM</label>
+                  <Input placeholder="Keep" value={bulkForm.uom}
+                    onChange={e => setBulkForm(f => ({ ...f, uom: e.target.value }))} />
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-border flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setShowBulkEdit(false)}>Cancel</Button>
+              <Button className="flex-1 gap-2" onClick={applyBulkEdit} disabled={saving}>
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />} Apply
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unsaved-changes leave guard */}
+      {pendingNav && (
+        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
+          <div className="bg-card rounded-2xl border border-border w-full max-w-sm shadow-xl">
+            <div className="px-6 py-5">
+              <h3 className="text-lg font-bold mb-1">Unsaved changes</h3>
+              <p className="text-sm text-muted-foreground">You have unsaved changes to this recipe. Save them before leaving?</p>
+            </div>
+            <div className="px-6 py-4 border-t border-border flex flex-col gap-2">
+              <Button className="gap-2" disabled={saving}
+                onClick={async () => { const to = pendingNav; await handleSave(); setPendingNav(null); navigate(to); }}>
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save &amp; leave
+              </Button>
+              <Button variant="outline" className="text-destructive hover:text-destructive"
+                onClick={() => { const to = pendingNav; setPendingNav(null); navigate(to); }}>
+                Leave without saving
+              </Button>
+              <Button variant="ghost" onClick={() => setPendingNav(null)}>Cancel</Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
