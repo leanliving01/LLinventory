@@ -143,19 +143,38 @@ Deno.serve(async (req) => {
     .maybeSingle();
   const updateNamesFromShopify = nameSetting ? nameSetting.value !== 'false' : true; // default on
 
+  // Resolve the default VAT rate (decimal, e.g. 0.15). Shopify variant.price is
+  // VAT-INCLUSIVE for this store, but the catalog stores/displays excl-VAT prices.
+  const { data: vatRow } = await supabase
+    .from('tax_rates')
+    .select('rate')
+    .eq('is_default', true)
+    .eq('active', true)
+    .order('rate', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const vatRate = vatRow?.rate && vatRow.rate > 0 ? Number(vatRow.rate) : 0.15;
+  // Types whose price is set manually (not derived from Shopify) — never overwrite.
+  const PRICE_EXEMPT_TYPES = new Set(['package', 'supplement']);
+  const exclVatPrice = (raw: string | undefined): number | null => {
+    const inc = parseFloat(raw || '');
+    if (!Number.isFinite(inc) || inc <= 0) return null;
+    return Math.round((inc / (1 + vatRate)) * 100) / 100;
+  };
+
   // Pre-fetch existing products by shopify_product_id OR SKU
   const shopifyIds = products.map(p => String(p.id));
   const skus = products.flatMap(p => (p.variants || []).map(v => v.sku).filter(Boolean));
 
   const [{ data: byShopifyId }, { data: bySku }] = await Promise.all([
-    supabase.from('products').select('id, sku, shopify_product_id').in('shopify_product_id', shopifyIds),
-    supabase.from('products').select('id, sku, shopify_product_id').in('sku', skus.length ? skus : ['__none__']),
+    supabase.from('products').select('id, sku, type, shopify_product_id').in('shopify_product_id', shopifyIds),
+    supabase.from('products').select('id, sku, type, shopify_product_id').in('sku', skus.length ? skus : ['__none__']),
   ]);
 
-  const existingByShopifyId = new Map<string, { id: string; sku: string }>();
-  const existingBySku = new Map<string, { id: string; sku: string; shopify_product_id: string | null }>();
-  for (const p of byShopifyId || []) existingByShopifyId.set(p.shopify_product_id as string, { id: p.id as string, sku: p.sku as string });
-  for (const p of bySku || []) existingBySku.set(p.sku as string, { id: p.id as string, sku: p.sku as string, shopify_product_id: p.shopify_product_id as string | null });
+  const existingByShopifyId = new Map<string, { id: string; sku: string; type: string | null }>();
+  const existingBySku = new Map<string, { id: string; sku: string; type: string | null; shopify_product_id: string | null }>();
+  for (const p of byShopifyId || []) existingByShopifyId.set(p.shopify_product_id as string, { id: p.id as string, sku: p.sku as string, type: (p.type as string | null) ?? null });
+  for (const p of bySku || []) existingBySku.set(p.sku as string, { id: p.id as string, sku: p.sku as string, type: (p.type as string | null) ?? null, shopify_product_id: p.shopify_product_id as string | null });
 
   // Process each product variant → upsert into products table
   let updated = 0;
@@ -172,28 +191,37 @@ Deno.serve(async (req) => {
       const info = deriveMealInfo(v.sku, p.title, p.product_type);
       if (info) mealInfoBySku.set(v.sku, info);
 
+      // VAT-exclusive selling price derived from Shopify's (VAT-inclusive) variant price.
+      const exclPrice = exclVatPrice(v.price);
+
       // Match priority: shopify_product_id → sku
       let match = existingByShopifyId.get(String(p.id));
       if (!match && existingBySku.has(v.sku)) {
         const bs = existingBySku.get(v.sku)!;
-        match = { id: bs.id, sku: bs.sku };
+        match = { id: bs.id, sku: bs.sku, type: bs.type };
         // Backfill shopify IDs on existing product
+        const writePrice = exclPrice !== null && !PRICE_EXEMPT_TYPES.has(bs.type || '');
         await supabase.from('products').update({
           shopify_product_id: String(p.id),
           shopify_variant_id: String(v.id),
+          ...(writePrice ? { price: exclPrice } : {}),
           updated_date: now,
         }).eq('id', bs.id);
         updated++;
       } else if (match) {
+        const writePrice = exclPrice !== null && !PRICE_EXEMPT_TYPES.has(match.type || '');
         await supabase.from('products').update({
           ...(updateNamesFromShopify ? { name: p.title } : {}),
           shopify_variant_id: String(v.id),
           barcode: v.barcode || null,
+          ...(writePrice ? { price: exclPrice } : {}),
           updated_date: now,
         }).eq('id', match.id);
         updated++;
       } else {
-        // No match — create as finished_meal default (user can re-categorize)
+        // No match — create as finished_meal default (user can re-categorize).
+        // Seed both price and selling_price with the excl-VAT value so the catalog
+        // shows a sensible figure until ops sets the authoritative selling price.
         const { error } = await supabase.from('products').insert({
           id: crypto.randomUUID(),
           sku: v.sku,
@@ -203,6 +231,8 @@ Deno.serve(async (req) => {
           shopify_product_id: String(p.id),
           shopify_variant_id: String(v.id),
           barcode: v.barcode || null,
+          ...(exclPrice !== null ? { price: exclPrice, selling_price: exclPrice } : {}),
+          price_vat_corrected: true,
           created_date: now,
           updated_date: now,
         });
