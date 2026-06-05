@@ -29,7 +29,8 @@ import SyncHistory from '@/pages/SyncHistory';
 import Catalog from '@/pages/Catalog';
 import ProductEdit from '@/pages/ProductEdit';
 import Recipes from '@/pages/Recipes';
-import RecipeDetail from '@/pages/RecipeDetail';
+import RecipeProductDetail from '@/pages/RecipeProductDetail';
+import RecipeBomRedirect from '@/pages/RecipeBomRedirect';
 import Suppliers from '@/pages/Suppliers';
 import StockTransfer from '@/pages/StockTransfer';
 import Receiving from '@/pages/Receiving';
@@ -226,7 +227,8 @@ const AuthenticatedApp = () => {
         <Route path="/catalog" element={<Catalog />} />
         <Route path="/catalog/:productId" element={<ProductEdit />} />
         <Route path="/recipes" element={<Recipes />} />
-        <Route path="/recipes/:bomId" element={<RecipeDetail />} />
+        <Route path="/recipes/product/:productId" element={<RecipeProductDetail />} />
+        <Route path="/recipes/:bomId" element={<RecipeBomRedirect />} />
         <Route path="/suppliers" element={<Suppliers />} />
         <Route path="/purchasing/orders" element={<ErrorBoundary><PurchaseOrders /></ErrorBoundary>} />
         <Route path="/purchasing/purchase-orders/:poId" element={<ErrorBoundary><POWorkspace /></ErrorBoundary>} />

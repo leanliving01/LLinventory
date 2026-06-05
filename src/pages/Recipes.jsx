@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, X, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, ChevronsUpDown, Loader2 } from 'lucide-react';
@@ -19,14 +18,6 @@ import { parseSubcategories } from '@/lib/bomSubcategories';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
-
-const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack', prep: 'Prep' };
-const LAYER_COLORS = {
-  cook: 'bg-orange-100 text-orange-700',
-  portion: 'bg-green-100 text-green-700',
-  pack: 'bg-blue-100 text-blue-700',
-  prep: 'bg-purple-100 text-purple-700',
-};
 
 export default function Recipes() {
   const queryClient = useQueryClient();
@@ -47,10 +38,9 @@ export default function Recipes() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Support URL params: ?search=X&layer=cook or ?create=cook&productId=ID
+  // Support URL params: ?search=X or ?create=cook&productId=ID
   const urlParams = new URLSearchParams(window.location.search);
   const [search, setSearch] = useState(urlParams.get('search') || '');
-  const [layerFilter, setLayerFilter] = useState(urlParams.get('layer') || 'all');
 
   // Auto-open Create BOM modal if deep-linked from Product page
   React.useEffect(() => {
@@ -68,7 +58,7 @@ export default function Recipes() {
     queryFn: () => base44.entities.Bom.list('-created_date', 500),
   });
 
-  // Products + categories — to derive each BOM's product category.
+  // Products + categories — to derive each output's category.
   const { data: products = [] } = useQuery({
     queryKey: ['recipes-products'],
     queryFn: () => base44.entities.Product.list('-created_date', 5000),
@@ -83,89 +73,133 @@ export default function Recipes() {
   const catNameById = useMemo(
     () => Object.fromEntries(productCategories.map(c => [c.id, c.name])), [productCategories]);
 
-  // Category of a BOM = its product's category (by id, else legacy text).
-  const categoryOf = (b) => {
-    const p = productById[b.product_id];
+  // Category of an output = its product's category (by id, else legacy text).
+  const categoryOf = (row) => {
+    const p = productById[row.product_id];
     if (!p) return '';
     return catNameById[p.category_id] || p.category || '';
   };
-  const subcategoryOf = (b) => parseSubcategories(b.subcategory).join(', ');
+
+  // Collapse all BOM rows to ONE row per output product. Each output's layers
+  // (Prep/Cook/Portion/Pack) live inside the consolidated detail page.
+  const productRows = useMemo(() => {
+    const byProduct = {};
+    boms.forEach(b => {
+      const key = b.product_id || `bom:${b.id}`;
+      if (!byProduct[key]) {
+        byProduct[key] = {
+          key,
+          product_id: b.product_id || null,
+          product_sku: b.product_sku || '',
+          product_name: b.product_name || '',
+          subSet: new Set(),
+          boms: [],
+        };
+      }
+      const row = byProduct[key];
+      row.boms.push(b);
+      parseSubcategories(b.subcategory).forEach(s => row.subSet.add(s));
+    });
+    return Object.values(byProduct).map(r => {
+      const versions = r.boms.map(b => Number(b.version || 1));
+      const updated = r.boms
+        .map(b => b.updated_date || b.created_date)
+        .filter(Boolean)
+        .sort()
+        .pop() || null;
+      // Representative BOM for the headline yield/output.
+      const rep = r.boms.find(b => b.bom_type === 'portion')
+        || r.boms.find(b => b.bom_type === 'cook')
+        || r.boms[0];
+      return {
+        key: r.key,
+        product_id: r.product_id,
+        product_sku: r.product_sku,
+        product_name: r.product_name,
+        subcategory: [...r.subSet].sort().join(', '),
+        version: versions.length ? Math.max(...versions) : 1,
+        is_active: r.boms.some(b => b.is_active !== false),
+        yield_qty: rep?.yield_qty,
+        yield_uom: rep?.yield_uom,
+        layer_count: r.boms.length,
+        updated_date: updated,
+        bomIds: r.boms.map(b => b.id),
+      };
+    });
+  }, [boms]);
 
   const filtered = useMemo(() => {
-    return boms.filter(b => {
-      if (layerFilter !== 'all' && b.bom_type !== layerFilter) return false;
-      if (categoryFilter !== 'all' && (categoryOf(b) || 'Uncategorised') !== categoryFilter) return false;
+    return productRows.filter(row => {
+      if (categoryFilter !== 'all' && (categoryOf(row) || 'Uncategorised') !== categoryFilter) return false;
       if (subcategoryFilter !== 'all') {
-        const subs = parseSubcategories(b.subcategory);
+        const subs = row.subcategory ? row.subcategory.split(', ') : [];
         const effectiveSubs = subs.length > 0 ? subs : ['Uncategorised'];
         if (!effectiveSubs.includes(subcategoryFilter)) return false;
       }
       if (activeFilter !== 'all') {
-        const isActive = b.is_active !== false;
-        if (activeFilter === 'active' && !isActive) return false;
-        if (activeFilter === 'inactive' && isActive) return false;
+        if (activeFilter === 'active' && !row.is_active) return false;
+        if (activeFilter === 'inactive' && row.is_active) return false;
       }
       if (search) {
         const s = search.toLowerCase();
-        return (b.product_sku || '').toLowerCase().includes(s) ||
-               (b.product_name || '').toLowerCase().includes(s);
+        return (row.product_sku || '').toLowerCase().includes(s) ||
+               (row.product_name || '').toLowerCase().includes(s);
       }
       return true;
     });
-  }, [boms, search, layerFilter, categoryFilter, subcategoryFilter, activeFilter, productById, catNameById]);
+  }, [productRows, search, categoryFilter, subcategoryFilter, activeFilter, productById, catNameById]);
 
-  // Sort the filtered rows. Category sorts by category, then subcategory.
+  // Sort. Default grouping is category → subcategory → name.
   const sorted = useMemo(() => {
-    if (!sortConfig.field) return filtered;
     const dir = sortConfig.dir === 'asc' ? 1 : -1;
-    const val = (b) => {
+    const val = (row) => {
       switch (sortConfig.field) {
-        case 'category': return categoryOf(b) || '';
-        case 'subcategory': return subcategoryOf(b) || '';
-        case 'product_sku': return b.product_sku || '';
-        case 'product_name': return b.product_name || '';
-        case 'bom_type': return b.bom_type || '';
-        case 'version': return Number(b.version || 0);
-        case 'is_active': return b.is_active !== false ? 1 : 0;
-        default: return '';
+        case 'category': return categoryOf(row) || '';
+        case 'subcategory': return row.subcategory || '';
+        case 'product_sku': return row.product_sku || '';
+        case 'product_name': return row.product_name || '';
+        case 'version': return Number(row.version || 0);
+        case 'is_active': return row.is_active ? 1 : 0;
+        case 'updated_date': return row.updated_date || '';
+        default: return null;
       }
     };
-    return [...filtered].sort((a, b) => {
+    const arr = [...filtered];
+    if (!sortConfig.field) {
+      // Default: category, then subcategory, then name
+      return arr.sort((a, b) =>
+        (categoryOf(a) || 'zzz').localeCompare(categoryOf(b) || 'zzz')
+        || (a.subcategory || 'zzz').localeCompare(b.subcategory || 'zzz')
+        || (a.product_name || '').localeCompare(b.product_name || ''));
+    }
+    return arr.sort((a, b) => {
       const av = val(a), bv = val(b);
       let cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv));
       if (cmp === 0 && sortConfig.field === 'category') {
-        cmp = subcategoryOf(a).localeCompare(subcategoryOf(b));
+        cmp = (a.subcategory || '').localeCompare(b.subcategory || '');
       }
       return cmp * dir;
     });
   }, [filtered, sortConfig, productById, catNameById]);
 
-  const pageBoms = sorted.slice(page * pageSize, (page + 1) * pageSize);
+  const pageRows = sorted.slice(page * pageSize, (page + 1) * pageSize);
 
-  const layerCounts = useMemo(() => {
-    const counts = {};
-    boms.forEach(b => { counts[b.bom_type] = (counts[b.bom_type] || 0) + 1; });
-    return counts;
-  }, [boms]);
-
-  // Distinct category / subcategory options (scoped to the current layer for relevance).
+  // Distinct category / subcategory options.
   const categoryOptions = useMemo(() => {
-    const base = layerFilter === 'all' ? boms : boms.filter(b => b.bom_type === layerFilter);
     const set = new Set();
-    base.forEach(b => set.add(categoryOf(b) || 'Uncategorised'));
+    productRows.forEach(row => set.add(categoryOf(row) || 'Uncategorised'));
     return [...set].sort();
-  }, [boms, layerFilter, productById, catNameById]);
+  }, [productRows, productById, catNameById]);
 
   const subcategoryOptions = useMemo(() => {
-    const base = layerFilter === 'all' ? boms : boms.filter(b => b.bom_type === layerFilter);
     const set = new Set();
-    base.forEach(b => {
-      const subs = parseSubcategories(b.subcategory);
+    productRows.forEach(row => {
+      const subs = row.subcategory ? row.subcategory.split(', ') : [];
       if (subs.length === 0) set.add('Uncategorised');
       else subs.forEach(s => set.add(s));
     });
     return [...set].sort();
-  }, [boms, layerFilter]);
+  }, [productRows]);
 
   const toggleSort = (field) => {
     setSortConfig(prev => prev.field === field
@@ -175,31 +209,44 @@ export default function Recipes() {
   };
 
   const clearAll = () => {
-    setSearch(''); setLayerFilter('all'); setCategoryFilter('all');
+    setSearch(''); setCategoryFilter('all');
     setSubcategoryFilter('all'); setActiveFilter('all'); setPage(0);
   };
 
-  // Multi-select
-  const pageIds = pageBoms.map(b => b.id);
-  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selected.includes(id));
-  const toggleRow = (id) =>
-    setSelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  // Multi-select (by product row key)
+  const pageKeys = pageRows.map(r => r.key);
+  const allPageSelected = pageKeys.length > 0 && pageKeys.every(k => selected.includes(k));
+  const toggleRow = (key) =>
+    setSelected(p => p.includes(key) ? p.filter(x => x !== key) : [...p, key]);
   const togglePage = () =>
-    setSelected(p => allPageSelected ? p.filter(id => !pageIds.includes(id)) : [...new Set([...p, ...pageIds])]);
+    setSelected(p => allPageSelected ? p.filter(k => !pageKeys.includes(k)) : [...new Set([...p, ...pageKeys])]);
 
   const handleBulkDelete = async () => {
     setDeleting(true);
-    let ok = 0, fail = 0;
-    for (const id of selected) {
-      try { await base44.entities.Bom.delete(id); ok++; }
-      catch { fail++; }
+    const rowsByKey = Object.fromEntries(productRows.map(r => [r.key, r]));
+    let okBoms = 0, failBoms = 0;
+    for (const key of selected) {
+      const row = rowsByKey[key];
+      if (!row) continue;
+      for (const bomId of row.bomIds) {
+        try {
+          const [comps, ops] = await Promise.all([
+            base44.entities.BomComponent.filter({ bom_id: bomId }),
+            base44.entities.BomOperation.filter({ bom_id: bomId }),
+          ]);
+          for (const c of comps) await base44.entities.BomComponent.delete(c.id);
+          for (const o of ops) await base44.entities.BomOperation.delete(o.id);
+          await base44.entities.Bom.delete(bomId);
+          okBoms++;
+        } catch { failBoms++; }
+      }
     }
     setDeleting(false);
     setConfirmDelete(false);
     setSelected([]);
     queryClient.invalidateQueries({ queryKey: ['recipes-boms'] });
-    if (fail) toast.error(`Deleted ${ok}; ${fail} could not be deleted (still referenced, e.g. by a cooking run).`);
-    else toast.success(`Deleted ${ok} BOM${ok !== 1 ? 's' : ''}.`);
+    if (failBoms) toast.error(`Deleted ${okBoms} BOM layer(s); ${failBoms} could not be deleted (still referenced, e.g. by a cooking run).`);
+    else toast.success(`Deleted ${okBoms} BOM layer(s).`);
   };
 
   const SortHeader = ({ field, children, align = 'left' }) => (
@@ -216,7 +263,7 @@ export default function Recipes() {
     </th>
   );
 
-  const colSpan = canEdit ? 10 : 9;
+  const colSpan = canEdit ? 9 : 8;
 
   return (
     <div className="space-y-4">
@@ -224,7 +271,7 @@ export default function Recipes() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Bill of Materials</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {filtered.length} of {boms.length} BOMs — 4-layer model: Prep → Cook → Portion → Pack
+            {filtered.length} of {productRows.length} product outputs — open one to manage its full Prep → Cook → Portion process
           </p>
         </div>
         {canEdit && (
@@ -232,23 +279,6 @@ export default function Recipes() {
             <Plus className="w-4 h-4" /> Create BOM
           </Button>
         )}
-      </div>
-
-      {/* Layer chips */}
-      <div className="flex flex-wrap gap-2">
-        {['prep', 'cook', 'portion', 'pack'].map(layer => (
-          <button
-            key={layer}
-            onClick={() => { setLayerFilter(layerFilter === layer ? 'all' : layer); setCategoryFilter('all'); setSubcategoryFilter('all'); setPage(0); }}
-            className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
-              layerFilter === layer
-                ? LAYER_COLORS[layer] + ' ring-2 ring-primary/30'
-                : LAYER_COLORS[layer] + ' opacity-70 hover:opacity-100'
-            }`}
-          >
-            {LAYER_LABELS[layer]} ({layerCounts[layer] || 0})
-          </button>
-        ))}
       </div>
 
       {/* Search + filters */}
@@ -284,7 +314,7 @@ export default function Recipes() {
             <SelectItem value="inactive">Inactive</SelectItem>
           </SelectContent>
         </Select>
-        {(search || layerFilter !== 'all' || categoryFilter !== 'all' || subcategoryFilter !== 'all' || activeFilter !== 'all') && (
+        {(search || categoryFilter !== 'all' || subcategoryFilter !== 'all' || activeFilter !== 'all') && (
           <Button variant="ghost" size="sm" onClick={clearAll} className="gap-1">
             <X className="w-3.5 h-3.5" /> Clear
           </Button>
@@ -320,22 +350,25 @@ export default function Recipes() {
                 <SortHeader field="product_sku">Output SKU</SortHeader>
                 <SortHeader field="product_name">Output Product</SortHeader>
                 <SortHeader field="category">Category</SortHeader>
-                <SortHeader field="bom_type" align="center">Layer</SortHeader>
                 <SortHeader field="subcategory">Subcategory</SortHeader>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Yield</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Output</th>
                 <SortHeader field="version" align="center">Version</SortHeader>
                 <SortHeader field="is_active" align="center">Active</SortHeader>
+                <SortHeader field="updated_date" align="center">Last Updated</SortHeader>
                 <th className="w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {pageBoms.map(b => {
-                const isSelected = selected.includes(b.id);
+              {pageRows.map(row => {
+                const isSelected = selected.includes(row.key);
+                const target = row.product_id
+                  ? `/recipes/product/${row.product_id}`
+                  : `/recipes/${row.bomIds[0]}`;
                 return (
                   <tr
-                    key={b.id}
+                    key={row.key}
                     className={`hover:bg-muted/30 transition-colors cursor-pointer ${isSelected ? 'bg-primary/5' : ''}`}
-                    onClick={() => navigate(`/recipes/${b.id}`)}
+                    onClick={() => navigate(target)}
                   >
                     {canEdit && (
                       <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
@@ -343,27 +376,28 @@ export default function Recipes() {
                           type="checkbox"
                           className="rounded w-4 h-4"
                           checked={isSelected}
-                          onChange={() => toggleRow(b.id)}
+                          onChange={() => toggleRow(row.key)}
                         />
                       </td>
                     )}
-                    <td className="px-4 py-2.5 text-sm font-mono font-medium">{b.product_sku}</td>
-                    <td className="px-4 py-2.5 text-sm">{b.product_name}</td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{categoryOf(b) || '—'}</td>
-                    <td className="px-4 py-2.5 text-center">
-                      <Badge className={`text-[10px] ${LAYER_COLORS[b.bom_type]}`}>
-                        {LAYER_LABELS[b.bom_type]}
-                      </Badge>
+                    <td className="px-4 py-2.5 text-sm font-mono font-medium">{row.product_sku}</td>
+                    <td className="px-4 py-2.5 text-sm">
+                      {row.product_name}
+                      {row.layer_count > 1 && (
+                        <span className="ml-2 text-[10px] text-muted-foreground">({row.layer_count} layers)</span>
+                      )}
                     </td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                      {subcategoryOf(b) || '—'}
-                    </td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{categoryOf(row) || '—'}</td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{row.subcategory || '—'}</td>
                     <td className="px-4 py-2.5 text-sm text-center tabular-nums">
-                      {b.yield_qty} {b.yield_uom}
+                      {row.yield_qty != null ? `${row.yield_qty} ${row.yield_uom || ''}`.trim() : '—'}
                     </td>
-                    <td className="px-4 py-2.5 text-sm text-center">v{b.version || 1}</td>
+                    <td className="px-4 py-2.5 text-sm text-center">v{row.version || 1}</td>
                     <td className="px-4 py-2.5 text-center">
-                      <span className={`inline-block w-2 h-2 rounded-full ${b.is_active !== false ? 'bg-green-500' : 'bg-gray-300'}`} />
+                      <span className={`inline-block w-2 h-2 rounded-full ${row.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-center text-muted-foreground tabular-nums">
+                      {row.updated_date ? new Date(row.updated_date).toLocaleDateString() : '—'}
                     </td>
                     <td className="px-4 py-2.5">
                       <ChevronRight className="w-4 h-4 text-muted-foreground" />
@@ -371,10 +405,10 @@ export default function Recipes() {
                   </tr>
                 );
               })}
-              {pageBoms.length === 0 && (
+              {pageRows.length === 0 && (
                 <tr>
                   <td colSpan={colSpan} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                    {boms.length === 0 ? 'No recipes imported yet. Go to Settings → Cin7 Import.' : 'No recipes match your filters.'}
+                    {productRows.length === 0 ? 'No recipes imported yet. Go to Settings → Cin7 Import.' : 'No recipes match your filters.'}
                   </td>
                 </tr>
               )}
@@ -407,9 +441,9 @@ export default function Recipes() {
       <AlertDialog open={confirmDelete} onOpenChange={open => !open && setConfirmDelete(false)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {selected.length} BOM{selected.length !== 1 ? 's' : ''}?</AlertDialogTitle>
+            <AlertDialogTitle>Delete {selected.length} product output{selected.length !== 1 ? 's' : ''}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently deletes the selected BOM{selected.length !== 1 ? 's' : ''} and their components. BOMs still in use (e.g. referenced by a cooking run) will be skipped. This cannot be undone.
+              This permanently deletes every BOM layer (and its steps & ingredients) for the selected output{selected.length !== 1 ? 's' : ''}. BOMs still in use (e.g. referenced by a cooking run) will be skipped. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

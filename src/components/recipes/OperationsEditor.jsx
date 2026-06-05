@@ -10,11 +10,12 @@ import { toast } from 'sonner';
 import ConfirmActionModal from '@/components/recipes/ConfirmActionModal';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
-const STATIONS = ['prep', 'cook', 'portion'];
+const STATIONS = ['prep', 'cook', 'portion', 'pack'];
 const STATION_COLORS = {
   prep: 'bg-blue-100 text-blue-700',
   cook: 'bg-amber-100 text-amber-700',
   portion: 'bg-green-100 text-green-700',
+  pack: 'bg-purple-100 text-purple-700',
 };
 
 export default function OperationsEditor({ bomId }) {
