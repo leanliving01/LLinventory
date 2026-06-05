@@ -18,7 +18,7 @@ import OperationsEditor from '@/components/recipes/OperationsEditor';
 import RecipeFilesEditor from '@/components/recipes/RecipeFilesEditor';
 import ConfirmActionModal from '@/components/recipes/ConfirmActionModal';
 import RecipeComponentTable from '@/components/recipes/RecipeComponentTable';
-import { getSubcategories, parseSubcategories, stringifySubcategories } from '@/lib/bomSubcategories';
+import { parseSubcategories } from '@/lib/bomSubcategories';
 import { getCategoryLabel } from '@/lib/productClassification';
 
 // A BOM = a production layer. Ordered the way work flows on the floor.
@@ -364,10 +364,34 @@ export default function RecipeProductDetail() {
   const maxVersion = Math.max(...boms.map(b => Number(b.version || 1)));
   const anyActive = activeBoms.length > 0;
 
-  const consolidatedIngredients = sortedBoms
-    .flatMap(b => (componentsByBom[b.id] || []))
-    .filter(c => !c.is_consumable)
-    .map(enrich);
+  // Consolidated overview: each ingredient appears ONCE across the recipe,
+  // even if it's used in more than one layer (qty combined per UoM).
+  const consolidatedIngredients = (() => {
+    const map = new Map();
+    activeBoms
+      .flatMap(b => (componentsByBom[b.id] || []))
+      .filter(c => !c.is_consumable)
+      .forEach(c => {
+        const key = c.input_product_id || c.id;
+        const layer = bomTypeById[c.bom_id];
+        const qty = Number(c.qty) || 0;
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            input_product_id: c.input_product_id,
+            input_product_sku: c.input_product_sku,
+            input_product_name: c.input_product_name,
+            layers: new Set(layer ? [layer] : []),
+            qtyByUom: { [c.uom]: qty },
+          });
+        } else {
+          const e = map.get(key);
+          if (layer) e.layers.add(layer);
+          e.qtyByUom[c.uom] = (e.qtyByUom[c.uom] || 0) + qty;
+        }
+      });
+    return [...map.values()];
+  })();
 
   return (
     <div className="space-y-6">
@@ -476,24 +500,6 @@ export default function RecipeProductDetail() {
                   </Button>
                 </div>
 
-                {/* Subcategory */}
-                {getSubcategories(bom.bom_type).length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {getSubcategories(bom.bom_type).map(sub => {
-                      const current = parseSubcategories(bomField(bom, 'subcategory', bom.subcategory || ''));
-                      const active = current.includes(sub);
-                      return (
-                        <button key={sub} onClick={() => {
-                          const next = active ? current.filter(s => s !== sub) : [...current, sub];
-                          setBomField(bom.id, 'subcategory', stringifySubcategories(next));
-                        }}
-                          className={cn("text-[11px] px-2.5 py-1 rounded-full font-medium border transition-all",
-                            active ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/30')}>{sub}</button>
-                      );
-                    })}
-                  </div>
-                )}
-
                 {/* Steps (editable, with per-step inputs + output) */}
                 <div className="border border-border rounded-lg p-4">
                   <OperationsEditor bomId={bom.id} defaultStation={bom.bom_type} ingredientsByStep={ingredientsByStep} />
@@ -552,26 +558,61 @@ export default function RecipeProductDetail() {
         })}
       </div>
 
-      {/* Consolidated ingredients overview */}
-      <div className="space-y-2">
-        <h3 className="text-sm font-semibold flex items-center gap-2">
+      {/* Consolidated ingredients overview — each ingredient once */}
+      <div className="bg-card border border-border rounded-xl p-5">
+        <h3 className="text-sm font-semibold flex items-center gap-2 mb-1">
           <Utensils className="w-4 h-4 text-primary" /> All Ingredients (across layers)
         </h3>
-        <RecipeComponentTable
-          title="Ingredients" icon={<Utensils className="w-4 h-4 text-primary" />}
-          components={consolidatedIngredients}
-          loading={loadingComps}
-          editedQtys={editedQtys}
-          onQtyChange={(id, v) => setEditedQtys(prev => ({ ...prev, [id]: v }))}
-          onRemove={removeComponent}
-          onStepChange={(id, stepNo) => setEditedSteps(prev => ({ ...prev, [id]: stepNo }))}
-          onLayerChange={handleLayerMove}
-          availableLayers={availableLayers}
-          operationsByBom={operationsByBom}
-          showLayer
-          subRecipeProductIds={subRecipeProductIds}
-          onOpenSubRecipe={(pid) => navigate(`/recipes/product/${pid}`)}
-        />
+        <p className="text-[11px] text-muted-foreground mb-3">Every ingredient used in this recipe, listed once. Edit quantities in each layer above.</p>
+        {consolidatedIngredients.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No ingredients linked</p>
+        ) : (
+          <div className="border border-border rounded-lg overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-muted/50 border-b border-border">
+                  <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Layer(s)</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">SKU</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Ingredient</th>
+                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Total Qty</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {consolidatedIngredients.map(ing => {
+                  const layers = [...ing.layers].sort((a, b) => layerRank(a) - layerRank(b));
+                  const qtyText = Object.entries(ing.qtyByUom)
+                    .map(([uom, q]) => `${q} ${uom}`).join(', ');
+                  return (
+                    <tr key={ing.key} className="hover:bg-muted/20">
+                      <td className="px-3 py-2">
+                        <span className="flex flex-wrap gap-1">
+                          {layers.map(l => (
+                            <span key={l} className={cn("text-[9px] px-1.5 py-0.5 rounded-full font-medium", LAYER_COLORS[l] || 'bg-muted text-muted-foreground')}>
+                              {LAYER_LABELS[l] || l}
+                            </span>
+                          ))}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-xs font-mono">{ing.input_product_sku}</td>
+                      <td className="px-3 py-2 text-xs">
+                        <span className="inline-flex items-center gap-1.5">
+                          {ing.input_product_name}
+                          {subRecipeProductIds.has(ing.input_product_id) && (
+                            <button type="button" onClick={() => navigate(`/recipes/product/${ing.input_product_id}`)}
+                              className="inline-flex items-center gap-0.5 text-[10px] text-primary hover:underline">
+                              <ExternalLink className="w-3 h-3" /> recipe
+                            </button>
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-right tabular-nums">{qtyText}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Notes — one set for the whole recipe */}
