@@ -1,15 +1,19 @@
 import React, { useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, Loader2, Pencil, AlertTriangle } from 'lucide-react';
+import { X, Loader2, Pencil, AlertTriangle, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
 } from '@/lib/productClassification';
 import { useSubcategories } from '@/lib/useSubcategories';
+
+const NEW_SUBCATEGORY = '__new__';
 
 const UOM_OPTIONS = ['g', 'kg', 'ml', 'L', 'pcs', 'box'];
 
@@ -34,14 +38,25 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
   // Values
   const [type, setType] = useState('');
   const [subcategory, setSubcategory] = useState('');
+  const [newSubName, setNewSubName] = useState('');
   const [locationId, setLocationId] = useState('');
   const [uom, setUom] = useState('');
   const [sellable, setSellable] = useState(true);
   const [purchasable, setPurchasable] = useState(true);
   const [inventoryTracked, setInventoryTracked] = useState(true);
 
+  const queryClient = useQueryClient();
   const { getSubcategoriesForType } = useSubcategories();
+  const { data: dbCategories = [] } = useQuery({
+    queryKey: ['product-categories'],
+    queryFn: () => base44.entities.ProductCategory.filter({ is_active: true }, 'sort_order', 200),
+    staleTime: 60_000,
+  });
   const toggleApply = (key) => setApply(prev => ({ ...prev, [key]: !prev[key] }));
+
+  // The new subcategory name when the user picks "New subcategory…".
+  const creatingSub = subcategory === NEW_SUBCATEGORY;
+  const effectiveSubcategory = creatingSub ? newSubName.trim() : subcategory;
 
   // Determine the effective category for the subcategory dropdown.
   const selectedTypes = useMemo(() => [...new Set(products.map(p => p.type))], [products]);
@@ -62,7 +77,7 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
       // unless the user is also setting a subcategory explicitly.
       if (!apply.subcategory) payload.subcategory = '';
     }
-    if (apply.subcategory && subcategory) payload.subcategory = subcategory;
+    if (apply.subcategory && effectiveSubcategory) payload.subcategory = effectiveSubcategory;
     if (apply.default_location_id) payload.default_location_id = locationId || null;
     if (apply.stock_uom && uom) payload.stock_uom = uom;
     if (apply.sellable) payload.sellable = sellable;
@@ -74,14 +89,45 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
   const appliedKeys = Object.keys(apply).filter(k => apply[k]);
   const canSave = appliedKeys.length > 0 &&
     !(apply.subcategory && subcategoryDisabled) &&
-    !(apply.subcategory && !subcategory) &&
+    !(apply.subcategory && !effectiveSubcategory) &&
     !(apply.type && !type) &&
     !(apply.stock_uom && !uom);
+
+  // Persist a brand-new subcategory to Settings (product_subcategories) so it
+  // shows everywhere. Find-or-create the parent category row for category_id.
+  const ensureSubcategoryRow = async (productType, name) => {
+    const exists = (getSubcategoriesForType(productType) || [])
+      .some(s => (s || '').toLowerCase() === name.toLowerCase());
+    if (exists) return;
+    let cat = dbCategories.find(c => c.product_type === productType);
+    if (!cat) {
+      cat = await base44.entities.ProductCategory.create({
+        name: CATEGORY_LABELS[productType] || productType,
+        product_type: productType,
+        sort_order: CATEGORY_ORDER.indexOf(productType),
+      });
+    }
+    await base44.entities.ProductSubcategory.create({
+      name,
+      category_id: cat.id,
+      category_name: cat.name,
+      product_type: productType,
+      sort_order: (getSubcategoriesForType(productType) || []).length,
+    });
+    queryClient.invalidateQueries({ queryKey: ['product-categories'] });
+    queryClient.invalidateQueries({ queryKey: ['product-subcategories'] });
+  };
 
   const doSave = async () => {
     const payload = buildPayload();
     if (Object.keys(payload).length === 0) { toast.error('Tick at least one field to apply'); return; }
     setSaving(true);
+    // Create the new subcategory in Settings first, so it persists even if it
+    // ends up applied to products below.
+    if (apply.subcategory && creatingSub && effectiveSubcategory && effectiveCategory) {
+      try { await ensureSubcategoryRow(effectiveCategory, effectiveSubcategory); }
+      catch { toast.error('Could not save the new subcategory to Settings'); }
+    }
     let ok = 0, fail = 0;
     for (const id of productIds) {
       try { await base44.entities.Product.update(id, payload); ok++; }
@@ -136,7 +182,7 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
               <p className="font-medium mb-1">Fields to apply:</p>
               <ul className="list-disc pl-5 text-muted-foreground space-y-0.5">
                 {apply.type && <li>Category → {CATEGORY_LABELS[type]}</li>}
-                {apply.subcategory && <li>Subcategory → {subcategory}</li>}
+                {apply.subcategory && <li>Subcategory → {effectiveSubcategory}{creatingSub && <span className="text-primary"> (new)</span>}</li>}
                 {apply.default_location_id && <li>Default Location → {locations.find(l => l.id === locationId)?.name || 'None'}</li>}
                 {apply.stock_uom && <li>UOM → {uom}</li>}
                 {apply.sellable && <li>Sellable → {sellable ? 'Yes' : 'No'}</li>}
@@ -164,12 +210,31 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
                   Selection spans multiple categories. Tick &amp; choose a shared Category above to set a subcategory.
                 </p>
               ) : (
-                <Select value={subcategory} onValueChange={setSubcategory}>
-                  <SelectTrigger className="h-9"><SelectValue placeholder="Select subcategory" /></SelectTrigger>
-                  <SelectContent>
-                    {subcategoryOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <div className="space-y-2">
+                  <Select value={subcategory} onValueChange={setSubcategory}>
+                    <SelectTrigger className="h-9"><SelectValue placeholder="Select subcategory" /></SelectTrigger>
+                    <SelectContent>
+                      {subcategoryOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                      <SelectItem value={NEW_SUBCATEGORY}>
+                        <span className="flex items-center gap-1.5 text-primary"><Plus className="w-3.5 h-3.5" /> New subcategory…</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {creatingSub && (
+                    <div className="space-y-1">
+                      <Input
+                        autoFocus
+                        placeholder={`New ${CATEGORY_LABELS[effectiveCategory] || ''} subcategory name…`}
+                        value={newSubName}
+                        onChange={e => setNewSubName(e.target.value)}
+                        className="h-9"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        This is added to Settings → Categories under {CATEGORY_LABELS[effectiveCategory]} and applied to the selected products.
+                      </p>
+                    </div>
+                  )}
+                </div>
               )}
             </Row>
 
