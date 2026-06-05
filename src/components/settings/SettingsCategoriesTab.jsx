@@ -75,11 +75,28 @@ export default function SettingsCategoriesTab() {
           .filter(s => s.product_type === type)
           .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
         const dbNames = new Set(dbSubs.map(s => (s.name || '').toLowerCase()));
+
+        // Subcategory values actually assigned to products but not yet in the
+        // managed list — surfaced so Settings reflects reality.
+        const liveMap = new Map();
+        products.forEach(p => {
+          if (p.type !== type) return;
+          const sc = (p.subcategory || '').trim();
+          if (!sc) return;
+          const k = sc.toLowerCase();
+          if (dbNames.has(k) || liveMap.has(k)) return;
+          liveMap.set(k, sc);
+        });
+        const inUse = [...liveMap.values()];
+        const liveLower = new Set(liveMap.keys());
+
+        // Canonical defaults not yet added and not already shown above.
         const suggested = (SUBCATEGORIES_BY_CATEGORY[type] || [])
-          .filter(n => !dbNames.has(n.toLowerCase()));
-        return { type, label: CATEGORY_LABELS[type] || type, cat, dbSubs, suggested };
+          .filter(n => !dbNames.has(n.toLowerCase()) && !liveLower.has(n.toLowerCase()));
+
+        return { type, label: CATEGORY_LABELS[type] || type, cat, dbSubs, inUse, suggested };
       });
-  }, [categories, subcategories, typeFilter]);
+  }, [categories, subcategories, products, typeFilter]);
 
   const toggleCat = (type) => setExpandedCats(prev => ({ ...prev, [type]: !prev[type] }));
   const invalidate = () => {
@@ -234,7 +251,7 @@ export default function SettingsCategoriesTab() {
       {/* Category list */}
       <div className="space-y-2">
         {sections.map(section => {
-          const { type, label, dbSubs, suggested } = section;
+          const { type, label, dbSubs, inUse, suggested } = section;
           const isOpen = expandedCats[type];
           const subCount = dbSubs.length;
           const prodCount = countByType[type] || 0;
@@ -293,6 +310,37 @@ export default function SettingsCategoriesTab() {
                     );
                   })}
 
+                  {/* Assigned to products but not in the managed list yet */}
+                  {inUse.map(name => {
+                    const used = countBySub[`${type}::${name.toLowerCase()}`] || 0;
+                    return (
+                      <div key={`live-${name}`} className="flex items-center gap-3 pl-6">
+                        <Tag className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-sm flex-1">{name}</span>
+                        <span className="text-[10px] text-amber-600">{used} product{used === 1 ? '' : 's'} · not saved</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="w-7 h-7 text-primary hover:text-primary"
+                          onClick={() => handleAddSubcategory(type, name)}
+                          disabled={addingSub[type]}
+                          title="Save this subcategory to the managed list"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="w-7 h-7 text-destructive hover:text-destructive"
+                          onClick={() => handleRemoveSubcategory({ id: null, name, product_type: type })}
+                          title="Move these products to another subcategory"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+
                   {/* Suggested (canonical) defaults not yet added */}
                   {suggested.map(name => (
                     <div key={`sugg-${name}`} className="flex items-center gap-3 pl-6 opacity-55">
@@ -312,7 +360,7 @@ export default function SettingsCategoriesTab() {
                     </div>
                   ))}
 
-                  {dbSubs.length === 0 && suggested.length === 0 && (
+                  {dbSubs.length === 0 && inUse.length === 0 && suggested.length === 0 && (
                     <p className="text-xs text-muted-foreground pl-6">No subcategories yet.</p>
                   )}
 
@@ -391,7 +439,7 @@ function MergeDialog({ merge, subcategories, products, onClose, onDone }) {
         for (const p of affected) {
           try { await base44.entities.Product.update(p.id, { subcategory: target }); ok++; } catch { fail++; }
         }
-        await base44.entities.ProductSubcategory.update(source.id, { is_active: false });
+        if (source.id) await base44.entities.ProductSubcategory.update(source.id, { is_active: false });
         toast[fail ? 'warning' : 'success'](`Moved ${ok} product${ok === 1 ? '' : 's'} to "${target}"${fail ? `, ${fail} failed` : ''}; "${label}" removed`);
       } else {
         const affected = products.filter(p => p.type === source.type);

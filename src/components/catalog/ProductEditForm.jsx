@@ -9,6 +9,7 @@ import ProductPurchaseUomEditor from '@/components/catalog/ProductPurchaseUomEdi
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Plus, Check, X as XIcon } from 'lucide-react';
+import { useSubcategories } from '@/lib/useSubcategories';
 
 const PRODUCT_TYPES = [
   { value: 'raw', label: 'Raw Material' },
@@ -48,15 +49,18 @@ function FormField({ label, children, hint }) {
   );
 }
 
-export default function ProductEditForm({ formData, onChange, locations, suppliers, categories = [], productCategories = [], productSubcategories = [], productId }) {
+export default function ProductEditForm({ formData, onChange, locations, suppliers, productCategories = [], productId }) {
   const set = (field, value) => onChange({ ...formData, [field]: value });
   const queryClient = useQueryClient();
-  const [showNewCat, setShowNewCat] = useState(false);
-  const [newCatName, setNewCatName] = useState('');
-  const [savingCat, setSavingCat] = useState(false);
   const [showNewSub, setShowNewSub] = useState(false);
   const [newSubName, setNewSubName] = useState('');
   const [savingSub, setSavingSub] = useState(false);
+
+  // Classification = Category (product.type) + Subcategory (product.subcategory
+  // text). Subcategory options come from Settings → Categories for the chosen
+  // category, with the canonical defaults merged in.
+  const { getSubcategoriesForType } = useSubcategories();
+  const subcategoryOptions = formData.type ? getSubcategoriesForType(formData.type) : [];
 
   // Locally-managed tax rates + chart of accounts (replaces Xero source).
   const { data: taxRates = [] } = useQuery({
@@ -70,39 +74,42 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
     staleTime: 300000,
   });
 
-  const handleCreateCategory = async () => {
-    if (!newCatName.trim()) return;
-    setSavingCat(true);
-    const created = await base44.entities.ProductCategory.create({
-      name: newCatName.trim(),
-      product_type: formData.type || 'raw',
-      is_active: true,
-      sort_order: 999,
-    });
-    queryClient.invalidateQueries({ queryKey: ['product-categories'] });
-    onChange({ ...formData, category_id: created.id, subcategory_id: '' });
-    setNewCatName('');
-    setShowNewCat(false);
-    setSavingCat(false);
-  };
-
+  // Create a new subcategory: persist it to Settings → Categories (so it shows
+  // everywhere) and select it on this product. Find-or-create the canonical
+  // category row for the chosen category (its category_id is NOT NULL).
   const handleCreateSubcategory = async () => {
-    if (!newSubName.trim() || !formData.category_id) return;
+    const name = newSubName.trim();
+    if (!name || !formData.type) return;
     setSavingSub(true);
-    const parentCat = productCategories.find(c => c.id === formData.category_id);
-    const created = await base44.entities.ProductSubcategory.create({
-      name: newSubName.trim(),
-      category_id: formData.category_id,
-      category_name: parentCat?.name || '',
-      product_type: formData.type || 'raw',
-      is_active: true,
-      sort_order: 999,
-    });
-    queryClient.invalidateQueries({ queryKey: ['product-subcategories'] });
-    onChange({ ...formData, subcategory_id: created.id });
-    setNewSubName('');
-    setShowNewSub(false);
-    setSavingSub(false);
+    try {
+      const dupe = subcategoryOptions.some(s => (s || '').toLowerCase() === name.toLowerCase());
+      if (!dupe) {
+        let cat = productCategories.find(c => c.product_type === formData.type);
+        if (!cat) {
+          cat = await base44.entities.ProductCategory.create({
+            name: PRODUCT_TYPES.find(t => t.value === formData.type)?.label || formData.type,
+            product_type: formData.type,
+            is_active: true,
+            sort_order: 999,
+          });
+          queryClient.invalidateQueries({ queryKey: ['product-categories'] });
+        }
+        await base44.entities.ProductSubcategory.create({
+          name,
+          category_id: cat.id,
+          category_name: cat.name,
+          product_type: formData.type,
+          is_active: true,
+          sort_order: 999,
+        });
+        queryClient.invalidateQueries({ queryKey: ['product-subcategories'] });
+      }
+      onChange({ ...formData, subcategory: name });
+      setNewSubName('');
+      setShowNewSub(false);
+    } finally {
+      setSavingSub(false);
+    }
   };
 
   // Accounts split by type for each dropdown (sourced locally from Settings → Accounting).
@@ -126,9 +133,9 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
           <FormField label="Barcode">
             <Input value={formData.barcode || ''} onChange={e => set('barcode', e.target.value)} />
           </FormField>
-          <FormField label="Type">
-            <Select value={formData.type || ''} onValueChange={v => set('type', v)}>
-              <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+          <FormField label="Category">
+            <Select value={formData.type || ''} onValueChange={v => onChange({ ...formData, type: v, subcategory: '' })}>
+              <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
               <SelectContent>
                 {PRODUCT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
               </SelectContent>
@@ -136,58 +143,8 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
           </FormField>
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">Category</Label>
-              <button
-                type="button"
-                onClick={() => { setShowNewCat(v => !v); setNewCatName(''); }}
-                className="text-xs text-primary hover:underline flex items-center gap-0.5"
-              >
-                <Plus className="w-3 h-3" /> New category
-              </button>
-            </div>
-            {showNewCat && (
-              <div className="flex gap-1.5 items-center">
-                <Input
-                  value={newCatName}
-                  onChange={e => setNewCatName(e.target.value)}
-                  placeholder={`Category name (${formData.type || 'raw'})`}
-                  className="h-8 text-sm flex-1"
-                  onKeyDown={e => { if (e.key === 'Enter') handleCreateCategory(); if (e.key === 'Escape') setShowNewCat(false); }}
-                  autoFocus
-                />
-                <button type="button" onClick={handleCreateCategory} disabled={savingCat || !newCatName.trim()}
-                  className="h-8 w-8 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-                  <Check className="w-3.5 h-3.5" />
-                </button>
-                <button type="button" onClick={() => setShowNewCat(false)}
-                  className="h-8 w-8 flex items-center justify-center rounded-md border border-border hover:bg-muted">
-                  <XIcon className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-            <Select
-              value={formData.category_id || 'none'}
-              onValueChange={v => {
-                const newCatId = v === 'none' ? '' : v;
-                onChange({ ...formData, category_id: newCatId, subcategory_id: '' });
-              }}
-            >
-              <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">— None —</SelectItem>
-                {productCategories
-                  .filter(c => !formData.type || c.product_type === formData.type)
-                  .map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {formData.category && !formData.category_id && (
-              <p className="text-[10px] text-amber-600">Legacy: {formData.category}</p>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
               <Label className="text-sm font-medium">Subcategory</Label>
-              {formData.category_id && (
+              {formData.type && (
                 <button
                   type="button"
                   onClick={() => { setShowNewSub(v => !v); setNewSubName(''); }}
@@ -197,7 +154,7 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
                 </button>
               )}
             </div>
-            {showNewSub && formData.category_id && (
+            {showNewSub && formData.type && (
               <div className="flex gap-1.5 items-center">
                 <Input
                   value={newSubName}
@@ -218,20 +175,15 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               </div>
             )}
             <Select
-              value={formData.subcategory_id || 'none'}
-              onValueChange={v => set('subcategory_id', v === 'none' ? '' : v)}
+              value={formData.subcategory || 'none'}
+              onValueChange={v => set('subcategory', v === 'none' ? '' : v)}
             >
-              <SelectTrigger><SelectValue placeholder={formData.category_id ? 'Select subcategory' : 'Select a category first'} /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder={formData.type ? 'Select subcategory' : 'Select a category first'} /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">— None —</SelectItem>
-                {productSubcategories
-                  .filter(s => formData.category_id && s.category_id === formData.category_id)
-                  .map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                {subcategoryOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
               </SelectContent>
             </Select>
-            {formData.subcategory && !formData.subcategory_id && (
-              <p className="text-[10px] text-amber-600">Legacy: {formData.subcategory}</p>
-            )}
           </div>
           <FormField label="Weight" hint="Stored in grams; choose how you enter it">
             <div className="flex gap-1.5">
