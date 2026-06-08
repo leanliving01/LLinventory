@@ -38,6 +38,34 @@ interface ShopifyOrder {
   line_items: ShopifyLineItem[];
   // deno-lint-ignore no-explicit-any
   refunds?: any[];
+  cancelled_at?: string | null;
+  fulfillments?: ShopifyFulfillment[];
+}
+
+interface ShopifyFulfillment {
+  status?: string;
+  created_at?: string;
+  tracking_number?: string | null;
+  tracking_company?: string | null;
+  tracking_url?: string | null;
+  // deno-lint-ignore no-explicit-any
+  tracking_urls?: any[];
+}
+
+// Pull courier / tracking from the most recent fulfilment, when present.
+// Returns only keys that have a value so a re-sync never wipes existing data.
+function fulfilmentFields(o: ShopifyOrder): Record<string, unknown> {
+  const f = (o.fulfillments || []).filter(x => x && x.status !== 'cancelled');
+  if (!f.length) return {};
+  const latest = f[f.length - 1];
+  const out: Record<string, unknown> = {};
+  if (latest.tracking_company) out.courier = latest.tracking_company;
+  if (latest.tracking_number) out.tracking_number = latest.tracking_number;
+  const url = latest.tracking_url || (Array.isArray(latest.tracking_urls) ? latest.tracking_urls[0] : null);
+  if (url) out.tracking_url = url;
+  // shipped_at is intentionally NOT set here — the in-app packing flow owns it
+  // (and dispatch KPIs depend on it). We only enrich courier/tracking metadata.
+  return out;
 }
 
 interface ShopifyShippingLine {
@@ -89,6 +117,16 @@ function mapFulfilmentStatus(s: string | null): string {
     case 'restocked':  return 'restocked';
     default:           return 'unfulfilled';
   }
+}
+
+// sales_orders.payment_status / fulfillment_status have CHECK constraints that
+// differ from the shopify_orders columns. Coerce to the allowed value sets.
+const SALES_PAYMENT_ALLOWED = ['paid','pending','partially_paid','refunded','voided','authorized','partially_refunded'];
+function mapSalesPaymentStatus(s: string | null): string {
+  return s && SALES_PAYMENT_ALLOWED.includes(s) ? s : 'pending';
+}
+function mapSalesFulfilmentStatus(s: string | null): string {
+  return s === 'fulfilled' ? 'fulfilled' : s === 'partial' ? 'partial' : 'unfulfilled';
 }
 
 Deno.serve(async (req) => {
@@ -237,23 +275,31 @@ Deno.serve(async (req) => {
       orderIdMap.set(String(o.id), newId);
     }
 
-    // Mirror into sales_orders
-    const lifecycleState = mapLifecycleState(o.financial_status, o.fulfillment_status);
+    // Mirror into sales_orders. A Shopify cancellation overrides lifecycle so the
+    // cancelled status shows correctly (deduct_fulfilled_stock ignores non-fulfilled).
+    const lifecycleState = o.cancelled_at
+      ? 'cancelled'
+      : mapLifecycleState(o.financial_status, o.fulfillment_status);
     const shopifyOrderId = String(o.id);
     const salesPayload = {
       shopify_order_id: shopifyOrderId,
       external_id: shopifyOrderId,
       order_number: String(o.order_number || o.name || o.id),
+      order_source: 'shopify',
       customer_name: customerName,
       customer_email: o.email || o.customer?.email || null,
       customer_phone: o.customer?.phone || null,
       order_date: o.created_at,
       lifecycle_state: lifecycleState,
+      cancelled_at: o.cancelled_at || null,
+      payment_status: mapSalesPaymentStatus(o.financial_status),
+      fulfillment_status: mapSalesFulfilmentStatus(o.fulfillment_status),
       total_amount: parseFloat(o.total_price || '0') || 0,
       tags: o.tags ? o.tags.replace(/,\s*/g, '|') : null,
       shipping_city: o.shipping_address?.city || null,
       updated_date: now,
       last_synced_at: now,
+      ...fulfilmentFields(o),
     };
     const existingSales = existingSalesById.get(shopifyOrderId);
     if (existingSales) {
@@ -315,6 +361,29 @@ Deno.serve(async (req) => {
 
   // Also clear and replace sales_order_lines for affected sales_orders
   const affectedSalesIds = Array.from(salesIdMap.values()).filter(Boolean);
+
+  // Snapshot existing lines BEFORE delete so we can detect real order edits
+  // (added / removed / qty-changed). Best-effort: failures must not break sync.
+  const priorLinesByOrder = new Map<string, Map<string, number>>();
+  try {
+    if (affectedSalesIds.length) {
+      const { data: priorLines } = await supabase
+        .from('sales_order_lines')
+        .select('sales_order_id, sku, qty')
+        .in('sales_order_id', affectedSalesIds)
+        .eq('source_platform', 'shopify');
+      for (const pl of priorLines || []) {
+        const oid = pl.sales_order_id as string;
+        if (!priorLinesByOrder.has(oid)) priorLinesByOrder.set(oid, new Map());
+        const m = priorLinesByOrder.get(oid)!;
+        const sku = String(pl.sku || '');
+        m.set(sku, (m.get(sku) || 0) + Number(pl.qty || 0)); // aggregate dup SKUs
+      }
+    }
+  } catch (e) {
+    console.error('[sync-shopify-orders] prior-lines snapshot failed:', (e as Error).message);
+  }
+
   if (affectedSalesIds.length) {
     await supabase.from('sales_order_lines').delete()
       .in('sales_order_id', affectedSalesIds)
@@ -454,6 +523,63 @@ Deno.serve(async (req) => {
   if (allFinancialLines.length) {
     const { error: flErr } = await supabase.from('sales_order_financial_lines').insert(allFinancialLines);
     if (flErr) console.error('sales_order_financial_lines insert error:', flErr.message);
+  }
+
+  // Audit timeline events: 'imported' for brand-new orders, 'edited' only when
+  // the line set actually changed vs the prior snapshot (so routine re-syncs do
+  // not spam the timeline). Fully guarded — never breaks the sync.
+  try {
+    const newSalesIds = new Set(salesToInsert.map(r => r.id as string));
+    // Build new line snapshot per order from allSalesLines.
+    const newLinesByOrder = new Map<string, Map<string, number>>();
+    for (const l of allSalesLines) {
+      const oid = l.sales_order_id as string;
+      if (!newLinesByOrder.has(oid)) newLinesByOrder.set(oid, new Map());
+      const m = newLinesByOrder.get(oid)!;
+      const sku = String(l.sku || '');
+      m.set(sku, (m.get(sku) || 0) + Number(l.qty || 0));
+    }
+    const events: Record<string, unknown>[] = [];
+    for (const o of orders) {
+      const sid = salesIdMap.get(String(o.id));
+      if (!sid) continue;
+      const orderNumber = String(o.order_number || o.name || o.id);
+      if (newSalesIds.has(sid)) {
+        events.push({
+          id: crypto.randomUUID(), sales_order_id: sid, shopify_order_id: String(o.id),
+          order_number: orderNumber, event_type: 'imported',
+          description: 'Imported from Shopify', actor: 'shopify-sync',
+          metadata: { financial_status: o.financial_status, fulfillment_status: o.fulfillment_status },
+          created_date: now, updated_date: now,
+        });
+        continue;
+      }
+      // Existing order — diff prior vs new lines.
+      const prior = priorLinesByOrder.get(sid) || new Map<string, number>();
+      const next = newLinesByOrder.get(sid) || new Map<string, number>();
+      const added: string[] = [], removed: string[] = [], changed: string[] = [];
+      for (const [sku, q] of next) {
+        if (!prior.has(sku)) added.push(`${sku} x${q}`);
+        else if (prior.get(sku) !== q) changed.push(`${sku}: ${prior.get(sku)}→${q}`);
+      }
+      for (const [sku, q] of prior) {
+        if (!next.has(sku)) removed.push(`${sku} x${q}`);
+      }
+      if (added.length || removed.length || changed.length) {
+        events.push({
+          id: crypto.randomUUID(), sales_order_id: sid, shopify_order_id: String(o.id),
+          order_number: orderNumber, event_type: 'edited',
+          description: 'Order lines updated from Shopify', actor: 'shopify-sync',
+          metadata: { added, removed, changed }, created_date: now, updated_date: now,
+        });
+      }
+    }
+    if (events.length) {
+      const { error: evErr } = await supabase.from('sales_order_events').insert(events);
+      if (evErr) console.error('[sync-shopify-orders] events insert:', evErr.message);
+    }
+  } catch (e) {
+    console.error('[sync-shopify-orders] audit events failed:', (e as Error).message);
   }
 
   // Import any Shopify refunds on these orders as Draft Returns (no stock movement).

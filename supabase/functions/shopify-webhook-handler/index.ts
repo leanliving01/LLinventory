@@ -62,6 +62,16 @@ function mapFulfilmentStatus(s: string | null): string {
   }
 }
 
+// sales_orders.payment_status / fulfillment_status CHECK-safe coercion (differs
+// from the free-text shopify_orders columns).
+const SALES_PAYMENT_ALLOWED = ['paid','pending','partially_paid','refunded','voided','authorized','partially_refunded'];
+function mapSalesPaymentStatus(s: string | null): string {
+  return s && SALES_PAYMENT_ALLOWED.includes(s) ? s : 'pending';
+}
+function mapSalesFulfilmentStatus(s: string | null): string {
+  return s === 'fulfilled' ? 'fulfilled' : s === 'partial' ? 'partial' : 'unfulfilled';
+}
+
 function mapLifecycleState(financial: string | null, fulfilment: string | null): string {
   if (financial === 'refunded' || financial === 'voided') return 'refunded';
   if (financial === 'paid' || financial === 'partially_refunded') {
@@ -75,6 +85,21 @@ function detectLineType(title: string): string {
   if (t.includes('low carb')) return 'low_carb_package';
   if (t.includes('lean muscle') || t.includes('weight loss') || t.includes('meals')) return 'goal_package';
   return 'standalone';
+}
+
+// Courier / tracking from the most recent (non-cancelled) fulfilment, when
+// present. Only returns keys that have a value (never wipes existing data).
+// deno-lint-ignore no-explicit-any
+function fulfilmentFields(o: any): Record<string, unknown> {
+  const f = (o?.fulfillments || []).filter((x: any) => x && x.status !== 'cancelled');
+  if (!f.length) return {};
+  const latest = f[f.length - 1];
+  const out: Record<string, unknown> = {};
+  if (latest.tracking_company) out.courier = latest.tracking_company;
+  if (latest.tracking_number) out.tracking_number = latest.tracking_number;
+  const url = latest.tracking_url || (Array.isArray(latest.tracking_urls) ? latest.tracking_urls[0] : null);
+  if (url) out.tracking_url = url;
+  return out;
 }
 
 Deno.serve(async (req) => {
@@ -169,8 +194,11 @@ Deno.serve(async (req) => {
     await supabase.from('shopify_orders').insert({ id: ourOrderId, ...orderPayload, created_date: now });
   }
 
-  // Upsert sales_orders
-  const lifecycleState = mapLifecycleState(financialStatus, fulfillmentStatus);
+  // Upsert sales_orders. Shopify cancellation overrides lifecycle state.
+  const cancelledAt = (o.cancelled_at as string) || null;
+  const lifecycleState = cancelledAt
+    ? 'cancelled'
+    : mapLifecycleState(financialStatus, fulfillmentStatus);
   const salesPayload = {
     shopify_order_id: shopifyOrderId,
     external_id: shopifyOrderId,
@@ -179,17 +207,25 @@ Deno.serve(async (req) => {
     customer_email: (o.email || (customer.email as string)) || null,
     customer_phone: (customer.phone as string) || null,
     order_date: o.created_at as string,
+    order_source: 'shopify',
     lifecycle_state: lifecycleState,
+    cancelled_at: cancelledAt,
+    payment_status: mapSalesPaymentStatus(financialStatus),
+    fulfillment_status: mapSalesFulfilmentStatus(fulfillmentStatus),
     total_amount: parseFloat((o.total_price as string) || '0') || 0,
     tags: o.tags ? (o.tags as string).replace(/,\s*/g, '|') : null,
     shipping_city: ((o.shipping_address as Record<string, unknown>)?.city as string) || null,
     updated_date: now,
     last_synced_at: now,
+    ...fulfilmentFields(o),
   };
 
   const { data: existingSales } = await supabase
-    .from('sales_orders').select('id').eq('shopify_order_id', shopifyOrderId).maybeSingle();
+    .from('sales_orders').select('id, lifecycle_state, cancelled_at').eq('shopify_order_id', shopifyOrderId).maybeSingle();
 
+  const isNewSalesOrder = !existingSales;
+  const priorLifecycle = (existingSales?.lifecycle_state as string) || null;
+  const priorCancelledAt = (existingSales?.cancelled_at as string) || null;
   let ourSalesId: string;
   if (existingSales) {
     ourSalesId = existingSales.id as string;
@@ -197,6 +233,19 @@ Deno.serve(async (req) => {
   } else {
     ourSalesId = crypto.randomUUID();
     await supabase.from('sales_orders').insert({ id: ourSalesId, ...salesPayload, created_date: now });
+  }
+
+  // Snapshot existing lines BEFORE delete so we can log real edits (best-effort).
+  const priorLines = new Map<string, number>();
+  try {
+    const { data: pl } = await supabase.from('sales_order_lines')
+      .select('sku, qty').eq('sales_order_id', ourSalesId).eq('source_platform', 'shopify');
+    for (const row of pl || []) {
+      const sku = String(row.sku || '');
+      priorLines.set(sku, (priorLines.get(sku) || 0) + Number(row.qty || 0)); // aggregate dup SKUs
+    }
+  } catch (e) {
+    console.error('[webhook] prior-lines snapshot failed:', (e as Error).message);
   }
 
   // Replace line items
@@ -212,6 +261,7 @@ Deno.serve(async (req) => {
   const orderNumber = String(o.order_number || o.name || o.id);
   const rules = await loadClassificationRules(supabase);
   const financialLines: Array<Record<string, unknown>> = [];
+  const newLines = new Map<string, number>();
 
   if (lineItems.length) {
     const orderLines = lineItems.map((l) => ({
@@ -237,6 +287,8 @@ Deno.serve(async (req) => {
 
       if (category === 'inventory_product') {
         const lineType = detectLineType((l.title as string) || '');
+        const skuKey = (l.sku as string) || '';
+        newLines.set(skuKey, (newLines.get(skuKey) || 0) + ((l.quantity as number) || 0));
         salesLines.push({
           id: crypto.randomUUID(),
           sales_order_id: ourSalesId,
@@ -319,6 +371,45 @@ Deno.serve(async (req) => {
   if (lifecycleState === 'fulfilled') {
     const { error: deductErr } = await supabase.rpc('deduct_fulfilled_stock', { p_order_id: ourSalesId });
     if (deductErr) console.error('deduct_fulfilled_stock error:', deductErr.message);
+  }
+
+  // Sales-order audit timeline events (best-effort; never break the webhook).
+  try {
+    const events: Record<string, unknown>[] = [];
+    const base = {
+      sales_order_id: ourSalesId, shopify_order_id: shopifyOrderId,
+      order_number: orderNumber, actor: 'shopify-webhook',
+      created_date: now, updated_date: now,
+    };
+    if (isNewSalesOrder) {
+      events.push({ id: crypto.randomUUID(), ...base, event_type: 'imported',
+        description: `Imported from Shopify (${topic})`,
+        metadata: { topic, financial_status: financialStatus, fulfillment_status: fulfillmentStatus } });
+    } else {
+      const added: string[] = [], removed: string[] = [], changed: string[] = [];
+      for (const [sku, q] of newLines) {
+        if (!priorLines.has(sku)) added.push(`${sku} x${q}`);
+        else if (priorLines.get(sku) !== q) changed.push(`${sku}: ${priorLines.get(sku)}→${q}`);
+      }
+      for (const [sku, q] of priorLines) if (!newLines.has(sku)) removed.push(`${sku} x${q}`);
+      if (added.length || removed.length || changed.length) {
+        events.push({ id: crypto.randomUUID(), ...base, event_type: 'edited',
+          description: 'Order lines updated from Shopify', metadata: { added, removed, changed } });
+      }
+    }
+    // Only log cancellation / fulfilment on the actual transition (not on every
+    // webhook replay of an order already in that state).
+    if (cancelledAt && !priorCancelledAt) {
+      events.push({ id: crypto.randomUUID(), ...base, event_type: 'cancelled',
+        description: 'Order cancelled in Shopify', metadata: { cancelled_at: cancelledAt } });
+    }
+    if (lifecycleState === 'fulfilled' && priorLifecycle !== 'fulfilled') {
+      events.push({ id: crypto.randomUUID(), ...base, event_type: 'fulfilled',
+        description: 'Order fulfilled (stock deducted)', metadata: { topic } });
+    }
+    if (events.length) await supabase.from('sales_order_events').insert(events);
+  } catch (e) {
+    console.error('[webhook] audit events failed:', (e as Error).message);
   }
 
   // Store raw event for audit
