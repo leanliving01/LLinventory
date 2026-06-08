@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { base44 } from '@/api/base44Client';
 import { useQueryClient } from '@tanstack/react-query';
@@ -24,6 +24,21 @@ export default function AdditionalCostsCard({ order, costs = [] }) {
     cost_type: 'courier_actual', description: '', reference: '',
     amount: '', cost_date: new Date().toISOString().slice(0, 10), notes: '',
   });
+
+  const [deletingId, setDeletingId] = useState(null);
+  const handleDelete = async (c) => {
+    setDeletingId(c.id);
+    try {
+      await base44.entities.SalesOrderCost.delete(c.id);
+      toast.success('Cost removed');
+      queryClient.invalidateQueries({ queryKey: ['salesOrderCosts', order.id] });
+      queryClient.invalidateQueries({ queryKey: ['salesOrderProfit', order.id] });
+    } catch (err) {
+      toast.error(err.message || 'Could not remove cost');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -74,17 +89,34 @@ export default function AdditionalCostsCard({ order, costs = [] }) {
       </div>
       {costs.length > 0 ? (
         <div className="space-y-1 mb-2">
-          {costs.map((c) => (
-            <div key={c.id} className="flex items-center justify-between text-xs">
-              <span className="truncate">
-                <span className="capitalize">{(c.cost_type || '').replace(/_/g, ' ')}</span>
-                {c.description ? ` — ${c.description}` : ''}
-                {c.reference ? <span className="text-muted-foreground"> · ref {c.reference}</span> : ''}
-                {c.cost_date ? <span className="text-muted-foreground"> · {c.cost_date}</span> : ''}
-              </span>
-              <span className="font-medium text-rose-600">−{money(c.amount)}</span>
-            </div>
-          ))}
+          {costs.map((c) => {
+            const isAuto = c.reference === 'auto-fulfilment';
+            return (
+              <div key={c.id} className="flex items-center justify-between gap-2 text-xs group">
+                <span className="truncate flex items-center gap-1.5">
+                  <span className="capitalize">{(c.cost_type || '').replace(/_/g, ' ')}</span>
+                  {isAuto && (
+                    <Badge variant="outline" className="text-[9px] py-0 border-emerald-300 text-emerald-700">auto</Badge>
+                  )}
+                  {c.description ? ` — ${c.description}` : ''}
+                  {c.reference && !isAuto ? <span className="text-muted-foreground"> · ref {c.reference}</span> : ''}
+                  {c.cost_date ? <span className="text-muted-foreground"> · {c.cost_date}</span> : ''}
+                </span>
+                <span className="flex items-center gap-1.5 shrink-0">
+                  <span className="font-medium text-rose-600">−{money(c.amount)}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(c)}
+                    disabled={deletingId === c.id}
+                    title={isAuto ? 'Remove auto cost (override)' : 'Remove cost'}
+                    className="p-0.5 rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-50"
+                  >
+                    {deletingId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                  </button>
+                </span>
+              </div>
+            );
+          })}
         </div>
       ) : (
         !showForm && <p className="text-xs text-muted-foreground">No additional costs recorded.</p>

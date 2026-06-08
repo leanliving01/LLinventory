@@ -11,6 +11,15 @@ function Row({ label, value, dim }) {
   );
 }
 
+const COST_TYPE_LABELS = {
+  packaging: 'Packaging materials',
+  courier_actual: 'Courier',
+  resend: 'Re-send',
+  write_off: 'Write-off',
+  handling: 'Handling',
+  other: 'Other',
+};
+
 /** Order profitability summary card from the order_profitability RPC payload. */
 export default function ProfitabilitySummary({ profit }) {
   if (!profit) {
@@ -38,6 +47,17 @@ export default function ProfitabilitySummary({ profit }) {
         <Row label="Product cost (COGS)" value={`−${money(profit.product_cogs)}`} dim={!Number(profit.product_cogs)} />
         <Row label="Added order costs" value={`−${money(profit.added_order_costs)}`} dim={!Number(profit.added_order_costs)} />
       </div>
+
+      {Array.isArray(profit.added_costs_breakdown) && profit.added_costs_breakdown.length > 0 && (
+        <div className="mt-1.5 ml-1 pl-2 border-l border-emerald-200 space-y-0.5">
+          {profit.added_costs_breakdown.map((c) => (
+            <div key={c.cost_type} className="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>{COST_TYPE_LABELS[c.cost_type] || c.cost_type}</span>
+              <span className="tabular-nums">−{money(c.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex items-center justify-between border-t mt-2 pt-2 text-sm font-bold">
         <span>Net profit</span>
         <span className={Number(profit.net_profit) < 0 ? 'text-rose-600' : 'text-emerald-700'}>

@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Package, Loader2, Pill, UtensilsCrossed } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Plus, Package, Loader2, Pill, UtensilsCrossed, Truck, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import PackingRuleCard from './PackingRuleCard';
@@ -43,6 +44,41 @@ export default function SettingsPackingMaterialsTab() {
     queryKey: ['packing-material-rules'],
     queryFn: () => base44.entities.PackingMaterialRule.list('name', 50),
   });
+
+  // Standard courier cost setting (auto-applied to each order at fulfilment).
+  const { data: courierSetting } = useQuery({
+    queryKey: ['setting', 'standard_courier_cost'],
+    queryFn: async () => {
+      const rows = await base44.entities.Setting.filter({ key: 'standard_courier_cost' });
+      return rows?.[0] || null;
+    },
+  });
+  const [courierCost, setCourierCost] = useState('');
+  const [savingCourier, setSavingCourier] = useState(false);
+  React.useEffect(() => {
+    if (courierSetting) setCourierCost(courierSetting.value ?? '');
+  }, [courierSetting]);
+
+  const saveCourierCost = async () => {
+    const val = String(Number(courierCost) || 0);
+    setSavingCourier(true);
+    try {
+      if (courierSetting?.id) {
+        await base44.entities.Setting.update(courierSetting.id, { value: val });
+      } else {
+        await base44.entities.Setting.create({
+          key: 'standard_courier_cost', value: val, group: 'org',
+          label: 'Standard courier cost per order (R)',
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ['setting', 'standard_courier_cost'] });
+      toast.success('Standard courier cost saved');
+    } catch (err) {
+      toast.error(err.message || 'Could not save');
+    } finally {
+      setSavingCourier(false);
+    }
+  };
 
   const { data: packagingProducts = [] } = useQuery({
     queryKey: ['packaging-products'],
@@ -115,6 +151,38 @@ export default function SettingsPackingMaterialsTab() {
             Loading rules...
           </div>
         )}
+      </div>
+
+      {/* Standard courier cost */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-border flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400">
+            <Truck className="w-4.5 h-4.5" strokeWidth={1.5} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-semibold">Standard courier cost</h3>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Applied automatically as the courier cost on every order when it is fulfilled.
+              You can override it on an individual order in its Additional Costs.
+            </p>
+          </div>
+        </div>
+        <div className="px-6 py-4 flex items-end gap-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold">Cost per order (R)</label>
+            <Input
+              type="number" min="0" step="0.01"
+              value={courierCost}
+              onChange={(e) => setCourierCost(e.target.value)}
+              className="w-40 tabular-nums"
+              placeholder="0.00"
+            />
+          </div>
+          <Button onClick={saveCourierCost} disabled={savingCourier} className="gap-1.5">
+            {savingCourier ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" strokeWidth={1.5} />}
+            Save
+          </Button>
+        </div>
       </div>
 
       {/* Grouped sections */}
