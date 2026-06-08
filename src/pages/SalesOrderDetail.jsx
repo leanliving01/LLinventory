@@ -24,6 +24,7 @@ import SummaryTab from '@/components/sales/order-tabs/SummaryTab';
 import FinancialSummaryTab from '@/components/sales/order-tabs/FinancialSummaryTab';
 import PaymentTab from '@/components/sales/order-tabs/PaymentTab';
 import ShippingTab from '@/components/sales/order-tabs/ShippingTab';
+import PackingListTab from '@/components/sales/order-tabs/PackingListTab';
 import OrderEditsTab from '@/components/sales/order-tabs/OrderEditsTab';
 import ReturnsResendsRefundsTab from '@/components/sales/order-tabs/ReturnsResendsRefundsTab';
 import AdditionalCostsTab from '@/components/sales/order-tabs/AdditionalCostsTab';
@@ -36,6 +37,7 @@ const TABS = [
   { value: 'profitability', label: 'Profitability' },
   { value: 'payment',       label: 'Payment / Invoice' },
   { value: 'shipping',      label: 'Shipping & Fulfilment' },
+  { value: 'packing',       label: 'Packing List' },
   { value: 'edits',         label: 'Order Edits' },
   { value: 'returns',       label: 'Returns, Re-sends & Refunds' },
   { value: 'costs',         label: 'Additional Costs' },
@@ -264,6 +266,9 @@ export default function SalesOrderDetail() {
           </TabsContent>
           <TabsContent value="shipping">
             <ShippingTab order={order} />
+          </TabsContent>
+          <TabsContent value="packing">
+            <PackingListTab order={order} lines={lines} />
           </TabsContent>
           <TabsContent value="edits">
             <OrderEditsTab events={events} />

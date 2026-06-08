@@ -80,6 +80,38 @@ export default function SettingsPackingMaterialsTab() {
     }
   };
 
+  // External packing-app URL template (deep-link button on the order packing list).
+  const { data: appUrlSetting } = useQuery({
+    queryKey: ['setting', 'packing_app_url_template'],
+    queryFn: async () => {
+      const rows = await base44.entities.Setting.filter({ key: 'packing_app_url_template' });
+      return rows?.[0] || null;
+    },
+  });
+  const [appUrl, setAppUrl] = useState('');
+  const [savingAppUrl, setSavingAppUrl] = useState(false);
+  React.useEffect(() => { if (appUrlSetting) setAppUrl(appUrlSetting.value ?? ''); }, [appUrlSetting]);
+
+  const saveAppUrl = async () => {
+    setSavingAppUrl(true);
+    try {
+      if (appUrlSetting?.id) {
+        await base44.entities.Setting.update(appUrlSetting.id, { value: appUrl.trim() });
+      } else {
+        await base44.entities.Setting.create({
+          key: 'packing_app_url_template', value: appUrl.trim(), group: 'org',
+          label: 'Packing app URL template',
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ['setting', 'packing_app_url_template'] });
+      toast.success('Packing app link saved');
+    } catch (err) {
+      toast.error(err.message || 'Could not save');
+    } finally {
+      setSavingAppUrl(false);
+    }
+  };
+
   const { data: packagingProducts = [] } = useQuery({
     queryKey: ['packaging-products'],
     queryFn: () => base44.entities.Product.filter({ type: 'packaging', status: 'active' }, 'name', 200),
@@ -182,6 +214,27 @@ export default function SettingsPackingMaterialsTab() {
             {savingCourier ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" strokeWidth={1.5} />}
             Save
           </Button>
+        </div>
+        <div className="px-6 pb-4 space-y-1.5">
+          <label className="text-xs font-semibold">Packing app URL (optional)</label>
+          <p className="text-[11px] text-muted-foreground">
+            Adds an "Open in Packing App" button on each order's Packing List. Use
+            <code className="mx-1 px-1 bg-muted rounded">{'{order_number}'}</code>,
+            <code className="mx-1 px-1 bg-muted rounded">{'{order_id}'}</code> or
+            <code className="mx-1 px-1 bg-muted rounded">{'{shopify_order_id}'}</code> as placeholders.
+          </p>
+          <div className="flex items-end gap-3">
+            <Input
+              value={appUrl}
+              onChange={(e) => setAppUrl(e.target.value)}
+              className="flex-1"
+              placeholder="https://yourapp.com/pack?order={order_number}"
+            />
+            <Button onClick={saveAppUrl} disabled={savingAppUrl} variant="outline" className="gap-1.5">
+              {savingAppUrl ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" strokeWidth={1.5} />}
+              Save
+            </Button>
+          </div>
         </div>
       </div>
 
