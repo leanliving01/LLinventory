@@ -1,0 +1,22 @@
+name: Full Shopify Resync
+
+# Manual one-shot: re-pull every Shopify order so newly-synced fields
+# (VAT/total_tax, subtotal, discounts, shipping, raw_payload, order_source,
+# tracking) are populated across all historical orders.
+on:
+  workflow_dispatch:
+
+jobs:
+  resync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Trigger full Shopify order resync
+        run: node scripts/full-resync.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
