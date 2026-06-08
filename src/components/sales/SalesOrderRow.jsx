@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Package, RotateCcw, Send, Loader2, Plus, Tru
 import { Badge } from '@/components/ui/badge';
 import OrderStatusBadges from './OrderStatusBadges';
 import { orderRef, channelLabels } from '@/lib/salesOrderStatus';
+import { bySku } from '@/lib/naturalSort';
 import { base44 } from '@/api/base44Client';
 import { supabase } from '@/api/supabaseClient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -174,13 +175,15 @@ export default function SalesOrderRow({ order }) {
   const orderDate = order.order_date ? new Date(order.order_date) : null;
 
   // Split lines into packages and standalone/BYO (non-component lines)
-  const packageLines = lines.filter(l => l.is_package_parent);
-  const standaloneLines = lines.filter(l => !l.is_package_parent && !l.is_package_component && l.status === 'active');
+  const packageLines = lines.filter(l => l.is_package_parent).sort(bySku);
+  const standaloneLines = lines.filter(l => !l.is_package_parent && !l.is_package_component && l.status === 'active').sort(bySku);
   const componentsByParent = {};
   lines.filter(l => l.is_package_component && l.status === 'active').forEach(l => {
     if (!componentsByParent[l.parent_line_id]) componentsByParent[l.parent_line_id] = [];
     componentsByParent[l.parent_line_id].push(l);
   });
+  // Natural-sort meal components within each package (MLM1, MLM2 … MLM10).
+  Object.keys(componentsByParent).forEach(k => componentsByParent[k].sort(bySku));
 
   const handlePackageClick = (e, pkg) => {
     e.stopPropagation();

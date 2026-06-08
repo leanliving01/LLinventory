@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Package } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { money } from './money';
+import { bySku } from '@/lib/naturalSort';
 import PackageComponentsPopup from '../PackageComponentsPopup';
 
 /**
@@ -12,10 +13,10 @@ import PackageComponentsPopup from '../PackageComponentsPopup';
 export default function OrderLinesTable({ lines = [], loading = false }) {
   const [popupPackage, setPopupPackage] = useState(null);
 
-  const packageLines = lines.filter((l) => l.is_package_parent);
-  const standaloneLines = lines.filter(
-    (l) => !l.is_package_parent && !l.is_package_component && l.status === 'active'
-  );
+  const packageLines = lines.filter((l) => l.is_package_parent).sort(bySku);
+  const standaloneLines = lines
+    .filter((l) => !l.is_package_parent && !l.is_package_component && l.status === 'active')
+    .sort(bySku);
   const componentsByParent = {};
   lines
     .filter((l) => l.is_package_component && l.status === 'active')
@@ -23,6 +24,8 @@ export default function OrderLinesTable({ lines = [], loading = false }) {
       if (!componentsByParent[l.parent_line_id]) componentsByParent[l.parent_line_id] = [];
       componentsByParent[l.parent_line_id].push(l);
     });
+  // Natural-sort the meal components within each package (MLM1, MLM2 … MLM10).
+  Object.keys(componentsByParent).forEach((k) => componentsByParent[k].sort(bySku));
 
   const unfulfilled = (l) => {
     const f = Number(l.fulfilled_qty || 0);

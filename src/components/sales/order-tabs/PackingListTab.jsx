@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Printer, ExternalLink, Package, Pill, Box } from 'lucide-react';
 import { orderRef } from '@/lib/salesOrderStatus';
+import { bySku } from '@/lib/naturalSort';
 
 /**
  * Packing list for an order: what to physically pick & pack (package contents +
@@ -30,20 +31,21 @@ export default function PackingListTab({ order, lines = [] }) {
   });
 
   const { packages, standalone, totalMeals } = useMemo(() => {
-    const parents = lines.filter((l) => l.is_package_parent);
+    const parents = lines.filter((l) => l.is_package_parent).sort(bySku);
     const componentsByParent = {};
     lines
       .filter((l) => l.is_package_component && l.status === 'active')
       .forEach((l) => {
         (componentsByParent[l.parent_line_id] ||= []).push(l);
       });
+    Object.keys(componentsByParent).forEach((k) => componentsByParent[k].sort(bySku));
     const pkgs = parents.map((p) => ({
       parent: p,
       components: componentsByParent[p.id] || [],
     }));
-    const standaloneLines = lines.filter(
-      (l) => !l.is_package_parent && !l.is_package_component && l.status === 'active'
-    );
+    const standaloneLines = lines
+      .filter((l) => !l.is_package_parent && !l.is_package_component && l.status === 'active')
+      .sort(bySku);
     const meals =
       Object.values(componentsByParent).flat().reduce((s, c) => s + (Number(c.qty) || 0), 0) +
       standaloneLines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
