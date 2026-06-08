@@ -27,6 +27,8 @@ interface ShopifyOrder {
   tags?: string;
   created_at: string;
   total_price?: string;
+  subtotal_price?: string;
+  total_tax?: string;
   total_discounts?: string;
   total_tip_received?: string;
   shipping_address?: { city?: string };
@@ -295,10 +297,15 @@ Deno.serve(async (req) => {
       payment_status: mapSalesPaymentStatus(o.financial_status),
       fulfillment_status: mapSalesFulfilmentStatus(o.fulfillment_status),
       total_amount: parseFloat(o.total_price || '0') || 0,
+      subtotal_price: parseFloat(o.subtotal_price || '0') || 0,
+      total_tax: parseFloat(o.total_tax || '0') || 0,
+      total_discounts: parseFloat(o.total_discounts || '0') || 0,
+      shipping_cost: (o.shipping_lines || []).reduce((s, sl) => s + (parseFloat(sl.price || '0') || 0), 0),
       tags: o.tags ? o.tags.replace(/,\s*/g, '|') : null,
       shipping_city: o.shipping_address?.city || null,
       updated_date: now,
       last_synced_at: now,
+      raw_payload: o,
       ...fulfilmentFields(o),
     };
     const existingSales = existingSalesById.get(shopifyOrderId);

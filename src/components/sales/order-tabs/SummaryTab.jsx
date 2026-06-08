@@ -102,14 +102,20 @@ export default function SummaryTab({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <Card className="p-4">
           <p className="text-sm font-semibold mb-3">Financial Summary</p>
-          <FinancialTotals order={order} financialLines={financialLines} />
+          <FinancialTotals order={order} financialLines={financialLines} lines={lines} />
         </Card>
         <Card className="p-4">
           <p className="text-sm font-semibold mb-1">Order Total</p>
           <p className="text-3xl font-bold">{money(order.total_amount)}</p>
-          {outstanding > 0
-            ? <p className="text-sm text-orange-600 mt-1">{money(outstanding)} outstanding</p>
-            : <p className="text-sm text-emerald-600 mt-1">Fully paid</p>}
+          {order.payment_status === 'paid' ? (
+            <span className="inline-flex items-center gap-1 mt-2 text-sm font-semibold text-emerald-700 bg-emerald-100 border border-emerald-200 rounded-full px-2.5 py-0.5">
+              ✓ Order paid
+            </span>
+          ) : outstanding > 0 ? (
+            <p className="text-sm text-orange-600 mt-1">{money(outstanding)} outstanding</p>
+          ) : (
+            <p className="text-sm text-emerald-600 mt-1">Fully paid</p>
+          )}
           <p className="text-xs text-muted-foreground mt-2">
             See the Profitability tab for cost &amp; margin breakdown.
           </p>

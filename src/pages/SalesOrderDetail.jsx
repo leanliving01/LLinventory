@@ -257,7 +257,7 @@ export default function SalesOrderDetail() {
             />
           </TabsContent>
           <TabsContent value="profitability">
-            <FinancialSummaryTab order={order} financialLines={financialLines} profit={profit} />
+            <FinancialSummaryTab order={order} financialLines={financialLines} lines={lines} profit={profit} />
           </TabsContent>
           <TabsContent value="payment">
             <PaymentTab order={order} />

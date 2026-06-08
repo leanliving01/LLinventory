@@ -213,10 +213,16 @@ Deno.serve(async (req) => {
     payment_status: mapSalesPaymentStatus(financialStatus),
     fulfillment_status: mapSalesFulfilmentStatus(fulfillmentStatus),
     total_amount: parseFloat((o.total_price as string) || '0') || 0,
+    subtotal_price: parseFloat((o.subtotal_price as string) || '0') || 0,
+    total_tax: parseFloat((o.total_tax as string) || '0') || 0,
+    total_discounts: parseFloat((o.total_discounts as string) || '0') || 0,
+    shipping_cost: ((o.shipping_lines as Array<Record<string, unknown>>) || [])
+      .reduce((s, sl) => s + (parseFloat((sl.price as string) || '0') || 0), 0),
     tags: o.tags ? (o.tags as string).replace(/,\s*/g, '|') : null,
     shipping_city: ((o.shipping_address as Record<string, unknown>)?.city as string) || null,
     updated_date: now,
     last_synced_at: now,
+    raw_payload: o,
     ...fulfilmentFields(o),
   };
 
