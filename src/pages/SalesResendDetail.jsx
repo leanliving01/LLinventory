@@ -150,7 +150,11 @@ export default function SalesResendDetail() {
             <Badge className={RESEND_STATUS_COLORS[rs.status] || ''}>{RESEND_STATUS_LABELS[rs.status] || rs.status}</Badge>
           </div>
           <div className="text-sm text-muted-foreground mt-0.5">
-            {rs.order_number && <>Order {rs.order_number} · </>}{rs.customer_name || '—'}
+            {rs.order_number && (
+              <>Order {rs.sales_order_id
+                ? <Link to={`/sales/orders/${rs.sales_order_id}`} className="text-primary hover:underline">{rs.order_number}</Link>
+                : rs.order_number} · </>
+            )}{rs.customer_name || '—'}
             {rs.linked_return_id && <> · <Link to={`/sales/returns/${rs.linked_return_id}`} className="text-primary hover:underline">linked return</Link></>}
           </div>
         </div>

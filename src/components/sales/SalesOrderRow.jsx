@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Package, RotateCcw, Send, Loader2, Plus, Truck, Tag, Gift, TrendingUp } from 'lucide-react';
+import { ChevronDown, ChevronRight, Package, RotateCcw, Send, Loader2, Plus, Truck, Tag, Gift, TrendingUp, ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import OrderStatusBadges from './OrderStatusBadges';
+import { orderRef, channelLabels } from '@/lib/salesOrderStatus';
 import { base44 } from '@/api/base44Client';
 import { supabase } from '@/api/supabaseClient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -233,44 +235,59 @@ export default function SalesOrderRow({ order }) {
 
   return (
     <div className="border-b last:border-b-0">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors text-left"
-      >
-        <span className="text-muted-foreground shrink-0">
+      <div className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          aria-label={expanded ? 'Collapse' : 'Expand'}
+          className="text-muted-foreground shrink-0"
+        >
           {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-        </span>
+        </button>
+
         {/* Desktop layout */}
-        <span className="hidden md:inline font-semibold text-sm w-28 shrink-0">{order.order_number || order.shopify_order_id}</span>
+        <Link
+          to={`/sales/orders/${order.id}`}
+          className="hidden md:inline font-semibold text-sm w-28 shrink-0 text-primary hover:underline truncate"
+        >
+          {orderRef(order)}
+        </Link>
         <span className="hidden md:inline text-sm w-40 truncate shrink-0">{order.customer_name || '—'}</span>
-        <span className="hidden md:inline text-sm text-muted-foreground w-36 shrink-0">
+        <span className="hidden md:inline text-sm text-muted-foreground w-32 shrink-0">
           {orderDate ? formatDateTimeSAST(orderDate) : '—'}
         </span>
+        <span className="hidden md:inline shrink-0">
+          <Badge variant="outline" className="text-[10px] py-0">{channelLabels[order.order_source] || order.order_source}</Badge>
+        </span>
         <div className="hidden md:flex items-center gap-1.5 flex-1 min-w-[180px]">
-          <Badge className={`text-[11px] ${getPackColor(order)}`}>
-            {getPackLabel(order)}
-          </Badge>
+          <OrderStatusBadges order={order} size="sm" />
         </div>
         <span className="hidden md:inline text-sm font-medium w-28 text-right shrink-0">
           R{(order.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
         </span>
+        <Link
+          to={`/sales/orders/${order.id}`}
+          aria-label="Open order"
+          className="hidden md:inline-flex items-center justify-center shrink-0 text-muted-foreground hover:text-primary"
+        >
+          <ExternalLink className="w-4 h-4" />
+        </Link>
 
         {/* Mobile layout */}
         <div className="flex md:hidden flex-1 min-w-0">
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-sm">{order.order_number || order.shopify_order_id}</p>
+            <Link to={`/sales/orders/${order.id}`} className="font-semibold text-sm text-primary hover:underline">
+              {orderRef(order)}
+            </Link>
             <p className="text-xs text-muted-foreground truncate">{order.customer_name || '—'}</p>
           </div>
           <div className="text-right shrink-0">
             <p className="text-sm font-medium">R{(order.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
             <div className="flex items-center gap-1 justify-end mt-0.5">
-              <Badge className={`text-[10px] py-0 ${getPackColor(order)}`}>
-                {getPackLabel(order)}
-              </Badge>
+              <OrderStatusBadges order={order} size="sm" />
             </div>
           </div>
         </div>
-      </button>
+      </div>
 
       {expanded && (
         <div className="px-4 pb-4 pt-1 bg-muted/30">

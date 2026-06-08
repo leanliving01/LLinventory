@@ -161,7 +161,7 @@ export default function ShopifyReturnDetail() {
           <div className="text-sm text-muted-foreground mt-0.5">
             {ret.order_number && (
               <>Order {ret.sales_order_id
-                ? <Link to={`/sales`} className="text-primary hover:underline">{ret.order_number}</Link>
+                ? <Link to={`/sales/orders/${ret.sales_order_id}`} className="text-primary hover:underline">{ret.order_number}</Link>
                 : ret.order_number} · </>
             )}
             {ret.customer_name || '—'}{ret.customer_email ? ` · ${ret.customer_email}` : ''}

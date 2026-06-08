@@ -52,6 +52,8 @@ import PackBomDetail from '@/pages/PackBomDetail';
 import InventoryOverview from '@/pages/InventoryOverview';
 import XeroCallback from '@/pages/XeroCallback';
 import Sales from '@/pages/Sales';
+import SalesOrderDetail from '@/pages/SalesOrderDetail';
+import NewSalesOrder from '@/pages/NewSalesOrder';
 import ShopifyReturns from '@/pages/ShopifyReturns';
 import ShopifyReturnDetail from '@/pages/ShopifyReturnDetail';
 import SalesResends from '@/pages/SalesResends';
@@ -249,6 +251,8 @@ const AuthenticatedApp = () => {
         <Route path="/purchasing/pack-bom" element={<PackBomManager />} />
         <Route path="/purchasing/pack-bom/:packBomId" element={<PackBomDetail />} />
         <Route path="/sales" element={<Sales />} />
+        <Route path="/sales/orders/new" element={<NewSalesOrder />} />
+        <Route path="/sales/orders/:orderId" element={<SalesOrderDetail />} />
         <Route path="/sales/returns" element={<ShopifyReturns />} />
         <Route path="/sales/returns/:returnId" element={<ShopifyReturnDetail />} />
         <Route path="/sales/resends" element={<SalesResends />} />

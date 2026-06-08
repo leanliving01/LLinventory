@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { RotateCcw, Search, Download, Truck, AlertTriangle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -167,7 +167,13 @@ export default function ShopifyReturns() {
                 className="w-full text-left grid grid-cols-1 lg:grid-cols-[110px_90px_140px_1fr_150px_120px_90px_90px_110px] gap-2 px-4 py-3 border-b last:border-b-0 hover:bg-muted/40 items-center"
               >
                 <span className="font-mono text-xs">{r.return_number}</span>
-                <span className="text-sm">{r.order_number || '—'}</span>
+                <span className="text-sm">
+                  {r.order_number
+                    ? (r.sales_order_id
+                        ? <Link to={`/sales/orders/${r.sales_order_id}`} onClick={e => e.stopPropagation()} className="text-primary hover:underline">{r.order_number}</Link>
+                        : r.order_number)
+                    : '—'}
+                </span>
                 <span className="text-sm truncate">{r.customer_name || '—'}</span>
                 <span className="text-xs text-muted-foreground truncate">{r.agg.skus || '—'}</span>
                 <span><Badge className={`text-[10px] ${STATUS_COLORS[r.status] || ''}`}>{STATUS_LABELS[r.status] || r.status}</Badge></span>

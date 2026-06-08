@@ -1,19 +1,33 @@
 import React, { useState, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ShoppingCart } from 'lucide-react';
-import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
+import { ShoppingCart, Plus } from 'lucide-react';
 import SalesKPICards from '@/components/sales/SalesKPICards';
 import SalesFilters from '@/components/sales/SalesFilters';
 import SalesOrderRow from '@/components/sales/SalesOrderRow';
 import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
 import TablePagination from '@/components/shared/TablePagination';
+import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
+// Map a few payment_status synonyms to the filter's canonical values.
+const PAYMENT_SYNONYMS = {
+  paid: ['paid'],
+  unpaid: ['unpaid', 'pending'],
+  partially_paid: ['partially_paid'],
+  refunded: ['refunded'],
+  partially_refunded: ['partially_refunded'],
+};
 
 export default function Sales() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('paid_unfulfilled');
   const [packFilter, setPackFilter] = useState('all');
+  const [channelFilter, setChannelFilter] = useState('all');
+  const [paymentFilter, setPaymentFilter] = useState('all');
+  const [fulfilmentFilter, setFulfilmentFilter] = useState('all');
+  const [quickFilter, setQuickFilter] = useState('none'); // none | needs_attention | has_returns | has_resends
   const [sortBy, setSortBy] = useState('date_desc');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(15);
@@ -27,26 +41,87 @@ export default function Sales() {
     retryDelay: 3000,
   });
 
+  // Sets of order ids that have returns / resends — used by the quick toggles.
+  // Only fetched lazily when a relevant toggle is active to keep the list fast.
+  const needsReturns = quickFilter === 'has_returns';
+  const needsResends = quickFilter === 'has_resends';
+
+  const { data: returnRows = [] } = useQuery({
+    queryKey: ['sales-orders-with-returns'],
+    queryFn: () => base44.entities.ShopifyReturn.list('-created_date', 5000),
+    enabled: needsReturns,
+    staleTime: 60000,
+  });
+
+  const { data: resendRows = [] } = useQuery({
+    queryKey: ['sales-orders-with-resends'],
+    queryFn: () => base44.entities.SalesResend.list('-created_date', 5000),
+    enabled: needsResends,
+    staleTime: 60000,
+  });
+
+  const returnsOrderIds = useMemo(
+    () => new Set(returnRows.map(r => r.sales_order_id).filter(Boolean)),
+    [returnRows],
+  );
+  const resendsOrderIds = useMemo(
+    () => new Set(resendRows.map(r => r.sales_order_id).filter(Boolean)),
+    [resendRows],
+  );
+
   const filtered = useMemo(() => {
     let list = orders;
+
     if (statusFilter !== 'all') {
       list = list.filter(o => o.lifecycle_state === statusFilter);
     }
+
+    if (channelFilter !== 'all') {
+      list = list.filter(o => (o.order_source || 'shopify') === channelFilter);
+    }
+
+    if (paymentFilter !== 'all') {
+      const allowed = PAYMENT_SYNONYMS[paymentFilter] || [paymentFilter];
+      list = list.filter(o => allowed.includes(o.payment_status));
+    }
+
+    if (fulfilmentFilter !== 'all') {
+      list = list.filter(o => o.fulfillment_status === fulfilmentFilter);
+    }
+
     if (packFilter === 'partly') {
       // one section packed but the order isn't fully packed yet (split supplements/meals)
       list = list.filter(o => o.status === 'picking' && (o.sup_status === 'done' || o.mea_status === 'done'));
     } else if (packFilter !== 'all') {
       list = list.filter(o => o.status === packFilter);
     }
+
+    if (quickFilter === 'needs_attention') {
+      // Unpaid, OR paid-but-not-yet-fulfilled, OR has an unresolved SKU flag.
+      list = list.filter(o => {
+        const unpaid = ['pending', 'unpaid', 'partially_paid'].includes(o.payment_status);
+        const paidUnfulfilled = o.lifecycle_state === 'paid_unfulfilled' && o.fulfillment_status !== 'fulfilled';
+        const unresolved = o.has_unmatched_skus === true || o.decomposition_status === 'needs_attention';
+        return unpaid || paidUnfulfilled || unresolved;
+      });
+    } else if (quickFilter === 'has_returns') {
+      list = list.filter(o => returnsOrderIds.has(o.id));
+    } else if (quickFilter === 'has_resends') {
+      list = list.filter(o => resendsOrderIds.has(o.id));
+    }
+
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(o =>
         (o.order_number || '').toLowerCase().includes(q) ||
+        (o.internal_order_number || '').toLowerCase().includes(q) ||
         (o.customer_name || '').toLowerCase().includes(q) ||
         (o.customer_email || '').toLowerCase().includes(q) ||
-        (o.shopify_order_id || '').toLowerCase().includes(q)
+        (o.shopify_order_id || '').toLowerCase().includes(q) ||
+        (o.order_source || '').toLowerCase().includes(q)
       );
     }
+
     const sorted = [...list];
     switch (sortBy) {
       case 'date_asc':
@@ -64,12 +139,12 @@ export default function Sales() {
         break;
     }
     return sorted;
-  }, [orders, statusFilter, packFilter, search, sortBy]);
+  }, [orders, statusFilter, channelFilter, paymentFilter, fulfilmentFilter, packFilter, quickFilter, search, sortBy, returnsOrderIds, resendsOrderIds]);
 
   // Reset page when filters change
   React.useEffect(() => {
     setPage(0);
-  }, [statusFilter, packFilter, search, sortBy]);
+  }, [statusFilter, packFilter, channelFilter, paymentFilter, fulfilmentFilter, quickFilter, search, sortBy]);
 
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-[1400px] mx-auto">
@@ -77,6 +152,11 @@ export default function Sales() {
         <ShoppingCart className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-bold">Sales Orders</h1>
         <span className="text-sm text-muted-foreground ml-auto">{filtered.length} shown</span>
+        <Button asChild size="sm">
+          <Link to="/sales/orders/new">
+            <Plus className="w-4 h-4 mr-1.5" /> New Sales Order
+          </Link>
+        </Button>
       </div>
 
       <SyncStatusBanner />
@@ -91,6 +171,14 @@ export default function Sales() {
           onStatusChange={setStatusFilter}
           packFilter={packFilter}
           onPackChange={setPackFilter}
+          channelFilter={channelFilter}
+          onChannelChange={setChannelFilter}
+          paymentFilter={paymentFilter}
+          onPaymentChange={setPaymentFilter}
+          fulfilmentFilter={fulfilmentFilter}
+          onFulfilmentChange={setFulfilmentFilter}
+          quickFilter={quickFilter}
+          onQuickChange={setQuickFilter}
         />
         <Select value={sortBy} onValueChange={setSortBy}>
           <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
