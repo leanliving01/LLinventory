@@ -21,35 +21,27 @@ import OrderStatusBadges from '@/components/sales/OrderStatusBadges';
 import { money } from '@/components/sales/order-shared/money';
 
 import SummaryTab from '@/components/sales/order-tabs/SummaryTab';
-import CustomerTab from '@/components/sales/order-tabs/CustomerTab';
-import OrderLinesTab from '@/components/sales/order-tabs/OrderLinesTab';
 import FinancialSummaryTab from '@/components/sales/order-tabs/FinancialSummaryTab';
 import PaymentTab from '@/components/sales/order-tabs/PaymentTab';
 import ShippingTab from '@/components/sales/order-tabs/ShippingTab';
 import OrderEditsTab from '@/components/sales/order-tabs/OrderEditsTab';
-import RefundsTab from '@/components/sales/order-tabs/RefundsTab';
-import ReturnsTab from '@/components/sales/order-tabs/ReturnsTab';
-import ResendsTab from '@/components/sales/order-tabs/ResendsTab';
+import ReturnsResendsRefundsTab from '@/components/sales/order-tabs/ReturnsResendsRefundsTab';
 import AdditionalCostsTab from '@/components/sales/order-tabs/AdditionalCostsTab';
 import DocumentsTab from '@/components/sales/order-tabs/DocumentsTab';
 import NotesTab from '@/components/sales/order-tabs/NotesTab';
 import AuditHistoryTab from '@/components/sales/order-tabs/AuditHistoryTab';
 
 const TABS = [
-  { value: 'summary',     label: 'Summary' },
-  { value: 'customer',    label: 'Customer & Addresses' },
-  { value: 'lines',       label: 'Order Lines' },
-  { value: 'financial',   label: 'Financial Summary' },
-  { value: 'payment',     label: 'Payment / Invoice' },
-  { value: 'shipping',    label: 'Shipping & Fulfilment' },
-  { value: 'edits',       label: 'Order Edits' },
-  { value: 'refunds',     label: 'Refunds & Adjustments' },
-  { value: 'returns',     label: 'Returns' },
-  { value: 'resends',     label: 'Re-sends' },
-  { value: 'costs',       label: 'Additional Costs' },
-  { value: 'documents',   label: 'Documents / References' },
-  { value: 'notes',       label: 'Notes' },
-  { value: 'audit',       label: 'Audit History' },
+  { value: 'summary',       label: 'Summary' },
+  { value: 'profitability', label: 'Profitability' },
+  { value: 'payment',       label: 'Payment / Invoice' },
+  { value: 'shipping',      label: 'Shipping & Fulfilment' },
+  { value: 'edits',         label: 'Order Edits' },
+  { value: 'returns',       label: 'Returns, Re-sends & Refunds' },
+  { value: 'costs',         label: 'Additional Costs' },
+  { value: 'documents',     label: 'Documents / References' },
+  { value: 'notes',         label: 'Notes' },
+  { value: 'audit',         label: 'Audit History' },
 ];
 
 export default function SalesOrderDetail() {
@@ -186,7 +178,7 @@ export default function SalesOrderDetail() {
   ].filter(Boolean);
 
   return (
-    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 space-y-4">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 space-y-4">
       {/* Back + actions */}
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="sm" onClick={() => navigate('/sales')} className="gap-1.5 -ml-2">
@@ -255,15 +247,16 @@ export default function SalesOrderDetail() {
 
         <div className="mt-4">
           <TabsContent value="summary">
-            <SummaryTab order={order} returnsCount={returns.length} refundLineCount={refundLineCount} />
+            <SummaryTab
+              order={order}
+              lines={lines}
+              linesLoading={linesLoading}
+              financialLines={financialLines}
+              returnsCount={returns.length}
+              refundLineCount={refundLineCount}
+            />
           </TabsContent>
-          <TabsContent value="customer">
-            <CustomerTab order={order} />
-          </TabsContent>
-          <TabsContent value="lines">
-            <OrderLinesTab lines={lines} loading={linesLoading} />
-          </TabsContent>
-          <TabsContent value="financial">
+          <TabsContent value="profitability">
             <FinancialSummaryTab order={order} financialLines={financialLines} profit={profit} />
           </TabsContent>
           <TabsContent value="payment">
@@ -275,14 +268,13 @@ export default function SalesOrderDetail() {
           <TabsContent value="edits">
             <OrderEditsTab events={events} />
           </TabsContent>
-          <TabsContent value="refunds">
-            <RefundsTab order={order} financialLines={financialLines} />
-          </TabsContent>
           <TabsContent value="returns">
-            <ReturnsTab returns={returns} />
-          </TabsContent>
-          <TabsContent value="resends">
-            <ResendsTab order={order} resends={resends} />
+            <ReturnsResendsRefundsTab
+              order={order}
+              returns={returns}
+              resends={resends}
+              financialLines={financialLines}
+            />
           </TabsContent>
           <TabsContent value="costs">
             <AdditionalCostsTab order={order} costs={costs} />
