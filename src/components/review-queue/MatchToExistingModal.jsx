@@ -2,11 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, Loader2, Search, Link2, ArrowLeft, Check, Truck, FileText } from 'lucide-react';
 import { formatZAR } from '@/lib/utils';
-
-const PURCHASE_UOMS = ['case', 'bag', 'drum', 'pallet', 'box', 'each', 'kg', 'L'];
+import UomSelect from '@/components/shared/UomSelect';
 
 /**
  * Match an unmatched invoice line (or a SKU group of lines) to an existing
@@ -14,21 +12,25 @@ const PURCHASE_UOMS = ['case', 'bag', 'drum', 'pallet', 'box', 'each', 'kg', 'L'
  * the same fields as the Products → Suppliers "Purchasing Units" editor,
  * pre-filled from the Xero line.
  */
-export default function MatchToExistingModal({ lineGroup, invoice, products = [], onMatch, onCancel }) {
+export default function MatchToExistingModal({ lineGroup, invoice, products = [], possibleMatches = [], onMatch, onCancel }) {
   const line = lineGroup.representativeLine;
   const invoiceCount = lineGroup.lines.length;
+  const suggestion = possibleMatches[0];
+  const suggestedSp = suggestion?.supplierProduct;
 
   const [search, setSearch] = useState('');
-  const [picked, setPicked] = useState(null);
+  // Pre-select the strongest possible-duplicate match so the reviewer can confirm
+  // rather than search from scratch.
+  const [picked, setPicked] = useState(suggestion?.product || null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    purchase_uom_label: line.xero_description || '',
-    purchase_uom: 'each',
-    conversion_factor: '',
-    yield_factor: '1',
+    purchase_uom_label: suggestedSp?.purchase_uom_label || line.xero_description || '',
+    purchase_uom: suggestedSp?.purchase_uom || 'each',
+    conversion_factor: suggestedSp?.conversion_factor != null ? String(suggestedSp.conversion_factor) : '',
+    yield_factor: suggestedSp?.yield_factor != null ? String(suggestedSp.yield_factor) : '1',
     nominal_cost: line.unit_cost != null ? String(line.unit_cost) : '',
-    supplier_sku: line.xero_item_code || '',
-    supplier_description: line.xero_description || '',
+    supplier_sku: line.xero_item_code || suggestedSp?.supplier_sku || '',
+    supplier_description: line.xero_description || suggestedSp?.supplier_description || '',
     is_default: false,
   });
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
@@ -100,6 +102,25 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
           {/* Step 1: pick a catalogue product */}
           {!picked ? (
             <div className="space-y-2">
+              {possibleMatches.length > 0 && (
+                <div className="space-y-1.5 mb-2">
+                  <Label className="text-xs text-amber-700">Possible matches</Label>
+                  {possibleMatches.map(m => (
+                    <button
+                      key={m.product.id}
+                      onClick={() => setPicked(m.product)}
+                      className="w-full text-left px-3 py-2 rounded-lg bg-amber-50/60 hover:bg-amber-100 text-sm flex items-center justify-between border border-amber-200"
+                    >
+                      <div className="min-w-0">
+                        <span className="font-medium">{m.product.name}</span>
+                        <span className="font-mono text-muted-foreground ml-1 text-xs">({m.product.sku})</span>
+                        <span className="block text-[11px] text-amber-700">{m.reasons.join(' · ')}</span>
+                      </div>
+                      <Link2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
               <Label className="text-xs">Search the product catalogue</Label>
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -154,12 +175,7 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Purchase UoM *</Label>
-                  <Select value={form.purchase_uom} onValueChange={v => set('purchase_uom', v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PURCHASE_UOMS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <UomSelect value={form.purchase_uom} onValueChange={v => set('purchase_uom', v)} placeholder="Select unit" />
                 </div>
               </div>
 

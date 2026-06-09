@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Plus, X, Loader2, Check } from 'lucide-react';
+import { toast } from 'sonner';
 
 /**
  * Reusable UoM selector that loads from the UnitOfMeasure entity.

@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Sun, Thermometer, Snowflake, PackageCheck, Truck, Layers, Warehouse
+  Sun, Thermometer, Snowflake, PackageCheck, Truck, Layers, Warehouse,
+  Box, Rows3, Archive
 } from 'lucide-react';
 
 /** Icon + color per Location.type */
@@ -12,6 +13,9 @@ const ZONE_TYPE_CONFIG = {
   packing:    { icon: PackageCheck, bg: 'bg-status-good-subtle', text: 'text-status-good',  label: 'Packing' },
   dispatch:   { icon: Truck,        bg: 'bg-status-good-subtle', text: 'text-status-good',  label: 'Dispatch' },
   production: { icon: Warehouse,    bg: 'bg-muted',              text: 'text-muted-foreground', label: 'Production' },
+  bin:        { icon: Box,          bg: 'bg-muted',              text: 'text-muted-foreground', label: 'Bin' },
+  shelf:      { icon: Rows3,        bg: 'bg-muted',              text: 'text-muted-foreground', label: 'Shelf' },
+  storage:    { icon: Archive,      bg: 'bg-muted',              text: 'text-muted-foreground', label: 'Storage Area' },
 };
 
 function getZoneConfig(type) {

@@ -12,8 +12,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-
-const PURCHASE_UOMS = ['case', 'bag', 'drum', 'pallet', 'box', 'each', 'kg', 'L'];
+import UomSelect from '@/components/shared/UomSelect';
 
 function Field({ label, children }) {
   return (
@@ -298,12 +297,7 @@ function EditForm({ form, set, effectiveQty, taxRates = [] }) {
         <h3 className="text-sm font-semibold">UoM Conversion</h3>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Purchase UoM">
-            <Select value={form.purchase_uom || ''} onValueChange={v => set('purchase_uom', v)}>
-              <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {PURCHASE_UOMS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <UomSelect value={form.purchase_uom || ''} onValueChange={v => set('purchase_uom', v)} placeholder="Select unit" />
           </Field>
           <Field label="UoM Qty (e.g. 6 for case of 6)">
             <Input type="number" value={form.purchase_uom_qty || ''} onChange={e => set('purchase_uom_qty', e.target.value)} className="h-8 text-sm" />

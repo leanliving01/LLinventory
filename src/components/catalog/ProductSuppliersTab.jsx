@@ -8,8 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Star, Truck, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import SupplierProductDrawer from '@/components/purchasing/SupplierProductDrawer';
-
-const PURCHASE_UOMS = ['case', 'bag', 'drum', 'pallet', 'box', 'each', 'kg', 'L'];
+import UomSelect from '@/components/shared/UomSelect';
 
 export default function ProductSuppliersTab({ productId, productName, productSku, stockUom, canEdit }) {
   const queryClient = useQueryClient();
@@ -247,12 +246,9 @@ function AddSupplierForm({ productId, productName, productSku, stockUom, supplie
       <div className="grid grid-cols-3 gap-3">
         <div>
           <label className="text-[10px] uppercase text-muted-foreground font-semibold">Purchase UoM</label>
-          <Select value={form.purchase_uom} onValueChange={v => set('purchase_uom', v)}>
-            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {PURCHASE_UOMS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <div className="mt-1">
+            <UomSelect value={form.purchase_uom} onValueChange={v => set('purchase_uom', v)} placeholder="Select unit" />
+          </div>
         </div>
         <div>
           <label className="text-[10px] uppercase text-muted-foreground font-semibold">UoM Label</label>

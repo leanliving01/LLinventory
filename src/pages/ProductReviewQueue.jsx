@@ -9,15 +9,18 @@ import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import UnmatchedLineCard from '@/components/review-queue/UnmatchedLineCard';
 import CreateProductFromLineModal from '@/components/review-queue/CreateProductFromLineModal';
 import MatchToExistingModal from '@/components/review-queue/MatchToExistingModal';
+import { findPossibleMatches } from '@/lib/reviewQueueMatching';
 import PageHelp from '@/components/help/PageHelp';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
 
 const HELP_ITEMS = [
-  { title: 'What is this queue?', text: 'When invoices are synced from Xero, lines that cannot be automatically matched to a Supplier Product appear here for manual review.' },
-  { title: 'Match to existing product', text: 'Click "Match Existing" to open a pop-up: search the catalogue, pick a product, and capture its purchasing unit (label, conversion, cost) — pre-filled from the line. The Xero item code is saved for future auto-matching.' },
-  { title: 'Repeated SKUs are grouped', text: 'When the same supplier SKU appears on several invoices it is collapsed into one card. Matching, creating, or marking it non-stock resolves every invoice line at once and clears it from the queue.' },
-  { title: 'Create a new product', text: 'Click "Create Product" to create a brand new Product and Supplier Product link in one step. The system pre-fills details from the Xero line.' },
+  { title: 'What is this queue?', text: 'Lines from synced Xero invoices and scanned supplier PDFs that cannot be automatically matched to a Supplier Product appear here for manual review.' },
+  { title: 'Possible matches', text: 'The system checks the supplier SKU / item code, plus the product name and description, against existing products. Likely duplicates are flagged so you can confirm instead of creating a new product.' },
+  { title: 'Match to existing product', text: 'Click "Match Existing": pick a suggested match (or search the catalogue), confirm the supplier SKU and Purchase UoM, and capture the purchasing unit (label, conversion, cost). The item code is saved against the supplier product for future auto-matching.' },
+  { title: 'Repeated SKUs are grouped', text: 'When the same supplier SKU appears on several invoices it is collapsed into one card. Matching, creating, non-stock, or ignoring resolves every invoice line at once.' },
+  { title: 'Create a new product', text: 'Click "Create Product" to create a brand new Product and Supplier Product link in one step, including the Purchase UoM. Details are pre-filled from the line.' },
+  { title: 'Ignore', text: 'If a line has already been added/linked elsewhere or isn\'t needed, click "Ignore" so it stops reappearing in the queue.' },
   { title: 'Mark as non-stock', text: 'Click "Non-stock" for items like delivery charges or admin fees that don\'t need product tracking.' },
 ];
 
@@ -183,6 +186,20 @@ export default function ProductReviewQueue() {
     return Object.entries(groups).sort((a, b) => b[1].items.length - a[1].items.length);
   }, [paginated]);
 
+  // Possible-duplicate matches for each visible card (supplier SKU / item code /
+  // description across products + supplier products), keyed by group.key.
+  const matchesByGroup = useMemo(() => {
+    const map = {};
+    paginated.forEach(g => {
+      map[g.key] = findPossibleMatches(g, {
+        products,
+        supplierProducts: spBySupplier[g.supplier_id] || [],
+        limit: 4,
+      });
+    });
+    return map;
+  }, [paginated, products, spBySupplier]);
+
   // Resolve every line in a group to a matched supplier product, then recount
   // each affected invoice. Used by both Match Existing and Create Product.
   const resolveGroupLines = async (lineGroup, sp, product) => {
@@ -271,6 +288,20 @@ export default function ProductReviewQueue() {
     toast.success(`Marked as non-stock item${n > 1 ? ` (${n} lines)` : ''}`);
   };
 
+  // Ignore a whole group: it has been reviewed (already added / linked / not
+  // needed) and should stop reappearing in the queue for this supplier/import.
+  const handleIgnore = async (lineGroup) => {
+    const invoiceIds = new Set();
+    for (const { line } of lineGroup.lines) {
+      await base44.entities.PurchaseInvoiceLine.update(line.id, { match_status: 'ignored' });
+      invoiceIds.add(line.invoice_id);
+    }
+    for (const id of invoiceIds) await recountInvoice(id);
+    queryClient.invalidateQueries({ queryKey: ['unmatched-invoice-lines'] });
+    const n = lineGroup.lines.length;
+    toast.success(`Ignored${n > 1 ? ` (${n} lines)` : ''} — won't reappear in the queue`);
+  };
+
   const handleProductCreated = async (line, sp) => {
     const product = { id: sp.product_id, name: sp.product_name, sku: sp.product_sku };
     if (createGroup) await resolveGroupLines(createGroup, sp, product);
@@ -296,7 +327,7 @@ export default function ProductReviewQueue() {
             <ClipboardList className="w-6 h-6 text-primary" /> Product Review Queue
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Match unmatched Xero invoice lines to products
+            Match unmatched invoice lines (Xero + scanned PDFs) to products
           </p>
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-right">
@@ -336,9 +367,11 @@ export default function ProductReviewQueue() {
                     <UnmatchedLineCard
                       key={lineGroup.key}
                       lineGroup={lineGroup}
+                      possibleMatches={matchesByGroup[lineGroup.key] || []}
                       onOpenMatch={setMatchGroup}
                       onCreateProduct={setCreateGroup}
                       onMarkNonStock={handleMarkNonStock}
+                      onIgnore={handleIgnore}
                     />
                   ))}
                 </div>
@@ -370,6 +403,7 @@ export default function ProductReviewQueue() {
           lineGroup={matchGroup}
           invoice={matchGroup.representativeInvoice}
           products={products}
+          possibleMatches={matchesByGroup[matchGroup.key] || []}
           onMatch={handleMatch}
           onCancel={() => setMatchGroup(null)}
         />

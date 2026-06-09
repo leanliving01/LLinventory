@@ -6,11 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import UomSelect from '@/components/shared/UomSelect';
 
 const PRODUCT_TYPES = ['raw', 'packaging', 'supplement', 'service'];
 const ITEM_TYPES = ['stock', 'non_stock', 'expense', 'service'];
-const STOCK_UOMS = ['g', 'kg', 'ml', 'L', 'pcs', 'box'];
-const PURCHASE_UOMS = ['case', 'bag', 'drum', 'pallet', 'box', 'each', 'kg', 'L'];
 
 /**
  * Creates a new Product AND SupplierProduct in one go from an unmatched invoice line.
@@ -135,12 +134,7 @@ export default function CreateProductFromLineModal({ line, invoice, onCreated, o
               </div>
               <div>
                 <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Stock UoM</label>
-                <Select value={form.stock_uom} onValueChange={v => set('stock_uom', v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {STOCK_UOMS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <UomSelect value={form.stock_uom} onValueChange={v => set('stock_uom', v)} placeholder="Select unit" />
               </div>
             </div>
           </div>
@@ -151,12 +145,7 @@ export default function CreateProductFromLineModal({ line, invoice, onCreated, o
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Purchase UoM</label>
-                <Select value={form.purchase_uom} onValueChange={v => set('purchase_uom', v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {PURCHASE_UOMS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <UomSelect value={form.purchase_uom} onValueChange={v => set('purchase_uom', v)} placeholder="Select unit" />
               </div>
               <div>
                 <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Conversion Factor</label>

@@ -195,7 +195,8 @@ CREATE TABLE locations (
   code                text NOT NULL,
   parent_location_id  text,    -- FK -> locations(self) (added below)
   type                text NOT NULL CHECK (type IN (
-                        'ambient','chilled','frozen','production','packing','dispatch')),
+                        'ambient','chilled','frozen','production','packing','dispatch',
+                        'bin','shelf','storage')),
   is_stock_bearing    boolean NOT NULL DEFAULT true
 );
 
@@ -389,7 +390,7 @@ CREATE TABLE supplier_products (
   supplier_sku text,
   supplier_description text,
   xero_item_code text,
-  purchase_uom text NOT NULL CHECK (purchase_uom IN ('case','bag','drum','pallet','box','each','kg','L')),
+  purchase_uom text NOT NULL,   -- validated against units_of_measure in-app (see migration 049)
   purchase_uom_qty numeric NOT NULL DEFAULT 1,
   purchase_uom_label text,
   conversion_uom text,
@@ -673,7 +674,7 @@ CREATE TABLE purchase_invoices (
   grn_id text,
   xero_bill_id text,
   xero_contact_id text,
-  source text NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','xero_sync')),
+  source text NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','xero_sync','scan')),
   status text NOT NULL DEFAULT 'pending_match' CHECK (status IN (
     'pending_match','matched','approved','disputed','on_hold')),
   invoice_date date,
@@ -708,7 +709,7 @@ CREATE TABLE purchase_invoice_lines (
   tax_rule text,
   line_total numeric,
   match_status text NOT NULL DEFAULT 'unmatched' CHECK (match_status IN (
-    'auto_matched','manually_matched','unmatched','non_stock_item')),
+    'auto_matched','manually_matched','unmatched','non_stock_item','ignored')),
   account_code text
 );
 CREATE INDEX idx_purchase_invoice_lines_invoice_id ON purchase_invoice_lines(invoice_id);

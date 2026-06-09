@@ -14,6 +14,7 @@ const EXTRACT_PROMPT = `You are an invoice data extraction assistant. Extract th
   "total": number or null,
   "lines": [
     {
+      "item_code": "the supplier's product/stock/item code for this line, or null",
       "description": "product description as written on the invoice",
       "qty": number or null,
       "unit": "unit of measure (kg, L, pcs, case, box, etc.) or null",
@@ -28,7 +29,12 @@ Rules:
 - All monetary values must be numbers (not strings)
 - If a field cannot be determined, use null
 - Include every line item, even if some fields are null
-- Descriptions should be verbatim from the invoice`;
+- Descriptions should be verbatim from the invoice
+- item_code is the supplier's own product/stock code. Look for a column labelled
+  "Item Code", "Item No", "Code", "Product Code", "Stock Code", "SKU", "Part No",
+  "Cat No", or a short alphanumeric code printed alongside the description. This is
+  often the FIRST column of each line. Capture it verbatim (keep letters, digits,
+  dashes, slashes). Use null only when the line genuinely has no code.`;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders() });

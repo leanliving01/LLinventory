@@ -1,7 +1,7 @@
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Link2, Plus, Ban, Truck, FileText } from 'lucide-react';
+import { Link2, Plus, Ban, Truck, FileText, EyeOff, Sparkles } from 'lucide-react';
 import { formatZAR } from '@/lib/utils';
 
 /**
@@ -9,11 +9,12 @@ import { formatZAR } from '@/lib/utils';
  * When the same SKU appears on several invoices it is collapsed into a single
  * card; matching / non-stock / create resolves every line in the group at once.
  */
-export default function UnmatchedLineCard({ lineGroup, onOpenMatch, onCreateProduct, onMarkNonStock }) {
+export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], onOpenMatch, onCreateProduct, onMarkNonStock, onIgnore }) {
   const line = lineGroup.representativeLine;
   const invoice = lineGroup.representativeInvoice;
   const count = lineGroup.lines.length;
   const totalQty = lineGroup.lines.reduce((s, l) => s + (l.line.qty || 0), 0);
+  const topMatch = possibleMatches[0];
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -56,8 +57,24 @@ export default function UnmatchedLineCard({ lineGroup, onOpenMatch, onCreateProd
         </div>
       </div>
 
+      {/* Possible duplicate hint */}
+      {topMatch && (
+        <div className="px-4 py-2 border-t border-border bg-amber-50/60 flex items-center gap-2 flex-wrap">
+          <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+          <span className="text-xs text-amber-800">
+            Possible match: <span className="font-medium">{topMatch.product.name}</span>
+            {topMatch.product.sku && <span className="font-mono text-amber-700"> ({topMatch.product.sku})</span>}
+            <span className="text-amber-600"> — {topMatch.reasons[0]}</span>
+            {possibleMatches.length > 1 && <span className="text-amber-600"> · +{possibleMatches.length - 1} more</span>}
+          </span>
+          <Button variant="outline" size="sm" onClick={() => onOpenMatch(lineGroup)} className="gap-1.5 text-xs h-7 ml-auto border-amber-300 text-amber-800 hover:bg-amber-100">
+            <Link2 className="w-3 h-3" /> Review match
+          </Button>
+        </div>
+      )}
+
       {/* Actions */}
-      <div className="px-4 py-2 border-t border-border bg-muted/20 flex items-center gap-2">
+      <div className="px-4 py-2 border-t border-border bg-muted/20 flex items-center gap-2 flex-wrap">
         <Button variant="outline" size="sm" onClick={() => onOpenMatch(lineGroup)} className="gap-1.5 text-xs">
           <Link2 className="w-3.5 h-3.5" /> Match Existing
         </Button>
@@ -67,6 +84,11 @@ export default function UnmatchedLineCard({ lineGroup, onOpenMatch, onCreateProd
         <Button variant="ghost" size="sm" onClick={() => onMarkNonStock(lineGroup)} className="gap-1.5 text-xs text-muted-foreground">
           <Ban className="w-3.5 h-3.5" /> Non-stock
         </Button>
+        {onIgnore && (
+          <Button variant="ghost" size="sm" onClick={() => onIgnore(lineGroup)} className="gap-1.5 text-xs text-muted-foreground ml-auto">
+            <EyeOff className="w-3.5 h-3.5" /> Ignore
+          </Button>
+        )}
       </div>
     </div>
   );

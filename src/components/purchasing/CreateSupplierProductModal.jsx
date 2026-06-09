@@ -6,8 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, Loader2, Link2, Search } from 'lucide-react';
 import { toast } from 'sonner';
-
-const PURCHASE_UOMS = ['case', 'bag', 'drum', 'pallet', 'box', 'each', 'kg', 'L'];
+import UomSelect from '@/components/shared/UomSelect';
 
 export default function CreateSupplierProductModal({ preselectedSupplierId, onCreated, onCancel }) {
   const [saving, setSaving] = useState(false);
@@ -181,12 +180,9 @@ export default function CreateSupplierProductModal({ preselectedSupplierId, onCr
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase">Purchase UoM</label>
-              <Select value={form.purchase_uom} onValueChange={v => set('purchase_uom', v)}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {PURCHASE_UOMS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <div className="mt-1">
+                <UomSelect value={form.purchase_uom} onValueChange={v => set('purchase_uom', v)} placeholder="Select unit" />
+              </div>
             </div>
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase">UoM Qty</label>

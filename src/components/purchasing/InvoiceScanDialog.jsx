@@ -134,77 +134,89 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
     try {
       const supplier = suppliers.find(s => s.id === header.supplier_id);
       const now = new Date().toISOString();
-      const mappedLines = (extracted?.lines || [])
-        .map((line, idx) => ({ line, productId: mappings[idx] }))
-        .filter(({ productId }) => productId && productId !== 'skip');
+      const invDate = header.invoice_date || now.slice(0, 10);
+      const lines = extracted?.lines || [];
 
-      // 1. Create the invoice record
+      const isMapped = (idx) => mappings[idx] && mappings[idx] !== 'skip';
+      const unmatchedCount = lines.filter((_, idx) => !isMapped(idx)).length;
+
+      // 1. Create the invoice record (status reflects whether anything still
+      //    needs reviewing, so unmatched lines surface in the queue).
       const invoice = await base44.entities.PurchaseInvoice.create({
         invoice_number: header.invoice_number,
-        invoice_date: header.invoice_date || now.slice(0, 10),
+        invoice_date: invDate,
         supplier_id: header.supplier_id,
         supplier_name: supplier?.name || '',
-        subtotal: extracted?.subtotal || null,
-        vat_amount: extracted?.vat_amount || null,
-        total: extracted?.total || null,
-        status: 'matched',
+        subtotal: extracted?.subtotal || 0,
+        tax_amount: extracted?.vat_amount || 0,
+        total: extracted?.total || 0,
+        status: unmatchedCount > 0 ? 'pending_match' : 'matched',
         source: 'scan',
-        unmatched_line_count: 0,
+        unmatched_line_count: unmatchedCount,
       });
 
-      // 2. Create invoice lines
-      if (mappedLines.length > 0) {
-        await Promise.all(mappedLines.map(({ line, productId }) => {
-          const product = products.find(p => p.id === productId);
-          return base44.entities.PurchaseInvoiceLine.create({
-            purchase_invoice_id: invoice.id,
-            product_id: productId,
-            product_name: product?.name || line.description,
-            product_sku: product?.sku || '',
-            description: line.description,
-            qty: line.qty || 0,
-            uom: line.unit || product?.stock_uom || '',
-            unit_price: line.unit_price || 0,
-            line_total: line.line_total || (line.qty * line.unit_price) || 0,
-            match_status: 'matched',
-          });
-        }));
-      }
+      // 2. Persist EVERY extracted line. Mapped lines are manually matched;
+      //    everything else is saved as 'unmatched' so it flows into the
+      //    Product Review Queue with the supplier's item code as the SKU.
+      await Promise.all(lines.map((line, idx) => {
+        const matched = isMapped(idx);
+        const product = matched ? products.find(p => p.id === mappings[idx]) : null;
+        const qty = line.qty || 0;
+        const unitCost = line.unit_price || 0;
+        return base44.entities.PurchaseInvoiceLine.create({
+          invoice_id: invoice.id,
+          xero_item_code: line.item_code || '',
+          xero_description: line.description || '',
+          product_id: matched ? mappings[idx] : null,
+          product_name: product?.name || null,
+          product_sku: product?.sku || null,
+          qty,
+          unit_cost: unitCost,
+          line_total: line.line_total || (qty * unitCost) || 0,
+          match_status: matched ? 'manually_matched' : 'unmatched',
+        });
+      }));
 
-      // 3. Update supplier_products.last_purchase_price + insert price history for each matched line
+      // 3. For matched lines, refresh supplier price + capture the item code as
+      //    the supplier SKU (when not already set) and log price history.
+      const mappedLines = lines
+        .map((line, idx) => ({ line, productId: mappings[idx] }))
+        .filter(({ productId }) => productId && productId !== 'skip');
       await Promise.all(mappedLines.map(async ({ line, productId }) => {
         if (!line.unit_price) return;
         try {
-          // Upsert supplier_product record
           const existing = await base44.entities.SupplierProduct.filter({
             supplier_id: header.supplier_id,
             product_id: productId,
           }, 'created_date', 1);
 
           if (existing.length > 0) {
-            await base44.entities.SupplierProduct.update(existing[0].id, {
+            const sp = existing[0];
+            await base44.entities.SupplierProduct.update(sp.id, {
               last_purchase_price: line.unit_price,
-              purchase_uom: line.unit || existing[0].purchase_uom || '',
+              supplier_sku: sp.supplier_sku || line.item_code || '',
+            });
+            await base44.entities.SupplierPriceHistory.create({
+              supplier_product_id: sp.id,
+              supplier_name: supplier?.name || '',
+              product_name: sp.product_name || '',
+              product_sku: sp.product_sku || '',
+              price: line.unit_price,
+              effective_date: invDate,
+              source: 'invoice',
+              source_ref: invoice.invoice_number,
             });
           }
-
-          // Insert price history
-          await base44.entities.SupplierPriceHistory.create({
-            supplier_id: header.supplier_id,
-            product_id: productId,
-            invoice_id: invoice.id,
-            price: line.unit_price,
-            uom: line.unit || '',
-            effective_date: header.invoice_date || now.slice(0, 10),
-            source: 'invoice_scan',
-          });
         } catch {
           // Non-fatal — invoice is already saved
         }
       }));
 
       setStep(STEP_DONE);
-      toast.success(`Invoice ${header.invoice_number} saved with ${mappedLines.length} matched line${mappedLines.length !== 1 ? 's' : ''}`);
+      toast.success(
+        `Invoice ${header.invoice_number} saved — ${mappedLines.length} matched`
+        + (unmatchedCount > 0 ? `, ${unmatchedCount} sent to Review Queue` : '')
+      );
       onSaved?.();
     } catch (err) {
       setStep(STEP_REVIEW);
@@ -334,7 +346,7 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-semibold">{extracted.lines.length} line{extracted.lines.length !== 1 ? 's' : ''} extracted</p>
-                  <p className="text-xs text-muted-foreground">{matchedCount} matched · {extracted.lines.length - matchedCount} skipped</p>
+                  <p className="text-xs text-muted-foreground">{matchedCount} matched · {extracted.lines.length - matchedCount} → review queue</p>
                 </div>
                 <div className="border border-border rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
@@ -355,7 +367,12 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
                           <tr key={idx} className={isSkipped ? 'opacity-50' : ''}>
                             <td className="px-3 py-2">
                               <p className="text-xs font-medium">{line.description}</p>
-                              {line.unit && <p className="text-[10px] text-muted-foreground">{line.unit}</p>}
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                {line.item_code && (
+                                  <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded">{line.item_code}</span>
+                                )}
+                                {line.unit && <span className="text-[10px] text-muted-foreground">{line.unit}</span>}
+                              </div>
                             </td>
                             <td className="px-3 py-2 text-right text-xs">
                               {line.qty != null ? line.qty : '—'}
@@ -443,7 +460,7 @@ function ProductPicker({ value, onChange, products, allProducts }) {
         <SelectValue>
           {value && value !== 'skip'
             ? <span className="flex items-center gap-1"><Link2 className="w-3 h-3 text-green-600" />{allProducts.find(p => p.id === value)?.name || 'Unknown'}</span>
-            : <span className="flex items-center gap-1 text-muted-foreground"><Unlink className="w-3 h-3" />Skip</span>
+            : <span className="flex items-center gap-1 text-muted-foreground"><Unlink className="w-3 h-3" />Review queue</span>
           }
         </SelectValue>
       </SelectTrigger>
@@ -458,7 +475,7 @@ function ProductPicker({ value, onChange, products, allProducts }) {
           />
         </div>
         <SelectItem value="skip">
-          <span className="flex items-center gap-1.5 text-muted-foreground"><Unlink className="w-3 h-3" /> Skip this line</span>
+          <span className="flex items-center gap-1.5 text-muted-foreground"><Unlink className="w-3 h-3" /> Send to review queue</span>
         </SelectItem>
         {filtered.map(p => (
           <SelectItem key={p.id} value={p.id}>

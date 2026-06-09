@@ -13,8 +13,7 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-
-const PURCHASE_UOMS = ['case', 'bag', 'drum', 'pallet', 'box', 'each', 'kg', 'L'];
+import UomSelect from '@/components/shared/UomSelect';
 
 const EMPTY_ROW = {
   purchase_uom_label: '',
@@ -47,14 +46,7 @@ function UomForm({ row, onChange, activeSuppliers, stockUom, onSave, onCancel, s
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Purchase UoM *</Label>
-          <Select value={row.purchase_uom || 'kg'} onValueChange={v => onChange('purchase_uom', v)}>
-            <SelectTrigger><SelectValue placeholder="Select UoM" /></SelectTrigger>
-            <SelectContent>
-              {PURCHASE_UOMS.map(u => (
-                <SelectItem key={u} value={u}>{u}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <UomSelect value={row.purchase_uom || 'kg'} onValueChange={v => onChange('purchase_uom', v)} placeholder="Select UoM" />
         </div>
       </div>
       <div className="space-y-1">

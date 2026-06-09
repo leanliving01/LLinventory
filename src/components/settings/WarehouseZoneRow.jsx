@@ -13,6 +13,9 @@ const ZONE_TYPES = [
   { value: 'packing', label: 'Packing' },
   { value: 'dispatch', label: 'Dispatch' },
   { value: 'production', label: 'Production' },
+  { value: 'bin', label: 'Bin' },
+  { value: 'shelf', label: 'Shelf' },
+  { value: 'storage', label: 'Storage Area' },
 ];
 
 export default function WarehouseZoneRow({ zone, onSave, onDelete }) {
