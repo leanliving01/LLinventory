@@ -72,8 +72,8 @@ async function run() {
   }
 
   // Deduct physical stock for newly-fulfilled orders — every 15 min.
-  // Sweeps any order in lifecycle_state='fulfilled' with stock_deducted=false.
-  // Idempotent (sticky flag + stock_movements.reference_key), so re-runs are safe.
+  // Processes up to 50 orders per run (p_limit) to stay well within the
+  // Supabase statement timeout. Idempotent via sticky flag + reference_key.
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/deduct_fulfilled_stock`, {
       method: 'POST',
@@ -87,7 +87,7 @@ async function run() {
     const text = await res.text();
     let data;
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
-    console.log(`[deduct-fulfilled-stock] ${res.status} — orders=${data?.orders_processed ?? '?'} rows_written=${data?.rows_written ?? '?'}`);
+    console.log(`[deduct-fulfilled-stock] ${res.status} — orders=${data?.orders_processed ?? '?'} rows_written=${data?.rows_written ?? '?'} missing_skus=${JSON.stringify(data?.missing_skus ?? [])}`);
   } catch (e) {
     console.error('[deduct-fulfilled-stock] Error:', e.message);
   }
