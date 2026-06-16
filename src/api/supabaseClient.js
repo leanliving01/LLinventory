@@ -389,14 +389,10 @@ export const base44 = {
         'recalc-committed-stock':    'recalc-committed-stock',
         bulkSyncCustomers:           'sync-shopify-customers',
       };
-      const edgeFn = EDGE_FUNCTIONS[fnName];
-      if (edgeFn) {
-        const { data, error } = await supabase.functions.invoke(edgeFn, { body: payload });
-        if (error) return { data: { error: error.message } };
-        return { data };
-      }
-      console.warn(`[supabase] base44.functions.invoke('${fnName}') not yet implemented as Edge Function`);
-      return { data: { status: 'not_implemented', fn: fnName } };
+      const edgeFn = EDGE_FUNCTIONS[fnName] ?? fnName;
+      const { data, error } = await supabase.functions.invoke(edgeFn, { body: payload });
+      if (error) return { data: { error: error.message } };
+      return { data };
     },
   },
 
