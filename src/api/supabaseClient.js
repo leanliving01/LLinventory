@@ -390,9 +390,13 @@ export const base44 = {
         bulkSyncCustomers:           'sync-shopify-customers',
       };
       const edgeFn = EDGE_FUNCTIONS[fnName] ?? fnName;
-      const { data, error } = await supabase.functions.invoke(edgeFn, { body: payload });
-      if (error) return { data: { error: error.message } };
-      return { data };
+      try {
+        const { data, error } = await supabase.functions.invoke(edgeFn, { body: payload });
+        if (error) return { data: { status: 'error', error: error.message } };
+        return { data };
+      } catch (err) {
+        return { data: { status: 'error', error: err?.message ?? 'Unknown error calling edge function' } };
+      }
     },
   },
 

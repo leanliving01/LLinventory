@@ -55,8 +55,8 @@ export default function SettingsSyncTab() {
     setTriggering(prev => ({ ...prev, [src.key]: true }));
     try {
       const res = await base44.functions.invoke(src.fn, { mode: 'start', fullResync });
-      if (res?.status === 'error') {
-        toast.error(`${src.label}: ${res.error}`);
+      if (res?.data?.status === 'error' || res?.data?.error) {
+        toast.error(`${src.label}: ${res.data?.error || 'sync failed'}`);
       } else {
         toast.success(`${src.label} sync started`);
       }
