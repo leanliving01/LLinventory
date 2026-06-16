@@ -388,6 +388,31 @@ Deno.serve(async (req) => {
     if (deductErr) console.error('deduct_fulfilled_stock error:', deductErr.message);
   }
 
+  // Real-time committed stock: recalculate immediately when an order enters or
+  // leaves paid_unfulfilled (the only lifecycle state that contributes to qty_committed).
+  // This makes qty_committed / qty_available accurate within seconds instead of
+  // waiting up to 15 min for the cron.
+  if (lifecycleState !== priorLifecycle &&
+      (lifecycleState === 'paid_unfulfilled' || priorLifecycle === 'paid_unfulfilled')) {
+    const { error: recalcErr } = await supabase.rpc('recalc_committed_stock');
+    if (recalcErr) console.error('[webhook] recalc_committed_stock error:', recalcErr.message);
+  }
+
+  // Real-time BOM decomposition: fire recalc-demand in the background so component
+  // lines appear in the UI within seconds rather than at the next 15-min cron tick.
+  // Non-blocking — does not delay the webhook response.
+  {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const svcKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    if (supabaseUrl && svcKey) {
+      fetch(`${supabaseUrl}/functions/v1/recalc-demand`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${svcKey}`, 'Content-Type': 'application/json' },
+        body: '{}',
+      }).catch((e: Error) => console.error('[webhook] recalc-demand fire error:', e.message));
+    }
+  }
+
   // Sales-order audit timeline events (best-effort; never break the webhook).
   try {
     const events: Record<string, unknown>[] = [];
