@@ -46,6 +46,66 @@ export function isLowCarb(product) {
   return false;
 }
 
+// Display order for package cards
+export const PACKAGE_ORDER = ['MWL', 'MLM', 'WLM', 'WWL', 'LC'];
+
+// Ring stroke colours for SVG donuts (mirrors Tailwind bg classes above)
+export const RING_COLORS = {
+  MLM: '#22c55e',
+  MWL: '#3b82f6',
+  WLM: '#f97316',
+  WWL: '#f472b6',
+  LC:  '#facc15',
+};
+
+/**
+ * Group finished meals by package type for the package-first production UI.
+ * Returns an array of package objects in PACKAGE_ORDER, each with a `meals`
+ * array of { baseName, product } for every meal in that package.
+ * Empty packages are omitted.
+ */
+export function groupMealsByPackage(finishedMeals) {
+  const goalMap = {};
+  const lcMeals = [];
+
+  for (const product of finishedMeals) {
+    if (product.status !== 'active') continue;
+
+    if (isLowCarb(product)) {
+      lcMeals.push({ baseName: product.name, product });
+      continue;
+    }
+
+    const variant = detectVariant(product.sku);
+    const mealNum = extractMealNumber(product.sku);
+    if (!variant || mealNum === null) continue;
+
+    if (!goalMap[mealNum]) goalMap[mealNum] = { mealNumber: mealNum, baseName: null, variants: {} };
+    goalMap[mealNum].variants[variant] = product;
+
+    if (variant === 'MWL') {
+      goalMap[mealNum].baseName = product.name;
+    } else if (!goalMap[mealNum].baseName) {
+      goalMap[mealNum].baseName = product.name.replace(/\s+(MLM|MWL|WLM|WWL)\d*\s*$/, '').trim();
+    }
+  }
+
+  const sortedGoalRows = Object.values(goalMap).sort((a, b) => a.mealNumber - b.mealNumber);
+  lcMeals.sort((a, b) => a.baseName.localeCompare(b.baseName));
+
+  const pkgMeals = { MWL: [], MLM: [], WLM: [], WWL: [], LC: [] };
+  for (const row of sortedGoalRows) {
+    for (const code of ['MWL', 'MLM', 'WLM', 'WWL']) {
+      if (row.variants[code]) pkgMeals[code].push({ baseName: row.baseName, product: row.variants[code] });
+    }
+  }
+  pkgMeals.LC = lcMeals;
+
+  return PACKAGE_ORDER
+    .filter(code => pkgMeals[code].length > 0)
+    .map(code => ({ code, ...VARIANT_INFO[code], meals: pkgMeals[code] }));
+}
+
 /**
  * Group finished_meal products into rows for the production table.
  * Each row = one base recipe with variant columns (MLM/MWL/WLM/WWL) or a single LC column.
