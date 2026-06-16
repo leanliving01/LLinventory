@@ -56,6 +56,8 @@ import SalesOrderDetail from '@/pages/SalesOrderDetail';
 import NewSalesOrder from '@/pages/NewSalesOrder';
 import ShopifyReturns from '@/pages/ShopifyReturns';
 import ShopifyReturnDetail from '@/pages/ShopifyReturnDetail';
+import ReturnsOpsDashboard from '@/pages/ReturnsOpsDashboard';
+import RefundsQueue from '@/pages/RefundsQueue';
 import SalesResends from '@/pages/SalesResends';
 import SalesResendDetail from '@/pages/SalesResendDetail';
 import Customers from '@/pages/Customers';
@@ -245,7 +247,7 @@ const AuthenticatedApp = () => {
         <Route path="/purchasing/review-queue" element={<ProductReviewQueue />} />
         <Route path="/purchasing/price-variance" element={<PriceVarianceDashboard />} />
         <Route path="/purchasing/three-way-match" element={<ThreeWayMatch />} />
-        <Route path="/purchasing/dashboard" element={<PurchasingDashboard />} />
+        <Route path="/purchasing/dashboard" element={<ErrorBoundary><PurchasingDashboard /></ErrorBoundary>} />
         <Route path="/purchasing/workspace/:id" element={<PurchaseWorkspace />} />
         <Route path="/purchasing/scorecard" element={<SupplierScorecard />} />
         <Route path="/purchasing/pack-bom" element={<PackBomManager />} />
@@ -253,8 +255,11 @@ const AuthenticatedApp = () => {
         <Route path="/sales" element={<Sales />} />
         <Route path="/sales/orders/new" element={<NewSalesOrder />} />
         <Route path="/sales/orders/:orderId" element={<SalesOrderDetail />} />
+        <Route path="/sales/operations" element={<ReturnsOpsDashboard />} />
         <Route path="/sales/returns" element={<ShopifyReturns />} />
         <Route path="/sales/returns/:returnId" element={<ShopifyReturnDetail />} />
+        <Route path="/sales/refunds" element={<RefundsQueue />} />
+        <Route path="/sales/refunds/:returnId" element={<ShopifyReturnDetail />} />
         <Route path="/sales/resends" element={<SalesResends />} />
         <Route path="/sales/resends/:resendId" element={<SalesResendDetail />} />
         <Route path="/customers" element={<Customers />} />

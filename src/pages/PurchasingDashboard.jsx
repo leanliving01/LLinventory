@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Link, useNavigate } from 'react-router-dom';
 import { format, differenceInDays, isBefore, parseISO, startOfToday } from 'date-fns';
-import { Truck, Receipt, FileText, AlertTriangle, TrendingUp, CheckCircle2, Clock, DollarSign, ArrowRight, Plus, RefreshCw, ArrowLeftRight, Upload } from 'lucide-react';
+import { Truck, Receipt, FileText, AlertTriangle, TrendingUp, CheckCircle2, Clock, DollarSign, ArrowRight, Plus, RefreshCw, ArrowLeftRight, Upload, PackageCheck } from 'lucide-react';
 import SyncHealthIndicator from '@/components/shared/SyncHealthIndicator';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
