@@ -390,12 +390,30 @@ export const base44 = {
         bulkSyncCustomers:           'sync-shopify-customers',
       };
       const edgeFn = EDGE_FUNCTIONS[fnName] ?? fnName;
+      // Always use the real Supabase URL (not the dev proxy) for edge function calls.
+      // supabase.functions.invoke inherits the proxy URL in dev which can mangle
+      // the functions path; direct fetch avoids that and mirrors how the cron works.
+      const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${edgeFn}`;
       try {
-        const { data, error } = await supabase.functions.invoke(edgeFn, { body: payload });
-        if (error) return { data: { status: 'error', error: error.message } };
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token ?? SUPABASE_ANON_KEY;
+        const res = await fetch(fnUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'apikey': SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          return { data: { status: 'error', error: `HTTP ${res.status}: ${text.slice(0, 200)}` } };
+        }
+        const data = await res.json();
         return { data };
       } catch (err) {
-        return { data: { status: 'error', error: err?.message ?? 'Unknown error calling edge function' } };
+        return { data: { status: 'error', error: err?.message ?? 'Network error calling edge function' } };
       }
     },
   },
