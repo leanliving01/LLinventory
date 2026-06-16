@@ -6,13 +6,9 @@ const WEBHOOK_TOPICS = [
   'orders/updated',
   'orders/paid',
   'orders/fulfilled',
-  // Customer returns / refunds — import as Draft Returns (no stock movement).
+  // Refunds ride on the order sync; returns are polled via cron (store plan
+  // does not expose returns/* webhook topics).
   'refunds/create',
-  'returns/request',
-  'returns/approve',
-  'returns/update',
-  'returns/cancel',
-  'returns/close',
 ] as const;
 
 interface WebhookRegistration {
