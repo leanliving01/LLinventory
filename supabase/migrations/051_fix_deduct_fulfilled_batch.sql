@@ -159,22 +159,27 @@ BEGIN
       -- Record what was actually taken (capped at on-hand), not what was requested.
       v_actual_deduct := LEAST(qty_to_deduct, COALESCE(v_soh.qty_on_hand, 0));
 
-      INSERT INTO stock_movements (
-        id, product_id, product_sku, product_name,
-        from_location_id, qty, uom, reason, ref_type, ref_id, ref_number,
-        reference_key, unit_cost_at_movement, notes, created_date, updated_date
-      ) VALUES (
-        gen_random_uuid()::text, v_pid, sku_key, v_soh.product_name,
-        v_soh.location_id, v_actual_deduct, COALESCE(v_soh.uom, 'pcs'), 'sale_fulfillment',
-        'sales_order', ord.id, ord.order_number,
-        'sale_fulfillment:' || ord.id || ':' || sku_key,
-        0,
-        'Auto-deduct on Shopify fulfilment of order ' || COALESCE(ord.order_number, ord.id),
-        now(), now()
-      )
-      ON CONFLICT (reference_key) DO NOTHING;
+      -- Idempotency: skip if a movement for this order+sku already exists.
+      -- Uses NOT EXISTS rather than ON CONFLICT because stock_movements has no
+      -- unique constraint on reference_key (avoids requiring a schema change).
+      IF NOT EXISTS (
+        SELECT 1 FROM stock_movements
+        WHERE reference_key = 'sale_fulfillment:' || ord.id || ':' || sku_key
+      ) THEN
+        INSERT INTO stock_movements (
+          id, product_id, product_sku, product_name,
+          from_location_id, qty, uom, reason, ref_type, ref_id, ref_number,
+          reference_key, unit_cost_at_movement, notes, created_date, updated_date
+        ) VALUES (
+          gen_random_uuid()::text, v_pid, sku_key, v_soh.product_name,
+          v_soh.location_id, v_actual_deduct, COALESCE(v_soh.uom, 'pcs'), 'sale_fulfillment',
+          'sales_order', ord.id, ord.order_number,
+          'sale_fulfillment:' || ord.id || ':' || sku_key,
+          0,
+          'Auto-deduct on Shopify fulfilment of order ' || COALESCE(ord.order_number, ord.id),
+          now(), now()
+        );
 
-      IF FOUND THEN
         UPDATE stock_on_hand
            SET qty_on_hand   = qty_on_hand - v_actual_deduct,
                qty_available = GREATEST(0, (qty_on_hand - v_actual_deduct) - COALESCE(qty_committed, 0)),
