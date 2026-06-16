@@ -102,12 +102,16 @@ Deno.serve(async (req) => {
     return json({ status: 'cancelled', processedThisPage: 0, totalProcessed, hasMore: false });
   }
 
-  // Build params — page_info is exclusive with updated_at_min (Shopify requirement)
+  // Build params — page_info is exclusive with updated_at_min (Shopify requirement).
+  // Cursor pages don't allow extra filters; status is set only on the first page.
+  // Include drafts so newly-added products appear before they're published
+  // (Shopify REST default is status=active only).
   const params: Record<string, string> = { limit: String(PAGE_SIZE) };
   if (pageInfo) {
     params.page_info = pageInfo;
-  } else if (updatedAtMin) {
-    params.updated_at_min = updatedAtMin;
+  } else {
+    params.status = 'active,draft';
+    if (updatedAtMin) params.updated_at_min = updatedAtMin;
   }
 
   const res = await shopifyFetch<ShopifyProductsResponse>('/products.json', params);
@@ -186,13 +190,14 @@ Deno.serve(async (req) => {
   let updated = 0;
   let created = 0;
   let skippedNonInventory = 0;
+  let skippedNoSku = 0;
 
   // Collect meal info for skus/meals sync (keyed by sku_code)
   const mealInfoBySku = new Map<string, MealInfo>();
 
   for (const p of products) {
     for (const v of (p.variants || [])) {
-      if (!v.sku) continue;
+      if (!v.sku) { skippedNoSku++; continue; }
 
       // Skip non-inventory catalog items entirely — they must never become
       // products. They surface on orders as financial lines via the order sync.
@@ -280,7 +285,7 @@ Deno.serve(async (req) => {
   if (!hasMore) {
     await markComplete(supabase, SOURCE_KEY, 0);
     if (syncLogId) await finishSyncLog(supabase, syncLogId, 'completed', { records_fetched: newTotal, records_created: created, records_updated: updated });
-    return json({ status: 'completed', processedThisPage, totalProcessed: newTotal, hasMore: false, debug: { created, updated, skippedNonInventory } });
+    return json({ status: 'completed', processedThisPage, totalProcessed: newTotal, hasMore: false, debug: { created, updated, skippedNonInventory, skippedNoSku } });
   }
 
   EdgeRuntime.waitUntil(chainNext(FN_NAME, { mode: 'continue' }, nextDelay));
@@ -290,7 +295,7 @@ Deno.serve(async (req) => {
     totalProcessed: newTotal,
     hasMore: true,
     rateLimit: nearLimit ? { retryAfterSeconds: nextDelay } : undefined,
-    debug: { created, updated, skippedNonInventory, apiCallLimit: res.apiCallLimit },
+    debug: { created, updated, skippedNonInventory, skippedNoSku, apiCallLimit: res.apiCallLimit },
   });
 });
 
