@@ -390,10 +390,9 @@ export const base44 = {
         bulkSyncCustomers:           'sync-shopify-customers',
       };
       const edgeFn = EDGE_FUNCTIONS[fnName] ?? fnName;
-      // Always use the real Supabase URL (not the dev proxy) for edge function calls.
-      // supabase.functions.invoke inherits the proxy URL in dev which can mangle
-      // the functions path; direct fetch avoids that and mirrors how the cron works.
-      const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${edgeFn}`;
+      // Use SUPABASE_URL (dev proxy or real URL) so function calls go through
+      // the same resolved URL the rest of the app uses for REST queries.
+      const fnUrl = `${SUPABASE_URL}/functions/v1/${edgeFn}`;
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token ?? SUPABASE_ANON_KEY;
