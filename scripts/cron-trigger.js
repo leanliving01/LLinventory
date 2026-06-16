@@ -82,7 +82,7 @@ async function run() {
         'Authorization': `Bearer ${SERVICE_KEY}`,
         'apikey': SERVICE_KEY,
       },
-      body: '{}',
+      body: '{"p_limit":50}',
     });
     const text = await res.text();
     let data;

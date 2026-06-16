@@ -384,7 +384,7 @@ Deno.serve(async (req) => {
   // Guard: skip if the lines insert failed — the cron sweep will retry once lines
   // are correctly synced.
   if (lifecycleState === 'fulfilled' && linesInsertOk) {
-    const { error: deductErr } = await supabase.rpc('deduct_fulfilled_stock', { p_order_id: ourSalesId });
+    const { error: deductErr } = await supabase.rpc('deduct_fulfilled_stock', { p_order_id: ourSalesId, p_limit: 1 });
     if (deductErr) console.error('deduct_fulfilled_stock error:', deductErr.message);
   }
 
