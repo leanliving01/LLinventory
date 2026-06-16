@@ -131,6 +131,7 @@ const ENTITY_TABLE_MAP = {
   SalesOrderNote:           'sales_order_notes',
   SalesOrderEvent:          'sales_order_events',
   SalesOrderDocument:       'sales_order_documents',
+  SalesWorkflowEvent:       'sales_workflow_events',
 };
 
 function applyFilters(query, filters) {

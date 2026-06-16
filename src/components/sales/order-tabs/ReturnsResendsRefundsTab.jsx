@@ -1,8 +1,12 @@
-import React from 'react';
-import { RotateCcw, Send, Receipt } from 'lucide-react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { RotateCcw, Send, Receipt, Plus, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import RefundsTab from './RefundsTab';
 import ReturnsBlock from '../order-shared/ReturnsBlock';
 import ResendsBlock from '../order-shared/ResendsBlock';
+import OrderOperationalHistory from '../order-shared/OrderOperationalHistory';
+import { createReturnFromOrder } from '@/lib/createReturn';
 
 /**
  * Consolidated after-sale view: Returns, Re-sends and Refunds in one place,
@@ -22,10 +26,31 @@ function SectionHeading({ icon: Icon, children, count }) {
 }
 
 export default function ReturnsResendsRefundsTab({ order, returns = [], resends = [], financialLines = [] }) {
+  const navigate = useNavigate();
+  const [creatingReturn, setCreatingReturn] = useState(false);
+
+  const handleAddReturn = async () => {
+    setCreatingReturn(true);
+    try {
+      const id = await createReturnFromOrder(order.id);
+      toast.success('Draft return created');
+      navigate(`/sales/returns/${id}`);
+    } catch (err) {
+      toast.error(err.message || 'Could not create return');
+      setCreatingReturn(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="space-y-2">
-        <SectionHeading icon={RotateCcw} count={returns.length}>Returns</SectionHeading>
+        <div className="flex items-center justify-between">
+          <SectionHeading icon={RotateCcw} count={returns.length}>Returns</SectionHeading>
+          <button onClick={handleAddReturn} disabled={creatingReturn}
+            className="inline-flex items-center gap-1.5 text-xs border rounded-md px-3 py-1.5 hover:bg-muted disabled:opacity-60">
+            {creatingReturn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Add Return
+          </button>
+        </div>
         <ReturnsBlock returns={returns} />
       </div>
 
@@ -38,6 +63,8 @@ export default function ReturnsResendsRefundsTab({ order, returns = [], resends 
         <SectionHeading icon={Receipt}>Refunds &amp; Adjustments</SectionHeading>
         <RefundsTab order={order} financialLines={financialLines} />
       </div>
+
+      <OrderOperationalHistory order={order} returns={returns} resends={resends} />
     </div>
   );
 }

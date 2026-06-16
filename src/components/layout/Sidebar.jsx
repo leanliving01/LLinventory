@@ -75,7 +75,9 @@ const PATH_PERMISSION_MAP = {
   '/purchasing/pack-bom': 'recipes_edit',
   '/stock/overview': 'inventory_overview',
   '/sales': 'sales_view',
+  '/sales/operations': 'sales_view',
   '/sales/returns': 'sales_view',
+  '/sales/refunds': 'sales_view',
   '/sales/resends': 'sales_view',
   '/production': 'planning_view',
   '/production/runs': 'runs_view',
@@ -143,7 +145,9 @@ const navItems = [
     label: 'Sales & Returns', icon: ShoppingCart,
     children: [
       { label: 'Orders', path: '/sales', icon: ShoppingCart },
+      { label: 'Operations', path: '/sales/operations', icon: LayoutDashboard },
       { label: 'Returns', path: '/sales/returns', icon: RotateCcw },
+      { label: 'Refunds', path: '/sales/refunds', icon: DollarSign },
       { label: 'Re-sends', path: '/sales/resends', icon: Send },
     ]
   },

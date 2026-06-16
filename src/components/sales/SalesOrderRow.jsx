@@ -13,6 +13,7 @@ import { formatDateTimeSAST } from '@/lib/dateUtils';
 import { STATUS_LABELS as RETURN_STATUS_LABELS, STATUS_COLORS as RETURN_STATUS_COLORS } from '@/lib/shopifyReturns';
 import { RESEND_STATUS_LABELS, RESEND_STATUS_COLORS } from '@/lib/salesResends';
 import { createResendFromOrder } from '@/lib/createResend';
+import { createReturnFromOrder } from '@/lib/createReturn';
 import PackageComponentsPopup from './PackageComponentsPopup';
 
 const lifecycleColors = {
@@ -118,6 +119,7 @@ export default function SalesOrderRow({ order }) {
   const [expanded, setExpanded] = useState(false);
   const [popupPackage, setPopupPackage] = useState(null);
   const [creatingResend, setCreatingResend] = useState(false);
+  const [creatingReturn, setCreatingReturn] = useState(false);
 
   const handleAddResend = async (e) => {
     e.stopPropagation();
@@ -129,6 +131,19 @@ export default function SalesOrderRow({ order }) {
     } catch (err) {
       toast.error(err.message || 'Could not create re-send');
       setCreatingResend(false);
+    }
+  };
+
+  const handleAddReturn = async (e) => {
+    e.stopPropagation();
+    setCreatingReturn(true);
+    try {
+      const id = await createReturnFromOrder(order.id);
+      toast.success('Draft return created');
+      navigate(`/sales/returns/${id}`);
+    } catch (err) {
+      toast.error(err.message || 'Could not create return');
+      setCreatingReturn(false);
     }
   };
 
@@ -527,8 +542,15 @@ export default function SalesOrderRow({ order }) {
             </div>
           )}
 
-          {/* Add Re-send action */}
-          <div className="mt-3 flex justify-end">
+          {/* Operational actions */}
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              onClick={handleAddReturn}
+              disabled={creatingReturn}
+              className="inline-flex items-center gap-1.5 text-xs border rounded-md px-3 py-1.5 hover:bg-muted disabled:opacity-60"
+            >
+              {creatingReturn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />} Add Return
+            </button>
             <button
               onClick={handleAddResend}
               disabled={creatingResend}

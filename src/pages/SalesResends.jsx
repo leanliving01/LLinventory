@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Send, Search, Plus, Loader2, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -9,8 +9,14 @@ import { Button } from '@/components/ui/button';
 import TablePagination from '@/components/shared/TablePagination';
 import { formatDateTimeSAST } from '@/lib/dateUtils';
 import { toast } from 'sonner';
-import { RESEND_STATUS_LABELS, RESEND_STATUS_COLORS, reasonLabel } from '@/lib/salesResends';
+import { RESEND_STATUS_LABELS, RESEND_STATUS_COLORS, reasonLabel, resendMatchesQueue } from '@/lib/salesResends';
 import { createResendFromOrder } from '@/lib/createResend';
+
+// Composite dashboard queues (not plain statuses) deep-linked from Operations.
+const QUEUE_LABELS = {
+  resend_awaiting_decision: 'Awaiting Re-send Decision',
+  resend_to_pack: 'Re-sends To Be Packed / Sent',
+};
 
 const TABS = [
   { key: 'draft', label: 'Draft' },
@@ -25,6 +31,8 @@ const TABS = [
 
 export default function SalesResends() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queueParam = searchParams.get('queue'); // composite queue from Operations dashboard
   const [tab, setTab] = useState('draft');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
@@ -60,7 +68,9 @@ export default function SalesResends() {
   }, [rows]);
 
   const filtered = useMemo(() => {
-    let list = tab === 'all' ? rows : rows.filter(r => r.status === tab);
+    let list = queueParam
+      ? rows.filter(r => resendMatchesQueue(r, queueParam))
+      : (tab === 'all' ? rows : rows.filter(r => r.status === tab));
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(r =>
@@ -74,7 +84,7 @@ export default function SalesResends() {
     return list;
   }, [rows, tab, search]);
 
-  React.useEffect(() => { setPage(0); }, [tab, search]);
+  React.useEffect(() => { setPage(0); }, [tab, search, queueParam]);
 
   const pageRows = filtered.slice(page * pageSize, (page + 1) * pageSize);
 
@@ -87,14 +97,24 @@ export default function SalesResends() {
         <Button onClick={() => setShowNew(true)} className="gap-1.5"><Plus className="w-4 h-4" /> New Re-send</Button>
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
-        {TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${tab === t.key ? 'bg-primary text-primary-foreground border-primary' : 'bg-card hover:bg-muted'}`}>
-            {t.label} <span className="opacity-60">{tabCounts[t.key] ?? 0}</span>
+      {queueParam ? (
+        <div className="flex items-center gap-2 text-sm">
+          <Badge className="bg-primary/10 text-primary">{QUEUE_LABELS[queueParam] || queueParam}</Badge>
+          <span className="text-muted-foreground">{filtered.length} re-send(s)</span>
+          <button onClick={() => setSearchParams({})} className="text-xs text-primary hover:underline inline-flex items-center gap-1">
+            <X className="w-3 h-3" /> Clear filter
           </button>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {TABS.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${tab === t.key ? 'bg-primary text-primary-foreground border-primary' : 'bg-card hover:bg-muted'}`}>
+              {t.label} <span className="opacity-60">{tabCounts[t.key] ?? 0}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="relative max-w-sm">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />

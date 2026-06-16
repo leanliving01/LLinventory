@@ -4,17 +4,28 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, PackageCheck } from 'lucide-react';
+import { Loader2, PackageCheck, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { writeAuditLog } from '@/lib/auditLog';
-import { CONDITIONS } from '@/lib/shopifyReturns';
+import { CONDITIONS, QC_OUTCOMES } from '@/lib/shopifyReturns';
 
-// GRN-like receipt + QC for an expected return. Only 'return_to_stock' qty
-// increases inventory (server-side, via receive_shopify_return).
-export default function ShopifyReturnReceipt({ ret, lines, onDone }) {
+// Maps a QC outcome to the received-qty bucket it lands in.
+function bucketFor(outcome) {
+  if (outcome === 'return_to_stock') return 'to_stock';
+  if (['needs_manager_review', 'other'].includes(outcome)) return 'quarantine';
+  if (outcome) return 'written_off';      // write_off / damaged / opened / expired / incorrect_item
+  return null;
+}
+
+// GRN-like receipt + per-item Quality Check for an expected return. Only the
+// 'Approved — Return to Stock' outcome increases inventory (server-side, via
+// receive_shopify_return). Risky outcomes escalate the return to manager review.
+export default function ShopifyReturnReceipt({ ret, lines, onDone, courierGateActive = false, canApprove = false, userName = null }) {
   const queryClient = useQueryClient();
   const [locationId, setLocationId] = useState('');
   const [saving, setSaving] = useState(false);
+  const [override, setOverride] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
 
   const { data: locations = [] } = useQuery({
     queryKey: ['stock-bearing-locations'],
@@ -27,55 +38,57 @@ export default function ShopifyReturnReceipt({ ret, lines, onDone }) {
       init[l.id] = {
         qty_received: l.qty_received || l.qty_returned || 0,
         condition: l.condition || 'unopened',
-        qc_status: l.qc_status || 'pending',
+        qc_outcome: l.qc_outcome || '',
         qc_notes: l.qc_notes || '',
-        stock_decision: l.stock_decision || '',
-        qty_to_stock: l.qty_to_stock || 0,
-        qty_written_off: l.qty_written_off || 0,
-        qty_quarantine: l.qty_quarantine || 0,
       };
     }
     return init;
   });
 
   const update = (lineId, patch) => {
-    setRowState(prev => {
-      const next = { ...prev[lineId], ...patch };
-      // Auto-route the received qty to the chosen decision bucket.
-      if (patch.stock_decision || patch.qty_received !== undefined) {
-        const qr = Number(next.qty_received) || 0;
-        if (next.stock_decision === 'return_to_stock') { next.qty_to_stock = qr; next.qty_written_off = 0; next.qty_quarantine = 0; }
-        else if (next.stock_decision === 'write_off') { next.qty_written_off = qr; next.qty_to_stock = 0; next.qty_quarantine = 0; }
-        else if (next.stock_decision === 'quarantine') { next.qty_quarantine = qr; next.qty_to_stock = 0; next.qty_written_off = 0; }
-      }
-      return { ...prev, [lineId]: next };
-    });
+    setRowState(prev => ({ ...prev, [lineId]: { ...prev[lineId], ...patch } }));
   };
 
-  const linesById = useMemo(() => Object.fromEntries(lines.map(l => [l.id, l])), [lines]);
+  const buckets = (s) => {
+    const qr = Number(s.qty_received) || 0;
+    const b = bucketFor(s.qc_outcome);
+    return {
+      qty_to_stock: b === 'to_stock' ? qr : 0,
+      qty_written_off: b === 'written_off' ? qr : 0,
+      qty_quarantine: b === 'quarantine' ? qr : 0,
+    };
+  };
 
   const confirm = async () => {
     if (!locationId) { toast.error('Pick a location for received stock'); return; }
-    const anyDecision = Object.values(rowState).some(r => r.stock_decision);
-    if (!anyDecision) { toast.error('Set a stock decision on at least one line'); return; }
+    const anyOutcome = Object.values(rowState).some(r => r.qc_outcome);
+    if (!anyOutcome) { toast.error('Set a quality-check outcome on at least one line'); return; }
+    if (courierGateActive && !override) {
+      toast.error('Courier not booked — confirm the courier first, or use the authorised override.');
+      return;
+    }
+    if (courierGateActive && override && !overrideReason.trim()) {
+      toast.error('Enter a reason for overriding the courier-booked gate.');
+      return;
+    }
     setSaving(true);
 
     const p_lines = lines.map(l => {
       const s = rowState[l.id];
+      const bk = buckets(s);
       const qtyReturned = Number(l.qty_returned) || 0;
       const writeOffValue = qtyReturned > 0
-        ? (Number(s.qty_written_off) || 0) / qtyReturned * (Number(l.return_value) || 0)
+        ? (bk.qty_written_off / qtyReturned) * (Number(l.return_value) || 0)
         : 0;
       return {
         line_id: l.id,
         qty_received: Number(s.qty_received) || 0,
         condition: s.condition || null,
-        qc_status: s.qc_status || null,
+        qc_outcome: s.qc_outcome || null,
         qc_notes: s.qc_notes || null,
-        stock_decision: s.stock_decision || null,
-        qty_to_stock: Number(s.qty_to_stock) || 0,
-        qty_written_off: Number(s.qty_written_off) || 0,
-        qty_quarantine: Number(s.qty_quarantine) || 0,
+        qty_to_stock: bk.qty_to_stock,
+        qty_written_off: bk.qty_written_off,
+        qty_quarantine: bk.qty_quarantine,
         write_off_value: writeOffValue,
         restock_location_id: locationId,
       };
@@ -85,10 +98,18 @@ export default function ShopifyReturnReceipt({ ret, lines, onDone }) {
       p_return_id: ret.id,
       p_lines,
       p_location_id: locationId,
-      p_user: null,
+      p_user: userName,
+      p_override: courierGateActive ? override : false,
+      p_override_reason: courierGateActive && override ? overrideReason : null,
     });
     setSaving(false);
     if (error) { toast.error(`Receipt failed: ${error.message}`); return; }
+    if (data?.status === 'error') {
+      toast.error(data.error === 'courier_not_booked'
+        ? 'Receipt blocked — the courier must be booked first (or use the override).'
+        : `Receipt failed: ${data.error}`);
+      return;
+    }
 
     writeAuditLog({
       action: 'receive',
@@ -96,13 +117,36 @@ export default function ShopifyReturnReceipt({ ret, lines, onDone }) {
       entity_id: ret.id,
       description: `Received return ${ret.return_number} → ${data?.return_status}`,
     });
-    toast.success(`Return received — ${data?.rows_written || 0} item(s) back to stock`);
+    if (data?.exception) {
+      toast.warning('Return received — flagged for manager approval (risky QC outcome).');
+    } else {
+      toast.success(`Return received — ${data?.rows_written || 0} item(s) back to stock`);
+    }
     queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
     onDone?.();
   };
 
   return (
     <div className="space-y-3">
+      {courierGateActive && (
+        <div className="rounded-lg border border-orange-300 bg-orange-50 p-3 space-y-2">
+          <p className="text-sm text-orange-800 flex items-center gap-1.5">
+            <AlertTriangle className="w-4 h-4" /> Courier not yet booked — receiving is blocked until the courier is confirmed.
+          </p>
+          {canApprove ? (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={override} onChange={e => setOverride(e.target.checked)} />
+              Authorised override — receive without the courier being booked
+            </label>
+          ) : (
+            <p className="text-xs text-orange-700">A manager can authorise an override to receive anyway.</p>
+          )}
+          {override && (
+            <Input placeholder="Override reason (required)" value={overrideReason} onChange={e => setOverrideReason(e.target.value)} />
+          )}
+        </div>
+      )}
+
       <div className="flex items-center gap-3">
         <span className="text-sm font-medium">Receive into location:</span>
         <Select value={locationId} onValueChange={setLocationId}>
@@ -121,9 +165,8 @@ export default function ShopifyReturnReceipt({ ret, lines, onDone }) {
               <th className="px-2 py-2">Returned</th>
               <th className="px-2 py-2">Received</th>
               <th className="px-2 py-2">Condition</th>
-              <th className="px-2 py-2">QC</th>
-              <th className="px-2 py-2">Decision</th>
-              <th className="px-2 py-2">To Stock</th>
+              <th className="px-2 py-2">QC Outcome</th>
+              <th className="px-2 py-2">Notes</th>
             </tr>
           </thead>
           <tbody>
@@ -149,31 +192,16 @@ export default function ShopifyReturnReceipt({ ret, lines, onDone }) {
                     </Select>
                   </td>
                   <td className="px-2 py-2">
-                    <Select value={s.qc_status} onValueChange={v => update(l.id, { qc_status: v })}>
-                      <SelectTrigger className="w-24 h-8"><SelectValue /></SelectTrigger>
+                    <Select value={s.qc_outcome} onValueChange={v => update(l.id, { qc_outcome: v })}>
+                      <SelectTrigger className="w-52 h-8"><SelectValue placeholder="Choose outcome..." /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="pass">Pass</SelectItem>
-                        <SelectItem value="fail">Fail</SelectItem>
-                        <SelectItem value="review">Review</SelectItem>
+                        {QC_OUTCOMES.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </td>
                   <td className="px-2 py-2">
-                    <Select value={s.stock_decision} onValueChange={v => update(l.id, { stock_decision: v })}>
-                      <SelectTrigger className="w-36 h-8"><SelectValue placeholder="Decide..." /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="return_to_stock">Return to Stock</SelectItem>
-                        <SelectItem value="write_off">Write Off</SelectItem>
-                        <SelectItem value="quarantine">Quarantine</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </td>
-                  <td className="px-2 py-2">
-                    <Input type="number" min="0" className="w-16 h-8"
-                      value={s.qty_to_stock}
-                      disabled={s.stock_decision !== 'return_to_stock'}
-                      onChange={e => update(l.id, { qty_to_stock: e.target.value })} />
+                    <Input className="w-40 h-8" placeholder="QC notes" value={s.qc_notes}
+                      onChange={e => update(l.id, { qc_notes: e.target.value })} />
                   </td>
                 </tr>
               );
@@ -185,12 +213,13 @@ export default function ShopifyReturnReceipt({ ret, lines, onDone }) {
       <div className="flex justify-end">
         <Button onClick={confirm} disabled={saving} className="gap-2">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <PackageCheck className="w-4 h-4" />}
-          Confirm Receipt
+          Confirm Receipt & QC
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">
-        Only quantities decided <strong>Return to Stock</strong> increase inventory. Write-offs and
-        quarantine never add stock — write-offs are recorded for reporting only.
+        Only the <strong>Approved — Return to Stock</strong> outcome increases inventory. Write-offs and
+        quarantine never add stock. Damaged / Opened / Expired / Needs Manager Review escalate the return
+        to a manager-approval exception before any refund or re-send can complete.
       </p>
     </div>
   );

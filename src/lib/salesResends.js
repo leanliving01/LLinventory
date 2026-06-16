@@ -50,3 +50,24 @@ export const REFUND_STATUSES = [
 export function reasonLabel(value) {
   return RESEND_REASONS.find(r => r.value === value)?.label || value || '—';
 }
+
+// Dashboard queue membership for re-sends (Phase 4).
+export function resendMatchesQueue(rs, queue) {
+  switch (queue) {
+    case 'resend_awaiting_decision':
+      // Draft or pending approval — still needs a confirm/approve decision.
+      return ['draft', 'pending_approval'].includes(rs.status)
+        || (rs.manager_approval_required && rs.exception_status !== 'approved' && rs.status !== 'cancelled');
+    case 'resend_to_pack':
+      // Approved (stock deducted) but not yet sent — needs picking/packing/dispatch.
+      return ['approved', 'picked_packed'].includes(rs.status);
+    case 'resend_sent':
+      return rs.status === 'sent';
+    case 'resend_completed':
+      return rs.status === 'completed';
+    case 'resend_all':
+      return true;
+    default:
+      return rs.status === queue;
+  }
+}

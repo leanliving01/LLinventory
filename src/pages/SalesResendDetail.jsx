@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Send, Save, CheckCircle2, Loader2, Trash2, Plus, XCircle, Truck, PackageCheck } from 'lucide-react';
+import { ArrowLeft, Send, Save, CheckCircle2, Loader2, Trash2, Plus, XCircle, Truck, PackageCheck, ShieldAlert, History } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
@@ -15,6 +15,9 @@ import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import { writeAuditLog } from '@/lib/auditLog';
 import { formatDateTimeSAST } from '@/lib/dateUtils';
 import { RESEND_STATUS_LABELS, RESEND_STATUS_COLORS, RESEND_REASONS } from '@/lib/salesResends';
+import { EXCEPTION_STATUS_LABELS, EXCEPTION_STATUS_COLORS } from '@/lib/shopifyReturns';
+import { logWorkflowEvent } from '@/lib/salesWorkflowEvents';
+import WorkflowAuditTimeline from '@/components/returns/WorkflowAuditTimeline';
 
 export default function SalesResendDetail() {
   const { resendId } = useParams();
@@ -24,6 +27,7 @@ export default function SalesResendDetail() {
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
   const canProcess = !!perms.sales_resends_process || user?.role === 'admin';
+  const canApprove = !!perms.returns_manager_approve || user?.role === 'admin';
   const userName = user?.full_name || user?.email || 'system';
 
   const [saving, setSaving] = useState(false);
@@ -57,6 +61,7 @@ export default function SalesResendDetail() {
       reason: rs.reason || '', notes: rs.notes || '',
       courier_company: rs.courier_company || '', courier_tracking_ref: rs.courier_tracking_ref || '',
       dispatch_date: rs.dispatch_date || '', courier_notes: rs.courier_notes || '',
+      exception_notes: rs.exception_notes || '',
     });
   }, [rs]);
   useEffect(() => { setRows(lines.map(l => ({ ...l }))); }, [lines]);
@@ -73,10 +78,29 @@ export default function SalesResendDetail() {
     await base44.entities.SalesResend.update(rs.id, patch);
     setSaving(false);
     if (audit) writeAuditLog({ action: audit, entity_type: 'SalesResend', entity_id: rs.id, description: `${audit} re-send ${rs.resend_number}` });
+    if (msg) logWorkflowEvent({ entityType: 'sales_resend', entityId: rs.id, eventType: 'status', actor: userName, description: msg });
     queryClient.invalidateQueries({ queryKey: ['sales-resend', resendId] });
     queryClient.invalidateQueries({ queryKey: ['sales-resends'] });
     if (msg) toast.success(msg);
   };
+
+  // Manager toggle: flag (or unflag) this re-send as requiring approval.
+  const setApprovalRequired = (val) =>
+    persistHeader({ manager_approval_required: val, exception_status: val ? 'pending' : 'none' },
+      val ? 'Flagged — requires manager approval' : 'Manager approval requirement removed');
+
+  // Manager resolves the approval requirement.
+  const resolveApproval = (decision) => {
+    if (!canApprove) { toast.error('You do not have manager-approval permission'); return; }
+    persistHeader({
+      exception_status: decision === 'approve' ? 'approved' : 'rejected',
+      exception_resolved_by: userName,
+      exception_resolved_at: new Date().toISOString(),
+      exception_notes: form.exception_notes || null,
+    }, decision === 'approve' ? 'Re-send approved by manager' : 'Re-send rejected by manager');
+  };
+
+  const approvalBlocked = rs.manager_approval_required && rs.exception_status !== 'approved';
 
   const saveDraft = async () => {
     setSaving(true);
@@ -105,11 +129,18 @@ export default function SalesResendDetail() {
     if (!form.reason) { toast.error('Select a reason before approving'); return; }
     if (!approveLoc) { toast.error('Pick a dispatch location'); return; }
     if (rows.length === 0) { toast.error('Add at least one item'); return; }
+    if (approvalBlocked) { toast.error('Blocked — this re-send requires manager approval first.'); return; }
     await saveDraft();
     setSaving(true);
     const { data, error } = await supabase.rpc('approve_resend', { p_resend_id: rs.id, p_location_id: approveLoc, p_user: userName });
     setSaving(false);
     if (error) { toast.error(`Approve failed: ${error.message}`); return; }
+    if (data?.status === 'error') {
+      toast.error(data.error === 'manager_approval_required'
+        ? 'Blocked — this re-send requires manager approval first.'
+        : `Approve failed: ${data.error}`);
+      return;
+    }
     if (data?.missing_skus?.length) toast.warning(`No product for SKU(s): ${data.missing_skus.join(', ')}`);
     if (data?.missing_boms?.length) toast.warning(`No BOM for package(s): ${data.missing_boms.join(', ')}`);
     writeAuditLog({ action: 'approve', entity_type: 'SalesResend', entity_id: rs.id, description: `Approved re-send ${rs.resend_number} — stock deducted` });
@@ -126,6 +157,7 @@ export default function SalesResendDetail() {
     setSaving(false);
     if (error) { toast.error(`Cancel failed: ${error.message}`); return; }
     writeAuditLog({ action: 'cancel', entity_type: 'SalesResend', entity_id: rs.id, description: `Cancelled re-send ${rs.resend_number}${rs.stock_deducted ? ' — stock reversed' : ''}` });
+    logWorkflowEvent({ entityType: 'sales_resend', entityId: rs.id, eventType: 'resend', actor: userName, description: `Cancelled${rs.stock_deducted ? ' — stock reversed' : ''}` });
     toast.success(rs.stock_deducted ? `Cancelled — ${data?.rows_written || 0} item(s) returned to stock` : 'Cancelled');
     queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
     queryClient.invalidateQueries({ queryKey: ['sales-resend', resendId] });
@@ -235,10 +267,55 @@ export default function SalesResendDetail() {
         </div>
       </div>
 
+      {/* Manager approval */}
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <ShieldAlert className="w-4 h-4" /> Manager Approval
+          {rs.manager_approval_required && (
+            <Badge className={`text-[10px] ${EXCEPTION_STATUS_COLORS[rs.exception_status] || ''}`}>
+              {EXCEPTION_STATUS_LABELS[rs.exception_status] || rs.exception_status}
+            </Badge>
+          )}
+        </h2>
+        {editable && (
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={!!rs.manager_approval_required} onChange={e => setApprovalRequired(e.target.checked)} />
+            This re-send requires manager approval before stock is deducted
+          </label>
+        )}
+        {approvalBlocked && (
+          <div className="rounded-lg border border-orange-300 bg-orange-50 p-3 space-y-2">
+            <p className="text-sm text-orange-800">Approval required — this re-send cannot be approved (stock deducted) until a manager signs off.</p>
+            <Textarea placeholder="Approval / rejection notes..." value={form.exception_notes} onChange={e => set({ exception_notes: e.target.value })} />
+            {canApprove ? (
+              <div className="flex gap-2">
+                <Button onClick={() => resolveApproval('approve')} disabled={saving} className="gap-1.5"><CheckCircle2 className="w-4 h-4" /> Approve</Button>
+                <Button variant="outline" onClick={() => resolveApproval('reject')} disabled={saving}>Reject</Button>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Ask a manager to approve this re-send.</p>
+            )}
+          </div>
+        )}
+        {rs.exception_resolved_at && (
+          <p className="text-xs text-muted-foreground">
+            {rs.exception_status === 'approved' ? 'Approved' : 'Rejected'} by {rs.exception_resolved_by} on {formatDateTimeSAST(rs.exception_resolved_at)}
+          </p>
+        )}
+      </div>
+
       {/* Notes */}
       <div className="space-y-2">
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Notes</h2>
         <Textarea value={form.notes} onChange={e => set({ notes: e.target.value })} placeholder="Internal notes..." disabled={!canProcess} />
+      </div>
+
+      {/* Audit history */}
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><History className="w-4 h-4" /> Audit History</h2>
+        <div className="rounded-lg border bg-card p-3">
+          <WorkflowAuditTimeline entityType="sales_resend" entityId={rs.id} />
+        </div>
       </div>
 
       {rs.stock_deducted && rs.deducted_at && (

@@ -45,12 +45,15 @@ INSERT INTO sales_line_classification_rules (id, match_type, pattern, classified
 SELECT * FROM (VALUES
   -- Shipping / delivery
   (gen_random_uuid()::text, 'product_type',  'shipping',      'shipping',     10, 'Shopify product_type = Shipping'),
+  (gen_random_uuid()::text, 'sku_prefix',    'shipping -',    'shipping',     15, 'Any "Shipping - *" SKU/title'),
   (gen_random_uuid()::text, 'title_keyword', 'door to door',  'shipping',     20, 'Door-to-door delivery'),
   (gen_random_uuid()::text, 'title_keyword', 'door-to-door',  'shipping',     20, 'Door-to-door delivery'),
   (gen_random_uuid()::text, 'title_keyword', 'local pickup',  'shipping',     20, 'Local pickup / collection'),
+  (gen_random_uuid()::text, 'title_keyword', 'pick up',       'shipping',     20, 'Local pick up (spaced)'),
   (gen_random_uuid()::text, 'title_keyword', 'free shipping', 'shipping',     20, 'Free shipping (record at R0)'),
   (gen_random_uuid()::text, 'title_keyword', 'courier',       'shipping',     30, 'Courier charge'),
   (gen_random_uuid()::text, 'title_keyword', 'delivery',      'shipping',     40, 'Generic delivery charge'),
+  (gen_random_uuid()::text, 'title_keyword', 'shipping',      'shipping',     45, 'Generic shipping service'),
   -- Vouchers / gift cards
   (gen_random_uuid()::text, 'title_keyword', 'gift voucher',  'voucher',      20, 'Gift voucher'),
   (gen_random_uuid()::text, 'title_keyword', 'gift card',     'voucher',      20, 'Gift card'),

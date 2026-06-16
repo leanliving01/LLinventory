@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { RotateCcw, Search, Download, Truck, AlertTriangle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +18,10 @@ const TABS = [
   { key: 'expected_return', label: 'Expected' },
   { key: 'courier_to_be_booked', label: 'Courier To Book' },
   { key: 'courier_booked', label: 'Courier Booked' },
+  { key: 'awaiting_receival', label: 'Awaiting Receival' },
   { key: 'received_pending_qc', label: 'Received / QC' },
+  { key: 'qc_exceptions', label: 'QC Exceptions' },
+  { key: 'awaiting_refund_decision', label: 'Awaiting Refund' },
   { key: 'written_off', label: 'Written Off' },
   { key: 'returned_to_stock', label: 'Returned to Stock' },
   { key: 'completed', label: 'Completed' },
@@ -27,7 +30,15 @@ const TABS = [
 
 export default function ShopifyReturns() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState('draft_return');
+  const [searchParams] = useSearchParams();
+  const queueParam = searchParams.get('queue');
+  const [tab, setTab] = useState(
+    queueParam && TABS.some(t => t.key === queueParam) ? queueParam : 'draft_return',
+  );
+  // Follow the dashboard deep-link if the query param changes.
+  React.useEffect(() => {
+    if (queueParam && TABS.some(t => t.key === queueParam)) setTab(queueParam);
+  }, [queueParam]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
