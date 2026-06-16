@@ -268,6 +268,7 @@ Deno.serve(async (req) => {
   const rules = await loadClassificationRules(supabase);
   const financialLines: Array<Record<string, unknown>> = [];
   const newLines = new Map<string, number>();
+  let linesInsertOk = true;
 
   if (lineItems.length) {
     const orderLines = lineItems.map((l) => ({
@@ -341,7 +342,13 @@ Deno.serve(async (req) => {
     }
 
     await supabase.from('shopify_order_lines').insert(orderLines);
-    if (salesLines.length) await supabase.from('sales_order_lines').insert(salesLines);
+    if (salesLines.length) {
+      const { error: solErr } = await supabase.from('sales_order_lines').insert(salesLines);
+      if (solErr) {
+        console.error('[webhook] sales_order_lines insert failed:', solErr.message);
+        linesInsertOk = false;
+      }
+    }
   }
 
   // Order-level financial lines from structural fields (shipping/discount/tip/refund).
@@ -374,7 +381,9 @@ Deno.serve(async (req) => {
   // line items above are written (the RPC reads sales_order_lines). Idempotent via
   // the sticky stock_deducted flag + stock_movements.reference_key, so it is safe
   // even though the 15-min cron also sweeps fulfilled orders.
-  if (lifecycleState === 'fulfilled') {
+  // Guard: skip if the lines insert failed — the cron sweep will retry once lines
+  // are correctly synced.
+  if (lifecycleState === 'fulfilled' && linesInsertOk) {
     const { error: deductErr } = await supabase.rpc('deduct_fulfilled_stock', { p_order_id: ourSalesId });
     if (deductErr) console.error('deduct_fulfilled_stock error:', deductErr.message);
   }
