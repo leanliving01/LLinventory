@@ -103,8 +103,7 @@ interface GqlOrder {
   fulfillments?: Array<{
     status?: string;
     createdAt?: string;
-    trackingCompany?: string | null;
-    trackingInfo?: Array<{ number?: string; url?: string }>;
+    trackingInfo?: Array<{ company?: string | null; number?: string; url?: string }>;
   }>;
 }
 
@@ -116,9 +115,6 @@ interface GqlLineItem {
   quantity?: number;
   sku?: string | null;
   originalUnitPriceSet?: { shopMoney?: { amount?: string } };
-  giftCard?: boolean;
-  product?: { productType?: string };
-  variant?: { legacyResourceId?: string };
 }
 
 interface GqlShippingLine {
@@ -186,9 +182,9 @@ async function flushBatch(
     // Tracking from last active fulfillment
     const active = (order.fulfillments || []).filter(f => f.status !== 'CANCELLED');
     const lastF  = active[active.length - 1];
-    const trackingNumber = lastF?.trackingInfo?.[0]?.number || null;
-    const trackingUrl    = lastF?.trackingInfo?.[0]?.url    || null;
-    const courier        = lastF?.trackingCompany           || null;
+    const trackingNumber = lastF?.trackingInfo?.[0]?.number  || null;
+    const trackingUrl    = lastF?.trackingInfo?.[0]?.url     || null;
+    const courier        = lastF?.trackingInfo?.[0]?.company || null;
 
     const paidStatus  = mapPaidStatus(order.displayFinancialStatus);
     const fulStatus   = mapFulfilment(order.displayFulfillmentStatus);
@@ -298,7 +294,6 @@ async function flushBatch(
 
       const { category } = classifyLineItem({
         title: l.title, sku: l.sku || undefined,
-        product_type: l.product?.productType, gift_card: l.giftCard,
       }, rules);
       if (category !== 'inventory_product') continue;
 
@@ -308,7 +303,7 @@ async function flushBatch(
         id: crypto.randomUUID(),
         sales_order_id:     salesId,
         external_id:        legacyId(l.id),
-        shopify_variant_id: l.variant?.legacyResourceId ? String(l.variant.legacyResourceId) : null,
+        shopify_variant_id: null,
         sku:                l.sku || '',
         name:               l.title || 'Untitled',
         variant_title:      l.variantTitle || null,
@@ -365,6 +360,7 @@ Deno.serve(async (req) => {
             orders(query: "created_at:>${since}") {
               edges {
                 node {
+                  id
                   legacyResourceId
                   name
                   createdAt
@@ -382,13 +378,12 @@ Deno.serve(async (req) => {
                   fulfillments {
                     status
                     createdAt
-                    trackingCompany
-                    trackingInfo { number url }
+                    trackingInfo { company number url }
                   }
                   shippingLines {
                     edges {
                       node {
-                        legacyResourceId
+                        id
                         title
                         originalPriceSet { shopMoney { amount } }
                       }
@@ -397,15 +392,12 @@ Deno.serve(async (req) => {
                   lineItems {
                     edges {
                       node {
-                        legacyResourceId
+                        id
                         title
                         variantTitle
                         quantity
                         sku
                         originalUnitPriceSet { shopMoney { amount } }
-                        giftCard
-                        product { productType }
-                        variant { legacyResourceId }
                       }
                     }
                   }
