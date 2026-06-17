@@ -390,13 +390,12 @@ export const base44 = {
         bulkSyncCustomers:           'sync-shopify-customers',
       };
       const edgeFn = EDGE_FUNCTIONS[fnName] ?? fnName;
-      // Route function calls through a Vercel proxy (/__fn) in production so
-      // the browser never calls supabase.co directly — same idea as the dev
-      // Vite proxy (/__sb). In dev, the Vite proxy already covers functions
-      // via the /__sb route.
+      // Route function calls through a Vercel serverless proxy (/api/fn) in
+      // production so the browser never calls supabase.co directly.
+      // In dev the Vite dev-server proxy handles Supabase traffic via /__sb.
       const fnBase = import.meta.env.DEV
         ? `${SUPABASE_URL}/functions/v1`
-        : `${window.location.origin}/__fn`;
+        : `${window.location.origin}/api/fn`;
       const fnUrl = `${fnBase}/${edgeFn}`;
       try {
         const { data: { session } } = await supabase.auth.getSession();
