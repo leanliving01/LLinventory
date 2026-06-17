@@ -12,6 +12,17 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Debug: return exactly what we see (remove after fixing)
+  if (req.query._debug === '1') {
+    res.status(200).json({
+      url: req.url,
+      queryPath: req.query.path,
+      method: req.method,
+      body: req.body,
+    });
+    return;
+  }
+
   // req.url is e.g. "/api/fn/sync-shopify-products" — strip the prefix to get the function name
   const fnPath = (req.url || '').replace(/^\/api\/fn\/?/, '').split('?')[0];
   const target = `${SUPABASE_FUNCTIONS_URL}/${fnPath}`;
