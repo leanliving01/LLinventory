@@ -16,19 +16,51 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 
 const FUNCTIONS_URL = `${SUPABASE_URL}/functions/v1`;
 
-async function invoke(fnName, body = {}) {
-  const res = await fetch(`${FUNCTIONS_URL}/${fnName}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${SERVICE_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = { raw: text }; }
-  return { status: res.status, ok: res.ok, data };
+// Abort a fetch after 60 s so a hung edge function never blocks the whole cron run.
+async function invoke(fnName, body = {}, timeoutMs = 60_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${FUNCTIONS_URL}/${fnName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SERVICE_KEY}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    return { status: res.status, ok: res.ok, data };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Direct PostgREST RPC call with a 60-second timeout.
+async function callRpc(path, body = '{}') {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const res = await fetch(`${SUPABASE_URL}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SERVICE_KEY}`,
+        'apikey': SERVICE_KEY,
+      },
+      body,
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    return { status: res.status, data };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function run() {
@@ -54,19 +86,8 @@ async function run() {
 
   // Committed stock recalculation — every 15 min (same cadence as order sync)
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/recalc_committed_stock`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SERVICE_KEY}`,
-        'apikey': SERVICE_KEY,
-      },
-      body: '{}',
-    });
-    const text = await res.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = { raw: text }; }
-    console.log(`[recalc-committed-stock] ${res.status} — rows_written=${data?.rows_written ?? '?'} skus=${data?.unique_skus ?? '?'}`);
+    const { status, data } = await callRpc('/rest/v1/rpc/recalc_committed_stock');
+    console.log(`[recalc-committed-stock] ${status} — rows_written=${data?.rows_written ?? '?'} skus=${data?.unique_skus ?? '?'}`);
   } catch (e) {
     console.error('[recalc-committed-stock] Error:', e.message);
   }
@@ -75,19 +96,8 @@ async function run() {
   // Processes up to 50 orders per run (p_limit) to stay well within the
   // Supabase statement timeout. Idempotent via sticky flag + reference_key.
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/deduct_fulfilled_stock`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SERVICE_KEY}`,
-        'apikey': SERVICE_KEY,
-      },
-      body: '{"p_limit":50}',
-    });
-    const text = await res.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = { raw: text }; }
-    console.log(`[deduct-fulfilled-stock] ${res.status} — orders=${data?.orders_processed ?? '?'} rows_written=${data?.rows_written ?? '?'} missing_skus=${JSON.stringify(data?.missing_skus ?? [])}`);
+    const { status, data } = await callRpc('/rest/v1/rpc/deduct_fulfilled_stock', '{"p_limit":50}');
+    console.log(`[deduct-fulfilled-stock] ${status} — orders=${data?.orders_processed ?? '?'} rows_written=${data?.rows_written ?? '?'} missing_skus=${JSON.stringify(data?.missing_skus ?? [])}`);
   } catch (e) {
     console.error('[deduct-fulfilled-stock] Error:', e.message);
   }
@@ -101,12 +111,18 @@ async function run() {
     console.error('[shopify-returns] Error:', e.message);
   }
 
-  // Xero invoices — every 4 hours (guard: the function itself checks for concurrent runs)
-  try {
-    const r = await invoke('sync-xero-invoices', { mode: 'start' });
-    console.log(`[xero-invoices] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);
-  } catch (e) {
-    console.error('[xero-invoices] Error:', e.message);
+  // Xero invoices — every 4 hours (UTC hours 0, 4, 8, 12, 16, 20).
+  // Running it every 15 min burned Xero's daily API quota and caused 429s.
+  if (now.getUTCHours() % 4 === 0 && now.getUTCMinutes() < 15) {
+    try {
+      const r = await invoke('sync-xero-invoices', { mode: 'start' });
+      console.log(`[xero-invoices] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);
+    } catch (e) {
+      console.error('[xero-invoices] Error:', e.message);
+    }
+  } else {
+    const nextHour = (Math.floor(now.getUTCHours() / 4) + 1) * 4 % 24;
+    console.log(`[xero-invoices] Skipped — next run at ${String(nextHour).padStart(2, '0')}:00 UTC`);
   }
 
   // Daily reconciliation — only fire once per day (at 02:00 SAST = 00:00 UTC)

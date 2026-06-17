@@ -32,9 +32,17 @@ Deno.serve(async (req) => {
   let syncLogId: string | null = null;
 
   if (mode === 'start') {
-    // Guard: reject concurrent starts unless it's a full resync (which intentionally overrides)
+    // Guard: reject concurrent starts unless it's a full resync (which intentionally overrides).
+    // Auto-clear stale locks (>30 min) so a broken chain can't block forever.
     if (priorState?.sync_status === 'running' && !body.fullResync) {
-      return json({ status: 'error', error: 'Sync already in progress — wait for it to finish or cancel it first.', page: 0, processedThisPage: 0, totalProcessed: priorState.records_synced || 0, hasMore: false });
+      const staleCutoff = new Date(Date.now() - 30 * 60 * 1000);
+      const lockedAt = priorState.updated_date ? new Date(priorState.updated_date) : null;
+      if (!lockedAt || lockedAt < staleCutoff) {
+        console.log('[sync-xero-invoices] Stale running lock detected — auto-clearing and restarting');
+        await markCancelled(supabase, SOURCE_KEY);
+      } else {
+        return json({ status: 'error', error: 'Sync already in progress — wait for it to finish or cancel it first.', page: 0, processedThisPage: 0, totalProcessed: priorState.records_synced || 0, hasMore: false });
+      }
     }
     // Incremental: use last_sync_at unless fullResync requested
     if (!body.fullResync && priorState?.last_sync_at) {
