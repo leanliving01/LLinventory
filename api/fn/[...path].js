@@ -12,9 +12,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  // req.query.path is the [...path] catch-all: string or string[]
-  const pathParts = req.query.path;
-  const fnPath = Array.isArray(pathParts) ? pathParts.join('/') : (pathParts || '');
+  // req.url is e.g. "/api/fn/sync-shopify-products" — strip the prefix to get the function name
+  const fnPath = (req.url || '').replace(/^\/api\/fn\/?/, '').split('?')[0];
   const target = `${SUPABASE_FUNCTIONS_URL}/${fnPath}`;
 
   const headers = { 'Content-Type': 'application/json' };
