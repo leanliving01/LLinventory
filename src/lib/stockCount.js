@@ -39,9 +39,9 @@ const costOf = (product) =>
 // Create a count (planned or live) and seed one line per product that has stock
 // at the selected location (optionally narrowed to an item group / category).
 // ---------------------------------------------------------------------------
-async function createCount({ location, locationScopeIds, date, countType, status, itemGroup, subItemGroup, assignedTo, assignedToName }) {
+async function createCount({ location, locationScopeIds, date, countType, status, itemGroup, subItemGroups, countName, assignedTo, assignedToName }) {
   const cat = itemGroup && itemGroup !== 'all' ? itemGroup : null;
-  const subCat = subItemGroup || null;
+  const subCats = subItemGroups && subItemGroups.length > 0 ? subItemGroups : null;
   // scope: by location (all categories), by location + category, or by category (all locations).
   const scope = location ? (cat ? 'location_category' : 'location') : 'category';
   if (!location && !cat) throw new Error('Pick a location or a category to count');
@@ -87,8 +87,8 @@ async function createCount({ location, locationScopeIds, date, countType, status
     const product = productById[soh.product_id];
     // Filter by product type (canonical category)
     if (cat && product?.type !== cat) continue;
-    // Optional subcategory filter
-    if (subCat && (product?.subcategory || '').trim() !== subCat) continue;
+    // Optional subcategory filter — include if product matches ANY selected subcategory
+    if (subCats && !subCats.includes((product?.subcategory || '').trim())) continue;
     seen.add(key);
     candidates.push({ soh, product });
   }
@@ -103,6 +103,7 @@ async function createCount({ location, locationScopeIds, date, countType, status
 
   const header = await base44.entities.NewStockTake.create({
     reference,
+    count_name: countName || null,
     stocktake_date: date,
     location_id: location?.id || null,
     location_name: location?.name || 'All locations',
@@ -144,8 +145,8 @@ async function createCount({ location, locationScopeIds, date, countType, status
 // `location` may be null for a category-across-all-locations count.
 // `locationScopeIds` expands a warehouse into all its stock-bearing zone ids.
 // `subItemGroup` is an optional subcategory filter within the chosen type.
-export function createPlannedCount({ location, locationScopeIds, date, itemGroup, subItemGroup, assignedTo, assignedToName }) {
-  return createCount({ location, locationScopeIds, date, countType: 'planned', status: 'open', itemGroup, subItemGroup, assignedTo, assignedToName });
+export function createPlannedCount({ location, locationScopeIds, date, countName, itemGroup, subItemGroups, assignedTo, assignedToName }) {
+  return createCount({ location, locationScopeIds, date, countType: 'planned', status: 'open', countName, itemGroup, subItemGroups, assignedTo, assignedToName });
 }
 
 // Floor: live count started on the floor (status In Progress immediately).
