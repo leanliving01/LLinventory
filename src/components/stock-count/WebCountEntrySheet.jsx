@@ -175,7 +175,7 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
                     </button>
 
                     {!subCollapsed && Object.entries(productMap)
-                      .sort(([a], [b]) => a.localeCompare(b))
+                      .sort(([, aLines], [, bLines]) => (aLines[0]?.product_sku || '').localeCompare(bLines[0]?.product_sku || ''))
                       .map(([pname, plines]) => {
                         const multiLoc = plines.length > 1;
                         return (
