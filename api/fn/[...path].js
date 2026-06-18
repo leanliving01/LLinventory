@@ -12,8 +12,16 @@ export default async function handler(req, res) {
     return;
   }
 
-  // req.url is e.g. "/api/fn/sync-shopify-products?qs" — strip prefix + query string
-  const fnPath = (req.url || '').replace(/^\/api\/fn\/?/, '').split('?')[0];
+  // Prefer the [...path] catch-all query param (most reliable regardless of rewrites).
+  // Fall back to stripping the prefix from req.url for any path prefix variant.
+  const rawPath = req.query.path;
+  let fnPath;
+  if (rawPath) {
+    fnPath = (Array.isArray(rawPath) ? rawPath.join('/') : String(rawPath)).replace(/^\/+/, '');
+  } else {
+    fnPath = (req.url || '').replace(/^\/+(?:api\/fn|__fn)\/+/, '').split('?')[0].replace(/^\/+/, '');
+  }
+
   const target = `${SUPABASE_FUNCTIONS_URL}/${fnPath}`;
 
   const headers = { 'Content-Type': 'application/json' };

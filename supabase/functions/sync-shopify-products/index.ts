@@ -184,47 +184,53 @@ Deno.serve(async (req) => {
   // inventory products.
   const rules = await loadClassificationRules(supabase);
 
-  // Process each product variant → upsert into products table
+  // Process each product variant → upsert into products table.
+  // Products without SKUs are allowed through — user can assign SKU from inventory UI.
   let updated = 0;
   let created = 0;
   let skippedNonInventory = 0;
-  let skippedNoSku = 0;
+
+  // Track shopify_product_ids that were created this run to prevent duplicate rows
+  // when a Shopify product has multiple no-SKU variants.
+  const createdThisRun = new Set<string>();
 
   // Collect meal info for skus/meals sync (keyed by sku_code)
   const mealInfoBySku = new Map<string, MealInfo>();
 
   for (const p of products) {
     for (const v of (p.variants || [])) {
-      if (!v.sku) { skippedNoSku++; continue; }
+      const hasSku = Boolean(v.sku);
 
-      // Skip non-inventory catalog items entirely — they must never become
-      // products. They surface on orders as financial lines via the order sync.
-      // Only skip on CREATE; existing matched products are left for migration
-      // 044 to reclassify (single authority — avoids two code paths fighting).
-      const cls = classifyLineItem(
-        { title: p.title, sku: v.sku, product_type: p.product_type },
-        rules,
-      );
-      const isNonInventory = cls.category !== 'inventory_product';
-      const alreadyExists = existingByShopifyId.has(String(p.id)) || existingBySku.has(v.sku);
-      if (isNonInventory && !alreadyExists) {
-        skippedNonInventory++;
-        continue;
+      // Non-inventory classification — only run when SKU is available.
+      // SKU-less variants default to inventory_product so they are always created.
+      if (hasSku) {
+        const cls = classifyLineItem(
+          { title: p.title, sku: v.sku, product_type: p.product_type },
+          rules,
+        );
+        const isNonInventory = cls.category !== 'inventory_product';
+        const alreadyExists = existingByShopifyId.has(String(p.id)) || existingBySku.has(v.sku);
+        if (isNonInventory && !alreadyExists) {
+          skippedNonInventory++;
+          continue;
+        }
       }
 
-      // Track meal info for this variant (used after products loop)
-      const info = deriveMealInfo(v.sku, p.title, p.product_type);
-      if (info) mealInfoBySku.set(v.sku, info);
+      // Track meal info for SKU-bearing variants
+      if (hasSku) {
+        const info = deriveMealInfo(v.sku, p.title, p.product_type);
+        if (info) mealInfoBySku.set(v.sku, info);
+      }
 
       // VAT-exclusive selling price derived from Shopify's (VAT-inclusive) variant price.
       const exclPrice = exclVatPrice(v.price);
 
-      // Match priority: shopify_product_id → sku
+      // Match priority: shopify_product_id → sku (sku-match only when SKU exists)
       let match = existingByShopifyId.get(String(p.id));
-      if (!match && existingBySku.has(v.sku)) {
+      if (!match && hasSku && existingBySku.has(v.sku)) {
         const bs = existingBySku.get(v.sku)!;
         match = { id: bs.id, sku: bs.sku, type: bs.type };
-        // Backfill shopify IDs on existing product
+        // Backfill shopify IDs on the SKU-matched product; also update SKU if Shopify has one
         const writePrice = exclPrice !== null;
         await supabase.from('products').update({
           shopify_product_id: String(p.id),
@@ -239,16 +245,21 @@ Deno.serve(async (req) => {
           ...(updateNamesFromShopify ? { name: p.title } : {}),
           shopify_variant_id: String(v.id),
           barcode: v.barcode || null,
+          // Sync SKU from Shopify if it has been set and the record has none yet
+          ...(hasSku ? { sku: v.sku } : {}),
           ...(writePrice ? { price: exclPrice } : {}),
           updated_date: now,
         }).eq('id', match.id);
         updated++;
       } else {
-        // No match — create as finished_meal default (user can re-categorize).
-        // Seed price with the excl-VAT value so the catalog shows a sensible figure.
+        // No match — check if another variant of this same Shopify product was already
+        // created this run (multi-variant products map to one inventory record).
+        if (createdThisRun.has(String(p.id))) continue;
+
+        // Create as finished_meal. SKU may be null — user assigns it from inventory UI.
         const { error } = await supabase.from('products').insert({
           id: crypto.randomUUID(),
-          sku: v.sku,
+          sku: v.sku || null,
           name: p.title,
           type: 'finished_meal',
           stock_uom: 'pcs',
@@ -260,7 +271,10 @@ Deno.serve(async (req) => {
           created_date: now,
           updated_date: now,
         });
-        if (!error) created++;
+        if (!error) {
+          created++;
+          createdThisRun.add(String(p.id));
+        }
       }
     }
   }
@@ -283,7 +297,7 @@ Deno.serve(async (req) => {
   if (!hasMore) {
     await markComplete(supabase, SOURCE_KEY, 0);
     if (syncLogId) await finishSyncLog(supabase, syncLogId, 'completed', { records_fetched: newTotal, records_created: created, records_updated: updated });
-    return json({ status: 'completed', processedThisPage, totalProcessed: newTotal, hasMore: false, debug: { created, updated, skippedNonInventory, skippedNoSku } });
+    return json({ status: 'completed', processedThisPage, totalProcessed: newTotal, hasMore: false, debug: { created, updated, skippedNonInventory } });
   }
 
   EdgeRuntime.waitUntil(chainNext(FN_NAME, { mode: 'continue' }, nextDelay));
@@ -293,7 +307,7 @@ Deno.serve(async (req) => {
     totalProcessed: newTotal,
     hasMore: true,
     rateLimit: nearLimit ? { retryAfterSeconds: nextDelay } : undefined,
-    debug: { created, updated, skippedNonInventory, skippedNoSku, apiCallLimit: res.apiCallLimit },
+    debug: { created, updated, skippedNonInventory, apiCallLimit: res.apiCallLimit },
   });
 });
 
