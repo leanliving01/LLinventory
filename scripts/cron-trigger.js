@@ -125,6 +125,19 @@ async function run() {
     console.log(`[xero-invoices] Skipped — next run at ${String(nextHour).padStart(2, '0')}:00 UTC`);
   }
 
+  // Shopify products — once per day at 03:00 SAST (01:00 UTC).
+  // Pulls product changes (incl. price edits) from Shopify; the function stores
+  // VAT-exclusive prices. Incremental via updated_at_min, so a price edit on
+  // Shopify is picked up on the next daily run. Self-chains across pages.
+  if (now.getUTCHours() === 1 && now.getUTCMinutes() < 15) {
+    try {
+      const r = await invoke('sync-shopify-products', { mode: 'start' });
+      console.log(`[shopify-products] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);
+    } catch (e) {
+      console.error('[shopify-products] Error:', e.message);
+    }
+  }
+
   // Daily reconciliation — only fire once per day (at 02:00 SAST = 00:00 UTC)
   if (now.getUTCHours() === 0 && now.getUTCMinutes() < 15) {
     try {
