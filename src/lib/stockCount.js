@@ -77,20 +77,47 @@ async function createCount({ location, locationScopeIds, date, countType, status
   const products = await base44.entities.Product.filter({ status: 'active' }, 'name', 5000);
   const productById = Object.fromEntries(products.map(p => [p.id, p]));
 
-  // One line per product+location (SOH is unique per product+location), type- and subcategory-filtered.
+  // Build candidates.
+  // Category-only scope: one line per product at its default_location_id — prevents a product
+  // with incidental SOH in 4 locations from generating 4 count lines when counting by category.
+  // Falls back to the row with the highest qty if no default location is set on the product.
+  // Location scope: one line per product+location (existing behaviour, keeps every zone).
   const seen = new Set();
   const candidates = [];
-  for (const soh of sohRows) {
-    if (!soh.product_id || !soh.location_id) continue;
-    const key = `${soh.product_id}_${soh.location_id}`;
-    if (seen.has(key)) continue;
-    const product = productById[soh.product_id];
-    // Filter by product type (canonical category)
-    if (cat && product?.type !== cat) continue;
-    // Optional subcategory filter — include if product matches ANY selected subcategory
-    if (subCats && !subCats.includes((product?.subcategory || '').trim())) continue;
-    seen.add(key);
-    candidates.push({ soh, product });
+
+  if (!location) {
+    // Category-only: group SOH rows by product, then pick one authoritative row per product.
+    const sohByProduct = {};
+    for (const soh of sohRows) {
+      if (!soh.product_id || !soh.location_id) continue;
+      const product = productById[soh.product_id];
+      if (cat && product?.type !== cat) continue;
+      if (subCats && !subCats.includes((product?.subcategory || '').trim())) continue;
+      if (!sohByProduct[soh.product_id]) sohByProduct[soh.product_id] = [];
+      sohByProduct[soh.product_id].push(soh);
+    }
+    for (const [pid, rows] of Object.entries(sohByProduct)) {
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      const product = productById[pid];
+      const defaultLocId = product?.default_location_id;
+      const pick = (defaultLocId && rows.find(s => s.location_id === defaultLocId))
+                   || rows.reduce((best, s) =>
+                     (Number(s.qty_on_hand) || 0) >= (Number(best.qty_on_hand) || 0) ? s : best, rows[0]);
+      candidates.push({ soh: pick, product });
+    }
+  } else {
+    // Location (or location+category): one line per product+location.
+    for (const soh of sohRows) {
+      if (!soh.product_id || !soh.location_id) continue;
+      const key = `${soh.product_id}_${soh.location_id}`;
+      if (seen.has(key)) continue;
+      const product = productById[soh.product_id];
+      if (cat && product?.type !== cat) continue;
+      if (subCats && !subCats.includes((product?.subcategory || '').trim())) continue;
+      seen.add(key);
+      candidates.push({ soh, product });
+    }
   }
 
   // Default Stock Count UOM per product (falls back to the main stock UOM).

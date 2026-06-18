@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { CATEGORY_LABELS, CATEGORY_ORDER, resolveSubcategory } from '@/lib/productClassification';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Search, Camera, Save, CheckCircle2, Loader2, MapPin } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, Search, Camera, Save, CheckCircle2, Loader2, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
@@ -29,6 +30,8 @@ export default function FloorCountSession({ count, onBack }) {
   const [highlightId, setHighlightId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [collapsed, setCollapsed] = useState({});
+  const toggleCollapse = (key) => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
 
   const locked = count.status === 'completed' || count.status === 'cancelled';
   const isRecount = RECOUNT_STATUSES.includes(count.status);
@@ -51,6 +54,16 @@ export default function FloorCountSession({ count, onBack }) {
     queryFn: () => base44.entities.StockCountUom.filter({ product_id: productIds }, 'count_uom', 5000),
     enabled: productIds.length > 0,
   });
+
+  const { data: productsData = [] } = useQuery({
+    queryKey: ['floor-count-product-detail', count.id, productIds.length],
+    queryFn: () => productIds.length ? base44.entities.Product.filter({ id: productIds }, 'name', 5000) : [],
+    enabled: productIds.length > 0,
+  });
+  const productById = useMemo(
+    () => Object.fromEntries(productsData.map(p => [p.id, p])),
+    [productsData]
+  );
 
   // optionsByProduct: list of selectable units, always including the base stock UOM.
   const optionsByLine = useMemo(() => {
@@ -96,6 +109,22 @@ export default function FloorCountSession({ count, onBack }) {
       (l.product_sku || '').toLowerCase().includes(q)
     );
   }, [lines, search]);
+
+  const grouped = useMemo(() => {
+    const cats = {};
+    for (const line of lines) {
+      const product = productById[line.product_id];
+      const cat = product?.type || '__unknown__';
+      const sub = product ? resolveSubcategory(product) : 'Unknown';
+      const pname = line.product_name || 'Unknown Product';
+      if (!cats[cat]) cats[cat] = {};
+      if (!cats[cat][sub]) cats[cat][sub] = {};
+      if (!cats[cat][sub][pname]) cats[cat][sub][pname] = [];
+      cats[cat][sub][pname].push(line);
+    }
+    const order = [...CATEGORY_ORDER.filter(c => cats[c]), ...(cats['__unknown__'] ? ['__unknown__'] : [])];
+    return { order, cats };
+  }, [lines, productById]);
 
   const countedCount = Object.values(counts).filter(v => v !== '' && v != null).length;
 
@@ -192,57 +221,106 @@ export default function FloorCountSession({ count, onBack }) {
       {/* Count list — no system qty / variance / cost shown */}
       {isLoading ? (
         <div className="text-center py-12 text-sm text-muted-foreground">Loading items...</div>
-      ) : (
+      ) : search.trim() ? (
+        /* Flat filtered list when the user is searching / scanning */
         <div className="bg-card border border-border rounded-2xl divide-y divide-border">
           {filtered.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">No items match.</p>
           ) : filtered.map(l => (
-            <div
+            <FloorCountLineRow
               key={l.id}
-              className={cn('px-4 py-3 flex items-center gap-3 transition-colors', highlightId === l.id && 'bg-primary/5')}
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{l.product_name}</p>
-                {multiLocation && l.location_name && (
-                  <p className="text-[11px] text-primary flex items-center gap-1"><MapPin className="w-3 h-3" /> {l.location_name}</p>
-                )}
-                {isRecount && l.previous_counted_qty != null && (
-                  <p className="text-[11px] text-orange-600">Previous count: {l.previous_counted_qty}</p>
-                )}
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[11px] font-mono text-muted-foreground">{l.product_sku}</span>
-                  {(optionsByLine[l.id]?.length || 0) > 1 ? (
-                    <Select value={uomKey[l.id] || '__stock__'} onValueChange={v => setUomKey(prev => ({ ...prev, [l.id]: v }))} disabled={locked}>
-                      <SelectTrigger className="h-6 text-[11px] w-auto gap-1 px-2"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {optionsByLine[l.id].map(o => (
-                          <SelectItem key={o.key} value={o.key}>
-                            {o.count_uom}{o.count_uom_label ? ` — ${o.count_uom_label}` : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Badge variant="outline" className="text-[10px]">{l.count_uom || l.stock_uom || 'unit'}</Badge>
-                  )}
-                </div>
-              </div>
-              <Input
-                type="number"
-                inputMode="decimal"
-                min="0"
-                value={counts[l.id] ?? ''}
-                onChange={e => setCounts(prev => ({ ...prev, [l.id]: e.target.value }))}
-                placeholder="0"
-                disabled={locked}
-                className="h-11 w-24 text-right text-base"
-              />
-            </div>
+              l={l}
+              counts={counts}
+              setCounts={setCounts}
+              uomKey={uomKey}
+              setUomKey={setUomKey}
+              optionsByLine={optionsByLine}
+              multiLocation={multiLocation}
+              isRecount={isRecount}
+              locked={locked}
+              highlightId={highlightId}
+            />
           ))}
+        </div>
+      ) : (
+        /* Grouped view: category → subcategory → sorted by SKU */
+        <div className="space-y-3">
+          {grouped.order.length === 0 && (
+            <p className="text-center py-8 text-sm text-muted-foreground">No items in this count.</p>
+          )}
+          {grouped.order.map(cat => {
+            const subMap = grouped.cats[cat];
+            const catLabel = CATEGORY_LABELS[cat] || cat;
+            const isCatOpen = !collapsed[cat];
+            const allCatLines = Object.values(subMap).flatMap(subProds => Object.values(subProds).flat());
+            const catCounted = allCatLines.filter(l => counts[l.id] !== undefined && counts[l.id] !== '').length;
+            return (
+              <div key={cat} className="rounded-2xl border border-border overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => toggleCollapse(cat)}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-muted/70 active:bg-muted/90"
+                >
+                  <div className="flex items-center gap-2">
+                    {isCatOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                    <span className="font-bold text-sm">{catLabel}</span>
+                  </div>
+                  <Badge variant={catCounted === allCatLines.length ? 'default' : 'outline'} className="text-xs">
+                    {catCounted}/{allCatLines.length}
+                  </Badge>
+                </button>
+                {isCatOpen && Object.entries(subMap)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([sub, productMap]) => {
+                    const subKey = `${cat}::${sub}`;
+                    const isSubOpen = !collapsed[subKey];
+                    const subLines = Object.values(productMap).flat();
+                    const subCounted = subLines.filter(l => counts[l.id] !== undefined && counts[l.id] !== '').length;
+                    return (
+                      <div key={sub}>
+                        <button
+                          type="button"
+                          onClick={() => toggleCollapse(subKey)}
+                          className="w-full flex items-center justify-between px-4 py-2 bg-muted/30 border-y border-border active:bg-muted/50"
+                        >
+                          <div className="flex items-center gap-2">
+                            {isSubOpen ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+                            <span className="text-xs font-semibold text-muted-foreground">{sub}</span>
+                          </div>
+                          <span className="text-xs text-muted-foreground">{subCounted}/{subLines.length}</span>
+                        </button>
+                        {isSubOpen && (
+                          <div className="divide-y divide-border">
+                            {Object.entries(productMap)
+                              .sort(([, aLines], [, bLines]) =>
+                                (aLines[0]?.product_sku || '').localeCompare(bLines[0]?.product_sku || ''))
+                              .map(([, plines]) => plines.map(l => (
+                                <FloorCountLineRow
+                                  key={l.id}
+                                  l={l}
+                                  counts={counts}
+                                  setCounts={setCounts}
+                                  uomKey={uomKey}
+                                  setUomKey={setUomKey}
+                                  optionsByLine={optionsByLine}
+                                  multiLocation={multiLocation}
+                                  isRecount={isRecount}
+                                  locked={locked}
+                                  highlightId={highlightId}
+                                />
+                              )))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Sticky actions */}
+      {/* Sticky save/complete — visible whenever there are entries */}
       {!locked && (
         <div className="fixed bottom-[68px] left-0 right-0 bg-card/95 backdrop-blur border-t border-border px-4 py-3 z-30 flex gap-2">
           <Button variant="outline" onClick={handleSave} disabled={saving || completing} className="flex-1 h-12 gap-2">
@@ -255,6 +333,49 @@ export default function FloorCountSession({ count, onBack }) {
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+function FloorCountLineRow({ l, counts, setCounts, uomKey, setUomKey, optionsByLine, multiLocation, isRecount, locked, highlightId }) {
+  return (
+    <div className={cn('px-4 py-3 flex items-center gap-3 transition-colors', highlightId === l.id && 'bg-primary/5')}>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{l.product_name}</p>
+        {multiLocation && l.location_name && (
+          <p className="text-[11px] text-primary flex items-center gap-1"><MapPin className="w-3 h-3" /> {l.location_name}</p>
+        )}
+        {isRecount && l.previous_counted_qty != null && (
+          <p className="text-[11px] text-orange-600">Previous count: {l.previous_counted_qty}</p>
+        )}
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-[11px] font-mono text-muted-foreground">{l.product_sku}</span>
+          {(optionsByLine[l.id]?.length || 0) > 1 ? (
+            <Select value={uomKey[l.id] || '__stock__'} onValueChange={v => setUomKey(prev => ({ ...prev, [l.id]: v }))} disabled={locked}>
+              <SelectTrigger className="h-6 text-[11px] w-auto gap-1 px-2"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {optionsByLine[l.id].map(o => (
+                  <SelectItem key={o.key} value={o.key}>
+                    {o.count_uom}{o.count_uom_label ? ` — ${o.count_uom_label}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Badge variant="outline" className="text-[10px]">{l.count_uom || l.stock_uom || 'unit'}</Badge>
+          )}
+        </div>
+      </div>
+      <Input
+        type="number"
+        inputMode="decimal"
+        min="0"
+        value={counts[l.id] ?? ''}
+        onChange={e => setCounts(prev => ({ ...prev, [l.id]: e.target.value }))}
+        placeholder="0"
+        disabled={locked}
+        className="h-11 w-24 text-right text-base"
+      />
     </div>
   );
 }
