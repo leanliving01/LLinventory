@@ -164,19 +164,24 @@ Deno.serve(async (req) => {
     return Math.round((inc / (1 + vatRate)) * 100) / 100;
   };
 
-  // Pre-fetch existing products by shopify_product_id OR SKU
+  // Pre-fetch existing products by shopify_variant_id (primary), sku, or shopify_product_id (legacy).
+  // Variant ID is the most stable identifier — it stays the same even when a SKU is added or changed.
+  const variantIds = products.flatMap(p => (p.variants || []).map(v => String(v.id)));
   const shopifyIds = products.map(p => String(p.id));
   const skus = products.flatMap(p => (p.variants || []).map(v => v.sku).filter(Boolean));
 
-  const [{ data: byShopifyId }, { data: bySku }] = await Promise.all([
+  const [{ data: byVariantId }, { data: byShopifyId }, { data: bySku }] = await Promise.all([
+    supabase.from('products').select('id, sku, type, shopify_variant_id').in('shopify_variant_id', variantIds.length ? variantIds : ['__none__']),
     supabase.from('products').select('id, sku, type, shopify_product_id').in('shopify_product_id', shopifyIds),
     supabase.from('products').select('id, sku, type, shopify_product_id').in('sku', skus.length ? skus : ['__none__']),
   ]);
 
+  const existingByVariantId = new Map<string, { id: string; sku: string; type: string | null }>();
   const existingByShopifyId = new Map<string, { id: string; sku: string; type: string | null }>();
   const existingBySku = new Map<string, { id: string; sku: string; type: string | null; shopify_product_id: string | null }>();
-  for (const p of byShopifyId || []) existingByShopifyId.set(p.shopify_product_id as string, { id: p.id as string, sku: p.sku as string, type: (p.type as string | null) ?? null });
-  for (const p of bySku || []) existingBySku.set(p.sku as string, { id: p.id as string, sku: p.sku as string, type: (p.type as string | null) ?? null, shopify_product_id: p.shopify_product_id as string | null });
+  for (const r of byVariantId || []) existingByVariantId.set(r.shopify_variant_id as string, { id: r.id as string, sku: r.sku as string, type: (r.type as string | null) ?? null });
+  for (const r of byShopifyId || []) existingByShopifyId.set(r.shopify_product_id as string, { id: r.id as string, sku: r.sku as string, type: (r.type as string | null) ?? null });
+  for (const r of bySku || []) existingBySku.set(r.sku as string, { id: r.id as string, sku: r.sku as string, type: (r.type as string | null) ?? null, shopify_product_id: r.shopify_product_id as string | null });
 
   // Classification rules — used to SKIP non-inventory catalog items (shipping,
   // pickup, vouchers, store credit, refund products) so they never become
@@ -184,20 +189,19 @@ Deno.serve(async (req) => {
   const rules = await loadClassificationRules(supabase);
 
   // Process each product variant → upsert into products table.
-  // Products without SKUs are allowed through — user can assign SKU from inventory UI.
+  // Every Shopify variant becomes its own inventory record so that multi-variant
+  // packages (e.g. 15/30/60 meal packs) each have their own SKU, price, and BOM.
   let updated = 0;
   let created = 0;
   let skippedNonInventory = 0;
   const insertErrors: Array<{ name: string; shopify_id: string; error: string }> = [];
 
-  // Track shopify_product_ids that were created this run to prevent duplicate rows
-  // when a Shopify product has multiple no-SKU variants.
-  const createdThisRun = new Set<string>();
-
   // Collect meal info for skus/meals sync (keyed by sku_code)
   const mealInfoBySku = new Map<string, MealInfo>();
 
   for (const p of products) {
+    const isMultiVariant = (p.variants || []).length > 1;
+
     for (const v of (p.variants || [])) {
       const hasSku = Boolean(v.sku);
 
@@ -209,7 +213,7 @@ Deno.serve(async (req) => {
           rules,
         );
         const isNonInventory = cls.category !== 'inventory_product';
-        const alreadyExists = existingByShopifyId.has(String(p.id)) || existingBySku.has(v.sku);
+        const alreadyExists = existingByVariantId.has(String(v.id)) || existingByShopifyId.has(String(p.id)) || existingBySku.has(v.sku);
         if (isNonInventory && !alreadyExists) {
           skippedNonInventory++;
           continue;
@@ -225,42 +229,59 @@ Deno.serve(async (req) => {
       // VAT-exclusive selling price derived from Shopify's (VAT-inclusive) variant price.
       const exclPrice = exclVatPrice(v.price);
 
-      // Match priority: shopify_product_id → sku (sku-match only when SKU exists)
-      let match = existingByShopifyId.get(String(p.id));
+      // For multi-variant products, append the variant title to distinguish records
+      // (e.g. "WINTER WARMER RANGE - 15 Meals"). Single-variant products use product title only.
+      const variantSuffix = isMultiVariant && v.title && v.title !== 'Default Title' ? ` - ${v.title}` : '';
+      const productName = `${p.title}${variantSuffix}`;
+
+      // Match priority:
+      // 1. shopify_variant_id — stays stable even when SKU is changed in either system
+      // 2. sku — for products set up before variant IDs were tracked
+      // 3. shopify_product_id — legacy fallback for single-variant products only
+      let match: { id: string; sku: string; type: string | null } | undefined;
+      let linkedOnly = false;
+
+      match = existingByVariantId.get(String(v.id));
+
       if (!match && hasSku && existingBySku.has(v.sku)) {
         const bs = existingBySku.get(v.sku)!;
         match = { id: bs.id, sku: bs.sku, type: bs.type };
-        // Backfill shopify IDs on the SKU-matched product; also update SKU if Shopify has one
-        const writePrice = exclPrice !== null;
+        // Backfill shopify IDs; minimal update so we don't overwrite user edits
         await supabase.from('products').update({
           shopify_product_id: String(p.id),
           shopify_variant_id: String(v.id),
-          ...(writePrice ? { price: exclPrice } : {}),
+          ...(exclPrice !== null ? { price: exclPrice } : {}),
           updated_date: now,
         }).eq('id', bs.id);
         updated++;
-      } else if (match) {
-        const writePrice = exclPrice !== null;
+        linkedOnly = true;
+      }
+
+      if (!match && !isMultiVariant) {
+        const legacy = existingByShopifyId.get(String(p.id));
+        if (legacy) match = legacy;
+      }
+
+      if (match && !linkedOnly) {
         await supabase.from('products').update({
-          ...(updateNamesFromShopify ? { name: p.title } : {}),
+          ...(updateNamesFromShopify ? { name: productName } : {}),
+          shopify_product_id: String(p.id),
           shopify_variant_id: String(v.id),
           barcode: v.barcode || null,
-          // Sync SKU from Shopify if it has been set and the record has none yet
           ...(hasSku ? { sku: v.sku } : {}),
-          ...(writePrice ? { price: exclPrice } : {}),
+          ...(exclPrice !== null ? { price: exclPrice } : {}),
           updated_date: now,
         }).eq('id', match.id);
         updated++;
-      } else {
-        // No match — check if another variant of this same Shopify product was already
-        // created this run (multi-variant products map to one inventory record).
-        if (createdThisRun.has(String(p.id))) continue;
-
-        // Create as finished_meal. SKU may be null — user assigns it from inventory UI.
+      } else if (!match) {
+        // Create one record per variant.
+        // Use placeholder SKU if Shopify has none — user can assign real SKU later from
+        // inventory UI or Shopify; next sync will keep it via the variant_id match.
+        const effectiveSku = v.sku || `SHOPIFY-${v.id}`;
         const { error } = await supabase.from('products').insert({
           id: crypto.randomUUID(),
-          sku: v.sku || null,
-          name: p.title,
+          sku: effectiveSku,
+          name: productName,
           type: 'finished_meal',
           stock_uom: 'pcs',
           shopify_product_id: String(p.id),
@@ -273,9 +294,8 @@ Deno.serve(async (req) => {
         });
         if (!error) {
           created++;
-          createdThisRun.add(String(p.id));
         } else {
-          insertErrors.push({ name: p.title, shopify_id: String(p.id), error: error.message });
+          insertErrors.push({ name: productName, shopify_id: String(p.id), error: error.message });
         }
       }
     }
