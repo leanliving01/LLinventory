@@ -246,12 +246,14 @@ export async function saveFloorCounts(countId, entries, userName) {
 }
 
 // Add a product found during counting that wasn't in the seeded list.
-export async function addCountLine(countId, product) {
+export async function addCountLine(countId, product, locationId, locationName) {
   return base44.entities.StockTakeLine.create({
     stocktake_id: countId,
     product_id: product.id,
     product_sku: product.sku || '',
     product_name: product.name || '',
+    location_id: locationId || null,
+    location_name: locationName || null,
     stock_uom: product.stock_uom || 'pcs',
     count_uom: product.stock_uom || 'pcs',
     conversion_factor: 1,

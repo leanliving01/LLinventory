@@ -5,7 +5,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  ArrowLeft, Loader2, MapPin, CheckCircle2, Ban, ClipboardCheck, AlertTriangle, RefreshCw, Lock,
+  ArrowLeft, Loader2, MapPin, CheckCircle2, Ban, ClipboardCheck, AlertTriangle, RefreshCw, Lock, Pencil, Eye,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -15,6 +15,7 @@ import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import StockCountVarianceTable from '@/components/stock-count/StockCountVarianceTable';
 import LockedCountReport from '@/components/stock-count/LockedCountReport';
+import WebCountEntrySheet from '@/components/stock-count/WebCountEntrySheet';
 import { buildVarianceRows, buildProgressRows, postStockCount, cancelStockCount, requestRecount, RECOUNT_STATUSES, COUNT_STATUS } from '@/lib/stockCount';
 
 const STATUS_STYLES = {
@@ -40,6 +41,7 @@ export default function StockCountReview() {
   const [recountMode, setRecountMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [requesting, setRequesting] = useState(false);
+  const [entryMode, setEntryMode] = useState(false);
 
   const { data: header, isLoading: loadingHeader } = useQuery({
     queryKey: ['stock-count', id],
@@ -101,6 +103,7 @@ export default function StockCountReview() {
   }, [rows]);
 
   const isReviewable = header && ['floor_completed', 'under_review'].includes(header.status);
+  const isWebEnterable = header && ['open', 'in_progress'].includes(header.status);
   const isRecounting = header && RECOUNT_STATUSES.includes(header.status);
   const isLocked = locked;
   const hasPrev = useMemo(() => rows.some(r => r.previous_counted_qty != null), [rows]);
@@ -189,6 +192,16 @@ export default function StockCountReview() {
               <Ban className="w-4 h-4" /> Cancel
             </Button>
           )}
+          {isWebEnterable && !entryMode && (
+            <Button variant="outline" size="sm" onClick={() => setEntryMode(true)} className="gap-1.5">
+              <Pencil className="w-4 h-4" /> Enter Counts (Web)
+            </Button>
+          )}
+          {isWebEnterable && entryMode && (
+            <Button variant="outline" size="sm" onClick={() => setEntryMode(false)} className="gap-1.5">
+              <Eye className="w-4 h-4" /> Progress View
+            </Button>
+          )}
           {canPost && isReviewable && !recountMode && (
             <Button variant="outline" size="sm" onClick={() => setRecountMode(true)} className="gap-1.5">
               <RefreshCw className="w-4 h-4" /> Request Recount
@@ -213,12 +226,15 @@ export default function StockCountReview() {
       </div>
 
       {/* Status hints */}
-      {header.status === 'open' || header.status === 'in_progress' ? (
+      {isWebEnterable && !entryMode && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>Counting in progress on the floor — {totals.counted} of {totals.total} captured. The table below updates live; you can post once the floor completes the count.</span>
+          <span>
+            {totals.counted} of {totals.total} captured.
+            {' '}Have a physical stock sheet? Use <strong>Enter Counts (Web)</strong> to type them in directly from this screen — no floor tablet needed.
+          </span>
         </div>
-      ) : null}
+      )}
       {isLocked && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
           <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
@@ -263,8 +279,24 @@ export default function StockCountReview() {
         <SummaryCard label="Net variance value" value={formatZAR(totals.value)} className={totals.value < 0 ? 'text-red-600' : 'text-foreground'} />
       </div>
 
-      {/* Variance table / locked final report */}
-      {isLocked ? (
+      {/* Web entry sheet — shown when user clicked "Enter Counts (Web)" */}
+      {entryMode && isWebEnterable ? (
+        <WebCountEntrySheet
+          countId={id}
+          header={header}
+          lines={lines}
+          products={products}
+          onSaved={() => {
+            queryClient.invalidateQueries({ queryKey: ['stock-count-lines', id] });
+          }}
+          onSubmitted={() => {
+            setEntryMode(false);
+            queryClient.invalidateQueries({ queryKey: ['stock-count', id] });
+            queryClient.invalidateQueries({ queryKey: ['stock-count-lines', id] });
+            queryClient.invalidateQueries({ queryKey: ['stock-counts'] });
+          }}
+        />
+      ) : isLocked ? (
         <LockedCountReport header={header} rows={rows} multiLocation={multiLocation} />
       ) : (
         <StockCountVarianceTable
