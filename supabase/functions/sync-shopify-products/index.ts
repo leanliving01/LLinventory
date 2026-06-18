@@ -210,6 +210,12 @@ Deno.serve(async (req) => {
   for (const p of products) {
     const isMultiVariant = (p.variants || []).length > 1;
 
+    // Auto-detect dynamic bundles: BYO products have variant titles like
+    // "Flavour A / Flavour B / Flavour C". Real packages use "Starter Pack (15 x meals)".
+    // Also respect the is_dynamic_bundle flag already set on existing DB records.
+    const hasFlavorSlash = (p.variants || []).some(v => v.title?.includes('/'));
+    const isDynamicBundleProduct = hasFlavorSlash || dynamicBundleProductIds.has(String(p.id));
+
     for (const v of (p.variants || [])) {
       const hasSku = Boolean(v.sku);
 
@@ -237,9 +243,8 @@ Deno.serve(async (req) => {
       // VAT-exclusive selling price derived from Shopify's (VAT-inclusive) variant price.
       const exclPrice = exclVatPrice(v.price);
 
-      // Dynamic bundles (BYO flavour combos) — keep one record per Shopify product.
-      // If the matched record is a dynamic bundle, skip creating extra variant rows.
-      const isDynamicBundle = dynamicBundleProductIds.has(String(p.id));
+      // Alias for readability inside variant loop
+      const isDynamicBundle = isDynamicBundleProduct;
 
       // For multi-variant products, append the variant title to distinguish records
       // (e.g. "WINTER WARMER RANGE - 15 Meals"). Single-variant and dynamic bundles use product title only.
@@ -305,6 +310,7 @@ Deno.serve(async (req) => {
           barcode: v.barcode || null,
           ...(exclPrice !== null ? { price: exclPrice } : {}),
           price_vat_corrected: true,
+          is_dynamic_bundle: isDynamicBundle,
           created_date: now,
           updated_date: now,
         });
