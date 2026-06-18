@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { X, Package, Tag, MapPin, DollarSign, Barcode, Weight, Info } from 'lucide-react';
+import { X, Package, Tag, MapPin, DollarSign, Barcode, Weight, Info, BookOpen, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 
 const TYPE_COLORS = {
@@ -64,8 +65,12 @@ function InventoryToggle({ product }) {
   );
 }
 
+const RECIPE_TYPES = new Set(['finished_meal', 'wip_bulk', 'sauce']);
+const PACK_BOM_TYPES = new Set(['package']);
+
 export default function CatalogDetailDrawer({ product, onClose }) {
   const p = product;
+  const navigate = useNavigate();
 
   return (
     <>
@@ -171,6 +176,41 @@ export default function CatalogDetailDrawer({ product, onClose }) {
             <div>
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Internal Notes</h3>
               <p className="text-sm text-muted-foreground">{p.internal_note}</p>
+            </div>
+          )}
+
+          {/* Recipe / BOM shortcut */}
+          {(RECIPE_TYPES.has(p.type) || PACK_BOM_TYPES.has(p.type)) && (
+            <div className="pt-2 border-t border-border">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                {RECIPE_TYPES.has(p.type) ? 'Recipe / BOM' : 'Pack BOM'}
+              </h3>
+              {RECIPE_TYPES.has(p.type) && (
+                <Button
+                  variant="outline"
+                  className="w-full justify-between gap-2"
+                  onClick={() => { onClose(); navigate(`/recipes/product/${p.id}`); }}
+                >
+                  <span className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4" />
+                    Open Recipe Editor
+                  </span>
+                  <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+                </Button>
+              )}
+              {PACK_BOM_TYPES.has(p.type) && (
+                <Button
+                  variant="outline"
+                  className="w-full justify-between gap-2"
+                  onClick={() => { onClose(); navigate('/purchasing/pack-bom'); }}
+                >
+                  <span className="flex items-center gap-2">
+                    <Package className="w-4 h-4" />
+                    Open Pack BOM Manager
+                  </span>
+                  <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+                </Button>
+              )}
             </div>
           )}
 

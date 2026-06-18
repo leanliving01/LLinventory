@@ -80,10 +80,30 @@ export default function Recipes() {
     return catNameById[p.category_id] || p.category || '';
   };
 
+  // Product types that have a cook/portion recipe (as opposed to pack BOMs which live elsewhere).
+  const RECIPE_TYPES = new Set(['finished_meal', 'wip_bulk', 'sauce']);
+
   // Collapse all BOM rows to ONE row per output product. Each output's layers
   // (Prep/Cook/Portion/Pack) live inside the consolidated detail page.
+  // Also seeds from ALL products of relevant types so new products appear even
+  // before their first BOM is created.
   const productRows = useMemo(() => {
     const byProduct = {};
+
+    // Seed with every relevant product so "no recipe yet" products appear in the list.
+    products.filter(p => RECIPE_TYPES.has(p.type)).forEach(p => {
+      byProduct[p.id] = {
+        key: p.id,
+        product_id: p.id,
+        product_sku: p.sku || '',
+        product_name: p.name || '',
+        subSet: new Set(),
+        boms: [],
+        hasBom: false,
+      };
+    });
+
+    // Overlay existing BOM data.
     boms.forEach(b => {
       const key = b.product_id || `bom:${b.id}`;
       if (!byProduct[key]) {
@@ -94,12 +114,15 @@ export default function Recipes() {
           product_name: b.product_name || '',
           subSet: new Set(),
           boms: [],
+          hasBom: false,
         };
       }
       const row = byProduct[key];
       row.boms.push(b);
+      row.hasBom = true;
       parseSubcategories(b.subcategory).forEach(s => row.subSet.add(s));
     });
+
     return Object.values(byProduct).map(r => {
       const versions = r.boms.map(b => Number(b.version || 1));
       const updated = r.boms
@@ -117,16 +140,17 @@ export default function Recipes() {
         product_sku: r.product_sku,
         product_name: r.product_name,
         subcategory: [...r.subSet].sort().join(', '),
-        version: versions.length ? Math.max(...versions) : 1,
-        is_active: r.boms.some(b => b.is_active !== false),
+        version: versions.length ? Math.max(...versions) : null,
+        is_active: r.hasBom ? r.boms.some(b => b.is_active !== false) : true,
         yield_qty: rep?.yield_qty,
         yield_uom: rep?.yield_uom,
         layer_count: r.boms.length,
         updated_date: updated,
         bomIds: r.boms.map(b => b.id),
+        hasBom: r.hasBom,
       };
     });
-  }, [boms]);
+  }, [boms, products]);
 
   const filtered = useMemo(() => {
     return productRows.filter(row => {
@@ -367,7 +391,7 @@ export default function Recipes() {
                 return (
                   <tr
                     key={row.key}
-                    className={`hover:bg-muted/30 transition-colors cursor-pointer ${isSelected ? 'bg-primary/5' : ''}`}
+                    className={`hover:bg-muted/30 transition-colors cursor-pointer ${isSelected ? 'bg-primary/5' : ''} ${!row.hasBom ? 'opacity-60' : ''}`}
                     onClick={() => navigate(target)}
                   >
                     {canEdit && (
@@ -380,11 +404,14 @@ export default function Recipes() {
                         />
                       </td>
                     )}
-                    <td className="px-4 py-2.5 text-sm font-mono font-medium">{row.product_sku}</td>
+                    <td className="px-4 py-2.5 text-sm font-mono font-medium">{row.product_sku || <span className="text-muted-foreground italic text-xs">no SKU</span>}</td>
                     <td className="px-4 py-2.5 text-sm">
-                      {row.product_name}
+                      <span>{row.product_name}</span>
                       {row.layer_count > 1 && (
                         <span className="ml-2 text-[10px] text-muted-foreground">({row.layer_count} layers)</span>
+                      )}
+                      {!row.hasBom && (
+                        <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">No recipe</span>
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">{categoryOf(row) || '—'}</td>
@@ -392,9 +419,9 @@ export default function Recipes() {
                     <td className="px-4 py-2.5 text-sm text-center tabular-nums">
                       {row.yield_qty != null ? `${row.yield_qty} ${row.yield_uom || ''}`.trim() : '—'}
                     </td>
-                    <td className="px-4 py-2.5 text-sm text-center">v{row.version || 1}</td>
+                    <td className="px-4 py-2.5 text-sm text-center">{row.version != null ? `v${row.version}` : '—'}</td>
                     <td className="px-4 py-2.5 text-center">
-                      <span className={`inline-block w-2 h-2 rounded-full ${row.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
+                      <span className={`inline-block w-2 h-2 rounded-full ${row.hasBom && row.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
                     </td>
                     <td className="px-4 py-2.5 text-xs text-center text-muted-foreground tabular-nums">
                       {row.updated_date ? new Date(row.updated_date).toLocaleDateString() : '—'}
