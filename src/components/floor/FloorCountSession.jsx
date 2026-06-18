@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_COLORS, resolveSubcategory } from '@/lib/productClassification';
+import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_COLORS, getSubcategoryColor, resolveSubcategory } from '@/lib/productClassification';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -284,13 +284,16 @@ export default function FloorCountSession({ count, onBack }) {
                         <button
                           type="button"
                           onClick={() => toggleCollapse(subKey)}
-                          className="w-full flex items-center justify-between px-4 py-2 bg-muted/30 border-y border-border active:bg-muted/50"
+                          className={cn(
+                            'w-full flex items-center justify-between px-4 py-2 border-y border-black/10',
+                            getSubcategoryColor(sub) || 'bg-muted/30 text-muted-foreground'
+                          )}
                         >
                           <div className="flex items-center gap-2">
-                            {isSubOpen ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
-                            <span className="text-xs font-semibold text-muted-foreground">{sub}</span>
+                            {isSubOpen ? <ChevronDown className="w-3.5 h-3.5 opacity-50" /> : <ChevronRight className="w-3.5 h-3.5 opacity-50" />}
+                            <span className="text-xs font-semibold">{sub}</span>
                           </div>
-                          <span className="text-xs text-muted-foreground">{subCounted}/{subLines.length}</span>
+                          <span className="text-xs opacity-70">{subCounted}/{subLines.length}</span>
                         </button>
                         {isSubOpen && (
                           <div className="divide-y divide-border">

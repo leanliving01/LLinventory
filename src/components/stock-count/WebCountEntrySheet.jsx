@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Save, CheckCircle2, Search, Plus, ChevronDown, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { saveFloorCounts, completeFloorCount, addCountLine } from '@/lib/stockCount';
-import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_COLORS, resolveSubcategory } from '@/lib/productClassification';
+import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_COLORS, getSubcategoryColor, resolveSubcategory } from '@/lib/productClassification';
 import { cn } from '@/lib/utils';
 
 const fmtQty = (n) => {
@@ -171,10 +171,13 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
                     <button
                       type="button"
                       onClick={() => toggleCollapse(subKey)}
-                      className="w-full flex items-center justify-between px-4 py-1.5 bg-muted/30 border-b border-border hover:bg-muted/50 transition-colors"
+                      className={cn(
+                        'w-full flex items-center justify-between px-4 py-1.5 border-b border-black/10 transition-colors',
+                        getSubcategoryColor(sub) || 'bg-muted/30 text-muted-foreground'
+                      )}
                     >
-                      <span className="text-xs font-semibold text-muted-foreground">{sub}</span>
-                      {subCollapsed ? <ChevronRight className="w-3 h-3 text-muted-foreground" /> : <ChevronDown className="w-3 h-3 text-muted-foreground" />}
+                      <span className="text-xs font-semibold">{sub}</span>
+                      {subCollapsed ? <ChevronRight className="w-3 h-3 opacity-50" /> : <ChevronDown className="w-3 h-3 opacity-50" />}
                     </button>
 
                     {!subCollapsed && Object.entries(productMap)

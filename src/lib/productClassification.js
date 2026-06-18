@@ -60,6 +60,18 @@ export function getCategoryColor(type) {
   return CATEGORY_COLORS[type] || 'bg-gray-100 text-gray-700';
 }
 
+// Returns a Tailwind bg+text class for a subcategory label, using the brand
+// colours already established in mealGrouping/productionGrouping (light shades).
+export function getSubcategoryColor(subcategory) {
+  const s = subcategory || '';
+  if (s.includes('MLM') || s.includes("Men's Lean Muscle"))  return 'bg-green-50 text-green-700';
+  if (s.includes('MWL') || s.includes("Men's Weight Loss"))  return 'bg-blue-50 text-blue-700';
+  if (s.includes('WLM') || s.includes("Women's Lean Muscle")) return 'bg-orange-50 text-orange-700';
+  if (s.includes('WWL') || s.includes("Women's Weight Loss")) return 'bg-pink-50 text-pink-700';
+  if (s.includes('Low Carb') || s.includes('Smart Carb'))    return 'bg-yellow-50 text-yellow-700';
+  return null;
+}
+
 // ── Subcategory (= product.subcategory) ────────────────────────────────────
 // Predefined valid subcategories per category. Used for grouping order and as
 // the bulk-edit dropdown options. Auto-detect (getProductSubcategory) remains
