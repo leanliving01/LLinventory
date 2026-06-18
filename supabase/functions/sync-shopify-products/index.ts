@@ -171,16 +171,24 @@ Deno.serve(async (req) => {
   const skus = products.flatMap(p => (p.variants || []).map(v => v.sku).filter(Boolean));
 
   const [{ data: byVariantId }, { data: byShopifyId }, { data: bySku }] = await Promise.all([
-    supabase.from('products').select('id, sku, type, shopify_variant_id').in('shopify_variant_id', variantIds.length ? variantIds : ['__none__']),
-    supabase.from('products').select('id, sku, type, shopify_product_id').in('shopify_product_id', shopifyIds),
+    supabase.from('products').select('id, sku, type, shopify_variant_id, shopify_product_id, is_dynamic_bundle').in('shopify_variant_id', variantIds.length ? variantIds : ['__none__']),
+    supabase.from('products').select('id, sku, type, shopify_product_id, is_dynamic_bundle').in('shopify_product_id', shopifyIds),
     supabase.from('products').select('id, sku, type, shopify_product_id').in('sku', skus.length ? skus : ['__none__']),
   ]);
 
   const existingByVariantId = new Map<string, { id: string; sku: string; type: string | null }>();
   const existingByShopifyId = new Map<string, { id: string; sku: string; type: string | null }>();
   const existingBySku = new Map<string, { id: string; sku: string; type: string | null; shopify_product_id: string | null }>();
-  for (const r of byVariantId || []) existingByVariantId.set(r.shopify_variant_id as string, { id: r.id as string, sku: r.sku as string, type: (r.type as string | null) ?? null });
-  for (const r of byShopifyId || []) existingByShopifyId.set(r.shopify_product_id as string, { id: r.id as string, sku: r.sku as string, type: (r.type as string | null) ?? null });
+  // Dynamic bundles: one record per Shopify product; never create extra variant rows.
+  const dynamicBundleProductIds = new Set<string>();
+  for (const r of byVariantId || []) {
+    existingByVariantId.set(r.shopify_variant_id as string, { id: r.id as string, sku: r.sku as string, type: (r.type as string | null) ?? null });
+    if (r.is_dynamic_bundle) dynamicBundleProductIds.add(r.shopify_product_id as string);
+  }
+  for (const r of byShopifyId || []) {
+    existingByShopifyId.set(r.shopify_product_id as string, { id: r.id as string, sku: r.sku as string, type: (r.type as string | null) ?? null });
+    if (r.is_dynamic_bundle) dynamicBundleProductIds.add(r.shopify_product_id as string);
+  }
   for (const r of bySku || []) existingBySku.set(r.sku as string, { id: r.id as string, sku: r.sku as string, type: (r.type as string | null) ?? null, shopify_product_id: r.shopify_product_id as string | null });
 
   // Classification rules — used to SKIP non-inventory catalog items (shipping,
@@ -229,9 +237,13 @@ Deno.serve(async (req) => {
       // VAT-exclusive selling price derived from Shopify's (VAT-inclusive) variant price.
       const exclPrice = exclVatPrice(v.price);
 
+      // Dynamic bundles (BYO flavour combos) — keep one record per Shopify product.
+      // If the matched record is a dynamic bundle, skip creating extra variant rows.
+      const isDynamicBundle = dynamicBundleProductIds.has(String(p.id));
+
       // For multi-variant products, append the variant title to distinguish records
-      // (e.g. "WINTER WARMER RANGE - 15 Meals"). Single-variant products use product title only.
-      const variantSuffix = isMultiVariant && v.title && v.title !== 'Default Title' ? ` - ${v.title}` : '';
+      // (e.g. "WINTER WARMER RANGE - 15 Meals"). Single-variant and dynamic bundles use product title only.
+      const variantSuffix = isMultiVariant && !isDynamicBundle && v.title && v.title !== 'Default Title' ? ` - ${v.title}` : '';
       const productName = `${p.title}${variantSuffix}`;
 
       // Match priority:
@@ -264,7 +276,8 @@ Deno.serve(async (req) => {
 
       if (match && !linkedOnly) {
         await supabase.from('products').update({
-          ...(updateNamesFromShopify ? { name: productName } : {}),
+          // Don't overwrite the name on dynamic bundles — they have a clean name set manually
+          ...(updateNamesFromShopify && !isDynamicBundle ? { name: productName } : {}),
           shopify_product_id: String(p.id),
           shopify_variant_id: String(v.id),
           barcode: v.barcode || null,
@@ -274,6 +287,9 @@ Deno.serve(async (req) => {
         }).eq('id', match.id);
         updated++;
       } else if (!match) {
+        // Dynamic bundles only get one record — skip extra variants once the parent is matched.
+        if (isDynamicBundle) { skippedNonInventory++; continue; }
+
         // Create one record per variant.
         // Use placeholder SKU if Shopify has none — user can assign real SKU later from
         // inventory UI or Shopify; next sync will keep it via the variant_id match.
