@@ -39,8 +39,9 @@ const costOf = (product) =>
 // Create a count (planned or live) and seed one line per product that has stock
 // at the selected location (optionally narrowed to an item group / category).
 // ---------------------------------------------------------------------------
-async function createCount({ location, date, countType, status, itemGroup, assignedTo, assignedToName }) {
+async function createCount({ location, locationScopeIds, date, countType, status, itemGroup, subItemGroup, assignedTo, assignedToName }) {
   const cat = itemGroup && itemGroup !== 'all' ? itemGroup : null;
+  const subCat = subItemGroup || null;
   // scope: by location (all categories), by location + category, or by category (all locations).
   const scope = location ? (cat ? 'location_category' : 'location') : 'category';
   if (!location && !cat) throw new Error('Pick a location or a category to count');
@@ -62,14 +63,21 @@ async function createCount({ location, date, countType, status, itemGroup, assig
 
   const reference = await nextDocNumber('SCN');
 
-  // Candidate stock-on-hand rows. By location → that location; by category → every location.
-  const sohRows = location
-    ? await base44.entities.StockOnHand.filter({ location_id: location.id }, 'product_name', 5000)
-    : await base44.entities.StockOnHand.list('product_name', 20000);
+  // Candidate stock-on-hand rows.
+  // By location → use provided scope ids (all zones in warehouse, or just the zone); by category → every location.
+  let sohRows;
+  if (location) {
+    const scopeIds = locationScopeIds && locationScopeIds.length > 0 ? locationScopeIds : [location.id];
+    sohRows = scopeIds.length === 1
+      ? await base44.entities.StockOnHand.filter({ location_id: scopeIds[0] }, 'product_name', 5000)
+      : await base44.entities.StockOnHand.filter({ location_id: scopeIds }, 'product_name', 5000);
+  } else {
+    sohRows = await base44.entities.StockOnHand.list('product_name', 20000);
+  }
   const products = await base44.entities.Product.filter({ status: 'active' }, 'name', 5000);
   const productById = Object.fromEntries(products.map(p => [p.id, p]));
 
-  // One line per product+location (SOH is unique per product+location), category-filtered.
+  // One line per product+location (SOH is unique per product+location), type- and subcategory-filtered.
   const seen = new Set();
   const candidates = [];
   for (const soh of sohRows) {
@@ -77,7 +85,10 @@ async function createCount({ location, date, countType, status, itemGroup, assig
     const key = `${soh.product_id}_${soh.location_id}`;
     if (seen.has(key)) continue;
     const product = productById[soh.product_id];
-    if (cat && product?.category !== cat) continue;
+    // Filter by product type (canonical category)
+    if (cat && product?.type !== cat) continue;
+    // Optional subcategory filter
+    if (subCat && (product?.subcategory || '').trim() !== subCat) continue;
     seen.add(key);
     candidates.push({ soh, product });
   }
@@ -131,8 +142,10 @@ async function createCount({ location, date, countType, status, itemGroup, assig
 
 // Web: planned count (status Open — appears on the floor under Planned Counts).
 // `location` may be null for a category-across-all-locations count.
-export function createPlannedCount({ location, date, itemGroup, assignedTo, assignedToName }) {
-  return createCount({ location, date, countType: 'planned', status: 'open', itemGroup, assignedTo, assignedToName });
+// `locationScopeIds` expands a warehouse into all its stock-bearing zone ids.
+// `subItemGroup` is an optional subcategory filter within the chosen type.
+export function createPlannedCount({ location, locationScopeIds, date, itemGroup, subItemGroup, assignedTo, assignedToName }) {
+  return createCount({ location, locationScopeIds, date, countType: 'planned', status: 'open', itemGroup, subItemGroup, assignedTo, assignedToName });
 }
 
 // Floor: live count started on the floor (status In Progress immediately).

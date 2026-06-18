@@ -8,6 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { X, Loader2, ClipboardCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPlannedCount } from '@/lib/stockCount';
+import WarehouseZoneSelect from '@/components/shared/WarehouseZoneSelect';
+import { resolveLocation, getCountScopeIds } from '@/lib/locationHierarchy';
+import { CATEGORY_ORDER, CATEGORY_LABELS, SUBCATEGORIES_BY_CATEGORY } from '@/lib/productClassification';
 
 const SCOPES = [
   { key: 'location', label: 'By Location', hint: 'One location, all categories' },
@@ -15,11 +18,15 @@ const SCOPES = [
   { key: 'category', label: 'By Category', hint: 'One category across every location' },
 ];
 
+// All product types that make sense to count (exclude service)
+const COUNTABLE_TYPES = CATEGORY_ORDER.filter(c => c !== 'service');
+
 export default function CreatePlannedCountModal({ onCreated, onCancel }) {
   const [scope, setScope] = useState('location');
-  const [locationId, setLocationId] = useState('');
+  const [locationValue, setLocationValue] = useState(''); // stored location id: zone id or warehouse id
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [itemGroup, setItemGroup] = useState('all');
+  const [itemGroup, setItemGroup] = useState('');       // product type key, e.g. 'finished_meal'
+  const [subItemGroup, setSubItemGroup] = useState(''); // optional subcategory
   const [assignedTo, setAssignedTo] = useState('none');
   const [saving, setSaving] = useState(false);
 
@@ -28,17 +35,12 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
 
   const isFormValid =
     !!date &&
-    (!needsLocation || !!locationId) &&
-    (!needsCategory || (!!itemGroup && itemGroup !== 'all'));
+    (!needsLocation || !!locationValue) &&
+    (!needsCategory || !!itemGroup);
 
   const { data: locations = [] } = useQuery({
-    queryKey: ['locations-stock-bearing'],
-    queryFn: () => base44.entities.Location.filter({ is_stock_bearing: true }, 'name', 200),
-  });
-
-  const { data: products = [] } = useQuery({
-    queryKey: ['products-active-categories'],
-    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 5000),
+    queryKey: ['locations-all'],
+    queryFn: () => base44.entities.Location.list('name', 200),
   });
 
   const { data: team = [] } = useQuery({
@@ -46,24 +48,49 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
     queryFn: () => base44.entities.TeamMember.filter({ is_active: true }, 'name', 200),
   });
 
-  const itemGroups = useMemo(() => {
-    const set = new Set();
-    products.forEach(p => { if (p.category) set.add(p.category); });
-    return Array.from(set).sort();
-  }, [products]);
+  const subCategories = useMemo(() => {
+    if (!itemGroup) return [];
+    return SUBCATEGORIES_BY_CATEGORY[itemGroup] || [];
+  }, [itemGroup]);
+
+  const handleScopeChange = (newScope) => {
+    setScope(newScope);
+    if (newScope === 'category') setLocationValue('');
+    if (newScope === 'location') { setItemGroup(''); setSubItemGroup(''); }
+  };
+
+  const handleItemGroupChange = (val) => {
+    setItemGroup(val);
+    setSubItemGroup('');
+  };
 
   const handleCreate = async () => {
-    const location = locations.find(l => l.id === locationId);
+    const location = needsLocation ? locations.find(l => l.id === locationValue) : null;
     if (needsLocation && !location) { toast.error('Select a location'); return; }
-    if (needsCategory && (!itemGroup || itemGroup === 'all')) { toast.error('Select a category'); return; }
+    if (needsCategory && !itemGroup) { toast.error('Select a category'); return; }
     if (!date) { toast.error('Select a count date'); return; }
+
     setSaving(true);
     try {
       const member = team.find(t => t.id === assignedTo);
+
+      // Expand warehouse → all its stock-bearing zone ids for SOH filtering.
+      let locationScopeIds = null;
+      if (needsLocation && location) {
+        const { warehouseId, zoneId } = resolveLocation(locationValue, locations);
+        locationScopeIds = getCountScopeIds(warehouseId || locationValue, zoneId || '', locations);
+        // Fallback: if no scope ids resolved, use the location itself.
+        if (!locationScopeIds || locationScopeIds.length === 0) {
+          locationScopeIds = [location.id];
+        }
+      }
+
       const header = await createPlannedCount({
         location: needsLocation ? location : null,
+        locationScopeIds,
         date,
         itemGroup: needsCategory ? itemGroup : 'all',
+        subItemGroup: subItemGroup || null,
         assignedTo: assignedTo === 'none' ? null : assignedTo,
         assignedToName: member?.name || null,
       });
@@ -95,7 +122,7 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
                 <button
                   key={s.key}
                   type="button"
-                  onClick={() => setScope(s.key)}
+                  onClick={() => handleScopeChange(s.key)}
                   className={`text-left rounded-lg border px-2.5 py-2 transition-colors ${
                     scope === s.key ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted'
                   }`}
@@ -107,15 +134,19 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
             </div>
           </div>
 
+          {/* Location — warehouse required, zone optional */}
           {needsLocation && (
             <div className="space-y-1">
               <Label className="text-xs">Stock Location *</Label>
-              <Select value={locationId} onValueChange={setLocationId}>
-                <SelectTrigger><SelectValue placeholder="Select location..." /></SelectTrigger>
-                <SelectContent className="z-[70]">
-                  {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name} ({l.code})</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <WarehouseZoneSelect
+                value={locationValue}
+                onChange={setLocationValue}
+                locations={locations}
+                triggerClassName="h-9"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Select a warehouse to count all its zones, or pick a specific zone to narrow the count.
+              </p>
             </div>
           )}
 
@@ -127,15 +158,33 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
             {needsCategory && (
               <div className="space-y-1">
                 <Label className="text-xs">Category *</Label>
-                <Select value={itemGroup === 'all' ? '' : itemGroup} onValueChange={setItemGroup}>
+                <Select value={itemGroup || ''} onValueChange={handleItemGroupChange}>
                   <SelectTrigger><SelectValue placeholder="Select category..." /></SelectTrigger>
                   <SelectContent className="z-[70]">
-                    {itemGroups.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                    {COUNTABLE_TYPES.map(t => (
+                      <SelectItem key={t} value={t}>{CATEGORY_LABELS[t]}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             )}
           </div>
+
+          {/* Optional subcategory — only when a category is selected and has subs */}
+          {needsCategory && subCategories.length > 0 && (
+            <div className="space-y-1">
+              <Label className="text-xs">Subcategory <span className="text-muted-foreground">(optional)</span></Label>
+              <Select value={subItemGroup || 'all'} onValueChange={v => setSubItemGroup(v === 'all' ? '' : v)}>
+                <SelectTrigger><SelectValue placeholder="All subcategories" /></SelectTrigger>
+                <SelectContent className="z-[70]">
+                  <SelectItem value="all">All subcategories</SelectItem>
+                  {subCategories.map(s => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="space-y-1">
             <Label className="text-xs">Assign To (optional)</Label>
