@@ -188,6 +188,7 @@ Deno.serve(async (req) => {
   let updated = 0;
   let created = 0;
   let skippedNonInventory = 0;
+  const insertErrors: Array<{ name: string; shopify_id: string; error: string }> = [];
 
   // Track shopify_product_ids that were created this run to prevent duplicate rows
   // when a Shopify product has multiple no-SKU variants.
@@ -273,6 +274,8 @@ Deno.serve(async (req) => {
         if (!error) {
           created++;
           createdThisRun.add(String(p.id));
+        } else {
+          insertErrors.push({ name: p.title, shopify_id: String(p.id), error: error.message });
         }
       }
     }
@@ -296,7 +299,7 @@ Deno.serve(async (req) => {
   if (!hasMore) {
     await markComplete(supabase, SOURCE_KEY, 0);
     if (syncLogId) await finishSyncLog(supabase, syncLogId, 'completed', { records_fetched: newTotal, records_created: created, records_updated: updated });
-    return json({ status: 'completed', processedThisPage, totalProcessed: newTotal, hasMore: false, debug: { created, updated, skippedNonInventory } });
+    return json({ status: 'completed', processedThisPage, totalProcessed: newTotal, hasMore: false, debug: { created, updated, skippedNonInventory, insertErrors } });
   }
 
   EdgeRuntime.waitUntil(chainNext(FN_NAME, { mode: 'continue' }, nextDelay));
@@ -306,7 +309,7 @@ Deno.serve(async (req) => {
     totalProcessed: newTotal,
     hasMore: true,
     rateLimit: nearLimit ? { retryAfterSeconds: nextDelay } : undefined,
-    debug: { created, updated, skippedNonInventory, apiCallLimit: res.apiCallLimit },
+    debug: { created, updated, skippedNonInventory, insertErrors, apiCallLimit: res.apiCallLimit },
   });
 });
 
