@@ -301,6 +301,7 @@ export default function StockCountReview() {
       ) : (
         <StockCountVarianceTable
           rows={rows}
+          products={products}
           selectable={recountMode}
           selected={selected}
           onToggle={toggle}

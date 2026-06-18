@@ -60,15 +60,30 @@ export function getCategoryColor(type) {
   return CATEGORY_COLORS[type] || 'bg-gray-100 text-gray-700';
 }
 
-// Returns a Tailwind bg+text class for a subcategory label, using the brand
-// colours already established in mealGrouping/productionGrouping (light shades).
+// Slightly darker background-only classes for count section headers (category level).
+// Text colour is always set to text-gray-900 by the caller so the bg is the identity.
+export const CATEGORY_HEADER_BG = {
+  raw:           'bg-amber-200',
+  packaging:     'bg-gray-300',
+  wip_bulk:      'bg-orange-200',
+  finished_meal: 'bg-green-200',
+  supplement:    'bg-purple-200',
+  package:       'bg-blue-200',
+  sauce:         'bg-red-200',
+  solo_serve:    'bg-pink-200',
+  bundle:        'bg-indigo-200',
+  service:       'bg-slate-200',
+};
+
+// Background-only class for subcategory headers in count views (one shade lighter than category).
+// Returns null for subcategories that have no special colour.
 export function getSubcategoryColor(subcategory) {
   const s = subcategory || '';
-  if (s.includes('MLM') || s.includes("Men's Lean Muscle"))  return 'bg-green-50 text-green-700';
-  if (s.includes('MWL') || s.includes("Men's Weight Loss"))  return 'bg-blue-50 text-blue-700';
-  if (s.includes('WLM') || s.includes("Women's Lean Muscle")) return 'bg-orange-50 text-orange-700';
-  if (s.includes('WWL') || s.includes("Women's Weight Loss")) return 'bg-pink-50 text-pink-700';
-  if (s.includes('Low Carb') || s.includes('Smart Carb'))    return 'bg-yellow-50 text-yellow-700';
+  if (s.includes('MLM') || s.includes("Men's Lean Muscle"))   return 'bg-green-100';
+  if (s.includes('MWL') || s.includes("Men's Weight Loss"))   return 'bg-blue-100';
+  if (s.includes('WLM') || s.includes("Women's Lean Muscle")) return 'bg-orange-100';
+  if (s.includes('WWL') || s.includes("Women's Weight Loss")) return 'bg-pink-100';
+  if (s.includes('Low Carb') || s.includes('Smart Carb'))     return 'bg-yellow-100';
   return null;
 }
 

@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Save, CheckCircle2, Search, Plus, ChevronDown, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { saveFloorCounts, completeFloorCount, addCountLine } from '@/lib/stockCount';
-import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_COLORS, getSubcategoryColor, resolveSubcategory } from '@/lib/productClassification';
+import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory } from '@/lib/productClassification';
 import { cn } from '@/lib/utils';
 
 const fmtQty = (n) => {
@@ -152,12 +152,12 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
               type="button"
               onClick={() => toggleCollapse(cat)}
               className={cn(
-                'w-full flex items-center justify-between px-4 py-3 border-b border-black/10 transition-colors',
-                CATEGORY_COLORS[cat] || 'bg-gray-100 text-gray-700'
+                'w-full flex items-center justify-between px-4 py-3 border-b border-black/10 text-gray-900 transition-colors',
+                CATEGORY_HEADER_BG[cat] || 'bg-gray-300'
               )}
             >
               <span className="text-xs font-bold uppercase tracking-wider">{catLabel}</span>
-              {catCollapsed ? <ChevronRight className="w-3.5 h-3.5 opacity-50" /> : <ChevronDown className="w-3.5 h-3.5 opacity-50" />}
+              {catCollapsed ? <ChevronRight className="w-3.5 h-3.5 opacity-40" /> : <ChevronDown className="w-3.5 h-3.5 opacity-40" />}
             </button>
 
             {!catCollapsed && Object.entries(subMap)
@@ -172,12 +172,12 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
                       type="button"
                       onClick={() => toggleCollapse(subKey)}
                       className={cn(
-                        'w-full flex items-center justify-between px-4 py-1.5 border-b border-black/10 transition-colors',
-                        getSubcategoryColor(sub) || 'bg-muted/30 text-muted-foreground'
+                        'w-full flex items-center justify-between px-4 py-1.5 border-b border-black/10 text-gray-900 transition-colors',
+                        getSubcategoryColor(sub) || 'bg-gray-100'
                       )}
                     >
                       <span className="text-xs font-semibold">{sub}</span>
-                      {subCollapsed ? <ChevronRight className="w-3 h-3 opacity-50" /> : <ChevronDown className="w-3 h-3 opacity-50" />}
+                      {subCollapsed ? <ChevronRight className="w-3 h-3 opacity-40" /> : <ChevronDown className="w-3 h-3 opacity-40" />}
                     </button>
 
                     {!subCollapsed && Object.entries(productMap)

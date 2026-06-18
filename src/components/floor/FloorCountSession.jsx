@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_COLORS, getSubcategoryColor, resolveSubcategory } from '@/lib/productClassification';
+import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory } from '@/lib/productClassification';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -260,8 +260,8 @@ export default function FloorCountSession({ count, onBack }) {
                   type="button"
                   onClick={() => toggleCollapse(cat)}
                   className={cn(
-                    'w-full flex items-center justify-between px-4 py-3',
-                    CATEGORY_COLORS[cat] || 'bg-gray-100 text-gray-700'
+                    'w-full flex items-center justify-between px-4 py-3 text-gray-900',
+                    CATEGORY_HEADER_BG[cat] || 'bg-gray-300'
                   )}
                 >
                   <div className="flex items-center gap-2">
@@ -285,8 +285,8 @@ export default function FloorCountSession({ count, onBack }) {
                           type="button"
                           onClick={() => toggleCollapse(subKey)}
                           className={cn(
-                            'w-full flex items-center justify-between px-4 py-2 border-y border-black/10',
-                            getSubcategoryColor(sub) || 'bg-muted/30 text-muted-foreground'
+                            'w-full flex items-center justify-between px-4 py-2 border-y border-black/10 text-gray-900',
+                            getSubcategoryColor(sub) || 'bg-gray-100'
                           )}
                         >
                           <div className="flex items-center gap-2">
