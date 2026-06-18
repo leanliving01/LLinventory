@@ -26,6 +26,11 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
   const needsLocation = scope !== 'category';
   const needsCategory = scope !== 'location';
 
+  const isFormValid =
+    !!date &&
+    (!needsLocation || !!locationId) &&
+    (!needsCategory || (!!itemGroup && itemGroup !== 'all'));
+
   const { data: locations = [] } = useQuery({
     queryKey: ['locations-stock-bearing'],
     queryFn: () => base44.entities.Location.filter({ is_stock_bearing: true }, 'name', 200),
@@ -152,7 +157,7 @@ export default function CreatePlannedCountModal({ onCreated, onCancel }) {
 
         <div className="px-6 py-4 border-t border-border flex gap-3">
           <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
-          <Button className="flex-1 gap-2" onClick={handleCreate} disabled={saving || !locationId}>
+          <Button className="flex-1 gap-2" onClick={handleCreate} disabled={saving || !isFormValid}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardCheck className="w-4 h-4" />}
             {saving ? 'Creating...' : 'Create Count'}
           </Button>
