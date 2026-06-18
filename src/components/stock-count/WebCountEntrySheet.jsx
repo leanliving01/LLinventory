@@ -177,41 +177,25 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
                     {!subCollapsed && Object.entries(productMap)
                       .sort(([, aLines], [, bLines]) => (aLines[0]?.product_sku || '').localeCompare(bLines[0]?.product_sku || ''))
                       .map(([pname, plines]) => {
-                        const multiLoc = plines.length > 1;
+                        // For products that appear in multiple locations, show ONE row using
+                        // the line at the product's default location (or highest system qty).
+                        // Existing legacy counts can have multiple lines per product;
+                        // the user counts a total once — the other lines stay uncounted.
+                        const primaryLine = (() => {
+                          if (plines.length === 1) return plines[0];
+                          const defLocId = productById[plines[0].product_id]?.default_location_id;
+                          return (defLocId && plines.find(l => l.location_id === defLocId))
+                            || plines.reduce((best, l) =>
+                              (Number(l.system_qty) || 0) >= (Number(best.system_qty) || 0) ? l : best, plines[0]);
+                        })();
                         return (
                           <div key={pname} className="border-b border-border last:border-b-0">
-                            {multiLoc ? (
-                              // Product-name row + location sub-rows
-                              <>
-                                <div className="px-4 py-1.5 bg-muted/10 flex items-center gap-2">
-                                  <span className="text-sm font-medium text-foreground">{pname}</span>
-                                  <span className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">{plines.length} locations</span>
-                                  <span className="text-xs font-mono text-muted-foreground ml-1">{plines[0].product_sku}</span>
-                                </div>
-                                {plines.map(line => (
-                                  <div key={line.id} className="flex items-center gap-3 px-6 py-2 border-t border-border/50 hover:bg-muted/20">
-                                    <span className="text-xs text-muted-foreground flex-1 truncate">{line.location_name || '—'}</span>
-                                    <span className="text-xs text-muted-foreground tabular-nums w-16 text-right">{fmtQty(line.system_qty ?? null)} sys</span>
-                                    <Input
-                                      type="number" min="0" step="any"
-                                      value={entries[line.id] ?? ''}
-                                      onChange={e => handleChange(line.id, e.target.value)}
-                                      placeholder="—"
-                                      className={cn('w-24 h-7 text-right text-sm tabular-nums', entries[line.id] !== undefined && entries[line.id] !== '' ? 'border-primary/60 bg-primary/5' : '')}
-                                    />
-                                    <span className="text-xs text-muted-foreground w-8">{line.stock_uom || 'pcs'}</span>
-                                  </div>
-                                ))}
-                              </>
-                            ) : (
-                              // Single-location — one flat row
-                              <SingleLineRow
-                                line={plines[0]}
-                                pname={pname}
-                                value={entries[plines[0].id] ?? ''}
-                                onChange={val => handleChange(plines[0].id, val)}
-                              />
-                            )}
+                            <SingleLineRow
+                              line={primaryLine}
+                              pname={pname}
+                              value={entries[primaryLine.id] ?? ''}
+                              onChange={val => handleChange(primaryLine.id, val)}
+                            />
                           </div>
                         );
                       })}
