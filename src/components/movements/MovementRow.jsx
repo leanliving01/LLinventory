@@ -87,10 +87,17 @@ export default function MovementRow({ movement: m, showProduct = false }) {
         </Badge>
       </td>
       <td className={`px-3 py-2.5 text-right tabular-nums font-semibold ${color}`}>
-        {sign}{m.qty} {m.uom}
+        {m.qty === 0 ? '0' : `${sign}${m.qty}`} {m.uom}
       </td>
       <td className="px-3 py-2.5 text-xs">
-        {m.ref_number ? (
+        {m.ref_number && m.ref_type === 'sales_order' && m.ref_id ? (
+          <Link
+            to={`/sales/orders/${m.ref_id}`}
+            className="font-medium text-primary hover:underline"
+          >
+            {m.ref_number}
+          </Link>
+        ) : m.ref_number ? (
           <span className="font-medium text-foreground">{m.ref_number}</span>
         ) : m.ref_type ? (
           <span className="text-muted-foreground">{m.ref_type}</span>

@@ -92,7 +92,7 @@ interface GqlOrder {
   cancelledAt?: string | null;
   displayFinancialStatus: string;
   displayFulfillmentStatus: string;
-  tags?: string | null;
+  tags?: string[] | string | null;
   email?: string | null;
   totalPriceSet?:     { shopMoney?: { amount?: string } };
   subtotalPriceSet?:  { shopMoney?: { amount?: string } };
@@ -190,13 +190,17 @@ async function flushBatch(
     const fulStatus   = mapFulfilment(order.displayFulfillmentStatus);
     const lifecycle   = mapLifecycle(order.displayFinancialStatus, order.displayFulfillmentStatus, order.cancelledAt || null);
 
+    const tagsStr = Array.isArray(order.tags)
+      ? (order.tags.length ? order.tags.join('|') : null)
+      : (order.tags ? String(order.tags).replace(/,\s*/g, '|') : null);
+
     const soPld = {
       shopify_order_id:  shopifyId,
       order_number:      orderNum,
       customer_name:     custName,
       paid_status:       paidStatus,
       fulfilment_status: fulStatus,
-      tags:              order.tags || null,
+      tags:              tagsStr,
       order_date:        order.createdAt,
       synced_at:         now,
       updated_date:      now,
@@ -226,7 +230,7 @@ async function flushBatch(
       total_discounts:    parseFloat(order.totalDiscountsSet?.shopMoney?.amount || '0') || 0,
       shipping_cost:      shippingCost,
       shipping_city:      order.shippingAddress?.city || null,
-      tags:               order.tags ? order.tags.replace(/,\s*/g, '|') : null,
+      tags:               tagsStr,
       updated_date:       now,
       last_synced_at:     now,
       ...(trackingNumber ? { tracking_number: trackingNumber } : {}),
@@ -483,6 +487,7 @@ Deno.serve(async (req) => {
 
   // ── import ─────────────────────────────────────────────────────────────────
   if (mode === 'import') {
+    try {
     const priorState = await getSyncState(supabase, SOURCE_KEY);
     let cursor: ImportCursor = { phase: 'import' };
     try { cursor = JSON.parse(priorState?.last_cursor || '{}'); } catch { /* ok */ }
@@ -586,6 +591,12 @@ Deno.serve(async (req) => {
 
     EdgeRuntime.waitUntil(chainNext(FN_NAME, { mode: 'import' }, 1));
     return json({ status: 'running', byte_offset: newOffset, orders_imported: newTotal });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[history-import] import phase unhandled error:', msg);
+      await markError(supabase, SOURCE_KEY, `Import phase error: ${msg}`);
+      return json({ status: 'error', error: msg }, 500);
+    }
   }
 
   return json({ status: 'error', error: `Unknown mode: ${mode}` }, 400);
