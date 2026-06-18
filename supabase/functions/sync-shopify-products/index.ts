@@ -110,7 +110,6 @@ Deno.serve(async (req) => {
   if (pageInfo) {
     params.page_info = pageInfo;
   } else {
-    params.status = 'active,draft,archived';
     if (updatedAtMin) params.updated_at_min = updatedAtMin;
   }
 
