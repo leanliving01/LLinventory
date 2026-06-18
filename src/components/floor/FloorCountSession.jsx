@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { CATEGORY_LABELS, CATEGORY_ORDER, resolveSubcategory } from '@/lib/productClassification';
+import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_COLORS, resolveSubcategory } from '@/lib/productClassification';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -259,7 +259,10 @@ export default function FloorCountSession({ count, onBack }) {
                 <button
                   type="button"
                   onClick={() => toggleCollapse(cat)}
-                  className="w-full flex items-center justify-between px-4 py-3 bg-muted/70 active:bg-muted/90"
+                  className={cn(
+                    'w-full flex items-center justify-between px-4 py-3',
+                    CATEGORY_COLORS[cat] || 'bg-gray-100 text-gray-700'
+                  )}
                 >
                   <div className="flex items-center gap-2">
                     {isCatOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
