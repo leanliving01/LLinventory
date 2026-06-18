@@ -159,8 +159,6 @@ Deno.serve(async (req) => {
     .limit(1)
     .maybeSingle();
   const vatRate = vatRow?.rate && vatRow.rate > 0 ? Number(vatRow.rate) : 0.15;
-  // Types whose price is set manually (not derived from Shopify) — never overwrite.
-  const PRICE_EXEMPT_TYPES = new Set(['package', 'supplement']);
   const exclVatPrice = (raw: string | undefined): number | null => {
     const inc = parseFloat(raw || '');
     if (!Number.isFinite(inc) || inc <= 0) return null;
@@ -227,7 +225,7 @@ Deno.serve(async (req) => {
         const bs = existingBySku.get(v.sku)!;
         match = { id: bs.id, sku: bs.sku, type: bs.type };
         // Backfill shopify IDs on existing product
-        const writePrice = exclPrice !== null && !PRICE_EXEMPT_TYPES.has(bs.type || '');
+        const writePrice = exclPrice !== null;
         await supabase.from('products').update({
           shopify_product_id: String(p.id),
           shopify_variant_id: String(v.id),
@@ -236,7 +234,7 @@ Deno.serve(async (req) => {
         }).eq('id', bs.id);
         updated++;
       } else if (match) {
-        const writePrice = exclPrice !== null && !PRICE_EXEMPT_TYPES.has(match.type || '');
+        const writePrice = exclPrice !== null;
         await supabase.from('products').update({
           ...(updateNamesFromShopify ? { name: p.title } : {}),
           shopify_variant_id: String(v.id),
