@@ -15,18 +15,20 @@
 --   WWR9  Classic Chicken A La King     2   4   8
 --   TOTAL                              15  30  60
 
+-- id has no DB default — the app generates 24-char hex ids (Mongo ObjectId style),
+-- so we generate matching ids here with pgcrypto's gen_random_bytes.
 INSERT INTO pack_boms
-  (package_sku, package_type, multiplier, component_skus, disabled_skus, sku_overrides, active)
+  (id, package_sku, package_type, multiplier, component_skus, disabled_skus, sku_overrides, active)
 VALUES
-  ('WWR15', 'bundle', 2,
+  (encode(gen_random_bytes(12), 'hex'), 'WWR15', 'bundle', 2,
    ARRAY['WWR1','WWR2','WWR3','WWR4','WWR5','WWR6','WWR7','WWR8','WWR9'],
    ARRAY[]::text[],
    '{"WWR1":1,"WWR5":1,"WWR7":1}', true),
-  ('WWR30', 'bundle', 4,
+  (encode(gen_random_bytes(12), 'hex'), 'WWR30', 'bundle', 4,
    ARRAY['WWR1','WWR2','WWR3','WWR4','WWR5','WWR6','WWR7','WWR8','WWR9'],
    ARRAY[]::text[],
    '{"WWR1":2,"WWR5":2,"WWR7":2}', true),
-  ('WWR60', 'bundle', 8,
+  (encode(gen_random_bytes(12), 'hex'), 'WWR60', 'bundle', 8,
    ARRAY['WWR1','WWR2','WWR3','WWR4','WWR5','WWR6','WWR7','WWR8','WWR9'],
    ARRAY[]::text[],
    '{"WWR1":4,"WWR5":4,"WWR7":4}', true)
