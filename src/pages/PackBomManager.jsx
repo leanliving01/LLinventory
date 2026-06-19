@@ -33,6 +33,8 @@ export default function PackBomManager() {
   const [form, setForm] = useState(BLANK);
   const [creating, setCreating] = useState(false);
   const [mealSearch, setMealSearch] = useState('');
+  const [pkgSearch, setPkgSearch] = useState('');
+  const [pkgPickerOpen, setPkgPickerOpen] = useState(false);
 
   const { data: packBoms = [], isLoading } = useQuery({
     queryKey: ['pack-boms'],
@@ -47,6 +49,26 @@ export default function PackBomManager() {
     },
     enabled: showCreate,
   });
+
+  const { data: packageProducts = [], isLoading: loadingPkgs } = useQuery({
+    queryKey: ['package-products-for-packbom'],
+    queryFn: async () => {
+      const products = await base44.entities.Product.filter({ type: 'package' }, 'name', 500);
+      return products.filter(p => p.sku);
+    },
+    enabled: showCreate,
+  });
+
+  const existingPackSkus = useMemo(
+    () => new Set(packBoms.map(pb => (pb.package_sku || '').toUpperCase())),
+    [packBoms]
+  );
+
+  const filteredPackages = useMemo(() => {
+    if (!pkgSearch) return packageProducts;
+    const q = pkgSearch.toLowerCase();
+    return packageProducts.filter(p => p.name?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q));
+  }, [packageProducts, pkgSearch]);
 
   const filteredMeals = useMemo(() => {
     if (!mealSearch) return finishedMeals;
@@ -102,6 +124,8 @@ export default function PackBomManager() {
       setShowCreate(false);
       setForm(BLANK);
       setMealSearch('');
+      setPkgSearch('');
+      setPkgPickerOpen(false);
       navigate(`/purchasing/pack-bom/${newPack.id}`);
     } catch (err) {
       toast.error('Create failed: ' + (err.message || 'Unknown error'));
@@ -204,29 +228,93 @@ export default function PackBomManager() {
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
               <h2 className="text-lg font-bold">New Pack Composition</h2>
-              <Button variant="ghost" size="icon" onClick={() => { setShowCreate(false); setForm(BLANK); setMealSearch(''); }}>
+              <Button variant="ghost" size="icon" onClick={() => { setShowCreate(false); setForm(BLANK); setMealSearch(''); setPkgSearch(''); setPkgPickerOpen(false); }}>
                 <X className="w-5 h-5" />
               </Button>
             </div>
 
             {/* Body */}
             <div className="p-6 space-y-5 overflow-y-auto flex-1">
-              {/* Package SKU */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Package SKU</label>
-                <Input
-                  placeholder="e.g. WWR15"
-                  value={form.packageSku}
-                  onChange={e => setForm(f => ({ ...f, packageSku: e.target.value }))}
-                  className="font-mono"
-                />
-                <p className="text-[10px] text-muted-foreground mt-1">Must match the SKU on the package product in the catalog.</p>
+              {/* Package SKU — searchable picker of package products */}
+              <div className="relative">
+                <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Package</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Search package by name or SKU..."
+                    value={pkgPickerOpen ? pkgSearch : (form.packageSku || '')}
+                    onChange={e => { setPkgSearch(e.target.value); setPkgPickerOpen(true); }}
+                    onFocus={() => { setPkgSearch(''); setPkgPickerOpen(true); }}
+                    className="pl-8 font-mono"
+                  />
+                  {form.packageSku && !pkgPickerOpen && (
+                    <button
+                      type="button"
+                      onClick={() => { setForm(f => ({ ...f, packageSku: '' })); setPkgSearch(''); setPkgPickerOpen(true); }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {pkgPickerOpen && (
+                  <div className="absolute z-10 mt-1 w-full bg-card border border-border rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                    {loadingPkgs ? (
+                      <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Loading packages...
+                      </div>
+                    ) : filteredPackages.length === 0 ? (
+                      <div className="px-3 py-3 text-sm text-muted-foreground">
+                        {packageProducts.length === 0
+                          ? 'No package-type products found. Set a product’s type to "package" in the catalog first.'
+                          : 'No packages match your search.'}
+                      </div>
+                    ) : (
+                      filteredPackages.map(p => {
+                        const taken = existingPackSkus.has((p.sku || '').toUpperCase());
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            disabled={taken}
+                            onClick={() => {
+                              setForm(f => ({
+                                ...f,
+                                packageSku: p.sku,
+                                portionWeightG: p.weight_g ? String(p.weight_g) : f.portionWeightG,
+                              }));
+                              setPkgPickerOpen(false);
+                              setPkgSearch('');
+                            }}
+                            className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
+                              taken ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted/40'
+                            }`}
+                          >
+                            <span className="font-mono text-xs text-muted-foreground w-24 shrink-0 truncate">{p.sku}</span>
+                            <span className="text-sm flex-1 truncate">{p.name}</span>
+                            {taken && <span className="text-[10px] text-amber-600 shrink-0">has composition</span>}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+
+                {form.packageSku && !pkgPickerOpen && (
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Linked to package SKU <strong className="font-mono">{form.packageSku}</strong>.
+                  </p>
+                )}
+                {!form.packageSku && !pkgPickerOpen && (
+                  <p className="text-[10px] text-muted-foreground mt-1">Pick the package product this composition belongs to.</p>
+                )}
               </div>
 
               {/* Type + Portion weight row */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Pack Type</label>
+                  <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Category</label>
                   <Select value={form.packageType} onValueChange={v => setForm(f => ({ ...f, packageType: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -313,7 +401,7 @@ export default function PackBomManager() {
 
             {/* Footer */}
             <div className="px-6 py-4 border-t border-border flex justify-end gap-2 shrink-0">
-              <Button variant="outline" onClick={() => { setShowCreate(false); setForm(BLANK); setMealSearch(''); }}>
+              <Button variant="outline" onClick={() => { setShowCreate(false); setForm(BLANK); setMealSearch(''); setPkgSearch(''); setPkgPickerOpen(false); }}>
                 Cancel
               </Button>
               <Button onClick={handleCreate} disabled={creating} className="gap-2">
