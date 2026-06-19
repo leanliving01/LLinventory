@@ -55,10 +55,24 @@ function getSign(reason) {
 
 // ── Qty summary shown on the collapsed group row ─────────────────────────────
 
+function PackLine({ l }) {
+  const sizeMatch = (l.sku || '').match(/(\d+)$/);
+  const sizeStr   = sizeMatch ? sizeMatch[1] : '';
+  const name      = (l.name || l.sku || '');
+  const display   = sizeStr && !name.includes(sizeStr) ? `${name} ${sizeStr}` : name;
+  const truncated = display.length > 34 ? display.slice(0, 34) + '…' : display;
+  return (
+    <span className="text-xs whitespace-nowrap">
+      <span className="font-semibold">{l.qty}×</span>{' '}
+      <span className="text-muted-foreground" title={display}>{truncated}</span>
+    </span>
+  );
+}
+
 function QtyDisplay({ group }) {
   const { reason, order_lines, movement_count, total_qty } = group;
 
-  // Order events: show the packs that were sold
+  // Order events: show each pack on its own line with size variant from SKU
   if (['sale_fulfillment', 'cancellation_reversal'].includes(reason)) {
     const lines = order_lines || [];
     if (lines.length === 0) {
@@ -66,24 +80,10 @@ function QtyDisplay({ group }) {
         <span className="text-xs text-muted-foreground">{movement_count} SKUs</span>
       );
     }
-    const totalPacks = lines.reduce((s, l) => s + (l.qty || 0), 0);
-    if (lines.length === 1) {
-      const l = lines[0];
-      const shortName = (l.name || l.sku || '').replace(/\s+(WLM|MLM|WLM\d+|Pack|pack).*$/i, '').trim();
-      return (
-        <span className="text-xs">
-          <span className="font-semibold">{l.qty}×</span>{' '}
-          <span className="text-muted-foreground" title={l.name}>
-            {shortName.length > 28 ? shortName.slice(0, 28) + '…' : shortName}
-          </span>
-        </span>
-      );
-    }
     return (
-      <span className="text-xs">
-        <span className="font-semibold">{totalPacks} packs</span>{' '}
-        <span className="text-muted-foreground">({lines.length} types)</span>
-      </span>
+      <div className="flex flex-col gap-0.5 items-end">
+        {lines.map((l, i) => <PackLine key={i} l={l} />)}
+      </div>
     );
   }
 
