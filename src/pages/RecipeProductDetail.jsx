@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   ArrowLeft, Package, Utensils, Save, Loader2, BookOpen, FileText, Copy,
   ExternalLink, CheckCircle2, AlertTriangle, ArrowRight, Trash2, Pencil, X,
+  ChefHat, Plus,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -435,18 +436,74 @@ export default function RecipeProductDetail() {
     setConfirmAction(null);
   };
 
+  const handleAddLayer = async (bomType) => {
+    if (!product) return;
+    setSaving(true);
+    try {
+      await base44.entities.Bom.create({
+        product_id: productId,
+        product_name: product.name,
+        product_sku: product.sku || undefined,
+        bom_type: bomType,
+        version: 1,
+        is_active: false,
+        yield_qty: 1,
+      });
+      queryClient.invalidateQueries({ queryKey: ['recipe-product-boms', productId] });
+      queryClient.invalidateQueries({ queryKey: ['recipes-boms'] });
+      toast.success(`${LAYER_LABELS[bomType]} layer created — add ingredients below.`);
+    } catch (err) {
+      toast.error('Failed to create layer: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loadingProduct || loadingBoms) {
     return <div className="flex items-center justify-center py-24"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
   }
 
   if (boms.length === 0) {
     return (
-      <div className="space-y-4">
-        <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => navigate('/recipes')}>
-          <ArrowLeft className="w-4 h-4" /> Back to BOMs
-        </Button>
-        <div className="text-center py-16 text-sm text-muted-foreground">
-          No BOM exists for {product?.name || 'this product'} yet.
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/recipes')}>
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold">{product?.name || 'Recipe'}</h1>
+            {product?.sku && <p className="text-sm text-muted-foreground font-mono">{product.sku}</p>}
+          </div>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-10 text-center space-y-6">
+          <div className="flex justify-center">
+            <div className="w-16 h-16 bg-orange-50 dark:bg-orange-900/20 rounded-full flex items-center justify-center">
+              <ChefHat className="w-8 h-8 text-orange-400" />
+            </div>
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold">No recipe set up yet</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Choose a production layer to start building the recipe for <strong>{product?.name}</strong>.
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-3">
+            {LAYER_ORDER.map(layer => (
+              <Button
+                key={layer}
+                variant={layer === 'cook' ? 'default' : 'outline'}
+                className="gap-2"
+                onClick={() => handleAddLayer(layer)}
+                disabled={saving}
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                Add {LAYER_LABELS[layer]} Layer
+              </Button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Most finished meals start with a <strong>Cook</strong> layer. You can add more layers (Prep, Portion, Pack) afterward.
+          </p>
         </div>
       </div>
     );
@@ -672,6 +729,25 @@ export default function RecipeProductDetail() {
             </React.Fragment>
           );
         })}
+
+        {/* Add another layer — only show layer types not yet created */}
+        {LAYER_ORDER.filter(l => !boms.find(b => b.bom_type === l)).length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-2">
+            <span className="text-xs text-muted-foreground self-center">Add layer:</span>
+            {LAYER_ORDER.filter(l => !boms.find(b => b.bom_type === l)).map(layer => (
+              <Button
+                key={layer}
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => handleAddLayer(layer)}
+                disabled={saving}
+              >
+                <Plus className="w-3.5 h-3.5" /> {LAYER_LABELS[layer]}
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Consolidated ingredients overview — each ingredient once */}
