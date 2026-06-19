@@ -15,10 +15,7 @@ export default function StockCountVarianceTable({
   selectable = false, selected, onToggle, onToggleAll,
   showPrev = false, showConversion = false, showLocation = false,
 }) {
-  if (!rows.length) {
-    return <p className="text-sm text-muted-foreground py-8 text-center">No lines in this count — there was no stock at the selected location/category when it was created.</p>;
-  }
-
+  // Hooks must be called unconditionally — before any early returns.
   const productById = useMemo(
     () => Object.fromEntries(products.map(p => [p.id, p])),
     [products]
@@ -46,7 +43,11 @@ export default function StockCountVarianceTable({
     (showPrev ? 1 : 0) +
     (showConversion ? 1 : 0);
 
-  const allSelected = selectable && rows.length > 0 && rows.every(r => selected?.has(r.id));
+  if (!rows.length) {
+    return <p className="text-sm text-muted-foreground py-8 text-center">No lines in this count — there was no stock at the selected location/category when it was created.</p>;
+  }
+
+  const allSelected = selectable && rows.every(r => selected?.has(r.id));
 
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
