@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Save, CheckCircle2, Search, Plus, ChevronDown, ChevronRight } from 'lucide-react';
@@ -24,9 +24,28 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Collapsed state per category key (all open by default)
+  // collapsed tracks keys the user has explicitly closed (true = closed).
+  // Everything starts OPEN; the effect below explicitly initialises new groups
+  // to false so stale HMR state or future re-renders never silently close them.
   const [collapsed, setCollapsed] = useState({});
-  const toggleCollapse = (key) => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
+  const toggleCollapse = (key) =>
+    setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
+
+  useEffect(() => {
+    if (!grouped.order.length) return;
+    setCollapsed(prev => {
+      const next = { ...prev };
+      let changed = false;
+      grouped.order.forEach(cat => {
+        if (!(cat in next)) { next[cat] = false; changed = true; }
+        Object.keys(grouped.cats[cat] || {}).forEach(sub => {
+          const k = `${cat}::${sub}`;
+          if (!(k in next)) { next[k] = false; changed = true; }
+        });
+      });
+      return changed ? next : prev;
+    });
+  }, [grouped]);
 
   // Add-item state
   const [addSearch, setAddSearch] = useState('');
