@@ -34,24 +34,6 @@ export default function FloorCountSession({ count, onBack }) {
   const toggleCollapse = (key) =>
     setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
 
-  // Explicitly mark every new group key as open (false) the moment it appears,
-  // so stale HMR state or a re-render never leaves a group silently closed.
-  useEffect(() => {
-    if (!grouped.order.length) return;
-    setCollapsed(prev => {
-      const next = { ...prev };
-      let changed = false;
-      grouped.order.forEach(cat => {
-        if (!(cat in next)) { next[cat] = false; changed = true; }
-        Object.keys(grouped.cats[cat] || {}).forEach(sub => {
-          const k = `${cat}::${sub}`;
-          if (!(k in next)) { next[k] = false; changed = true; }
-        });
-      });
-      return changed ? next : prev;
-    });
-  }, [grouped]);
-
   const locked = count.status === 'completed' || count.status === 'cancelled';
   const isRecount = RECOUNT_STATUSES.includes(count.status);
 
@@ -144,6 +126,24 @@ export default function FloorCountSession({ count, onBack }) {
     const order = [...CATEGORY_ORDER.filter(c => cats[c]), ...(cats['__unknown__'] ? ['__unknown__'] : [])];
     return { order, cats };
   }, [lines, productById]);
+
+  // Explicitly mark every new group key as open (false) the moment it appears,
+  // so stale HMR state or a re-render never leaves a group silently closed.
+  useEffect(() => {
+    if (!grouped.order.length) return;
+    setCollapsed(prev => {
+      const next = { ...prev };
+      let changed = false;
+      grouped.order.forEach(cat => {
+        if (!(cat in next)) { next[cat] = false; changed = true; }
+        Object.keys(grouped.cats[cat] || {}).forEach(sub => {
+          const k = `${cat}::${sub}`;
+          if (!(k in next)) { next[k] = false; changed = true; }
+        });
+      });
+      return changed ? next : prev;
+    });
+  }, [grouped]);
 
   const countedCount = Object.values(counts).filter(v => v !== '' && v != null).length;
 

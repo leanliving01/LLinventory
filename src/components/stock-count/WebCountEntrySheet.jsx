@@ -31,22 +31,6 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
   const toggleCollapse = (key) =>
     setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
 
-  useEffect(() => {
-    if (!grouped.order.length) return;
-    setCollapsed(prev => {
-      const next = { ...prev };
-      let changed = false;
-      grouped.order.forEach(cat => {
-        if (!(cat in next)) { next[cat] = false; changed = true; }
-        Object.keys(grouped.cats[cat] || {}).forEach(sub => {
-          const k = `${cat}::${sub}`;
-          if (!(k in next)) { next[k] = false; changed = true; }
-        });
-      });
-      return changed ? next : prev;
-    });
-  }, [grouped]);
-
   // Add-item state
   const [addSearch, setAddSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
@@ -68,6 +52,23 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
     const order = [...CATEGORY_ORDER.filter(c => cats[c]), ...(cats['__unknown__'] ? ['__unknown__'] : [])];
     return { order, cats };
   }, [lines, productById]);
+
+  // Initialise every new group key as open (false) once `grouped` is defined.
+  useEffect(() => {
+    if (!grouped.order.length) return;
+    setCollapsed(prev => {
+      const next = { ...prev };
+      let changed = false;
+      grouped.order.forEach(cat => {
+        if (!(cat in next)) { next[cat] = false; changed = true; }
+        Object.keys(grouped.cats[cat] || {}).forEach(sub => {
+          const k = `${cat}::${sub}`;
+          if (!(k in next)) { next[k] = false; changed = true; }
+        });
+      });
+      return changed ? next : prev;
+    });
+  }, [grouped]);
 
   // ── Counts ───────────────────────────────────────────────────────────────────
   const enteredCount = useMemo(
