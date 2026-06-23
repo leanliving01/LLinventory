@@ -404,6 +404,7 @@ export const base44 = {
         'recalc-demand':             'recalc-demand',
         'recalc-committed-stock':    'recalc-committed-stock',
         bulkSyncCustomers:           'sync-shopify-customers',
+        verifyManagerPin:            'verify-manager-pin',
       };
       const edgeFn = EDGE_FUNCTIONS[fnName] ?? fnName;
       // Route function calls through a Vercel serverless proxy (/api/fn) in
