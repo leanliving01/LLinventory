@@ -48,6 +48,7 @@ export default function RecipeProductDetail() {
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [bulkForm, setBulkForm] = useState({ layer: '', step: '', qty: '', uom: '' });
   const [pendingNav, setPendingNav] = useState(null);
+  const [pendingLayerDeletes, setPendingLayerDeletes] = useState(() => new Set()); // bomIds staged for delete, committed on Save
 
   const { data: product, isLoading: loadingProduct } = useQuery({
     queryKey: ['recipe-product', productId],
@@ -152,7 +153,8 @@ export default function RecipeProductDetail() {
   const hasUnsavedChanges =
     Object.keys(editedQtys).length > 0 ||
     Object.keys(editedSteps).length > 0 ||
-    Object.keys(bomEdits).length > 0;
+    Object.keys(bomEdits).length > 0 ||
+    pendingLayerDeletes.size > 0;
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['recipe-product-boms', productId] });
@@ -164,7 +166,13 @@ export default function RecipeProductDetail() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Layers staged for deletion — any field/qty/step edits on them are moot.
+      const deletingBomIds = new Set(pendingLayerDeletes);
+      const deletingCompIds = new Set(
+        components.filter(c => deletingBomIds.has(c.bom_id)).map(c => c.id));
+
       for (const [bomId, edits] of Object.entries(bomEdits)) {
+        if (deletingBomIds.has(bomId)) continue;
         const update = {};
         if (edits.yieldQty !== undefined) update.yield_qty = Number(edits.yieldQty) || 1;
         if (edits.yieldUom !== undefined) update.yield_uom = edits.yieldUom;
@@ -175,16 +183,47 @@ export default function RecipeProductDetail() {
         if (Object.keys(update).length) await base44.entities.Bom.update(bomId, update);
       }
       for (const [compId, newQty] of Object.entries(editedQtys)) {
+        if (deletingCompIds.has(compId)) continue;
         const val = Number(newQty);
         if (isNaN(val) || val < 0) continue;
         await base44.entities.BomComponent.update(compId, { qty: val });
       }
       for (const [compId, stepNo] of Object.entries(editedSteps)) {
+        if (deletingCompIds.has(compId)) continue;
         await base44.entities.BomComponent.update(compId, { step_no: stepNo || null });
       }
+
+      // Commit staged layer deletions (the BOM + all its components and steps).
+      const failedDeletes = [];
+      for (const bomId of deletingBomIds) {
+        try {
+          const [comps, ops] = await Promise.all([
+            base44.entities.BomComponent.filter({ bom_id: bomId }),
+            base44.entities.BomOperation.filter({ bom_id: bomId }),
+          ]);
+          for (const c of comps) await base44.entities.BomComponent.delete(c.id);
+          for (const o of ops) await base44.entities.BomOperation.delete(o.id);
+          await base44.entities.Bom.delete(bomId);
+        } catch {
+          failedDeletes.push(bomId);
+        }
+      }
+
       setEditedQtys({}); setEditedSteps({}); setBomEdits({});
+      setPendingLayerDeletes(new Set(failedDeletes)); // keep any that couldn't be deleted
+      if (deletingCompIds.size) {
+        setSelectedIds(prev => {
+          const n = new Set(prev);
+          deletingCompIds.forEach(id => n.delete(id));
+          return n;
+        });
+      }
       invalidateAll();
-      toast.success('Recipe saved');
+      if (failedDeletes.length) {
+        toast.error(`${failedDeletes.length} layer(s) could not be deleted (still referenced elsewhere).`);
+      } else {
+        toast.success('Recipe saved');
+      }
     } catch (err) {
       toast.error('Save failed: ' + (err.message || 'Unknown error'));
     } finally {
@@ -343,6 +382,12 @@ export default function RecipeProductDetail() {
       setSaving(false);
     }
   };
+
+  // ── Stage / unstage a whole layer (BOM) for deletion (committed on Save) ──
+  const stageLayerDelete = (bomId) =>
+    setPendingLayerDeletes(prev => { const n = new Set(prev); n.add(bomId); return n; });
+  const unstageLayerDelete = (bomId) =>
+    setPendingLayerDeletes(prev => { const n = new Set(prev); n.delete(bomId); return n; });
 
   // ── Duplicate / Delete ────────────────────────────────────────────────────
   const handleDuplicate = () => setConfirmAction({
@@ -629,6 +674,7 @@ export default function RecipeProductDetail() {
         <p className="text-[11px] text-muted-foreground">Each layer is one BOM. Steps, ingredients and outputs below are exactly what runs on the floor for that layer.</p>
 
         {sortedBoms.map((bom, layerIdx) => {
+          const stagedForDelete = pendingLayerDeletes.has(bom.id);
           const bomComps = (componentsByBom[bom.id] || []);
           const ingredients = bomComps.filter(c => !c.is_consumable).map(enrich);
           const consumables = bomComps.filter(c => c.is_consumable).map(enrich);
@@ -654,6 +700,21 @@ export default function RecipeProductDetail() {
                   )}
                 </div>
               )}
+              {stagedForDelete ? (
+              <div className="bg-destructive/5 border border-dashed border-destructive/40 rounded-xl p-5 flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={cn("text-[11px] px-2.5 py-0.5 line-through opacity-70", LAYER_COLORS[bom.bom_type])}>{LAYER_LABELS[bom.bom_type]} Layer</Badge>
+                  <span className="text-sm font-medium text-destructive">Will be deleted when you save</span>
+                  <span className="text-xs text-muted-foreground">
+                    {ingredients.length} ingredient{ingredients.length !== 1 ? 's' : ''}, {(operationsByBom[bom.id] || []).length} step{(operationsByBom[bom.id] || []).length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <Button variant="outline" size="sm" className="gap-1.5"
+                  onClick={() => unstageLayerDelete(bom.id)} disabled={saving}>
+                  <X className="w-3.5 h-3.5" /> Undo
+                </Button>
+              </div>
+              ) : (
               <div className="bg-card border border-border rounded-xl p-5 space-y-4">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
@@ -661,12 +722,18 @@ export default function RecipeProductDetail() {
                     <span className="text-xs text-muted-foreground">v{bom.version || 1}</span>
                     {bom.is_active === false && <Badge className="text-[10px] bg-gray-100 text-gray-500">Inactive draft</Badge>}
                   </div>
-                  <Button variant="outline" size="sm" className="gap-1.5"
-                    onClick={() => toggleActive(bom)} disabled={saving}>
-                    {bom.is_active === false
-                      ? <><CheckCircle2 className="w-3.5 h-3.5" /> Activate</>
-                      : <><AlertTriangle className="w-3.5 h-3.5" /> Set Inactive</>}
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    <Button variant="outline" size="sm" className="gap-1.5"
+                      onClick={() => toggleActive(bom)} disabled={saving}>
+                      {bom.is_active === false
+                        ? <><CheckCircle2 className="w-3.5 h-3.5" /> Activate</>
+                        : <><AlertTriangle className="w-3.5 h-3.5" /> Set Inactive</>}
+                    </Button>
+                    <Button variant="outline" size="sm" className="gap-1.5 text-destructive hover:text-destructive"
+                      onClick={() => stageLayerDelete(bom.id)} disabled={saving}>
+                      <Trash2 className="w-3.5 h-3.5" /> Delete layer
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Steps (editable, with per-step inputs + output) */}
@@ -726,6 +793,7 @@ export default function RecipeProductDetail() {
                   </span>
                 </div>
               </div>
+              )}
             </React.Fragment>
           );
         })}
@@ -832,7 +900,13 @@ export default function RecipeProductDetail() {
 
       {/* Sticky save bar */}
       {hasUnsavedChanges && (
-        <div className="sticky bottom-0 bg-card border-t border-border px-6 py-3 -mx-6 flex justify-end">
+        <div className="sticky bottom-0 bg-card border-t border-border px-6 py-3 -mx-6 flex items-center justify-end gap-3">
+          {pendingLayerDeletes.size > 0 && (
+            <span className="text-xs font-medium text-destructive mr-auto flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              {pendingLayerDeletes.size} layer{pendingLayerDeletes.size !== 1 ? 's' : ''} will be permanently deleted on save.
+            </span>
+          )}
           <Button onClick={handleSave} disabled={saving} className="gap-2 min-w-[200px]">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {saving ? 'Saving…' : 'Save Changes'}
