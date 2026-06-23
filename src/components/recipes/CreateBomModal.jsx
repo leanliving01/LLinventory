@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { X, Plus, Loader2, Search, ChefHat, Package } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import PackColorPicker from '@/components/recipes/PackColorPicker';
-import { getSubcategories, parseSubcategories, stringifySubcategories } from '@/lib/bomSubcategories';
+import { parseSubcategories, stringifySubcategories } from '@/lib/bomSubcategories';
+import { useBomSubcategories } from '@/lib/useSubcategories';
 
 // Two top-level kinds of BOM.
 const BOM_CLASSES = [
@@ -48,6 +49,10 @@ export default function CreateBomModal({ onCreated, onCancel, defaults }) {
 
   // The actual bom_type stored: packing is always the 'pack' stage.
   const effectiveBomType = bomClass === 'packing' ? 'pack' : bomType;
+
+  // Subcategory options per layer (pack = DB-driven catalog meal ranges).
+  const getBomSubcategories = useBomSubcategories();
+  const subcategoryOptions = getBomSubcategories(effectiveBomType);
 
   const { data: products = [] } = useQuery({
     queryKey: ['products-for-bom-create'],
@@ -172,11 +177,11 @@ export default function CreateBomModal({ onCreated, onCancel, defaults }) {
           )}
 
           {/* Subcategory */}
-          {getSubcategories(effectiveBomType).length > 0 && (
+          {subcategoryOptions.length > 0 && (
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">Subcategory</label>
               <div className="flex flex-wrap gap-2">
-                {getSubcategories(effectiveBomType).map(sub => {
+                {subcategoryOptions.map(sub => {
                   const active = parseSubcategories(subcategory).includes(sub);
                   return (
                     <button

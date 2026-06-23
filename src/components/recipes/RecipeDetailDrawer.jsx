@@ -6,14 +6,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { X, Package, Utensils, Plus, Trash2, Save, Loader2, ArrowRightLeft, BookOpen, FileText, AlertTriangle, Copy } from 'lucide-react';
+import { X, Package, Utensils, Plus, Trash2, Save, Loader2, ArrowRightLeft, BookOpen, FileText, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import AddComponentModal from '@/components/recipes/AddComponentModal';
 import OperationsEditor from '@/components/recipes/OperationsEditor';
 import RecipeFilesEditor from '@/components/recipes/RecipeFilesEditor';
 import ConfirmActionModal from '@/components/recipes/ConfirmActionModal';
-import { getSubcategories, parseSubcategories, stringifySubcategories } from '@/lib/bomSubcategories';
+import { parseSubcategories, stringifySubcategories } from '@/lib/bomSubcategories';
+import { useBomSubcategories } from '@/lib/useSubcategories';
 
 const LAYER_LABELS = { cook: 'Cook', portion: 'Portion', pack: 'Pack', prep: 'Prep' };
 const LAYER_COLORS = {
@@ -42,6 +43,10 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
   const [chefNotes, setChefNotes] = useState(bom.chef_notes || '');
   const [notes, setNotes] = useState(bom.notes || '');
   const [files, setFiles] = useState(bom.files || []);
+
+  // Subcategory options per layer (pack = DB-driven catalog meal ranges).
+  const getBomSubcategories = useBomSubcategories();
+  const subcategoryOptions = getBomSubcategories(bomType);
 
   const { data: components = [], isLoading: loadingComps } = useQuery({
     queryKey: ['bom-components', bom.id],
@@ -388,11 +393,11 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
             )}
 
             {/* Subcategory */}
-            {getSubcategories(bomType).length > 0 && (
+            {subcategoryOptions.length > 0 && (
               <div className="pt-2">
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">Subcategory</span>
                 <div className="flex flex-wrap gap-1.5">
-                  {getSubcategories(bomType).map(sub => {
+                  {subcategoryOptions.map(sub => {
                     const active = parseSubcategories(subcategory).includes(sub);
                     return (
                       <button
