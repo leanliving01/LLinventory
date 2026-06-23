@@ -32,6 +32,17 @@ const round = (n, dp = 2) => {
   return Math.round((Number(n) || 0) * f) / f;
 };
 
+// Total stock-UOM quantity a counted line represents:
+//   counted_qty (whole count-UOM units) * conversion_factor
+//   + broken_units (loose / open remainder, already measured in the main stock UOM)
+// e.g. 110 x 2kg packets + 0.3kg from an open packet = 220.3 kg on hand.
+export function convertedFromLine(countedQty, conversionFactor, brokenUnits = 0) {
+  const cf = Number(conversionFactor) || 1;
+  const cq = Number(countedQty) || 0;
+  const bu = Number(brokenUnits) || 0;
+  return round(cq * cf + bu, 3);
+}
+
 const costOf = (product) =>
   Number(product?.cost_avg) || Number(product?.cost_current) || 0;
 
@@ -247,19 +258,27 @@ export async function createCsvCount({ location, date, rows, userName }) {
 // ---------------------------------------------------------------------------
 export async function saveFloorCounts(countId, entries, userName) {
   const now = new Date().toISOString();
-  const updates = entries.map(e => ({
-    id: e.id,
-    counted_qty: e.counted_qty === '' || e.counted_qty == null ? null : Number(e.counted_qty),
-    counted: e.counted_qty !== '' && e.counted_qty != null,
-    counted_at: now,
-    counted_by: userName || null,
-    // Persist the chosen count UOM + conversion when the floor user switched units.
-    ...(e.count_uom ? {
-      count_uom: e.count_uom,
-      count_uom_label: e.count_uom_label ?? null,
-      conversion_factor: Number(e.conversion_factor) || 1,
-    } : {}),
-  }));
+  const updates = entries.map(e => {
+    const qty = e.counted_qty === '' || e.counted_qty == null ? null : Number(e.counted_qty);
+    const broken = e.broken_units === '' || e.broken_units == null ? 0 : (Number(e.broken_units) || 0);
+    const hasBroken = broken > 0;
+    return {
+      id: e.id,
+      // A line counted purely as loose stock (0 full units + a broken remainder)
+      // still counts — store qty as 0 rather than null so it posts.
+      counted_qty: qty == null && hasBroken ? 0 : qty,
+      broken_units: broken,
+      counted: qty != null || hasBroken,
+      counted_at: now,
+      counted_by: userName || null,
+      // Persist the chosen count UOM + conversion when the user switched units.
+      ...(e.count_uom ? {
+        count_uom: e.count_uom,
+        count_uom_label: e.count_uom_label ?? null,
+        conversion_factor: Number(e.conversion_factor) || 1,
+      } : {}),
+    };
+  });
   if (updates.length) await base44.entities.StockTakeLine.bulkUpdate(updates);
 
   const header = await base44.entities.NewStockTake.filter({ id: countId }).then(r => r[0]);
@@ -311,8 +330,7 @@ export async function completeFloorCount(countId, userName) {
 
   const counted = lines.filter(l => l.counted && l.counted_qty != null);
   const updates = counted.map(l => {
-    const cf = Number(l.conversion_factor) || 1;
-    const converted = round((Number(l.counted_qty) || 0) * cf, 3);
+    const converted = convertedFromLine(l.counted_qty, l.conversion_factor, l.broken_units);
     const loc = l.location_id || header.location_id;
     return {
       id: l.id,
@@ -367,8 +385,9 @@ export function buildVarianceRows(lines, productById) {
     .filter(l => l.counted && l.counted_qty != null)
     .map(l => {
       const product = productById[l.product_id];
-      const cf = Number(l.conversion_factor) || 1;
-      const converted = l.converted_qty != null ? Number(l.converted_qty) : round((Number(l.counted_qty) || 0) * cf, 3);
+      const converted = l.converted_qty != null
+        ? Number(l.converted_qty)
+        : convertedFromLine(l.counted_qty, l.conversion_factor, l.broken_units);
       const system = Number(l.system_qty) || 0;
       const variance = round(converted - system, 3);
       const unitCost = l.unit_cost != null ? Number(l.unit_cost) : costOf(product);
@@ -396,7 +415,7 @@ export function buildProgressRows(lines, productById, sohByKey = {}) {
     const isCounted = l.counted && l.counted_qty != null;
     const counted = isCounted ? Number(l.counted_qty) : null;
     const converted = isCounted
-      ? (l.converted_qty != null ? Number(l.converted_qty) : round(counted * cf, 3))
+      ? (l.converted_qty != null ? Number(l.converted_qty) : convertedFromLine(l.counted_qty, cf, l.broken_units))
       : null;
     const live = sohByKey[`${l.product_id}_${l.location_id || ''}`];
     const system = l.system_qty != null ? Number(l.system_qty) : (live != null ? Number(live) : 0);

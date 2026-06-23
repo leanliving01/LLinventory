@@ -1,9 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Save, CheckCircle2, Search, Plus, ChevronDown, ChevronRight } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Save, CheckCircle2, Search, Plus, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { toast } from 'sonner';
-import { saveFloorCounts, completeFloorCount, addCountLine } from '@/lib/stockCount';
+import { saveFloorCounts, completeFloorCount, addCountLine, convertedFromLine } from '@/lib/stockCount';
 import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory } from '@/lib/productClassification';
 import { cn } from '@/lib/utils';
 
@@ -13,20 +16,23 @@ const fmtQty = (n) => {
   return Number.isInteger(v) ? String(v) : v.toFixed(3).replace(/\.?0+$/, '');
 };
 
+const STOCK_KEY = '__stock__';
+
 export default function WebCountEntrySheet({ countId, header, lines, products, onSaved, onSubmitted }) {
   const productById = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products]);
 
-  const [entries, setEntries] = useState(() => {
-    const init = {};
-    lines.forEach(l => { if (l.counted_qty != null) init[l.id] = String(l.counted_qty); });
-    return init;
-  });
+  // Per-line input state.
+  const [entries, setEntries] = useState({});   // lineId → counted qty (string, in the selected UOM)
+  const [uomKey, setUomKey] = useState({});      // lineId → selected count-UOM option key
+  const [broken, setBroken] = useState({});      // lineId → loose remainder (string, in the main stock UOM)
+  const [seeded, setSeeded] = useState(false);
+
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // collapsed tracks keys the user has explicitly closed (true = closed).
-  // Everything starts OPEN; the effect below explicitly initialises new groups
-  // to false so stale HMR state or future re-renders never silently close them.
+  // Collapsed tracks keys the user has closed (true = closed). Everything starts
+  // CLOSED — the effect below initialises new groups to true so the sheet opens
+  // fully collapsed and the user expands only what they're counting.
   const [collapsed, setCollapsed] = useState({});
   const toggleCollapse = (key) =>
     setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
@@ -36,7 +42,54 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
   const [showAdd, setShowAdd] = useState(false);
   const [addingLine, setAddingLine] = useState(false);
 
-  // ── Group lines: category → subcategory → product name ──────────────────────
+  // ── Count-UOM options per product (base stock unit + any registered units) ───
+  const productIds = useMemo(() => Array.from(new Set(lines.map(l => l.product_id))), [lines]);
+  const { data: countUoms = [], isLoading: uomsLoading } = useQuery({
+    queryKey: ['web-count-uoms', countId, productIds.length],
+    queryFn: () => base44.entities.StockCountUom.filter({ product_id: productIds }, 'count_uom', 5000),
+    enabled: productIds.length > 0,
+  });
+
+  const optionsByLine = useMemo(() => {
+    const byProduct = {};
+    countUoms.forEach(u => { (byProduct[u.product_id] = byProduct[u.product_id] || []).push(u); });
+    const map = {};
+    lines.forEach(l => {
+      const base = { key: STOCK_KEY, count_uom: l.stock_uom || 'unit', conversion_factor: 1, count_uom_label: '' };
+      const extras = (byProduct[l.product_id] || []).map(u => ({
+        key: u.id,
+        count_uom: u.count_uom,
+        conversion_factor: Number(u.conversion_factor) || 1,
+        count_uom_label: u.count_uom_label || '',
+      }));
+      map[l.id] = [base, ...extras];
+    });
+    return map;
+  }, [lines, countUoms]);
+
+  // ── Seed inputs from saved lines (once UOM options are loaded) ───────────────
+  useEffect(() => {
+    if (seeded || !lines.length) return;
+    if (productIds.length && uomsLoading) return; // wait for registered UOMs so we seed the right unit
+    const initEntries = {}, initUom = {}, initBroken = {};
+    lines.forEach(l => {
+      if (l.counted_qty != null) initEntries[l.id] = String(l.counted_qty);
+      if (l.broken_units != null && Number(l.broken_units) !== 0) initBroken[l.id] = String(l.broken_units);
+      const opts = optionsByLine[l.id] || [];
+      const match = opts.find(o =>
+        o.key !== STOCK_KEY &&
+        o.count_uom === l.count_uom &&
+        Number(o.conversion_factor) === Number(l.conversion_factor)
+      );
+      initUom[l.id] = match ? match.key : STOCK_KEY;
+    });
+    setEntries(initEntries);
+    setUomKey(initUom);
+    setBroken(initBroken);
+    setSeeded(true);
+  }, [seeded, lines, productIds.length, uomsLoading, optionsByLine]);
+
+  // ── Grouping: category → subcategory → product name ──────────────────────────
   const grouped = useMemo(() => {
     const cats = {}; // { [cat]: { [sub]: { [productName]: line[] } } }
     for (const line of lines) {
@@ -53,37 +106,56 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
     return { order, cats };
   }, [lines, productById]);
 
-  // Initialise every new group key as open (false) once `grouped` is defined.
+  // Every collapsible key (categories + each category::subcategory).
+  const allKeys = useMemo(() => {
+    const keys = [];
+    grouped.order.forEach(cat => {
+      keys.push(cat);
+      Object.keys(grouped.cats[cat] || {}).forEach(sub => keys.push(`${cat}::${sub}`));
+    });
+    return keys;
+  }, [grouped]);
+
+  // Initialise every new group key as CLOSED (true) the moment it appears.
   useEffect(() => {
-    if (!grouped.order.length) return;
+    if (!allKeys.length) return;
     setCollapsed(prev => {
       const next = { ...prev };
       let changed = false;
-      grouped.order.forEach(cat => {
-        if (!(cat in next)) { next[cat] = false; changed = true; }
-        Object.keys(grouped.cats[cat] || {}).forEach(sub => {
-          const k = `${cat}::${sub}`;
-          if (!(k in next)) { next[k] = false; changed = true; }
-        });
-      });
+      allKeys.forEach(k => { if (!(k in next)) { next[k] = true; changed = true; } });
       return changed ? next : prev;
     });
-  }, [grouped]);
+  }, [allKeys]);
+
+  const setAllCollapsed = (val) => setCollapsed(Object.fromEntries(allKeys.map(k => [k, val])));
+  const allOpen = allKeys.length > 0 && allKeys.every(k => !collapsed[k]);
 
   // ── Counts ───────────────────────────────────────────────────────────────────
-  const enteredCount = useMemo(
-    () => Object.values(entries).filter(v => v !== '' && v != null).length,
-    [entries]
-  );
+  const enteredCount = useMemo(() => {
+    const ids = new Set();
+    Object.entries(entries).forEach(([id, v]) => { if (v !== '' && v != null) ids.add(id); });
+    Object.entries(broken).forEach(([id, v]) => { if (v !== '' && v != null) ids.add(id); });
+    return ids.size;
+  }, [entries, broken]);
 
-  const handleChange = (lineId, val) => setEntries(prev => ({ ...prev, [lineId]: val }));
+  const buildPayload = () => lines.map(l => {
+    const opts = optionsByLine[l.id] || [];
+    const sel = opts.find(o => o.key === (uomKey[l.id] || STOCK_KEY)) || opts[0];
+    return {
+      id: l.id,
+      counted_qty: entries[l.id] ?? null,
+      broken_units: broken[l.id] ?? null,
+      count_uom: sel?.count_uom,
+      count_uom_label: sel?.count_uom_label || null,
+      conversion_factor: sel?.conversion_factor || 1,
+    };
+  });
 
   // ── Save draft ────────────────────────────────────────────────────────────────
   const handleSaveDraft = async () => {
     setSaving(true);
     try {
-      const payload = lines.map(l => ({ id: l.id, counted_qty: entries[l.id] ?? null }));
-      await saveFloorCounts(countId, payload, 'web');
+      await saveFloorCounts(countId, buildPayload(), 'web');
       toast.success('Draft saved');
       onSaved?.();
     } catch (err) {
@@ -98,8 +170,7 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
     if (enteredCount === 0) { toast.error('Enter at least one count before submitting'); return; }
     setSubmitting(true);
     try {
-      const payload = lines.map(l => ({ id: l.id, counted_qty: entries[l.id] ?? null }));
-      await saveFloorCounts(countId, payload, 'web');
+      await saveFloorCounts(countId, buildPayload(), 'web');
       await completeFloorCount(countId, 'web');
       toast.success('Count submitted for review');
       onSubmitted?.();
@@ -144,10 +215,23 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
     <div className="space-y-3">
       {/* Action bar */}
       <div className="flex items-center justify-between flex-wrap gap-2 bg-card border border-border rounded-xl px-4 py-3">
-        <p className="text-sm text-muted-foreground">
-          <span className="font-semibold text-foreground">{enteredCount}</span> of{' '}
-          <span className="font-semibold text-foreground">{lines.length}</span> lines entered
-        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">{enteredCount}</span> of{' '}
+            <span className="font-semibold text-foreground">{lines.length}</span> lines entered
+          </p>
+          {allKeys.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setAllCollapsed(allOpen)}
+              className="gap-1.5 text-muted-foreground h-7 px-2"
+            >
+              {allOpen ? <ChevronsDownUp className="w-3.5 h-3.5" /> : <ChevronsUpDown className="w-3.5 h-3.5" />}
+              {allOpen ? 'Collapse all' : 'Expand all'}
+            </Button>
+          )}
+        </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={saving || submitting} className="gap-1.5">
             <Save className="w-3.5 h-3.5" />
@@ -205,8 +289,6 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
                       .map(([pname, plines]) => {
                         // For products that appear in multiple locations, show ONE row using
                         // the line at the product's default location (or highest system qty).
-                        // Existing legacy counts can have multiple lines per product;
-                        // the user counts a total once — the other lines stay uncounted.
                         const primaryLine = (() => {
                           if (plines.length === 1) return plines[0];
                           const defLocId = productById[plines[0].product_id]?.default_location_id;
@@ -219,8 +301,13 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
                             <SingleLineRow
                               line={primaryLine}
                               pname={pname}
+                              options={optionsByLine[primaryLine.id] || []}
+                              uomKey={uomKey[primaryLine.id] || STOCK_KEY}
                               value={entries[primaryLine.id] ?? ''}
-                              onChange={val => handleChange(primaryLine.id, val)}
+                              brokenValue={broken[primaryLine.id] ?? ''}
+                              onUomChange={k => setUomKey(prev => ({ ...prev, [primaryLine.id]: k }))}
+                              onChange={val => setEntries(prev => ({ ...prev, [primaryLine.id]: val }))}
+                              onBrokenChange={val => setBroken(prev => ({ ...prev, [primaryLine.id]: val }))}
                             />
                           </div>
                         );
@@ -303,23 +390,81 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
   );
 }
 
-function SingleLineRow({ line, pname, value, onChange }) {
+function SingleLineRow({ line, pname, options, uomKey, value, brokenValue, onUomChange, onChange, onBrokenChange }) {
+  const stockUom = line.stock_uom || 'pcs';
+  const sel = options.find(o => o.key === uomKey) || options[0] || { count_uom: stockUom, conversion_factor: 1 };
+  const inBaseUnit = (sel.key || '__stock__') === '__stock__';
+  const cf = Number(sel.conversion_factor) || 1;
+
+  // Total stock-on-hand this line represents = qty in selected UOM × factor + loose remainder.
+  const hasQty = value !== '' && value != null;
+  const hasBroken = brokenValue !== '' && brokenValue != null;
+  const showTotal = !inBaseUnit || hasBroken;
+  const total = convertedFromLine(hasQty ? value : 0, cf, hasBroken ? brokenValue : 0);
+
   return (
-    <div className="flex items-center gap-3 px-4 py-2 hover:bg-muted/20">
-      <span className="text-sm font-medium flex-1 truncate">{pname}</span>
-      <span className="text-xs font-mono text-muted-foreground hidden sm:block w-28 shrink-0">{line.product_sku}</span>
-      <span className="text-xs text-muted-foreground tabular-nums w-16 text-right shrink-0">{line.system_qty != null ? fmtQty(line.system_qty) : '—'} sys</span>
+    <div className="flex items-center gap-2 px-4 py-2 hover:bg-muted/20 flex-wrap">
+      <span className="text-sm font-medium flex-1 min-w-[8rem] truncate">{pname}</span>
+      <span className="text-xs font-mono text-muted-foreground hidden lg:block w-24 shrink-0 truncate">{line.product_sku}</span>
+      <span className="text-xs text-muted-foreground tabular-nums w-16 text-right shrink-0">
+        {line.system_qty != null ? fmtQty(line.system_qty) : '—'} sys
+      </span>
+
+      {/* Count UOM picker (base stock unit + any registered units) */}
+      {options.length > 1 ? (
+        <Select value={uomKey} onValueChange={onUomChange}>
+          <SelectTrigger className="h-7 text-xs w-auto min-w-[6rem] gap-1 px-2 shrink-0"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {options.map(o => (
+              <SelectItem key={o.key} value={o.key}>
+                {o.count_uom}{o.count_uom_label ? ` — ${o.count_uom_label}` : ''}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <span className="text-xs text-muted-foreground w-16 text-right shrink-0">{stockUom}</span>
+      )}
+
+      {/* Quantity in the selected UOM */}
       <Input
         type="number" min="0" step="any"
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder="—"
+        title={inBaseUnit ? `Count in ${stockUom}` : `Number of ${sel.count_uom}${sel.count_uom_label ? ` (${sel.count_uom_label})` : ''}`}
         className={cn(
-          'w-24 h-7 text-right text-sm tabular-nums shrink-0',
-          value !== '' ? 'border-primary/60 bg-primary/5' : ''
+          'w-20 h-7 text-right text-sm tabular-nums shrink-0',
+          hasQty ? 'border-primary/60 bg-primary/5' : ''
         )}
       />
-      <span className="text-xs text-muted-foreground w-8 shrink-0">{line.stock_uom || 'pcs'}</span>
+
+      {/* Loose / broken remainder, entered directly in the main stock unit */}
+      {!inBaseUnit && (
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="text-xs text-muted-foreground">+</span>
+          <Input
+            type="number" min="0" step="any"
+            value={brokenValue}
+            onChange={e => onBrokenChange(e.target.value)}
+            placeholder="0"
+            title={`Loose / open stock in ${stockUom} (e.g. an open packet or bucket)`}
+            className={cn(
+              'w-16 h-7 text-right text-sm tabular-nums',
+              hasBroken ? 'border-amber-400/70 bg-amber-50' : ''
+            )}
+          />
+          <span className="text-[11px] text-muted-foreground">{stockUom}</span>
+        </div>
+      )}
+
+      {/* Resulting on-hand total in the main stock unit */}
+      <span className={cn(
+        'text-xs tabular-nums w-24 text-right shrink-0',
+        showTotal ? 'font-semibold text-foreground' : 'text-muted-foreground/0'
+      )}>
+        {showTotal ? `= ${fmtQty(total)} ${stockUom}` : ''}
+      </span>
     </div>
   );
 }
