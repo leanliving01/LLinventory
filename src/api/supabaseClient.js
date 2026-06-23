@@ -282,27 +282,43 @@ function createEntityProxy(entityName) {
 
     async bulkUpdate(records) {
       const now = new Date().toISOString();
-      let rows = records.map(r => ({ ...r, updated_date: now }));
-      
-      let attempt = 0;
-      while (attempt < 20) {
-        attempt++;
-        const { data, error } = await supabase.from(table).upsert(rows, { onConflict: 'id' }).select();
-        if (error) {
-          if (error.code === 'PGRST204') {
-            const match = error.message.match(/Could not find the '([^']+)' column/);
-            if (match && match[1]) {
-              const badCol = match[1];
-              console.warn(`[supabase] Auto-removing missing column '${badCol}' from ${table} bulkUpdate`);
-              rows.forEach(r => delete r[badCol]);
-              continue;
+      // Real per-row UPDATEs by id — NOT an upsert. An upsert (INSERT ... ON
+      // CONFLICT) builds a candidate INSERT row and Postgres checks NOT NULL
+      // constraints on it BEFORE the conflict/UPDATE path runs, so a partial
+      // payload (e.g. a stock-count line carrying only {id, counted_qty}) trips
+      // NOT NULL columns like stock_take_lines.stocktake_id. A plain UPDATE only
+      // touches the supplied columns and never re-inserts. Rows whose id no
+      // longer exists are simply skipped (no row updated), not inserted.
+      const out = [];
+      const CHUNK = 25; // bounded concurrency for large counts
+      for (let i = 0; i < records.length; i += CHUNK) {
+        const slice = records.slice(i, i + CHUNK);
+        const results = await Promise.all(slice.map(async (rec) => {
+          const { id, ...rest } = rec;
+          let row = { ...rest, updated_date: now };
+          let attempt = 0;
+          while (attempt < 20) {
+            attempt++;
+            const { data, error } = await supabase.from(table).update(row).eq('id', id).select();
+            if (error) {
+              if (error.code === 'PGRST204') {
+                const match = error.message.match(/Could not find the '([^']+)' column/);
+                if (match && match[1]) {
+                  const badCol = match[1];
+                  console.warn(`[supabase] Auto-removing missing column '${badCol}' from ${table} bulkUpdate`);
+                  delete row[badCol];
+                  continue;
+                }
+              }
+              throw new Error(error.message);
             }
+            return (data && data[0]) || null;
           }
-          throw new Error(error.message);
-        }
-        return data || [];
+          throw new Error(`Failed to bulkUpdate ${table} after 20 attempts`);
+        }));
+        out.push(...results);
       }
-      throw new Error(`Failed to bulkUpdate ${table} after 20 attempts`);
+      return out.filter(Boolean);
     },
 
     async bulkDelete(ids) {
