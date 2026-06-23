@@ -136,6 +136,13 @@ export default function RecipeProductDetail() {
   const activeBoms = useMemo(() => boms.filter(b => b.is_active !== false), [boms]);
   const inactiveBoms = useMemo(() => boms.filter(b => b.is_active === false), [boms]);
 
+  // Top-level class for this product: packing only if every BOM is packing
+  // (pre-migration fallback: the 'pack' stage counts as packing). Empty = production.
+  const isPackingBom = (b) => b.bom_class === 'packing' || b.bom_type === 'pack';
+  const productClass = boms.length && boms.every(isPackingBom) ? 'packing' : 'production';
+  // Layers you can add depend on the class (keeps the Production/Packing split coherent).
+  const allowedAddLayers = productClass === 'packing' ? ['pack'] : ['prep', 'cook', 'portion'];
+
   // The final output of the product = the last layer's yield (portion → cook → …).
   const repBom = useMemo(() => {
     const ordered = [...activeBoms].sort((a, b) => layerRank(b.bom_type) - layerRank(a.bom_type));
@@ -400,7 +407,9 @@ export default function RecipeProductDetail() {
     for (const bom of boms) {
       const newBom = await base44.entities.Bom.create({
         product_id: bom.product_id, product_name: bom.product_name, product_sku: bom.product_sku,
-        bom_type: bom.bom_type, subcategory: bom.subcategory || undefined,
+        bom_type: bom.bom_type,
+        bom_class: bom.bom_class || (bom.bom_type === 'pack' ? 'packing' : 'production'),
+        subcategory: bom.subcategory || undefined,
         yield_qty: bom.yield_qty || 1, yield_uom: bom.yield_uom || undefined,
         chef_notes: bom.chef_notes || undefined,
         notes: bom.notes ? `(Copy) ${bom.notes}` : '(Copy)',
@@ -490,6 +499,7 @@ export default function RecipeProductDetail() {
         product_name: product.name,
         product_sku: product.sku || undefined,
         bom_type: bomType,
+        bom_class: bomType === 'pack' ? 'packing' : 'production',
         version: 1,
         is_active: false,
         yield_qty: 1,
@@ -533,7 +543,7 @@ export default function RecipeProductDetail() {
             </p>
           </div>
           <div className="flex flex-wrap justify-center gap-3">
-            {LAYER_ORDER.map(layer => (
+            {['prep', 'cook', 'portion'].map(layer => (
               <Button
                 key={layer}
                 variant={layer === 'cook' ? 'default' : 'outline'}
@@ -547,7 +557,8 @@ export default function RecipeProductDetail() {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            Most finished meals start with a <strong>Cook</strong> layer. You can add more layers (Prep, Portion, Pack) afterward.
+            Most finished meals start with a <strong>Cook</strong> layer. You can add more layers (Prep, Portion) afterward.
+            Packing BOMs are created from the <strong>Create BOM</strong> button on the Bill of Materials page.
           </p>
         </div>
       </div>
@@ -600,6 +611,9 @@ export default function RecipeProductDetail() {
           </Button>
           <div>
             <div className="flex items-center gap-2 mb-1 flex-wrap">
+              {productClass === 'packing'
+                ? <Badge className="text-[10px] bg-blue-100 text-blue-700 gap-1"><Package className="w-3 h-3" /> Packing BOM</Badge>
+                : <Badge className="text-[10px] bg-orange-100 text-orange-700 gap-1"><ChefHat className="w-3 h-3" /> Production BOM</Badge>}
               <Badge variant="outline" className="text-[10px]">{categoryLabel}</Badge>
               {subcategoriesText && <Badge variant="outline" className="text-[10px]">{subcategoriesText}</Badge>}
               {anyActive
@@ -612,7 +626,7 @@ export default function RecipeProductDetail() {
               <p className="text-sm text-muted-foreground font-mono group-hover:text-primary">{product?.sku || repBom?.product_sku}</p>
             </button>
             <p className="text-xs text-muted-foreground mt-1">
-              Full production process — {boms.length} layer{boms.length !== 1 ? 's' : ''}: {sortedBoms.map(b => LAYER_LABELS[b.bom_type]).join(' → ')}
+              {productClass === 'packing' ? 'Packing process' : 'Full production process'} — {boms.length} layer{boms.length !== 1 ? 's' : ''}: {sortedBoms.map(b => LAYER_LABELS[b.bom_type]).join(' → ')}
             </p>
           </div>
         </div>
@@ -669,7 +683,7 @@ export default function RecipeProductDetail() {
       {/* Process Flow — one editable card per layer (= BOM), in flow order */}
       <div className="space-y-2">
         <h3 className="text-sm font-semibold flex items-center gap-2">
-          <Package className="w-4 h-4 text-primary" /> Process Flow — Production Layers
+          <Package className="w-4 h-4 text-primary" /> {productClass === 'packing' ? 'Packing — Contents & Steps' : 'Process Flow — Production Layers'}
         </h3>
         <p className="text-[11px] text-muted-foreground">Each layer is one BOM. Steps, ingredients and outputs below are exactly what runs on the floor for that layer.</p>
 
@@ -798,11 +812,11 @@ export default function RecipeProductDetail() {
           );
         })}
 
-        {/* Add another layer — only show layer types not yet created */}
-        {LAYER_ORDER.filter(l => !boms.find(b => b.bom_type === l)).length > 0 && (
+        {/* Add another layer — only the layer types allowed for this class, not yet created */}
+        {allowedAddLayers.filter(l => !boms.find(b => b.bom_type === l)).length > 0 && (
           <div className="flex flex-wrap gap-2 pt-2">
             <span className="text-xs text-muted-foreground self-center">Add layer:</span>
-            {LAYER_ORDER.filter(l => !boms.find(b => b.bom_type === l)).map(layer => (
+            {allowedAddLayers.filter(l => !boms.find(b => b.bom_type === l)).map(layer => (
               <Button
                 key={layer}
                 variant="outline"

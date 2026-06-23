@@ -244,6 +244,8 @@ CREATE TABLE boms (
   product_name   text,             -- DENORMALIZED (kept for app compat)
   product_sku    text,             -- DENORMALIZED (kept for app compat)
   bom_type       text NOT NULL CHECK (bom_type IN ('cook','portion','pack','prep')),
+  -- Top-level classification: production (prep/cook/portion) vs packing (pack).
+  bom_class      text NOT NULL DEFAULT 'production' CHECK (bom_class IN ('production','packing')),
   subcategory    text,
   yield_qty      numeric NOT NULL DEFAULT 1,
   yield_uom      text,
@@ -259,6 +261,7 @@ CREATE TABLE boms (
 
 CREATE INDEX idx_boms_product_id  ON boms(product_id);
 CREATE INDEX idx_boms_bom_type    ON boms(bom_type);
+CREATE INDEX idx_boms_bom_class   ON boms(bom_class);
 CREATE INDEX idx_boms_is_active   ON boms(is_active);
 
 CREATE TRIGGER trg_boms_updated_date
