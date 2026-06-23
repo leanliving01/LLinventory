@@ -1,32 +1,54 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ChefHat, ExternalLink, Plus, Loader2, Check } from 'lucide-react';
+import { ChefHat, ExternalLink, Plus, Loader2, Check, Package } from 'lucide-react';
+import CreateBomModal from '@/components/recipes/CreateBomModal';
+
+// Production layers, in the order work flows on the floor.
+const LAYER_ORDER = ['prep', 'cook', 'portion', 'pack'];
+const LAYER_LABELS = { prep: 'Prep', cook: 'Cook', portion: 'Portion', pack: 'Pack' };
+const layerRank = (t) => { const i = LAYER_ORDER.indexOf(t); return i === -1 ? 99 : i; };
 
 export default function ProductCookBomCard({ product, onTypeChanged }) {
   const [promoting, setPromoting] = React.useState(false);
+  const [showCreate, setShowCreate] = React.useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const { data: cookBom, isLoading } = useQuery({
-    queryKey: ['product-cook-bom', product?.id],
-    queryFn: async () => {
-      const boms = await base44.entities.Bom.filter({
-        product_id: product.id,
-        bom_type: 'cook',
-      });
-      return boms[0] || null;
-    },
+  // Reflect ANY recipe/BOM for this product — cook, portion, prep or pack.
+  // (The old query only looked at bom_type='cook', so finished meals with a
+  // Portion BOM and packing products with a Pack BOM wrongly showed "no recipe".)
+  const { data: boms = [], isLoading } = useQuery({
+    queryKey: ['product-boms', product?.id],
+    queryFn: () => base44.entities.Bom.filter({ product_id: product.id }),
     enabled: !!product?.id,
   });
 
+  const hasBom = boms.length > 0;
   const showableTypes = ['raw', 'wip_bulk', 'sauce', 'finished_meal'];
-  if (!product || !showableTypes.includes(product.type)) return null;
+  // Always show the card when a BOM exists (even for package / other types so
+  // packing BOMs surface too); otherwise only for types that can have a recipe.
+  if (!product || (!hasBom && !showableTypes.includes(product.type))) return null;
 
-  // Types that can have a cook BOM without needing promotion
+  // Types that can have a cook BOM without needing promotion.
   const canHaveRecipe = ['wip_bulk', 'sauce', 'finished_meal'].includes(product.type);
+
+  // Class mirror — the BOM(s) are the single source of truth, so the product
+  // and the recipe/BOM editor can never disagree. Packing only if every layer
+  // is packing (pre-migration fallback: the 'pack' stage counts as packing).
+  const isPacking = (b) => b.bom_class === 'packing' || b.bom_type === 'pack';
+  const productClass = hasBom && boms.every(isPacking) ? 'packing' : 'production';
+
+  const sortedBoms = [...boms].sort((a, b) => layerRank(a.bom_type) - layerRank(b.bom_type));
+  const layersText = sortedBoms.map(b => LAYER_LABELS[b.bom_type] || b.bom_type).join(' → ');
+  const activeBoms = boms.filter(b => b.is_active !== false);
+  // Final output = the last layer's yield (portion → cook → …).
+  const repBom = [...(activeBoms.length ? activeBoms : boms)]
+    .sort((a, b) => layerRank(b.bom_type) - layerRank(a.bom_type))[0] || null;
+  const maxVersion = hasBom ? Math.max(...boms.map(b => Number(b.version || 1))) : 1;
 
   const handlePromoteToWip = async () => {
     setPromoting(true);
@@ -39,56 +61,71 @@ export default function ProductCookBomCard({ product, onTypeChanged }) {
     return (
       <div className="bg-card border border-border rounded-xl p-5">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="w-4 h-4 animate-spin" /> Checking Recipe...
+          <Loader2 className="w-4 h-4 animate-spin" /> Checking Recipe / BOM…
         </div>
       </div>
     );
   }
 
+  const ClassBadge = () => (
+    productClass === 'packing'
+      ? <Badge className="text-[10px] bg-blue-100 text-blue-700 gap-1"><Package className="w-3 h-3" /> Packing BOM</Badge>
+      : <Badge className="text-[10px] bg-orange-100 text-orange-700 gap-1"><ChefHat className="w-3 h-3" /> Production BOM</Badge>
+  );
+
   return (
     <div className="bg-card border border-border rounded-xl p-5 space-y-3">
-      <div className="flex items-center gap-2">
-        <ChefHat className="w-5 h-5 text-orange-500" />
-        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Recipe / BOM</h3>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <ChefHat className="w-5 h-5 text-orange-500" />
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Recipe / BOM</h3>
+        </div>
+        {hasBom && <ClassBadge />}
       </div>
-      {cookBom ? (
-        <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+
+      {hasBom ? (
+        <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0">
               <Check className="w-4 h-4 text-green-600" />
             </div>
-            <div>
-              <p className="text-sm font-medium">Recipe exists</p>
+            <div className="min-w-0">
+              <p className="text-sm font-medium">
+                {productClass === 'packing' ? 'Packing BOM set up' : 'Recipe set up'}
+                <span className="text-muted-foreground font-normal"> · {boms.length} layer{boms.length !== 1 ? 's' : ''}: {layersText}</span>
+              </p>
               <p className="text-xs text-muted-foreground">
-                Yield: {cookBom.yield_qty} {cookBom.yield_uom} · v{cookBom.version || 1}
+                {repBom ? `Yield: ${repBom.yield_qty} ${repBom.yield_uom || ''}`.trim() : ''}
+                {repBom ? ' · ' : ''}v{maxVersion}
+                {activeBoms.length === 0 ? ' · all layers inactive (draft)' : ''}
               </p>
             </div>
           </div>
           <Button
             variant="outline"
             size="sm"
-            className="gap-1.5"
+            className="gap-1.5 shrink-0"
             onClick={() => navigate(`/recipes/product/${product.id}`)}
           >
-            <ExternalLink className="w-3.5 h-3.5" /> Open Recipe Editor
+            <ExternalLink className="w-3.5 h-3.5" /> Open Recipe / BOM
           </Button>
         </div>
       ) : canHaveRecipe ? (
         <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
-              No recipe set up yet
+              No recipe / BOM set up yet
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Add ingredients so the system can calculate costs and production requirements.
+              Add a Production or Packing BOM so the system can calculate costs and production requirements.
             </p>
           </div>
           <Button
             size="sm"
             className="gap-1.5"
-            onClick={() => navigate(`/recipes/product/${product.id}`)}
+            onClick={() => setShowCreate(true)}
           >
-            <Plus className="w-3.5 h-3.5" /> Create Recipe
+            <Plus className="w-3.5 h-3.5" /> Create BOM
           </Button>
         </div>
       ) : (
@@ -112,6 +149,21 @@ export default function ProductCookBomCard({ product, onTypeChanged }) {
             </Button>
           </div>
         </div>
+      )}
+
+      {/* Same creation flow as the Bill of Materials page — Production vs Packing,
+          stage, yield — pre-selected to this product. */}
+      {showCreate && (
+        <CreateBomModal
+          defaults={{ productId: product.id }}
+          onCancel={() => setShowCreate(false)}
+          onCreated={(created) => {
+            setShowCreate(false);
+            queryClient.invalidateQueries({ queryKey: ['product-boms', product.id] });
+            queryClient.invalidateQueries({ queryKey: ['recipes-boms'] });
+            if (created?.product_id) navigate(`/recipes/product/${created.product_id}`);
+          }}
+        />
       )}
     </div>
   );

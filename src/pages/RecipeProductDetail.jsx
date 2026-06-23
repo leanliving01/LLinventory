@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   ArrowLeft, Package, Utensils, Save, Loader2, BookOpen, FileText, Copy,
   ExternalLink, CheckCircle2, AlertTriangle, ArrowRight, Trash2, Pencil, X,
-  ChefHat, Plus,
+  ChefHat, Plus, Wrench,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,7 @@ import OperationsEditor from '@/components/recipes/OperationsEditor';
 import RecipeFilesEditor from '@/components/recipes/RecipeFilesEditor';
 import ConfirmActionModal from '@/components/recipes/ConfirmActionModal';
 import RecipeComponentTable from '@/components/recipes/RecipeComponentTable';
+import ProductEquipmentTab from '@/components/catalog/ProductEquipmentTab';
 import { parseSubcategories } from '@/lib/bomSubcategories';
 import { getCategoryLabel } from '@/lib/productClassification';
 
@@ -39,6 +40,7 @@ export default function RecipeProductDetail() {
   const queryClient = useQueryClient();
 
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('recipe'); // 'recipe' | 'equipment'
   const [editedQtys, setEditedQtys] = useState({});
   const [editedSteps, setEditedSteps] = useState({});
   const [bomEdits, setBomEdits] = useState({}); // { [bomId]: {yieldQty, yieldUom, chefNotes, notes, subcategory, files} }
@@ -643,6 +645,39 @@ export default function RecipeProductDetail() {
         </div>
       </div>
 
+      {/* Tabs — Recipe/BOM vs Equipment capacity. Equipment rules are keyed by
+          product_id, so they're the same records shown on the Product page's
+          Equipment tab: add on either side and it appears on the other. */}
+      <div className="flex gap-1 border-b border-border">
+        {[
+          { key: 'recipe', label: productClass === 'packing' ? 'Packing BOM' : 'Recipe / BOM', icon: productClass === 'packing' ? Package : ChefHat },
+          { key: 'equipment', label: 'Equipment', icon: Wrench },
+        ].map(tab => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={cn(
+                'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
+                activeTab === tab.key
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeTab === 'equipment' && (
+        <ProductEquipmentTab productId={productId} productName={product?.name} productSku={product?.sku} />
+      )}
+
+      {activeTab === 'recipe' && (
+      <>
       {/* Summary card */}
       <div className="bg-card border border-border rounded-xl p-5 grid grid-cols-2 md:grid-cols-4 gap-4">
         <div>
@@ -910,6 +945,8 @@ export default function RecipeProductDetail() {
           </div>
           <RecipeFilesEditor files={bomField(repBom, 'files', repBom.files || [])} onChange={f => setBomField(repBom.id, 'files', f)} />
         </div>
+      )}
+      </>
       )}
 
       {/* Sticky save bar */}
