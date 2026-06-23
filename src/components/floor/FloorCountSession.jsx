@@ -6,12 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, ChevronDown, ChevronRight, Search, Camera, Save, CheckCircle2, Loader2, MapPin } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, Search, Camera, Save, CheckCircle2, Loader2, MapPin, Check, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import CameraScanner from '@/components/floor/CameraScanner';
 import { saveFloorCounts, completeFloorCount, RECOUNT_STATUSES, buildUomOptions } from '@/lib/stockCount';
+import { useAutoSave } from '@/lib/useAutoSave';
 
 /**
  * Floor counting screen. One row per product. NEVER shows system qty, variance,
@@ -182,10 +183,26 @@ export default function FloorCountSession({ count, onBack }) {
         };
       });
 
+  // ── Auto-save ───────────────────────────────────────────────────────────────
+  // Debounced background save so a dropped signal / closed app never loses more
+  // than the last item entered. Saves silently; the indicator shows status.
+  const autoSave = useAutoSave(async () => {
+    await saveFloorCounts(count.id, entriesPayload(), userName);
+  });
+
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (!seeded || locked) return;
+    if (firstRun.current) { firstRun.current = false; return; }
+    autoSave.trigger();
+  }, [counts, uomKey, seeded, locked]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSave = async () => {
+    autoSave.cancel();
     setSaving(true);
     try {
       await saveFloorCounts(count.id, entriesPayload(), userName);
+      autoSave.markSaved();
       queryClient.invalidateQueries({ queryKey: ['floor-count-lines', count.id] });
       queryClient.invalidateQueries({ queryKey: ['floor-stock-counts'] });
       toast.success('Progress saved');
@@ -201,6 +218,7 @@ export default function FloorCountSession({ count, onBack }) {
     if (uncounted > 0 && !window.confirm(`${uncounted} item(s) not counted yet. Complete the count anyway?`)) {
       return;
     }
+    autoSave.cancel();
     setCompleting(true);
     try {
       await saveFloorCounts(count.id, entriesPayload(), userName);
@@ -350,18 +368,41 @@ export default function FloorCountSession({ count, onBack }) {
 
       {/* Sticky save/complete — visible whenever there are entries */}
       {!locked && (
-        <div className="fixed bottom-[68px] left-0 right-0 bg-card/95 backdrop-blur border-t border-border px-4 py-3 z-30 flex gap-2">
-          <Button variant="outline" onClick={handleSave} disabled={saving || completing} className="flex-1 h-12 gap-2">
-            {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-            Save & Continue
-          </Button>
-          <Button onClick={handleComplete} disabled={saving || completing || countedCount === 0} className="flex-1 h-12 gap-2 bg-green-600 hover:bg-green-700">
-            {completing ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
-            Complete Count
-          </Button>
+        <div className="fixed bottom-[68px] left-0 right-0 bg-card/95 backdrop-blur border-t border-border px-4 py-2 z-30">
+          <div className="h-4 mb-1 flex justify-center">
+            <FloorAutoSaveStatus status={autoSave.status} />
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleSave} disabled={saving || completing} className="flex-1 h-12 gap-2">
+              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+              Save & Continue
+            </Button>
+            <Button onClick={handleComplete} disabled={saving || completing || countedCount === 0} className="flex-1 h-12 gap-2 bg-green-600 hover:bg-green-700">
+              {completing ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+              Complete Count
+            </Button>
+          </div>
         </div>
       )}
     </div>
+  );
+}
+
+// Thin auto-save indicator above the sticky action bar.
+function FloorAutoSaveStatus({ status }) {
+  if (status === 'idle') return null;
+  const map = {
+    unsaved: { icon: <Save className="w-3 h-3" />, text: 'Unsaved…', cls: 'text-muted-foreground' },
+    saving: { icon: <Loader2 className="w-3 h-3 animate-spin" />, text: 'Saving…', cls: 'text-muted-foreground' },
+    saved: { icon: <Check className="w-3 h-3" />, text: 'Saved', cls: 'text-green-600' },
+    error: { icon: <AlertCircle className="w-3 h-3" />, text: 'Save failed — stay online', cls: 'text-red-600' },
+  };
+  const s = map[status];
+  if (!s) return null;
+  return (
+    <span className={cn('inline-flex items-center gap-1 text-[11px] font-medium', s.cls)}>
+      {s.icon}{s.text}
+    </span>
   );
 }
 

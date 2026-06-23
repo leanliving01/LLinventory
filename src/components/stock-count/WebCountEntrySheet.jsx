@@ -1,12 +1,13 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Save, CheckCircle2, Search, Plus, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { Save, CheckCircle2, Search, Plus, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Loader2, Check, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { saveFloorCounts, completeFloorCount, addCountLine, convertedFromLine, buildUomOptions, STOCK_UOM_KEY } from '@/lib/stockCount';
+import { useAutoSave } from '@/lib/useAutoSave';
 import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory } from '@/lib/productClassification';
 import { cn } from '@/lib/utils';
 
@@ -144,24 +145,52 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
     return ids.size;
   }, [entries, broken]);
 
-  const buildPayload = () => lines.map(l => {
-    const opts = optionsByLine[l.id] || [];
-    const sel = opts.find(o => o.key === (uomKey[l.id] || STOCK_KEY)) || opts[0];
-    return {
-      id: l.id,
-      counted_qty: entries[l.id] ?? null,
-      broken_units: broken[l.id] ?? null,
-      count_uom: sel?.count_uom,
-      count_uom_label: sel?.count_uom_label || null,
-      conversion_factor: sel?.conversion_factor || 1,
-    };
+  // Only persist lines that carry a value now, OR were already counted (so
+  // clearing a previously-saved count is written back). Untouched, never-counted
+  // lines are skipped — keeps each save small even for a big count.
+  const buildPayload = () => lines
+    .filter(l => {
+      const hasEntry = entries[l.id] !== '' && entries[l.id] != null;
+      const hasBroken = broken[l.id] !== '' && broken[l.id] != null;
+      const wasCounted = l.counted_qty != null || (l.broken_units != null && Number(l.broken_units) !== 0);
+      return hasEntry || hasBroken || wasCounted;
+    })
+    .map(l => {
+      const opts = optionsByLine[l.id] || [];
+      const sel = opts.find(o => o.key === (uomKey[l.id] || STOCK_KEY)) || opts[0];
+      return {
+        id: l.id,
+        counted_qty: entries[l.id] ?? null,
+        broken_units: broken[l.id] ?? null,
+        count_uom: sel?.count_uom,
+        count_uom_label: sel?.count_uom_label || null,
+        conversion_factor: sel?.conversion_factor || 1,
+      };
+    });
+
+  // ── Auto-save ───────────────────────────────────────────────────────────────
+  // Debounced background save so a dropped connection / closed tab never loses
+  // more than the last line typed. Saves silently; the indicator shows status.
+  const autoSave = useAutoSave(async () => {
+    await saveFloorCounts(countId, buildPayload(), 'web');
   });
+
+  // Trigger an auto-save whenever the user changes a count, unit, or loose qty —
+  // but not on the initial seed (firstRun guard).
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (!seeded) return;
+    if (firstRun.current) { firstRun.current = false; return; }
+    autoSave.trigger();
+  }, [entries, broken, uomKey, seeded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Save draft ────────────────────────────────────────────────────────────────
   const handleSaveDraft = async () => {
+    autoSave.cancel();
     setSaving(true);
     try {
       await saveFloorCounts(countId, buildPayload(), 'web');
+      autoSave.markSaved();
       toast.success('Draft saved');
       onSaved?.();
     } catch (err) {
@@ -174,6 +203,7 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
   // ── Submit for review ─────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (enteredCount === 0) { toast.error('Enter at least one count before submitting'); return; }
+    autoSave.cancel();
     setSubmitting(true);
     try {
       await saveFloorCounts(countId, buildPayload(), 'web');
@@ -226,6 +256,7 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
             <span className="font-semibold text-foreground">{enteredCount}</span> of{' '}
             <span className="font-semibold text-foreground">{lines.length}</span> lines entered
           </p>
+          <AutoSaveStatus status={autoSave.status} />
           {allKeys.length > 0 && (
             <Button
               variant="ghost"
@@ -393,6 +424,24 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
         </div>
       )}
     </div>
+  );
+}
+
+// Small inline indicator for the debounced auto-save state.
+function AutoSaveStatus({ status }) {
+  if (status === 'idle') return null;
+  const map = {
+    unsaved: { icon: <Save className="w-3.5 h-3.5" />, text: 'Unsaved changes…', cls: 'text-muted-foreground' },
+    saving: { icon: <Loader2 className="w-3.5 h-3.5 animate-spin" />, text: 'Saving…', cls: 'text-muted-foreground' },
+    saved: { icon: <Check className="w-3.5 h-3.5" />, text: 'All changes saved', cls: 'text-green-600' },
+    error: { icon: <AlertCircle className="w-3.5 h-3.5" />, text: 'Auto-save failed — keep this tab open', cls: 'text-red-600' },
+  };
+  const s = map[status];
+  if (!s) return null;
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium', s.cls)}>
+      {s.icon}{s.text}
+    </span>
   );
 }
 
