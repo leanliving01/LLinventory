@@ -1,6 +1,5 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { RING_COLORS } from '@/lib/productionGrouping';
 
 function DonutRing({ pct, color, size = 92 }) {
   const r = size / 2 - 9;
@@ -28,17 +27,17 @@ function DonutRing({ pct, color, size = 92 }) {
  * Production Planning page.
  *
  * Props:
- *   pkg        – one entry from groupMealsByPackage() (code, fullLabel, bg, …)
+ *   pkg        – one entry from groupMealsByPackage() (code, fullLabel, color, meals)
  *   stats      – { totalToProduce, committed, belowPar, onPlanPct, totalMeals }
  *   selected   – boolean
  *   onClick    – () => void
  *   maxPerRun  – number, used to compute runs needed
  */
 export default function PackageSummaryCard({ pkg, stats, selected, onClick, maxPerRun }) {
-  const { code, fullLabel, bg } = pkg;
+  const { fullLabel, color } = pkg;
   const { totalToProduce, committed, belowPar, onPlanPct, totalMeals } = stats;
   const runsNeeded = totalToProduce > 0 ? Math.max(1, Math.ceil(totalToProduce / (maxPerRun || 2500))) : 0;
-  const ringColor = RING_COLORS[code] || '#6b7280';
+  const ringColor = color || '#6b7280';
 
   return (
     <button
@@ -53,7 +52,7 @@ export default function PackageSummaryCard({ pkg, stats, selected, onClick, maxP
       {/* Label */}
       <div>
         <div className="flex items-center gap-2">
-          <span className={cn('w-2 h-2 rounded-full shrink-0', bg)} />
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: ringColor }} />
           <span className="text-[11px] font-bold uppercase tracking-wide text-foreground leading-tight line-clamp-1">
             {fullLabel}
           </span>

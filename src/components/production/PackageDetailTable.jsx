@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { ChevronDown, ChevronRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { hexToRgba } from '@/lib/productClassification';
 
 function StatusBar({ pct }) {
   const clamped = Math.min(100, Math.max(0, pct));
@@ -23,7 +24,8 @@ function StatusBar({ pct }) {
 
 function PackageSection({ pkg, stockMap, overrides, onOverride, search, belowParOnly, defaultExpanded }) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? true);
-  const { fullLabel, label, bg, light, lightText, meals } = pkg;
+  const { fullLabel, label, color, meals } = pkg;
+  const dotColor = color || '#6b7280';
 
   // Sync expanded state when the parent changes defaultExpanded (e.g. package card selected/deselected)
   useEffect(() => { setExpanded(defaultExpanded ?? true); }, [defaultExpanded]);
@@ -59,13 +61,14 @@ function PackageSection({ pkg, stockMap, overrides, onOverride, search, belowPar
       {/* Section header — acts as collapse toggle */}
       <button
         onClick={() => setExpanded(e => !e)}
-        className={cn('w-full flex items-center gap-3 px-5 py-3 text-left border-b border-border', light)}
+        className="w-full flex items-center gap-3 px-5 py-3 text-left border-b border-border"
+        style={{ backgroundColor: hexToRgba(dotColor, 0.12) }}
       >
         {expanded
           ? <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
           : <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />}
-        <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', bg)} />
-        <span className={cn('text-xs font-bold uppercase tracking-wide', lightText)}>{fullLabel}</span>
+        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
+        <span className="text-xs font-bold uppercase tracking-wide text-foreground">{fullLabel}</span>
         <span className="text-xs text-muted-foreground">{meals.length} meals</span>
         {sectionBelowPar > 0 && (
           <span className="ml-2 flex items-center gap-1 text-[11px] text-red-500 font-medium">

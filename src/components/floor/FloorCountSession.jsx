@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory } from '@/lib/productClassification';
+import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory, hexToRgba } from '@/lib/productClassification';
+import { useSubcategories } from '@/lib/useSubcategories';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +22,7 @@ import { useAutoSave } from '@/lib/useAutoSave';
 export default function FloorCountSession({ count, onBack }) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { getSubcategoryHex } = useSubcategories();
   const userName = user?.full_name || user?.email || 'Floor';
 
   const [counts, setCounts] = useState({});       // lineId → value (string)
@@ -319,6 +321,7 @@ export default function FloorCountSession({ count, onBack }) {
                     const isSubOpen = !collapsed[subKey];
                     const subLines = Object.values(productMap).flat();
                     const subCounted = subLines.filter(l => counts[l.id] !== undefined && counts[l.id] !== '').length;
+                    const subHex = getSubcategoryHex(sub);
                     return (
                       <div key={sub}>
                         <button
@@ -326,8 +329,9 @@ export default function FloorCountSession({ count, onBack }) {
                           onClick={() => toggleCollapse(subKey)}
                           className={cn(
                             'w-full flex items-center justify-between px-4 py-2 border-y border-black/10 text-gray-900',
-                            getSubcategoryColor(sub) || 'bg-gray-100'
+                            !subHex && (getSubcategoryColor(sub) || 'bg-gray-100')
                           )}
+                          style={subHex ? { backgroundColor: hexToRgba(subHex, 0.18) } : undefined}
                         >
                           <div className="flex items-center gap-2">
                             {isSubOpen ? <ChevronDown className="w-3.5 h-3.5 opacity-50" /> : <ChevronRight className="w-3.5 h-3.5 opacity-50" />}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { groupMealsByPackage } from '@/lib/productionGrouping';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
+import { useSubcategories } from '@/lib/useSubcategories';
 import { cn } from '@/lib/utils';
 
 export default function ProductionPlanning() {
@@ -23,6 +24,7 @@ export default function ProductionPlanning() {
   const { user } = useAuth();
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
+  const { rows: subcatRows } = useSubcategories();
 
   const [search, setSearch] = useState('');
   const [overrides, setOverrides] = useState({});
@@ -61,12 +63,27 @@ export default function ProductionPlanning() {
   const { data: finishedMeals = [], isLoading: loadingMeals } = useQuery({
     queryKey: ['finished-meals'],
     queryFn: () => base44.entities.Product.filter({ type: 'finished_meal', status: 'active' }, '-sku', 500),
+    refetchOnWindowFocus: true,
   });
 
   const { data: stockRecords = [] } = useQuery({
     queryKey: ['stock-on-hand'],
     queryFn: () => base44.entities.StockOnHand.list('-updated_date', 1000),
+    refetchOnWindowFocus: true,
   });
+
+  // Live updates — reflect new/changed products, stock and subcategories without
+  // a manual refresh. Realtime where the table is in the publication; the
+  // refetchOnWindowFocus above is the reliable fallback. (Pattern: SyncStatusBanner.)
+  useEffect(() => {
+    const invalidate = (key) => () => queryClient.invalidateQueries({ queryKey: [key] });
+    const unsubs = [
+      base44.entities.Product.subscribe(invalidate('finished-meals')),
+      base44.entities.StockOnHand.subscribe(invalidate('stock-on-hand')),
+      base44.entities.ProductSubcategory.subscribe(invalidate('product-subcategories')),
+    ];
+    return () => unsubs.forEach(u => { try { u && u(); } catch { /* noop */ } });
+  }, [queryClient]);
 
   const stockMap = useMemo(() => {
     const map = {};
@@ -81,7 +98,10 @@ export default function ProductionPlanning() {
   }, [stockRecords]);
 
   // ── Package grouping ───────────────────────────────────────────────────────
-  const packages = useMemo(() => groupMealsByPackage(finishedMeals), [finishedMeals]);
+  const packages = useMemo(
+    () => groupMealsByPackage(finishedMeals, subcatRows),
+    [finishedMeals, subcatRows]
+  );
 
   // Per-package stats for the summary cards
   const packageStats = useMemo(() => {

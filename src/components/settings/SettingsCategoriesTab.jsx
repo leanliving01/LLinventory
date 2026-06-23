@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Plus, Trash2, ChevronDown, ChevronRight, Loader2, FolderTree, Tag,
   Sparkles, X, AlertTriangle, GitMerge,
@@ -11,7 +12,9 @@ import {
 import { toast } from 'sonner';
 import {
   CATEGORY_LABELS, CATEGORY_ORDER, SUBCATEGORIES_BY_CATEGORY,
+  defaultSubcategoryHex, SUBCATEGORY_COLOR_PALETTE,
 } from '@/lib/productClassification';
+import { cn } from '@/lib/utils';
 
 const TYPE_OPTIONS = CATEGORY_ORDER.map(value => ({ value, label: CATEGORY_LABELS[value] || value }));
 
@@ -180,6 +183,33 @@ export default function SettingsCategoriesTab() {
     }
   };
 
+  // Set (or reset) a subcategory's display colour. If the subcategory isn't a
+  // managed row yet (suggested / in-use only), create it first so the colour has
+  // somewhere to live. Passing color=null on an unmanaged row is a no-op (it
+  // already shows the keyword default).
+  const handleSetColor = async (type, name, subId, color) => {
+    if (!subId && !color) return;
+    try {
+      if (subId) {
+        await base44.entities.ProductSubcategory.update(subId, { color });
+      } else {
+        const cat = await ensureCategory(type);
+        await base44.entities.ProductSubcategory.create({
+          name,
+          category_id: cat.id,
+          category_name: cat.name,
+          product_type: type,
+          sort_order: subcategories.filter(s => s.product_type === type).length,
+          color,
+        });
+      }
+      invalidate();
+      toast.success(color ? `Colour set for "${name}"` : `Colour reset for "${name}"`);
+    } catch (err) {
+      toast.error('Colour update failed: ' + (err.message || 'Unknown error'));
+    }
+  };
+
   const handleRemoveSubcategory = (sub) => {
     const inUse = countBySub[`${sub.product_type}::${(sub.name || '').toLowerCase()}`] || 0;
     if (inUse > 0) {
@@ -297,6 +327,11 @@ export default function SettingsCategoriesTab() {
                         {used > 0 && (
                           <span className="text-[10px] text-muted-foreground">{used} product{used === 1 ? '' : 's'}</span>
                         )}
+                        <SubcategoryColorPicker
+                          name={sub.name}
+                          value={sub.color}
+                          onPick={(hex) => handleSetColor(type, sub.name, sub.id, hex)}
+                        />
                         <Button
                           variant="ghost"
                           size="icon"
@@ -318,6 +353,11 @@ export default function SettingsCategoriesTab() {
                         <Tag className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                         <span className="text-sm flex-1">{name}</span>
                         <span className="text-[10px] text-amber-600">{used} product{used === 1 ? '' : 's'} · not saved</span>
+                        <SubcategoryColorPicker
+                          name={name}
+                          value={null}
+                          onPick={(hex) => handleSetColor(type, name, null, hex)}
+                        />
                         <Button
                           variant="ghost"
                           size="icon"
@@ -343,10 +383,15 @@ export default function SettingsCategoriesTab() {
 
                   {/* Suggested (canonical) defaults not yet added */}
                   {suggested.map(name => (
-                    <div key={`sugg-${name}`} className="flex items-center gap-3 pl-6 opacity-55">
-                      <Tag className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                      <span className="text-sm flex-1 italic">{name}</span>
-                      <span className="text-[10px] text-muted-foreground">suggested</span>
+                    <div key={`sugg-${name}`} className="flex items-center gap-3 pl-6">
+                      <Tag className="w-3.5 h-3.5 text-muted-foreground shrink-0 opacity-55" />
+                      <span className="text-sm flex-1 italic opacity-55">{name}</span>
+                      <span className="text-[10px] text-muted-foreground opacity-55">suggested</span>
+                      <SubcategoryColorPicker
+                        name={name}
+                        value={null}
+                        onPick={(hex) => handleSetColor(type, name, null, hex)}
+                      />
                       <Button
                         variant="ghost"
                         size="icon"
@@ -510,5 +555,70 @@ function MergeDialog({ merge, subcategories, products, onClose, onDone }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Colour swatch + popover for a subcategory ("package"). The swatch shows the
+ * effective colour (stored → keyword default). Picking a palette swatch or a
+ * custom hex calls onPick(hex); "Reset" calls onPick(null) to fall back to the
+ * default. The custom hex commits on blur to avoid a DB write on every drag tick.
+ */
+function SubcategoryColorPicker({ name, value, onPick }) {
+  const effective = value || defaultSubcategoryHex(name) || '#6b7280';
+  const [open, setOpen] = useState(false);
+  const [custom, setCustom] = useState(effective);
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setCustom(effective); }}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title="Set package colour"
+          className="w-5 h-5 rounded-full border border-black/10 shrink-0 hover:ring-2 hover:ring-primary/40 transition-shadow"
+          style={{ backgroundColor: effective }}
+        />
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-56">
+        <div className="space-y-3">
+          <p className="text-xs font-semibold text-muted-foreground">Package colour</p>
+          <div className="grid grid-cols-6 gap-2">
+            {SUBCATEGORY_COLOR_PALETTE.map(hex => (
+              <button
+                key={hex}
+                type="button"
+                onClick={() => { onPick(hex); setOpen(false); }}
+                title={hex}
+                className={cn(
+                  'w-6 h-6 rounded-full transition-transform hover:scale-110',
+                  (value || '').toLowerCase() === hex.toLowerCase()
+                    ? 'ring-2 ring-primary ring-offset-1'
+                    : 'border border-black/10'
+                )}
+                style={{ backgroundColor: hex }}
+              />
+            ))}
+          </div>
+          <div className="flex items-center gap-2 pt-1 border-t border-border">
+            <label className="text-xs text-muted-foreground">Custom</label>
+            <input
+              type="color"
+              value={custom}
+              onChange={e => setCustom(e.target.value)}
+              onBlur={() => { if (custom && custom.toLowerCase() !== (value || '').toLowerCase()) onPick(custom); }}
+              className="h-7 w-10 rounded cursor-pointer border border-border bg-transparent p-0"
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-7 px-2 text-xs"
+              onClick={() => { onPick(null); setOpen(false); }}
+            >
+              Reset
+            </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

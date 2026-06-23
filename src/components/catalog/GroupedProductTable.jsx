@@ -7,7 +7,9 @@ import {
   makeSubcategorySorter,
   getCategoryLabel,
   getCategoryColor,
+  hexToRgba,
 } from '@/lib/productClassification';
+import { useSubcategories } from '@/lib/useSubcategories';
 import { Droppable, Draggable } from '@hello-pangea/dnd';
 import { locationLabels } from '@/lib/locationHierarchy';
 
@@ -119,7 +121,7 @@ function ProductRow({ product, index, dndEnabled, onNavigate, ...cellProps }) {
   );
 }
 
-function GroupHeadingRow({ name, count, groupIdx, colSpan, collapsible, isOpen, onToggle, isDraggingOver, items, showCheckbox, mergeSelection, setMergeSelection }) {
+function GroupHeadingRow({ name, count, groupIdx, colSpan, collapsible, isOpen, onToggle, isDraggingOver, items, showCheckbox, mergeSelection, setMergeSelection, colorHex }) {
   const colorClass = GROUP_COLORS[groupIdx % GROUP_COLORS.length];
   const checkboxRef = React.useRef(null);
   const ids = items ? items.map(i => i.id) : [];
@@ -166,7 +168,10 @@ function GroupHeadingRow({ name, count, groupIdx, colSpan, collapsible, isOpen, 
             {collapsible && (isOpen
               ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
               : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />)}
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${colorClass}`}>{name}</span>
+            <span
+              className={`text-xs font-bold px-2 py-0.5 rounded-full ${colorHex ? '' : colorClass}`}
+              style={colorHex ? { backgroundColor: hexToRgba(colorHex, 0.18), color: colorHex } : undefined}
+            >{name}</span>
             <span className="text-xs text-muted-foreground">{count} item{count !== 1 ? 's' : ''}</span>
             {selectedCount > 0 && (
               <span className="text-[10px] text-primary font-medium">· {selectedCount} selected</span>
@@ -184,7 +189,7 @@ function GroupHeadingRow({ name, count, groupIdx, colSpan, collapsible, isOpen, 
 // A group body: a single <tbody>. In grouped+dnd mode the <tbody> is the
 // Droppable; otherwise it's a plain <tbody>. Either way it lives inside ONE
 // shared <table>, so the <colgroup> keeps every column aligned.
-function GroupBody({ name, items, groupIdx, colSpan, viewMode, expanded, onToggle, dndEnabled, onNavigate, cellProps }) {
+function GroupBody({ name, items, groupIdx, colSpan, viewMode, expanded, onToggle, dndEnabled, onNavigate, cellProps, colorHex }) {
   const collapsible = viewMode === 'grouped';
   const isOpen = !collapsible || !!expanded[name];
 
@@ -196,6 +201,7 @@ function GroupBody({ name, items, groupIdx, colSpan, viewMode, expanded, onToggl
           collapsible={collapsible} isOpen={isOpen} onToggle={onToggle} isDraggingOver={false}
           items={items} showCheckbox={cellProps.showCheckbox}
           mergeSelection={cellProps.mergeSelection} setMergeSelection={cellProps.setMergeSelection}
+          colorHex={colorHex}
         />
         {isOpen && items.map((p, idx) => (
           <ProductRow key={p.id} product={p} index={idx} dndEnabled={false} onNavigate={onNavigate} {...cellProps} />
@@ -221,6 +227,7 @@ function GroupBody({ name, items, groupIdx, colSpan, viewMode, expanded, onToggl
             showCheckbox={cellProps.showCheckbox}
             mergeSelection={cellProps.mergeSelection}
             setMergeSelection={cellProps.setMergeSelection}
+            colorHex={colorHex}
           />
           {(isOpen || snapshot.isDraggingOver) && items.map((p, idx) => (
             <ProductRow key={p.id} product={p} index={idx} dndEnabled onNavigate={onNavigate} {...cellProps} />
@@ -249,6 +256,7 @@ export default function GroupedProductTable({
 }) {
   const navigate = useNavigate();
   const dndEnabled = viewMode === 'grouped' && !!onProductReclassify;
+  const { getSubcategoryHex } = useSubcategories();
 
   // Resolve each product's stored location into Warehouse + Zone labels once.
   const locLabels = useMemo(() => {
@@ -347,6 +355,7 @@ export default function GroupedProductTable({
               dndEnabled={dndEnabled}
               onNavigate={handleNavigate}
               cellProps={cellProps}
+              colorHex={getSubcategoryHex(name)}
             />
           ))
         )}

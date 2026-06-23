@@ -8,7 +8,8 @@ import { Save, CheckCircle2, Search, Plus, ChevronDown, ChevronRight, ChevronsDo
 import { toast } from 'sonner';
 import { saveFloorCounts, completeFloorCount, addCountLine, convertedFromLine, buildUomOptions, STOCK_UOM_KEY } from '@/lib/stockCount';
 import { useAutoSave } from '@/lib/useAutoSave';
-import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory } from '@/lib/productClassification';
+import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory, hexToRgba } from '@/lib/productClassification';
+import { useSubcategories } from '@/lib/useSubcategories';
 import { cn } from '@/lib/utils';
 
 const fmtQty = (n) => {
@@ -27,6 +28,7 @@ const optionLabel = (o, stockUom) => {
 };
 
 export default function WebCountEntrySheet({ countId, header, lines, products, onSaved, onSubmitted }) {
+  const { getSubcategoryHex } = useSubcategories();
   const productById = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products]);
 
   // Per-line input state.
@@ -306,6 +308,7 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
               .map(([sub, productMap]) => {
                 const subKey = `${cat}::${sub}`;
                 const subCollapsed = collapsed[subKey];
+                const subHex = getSubcategoryHex(sub);
                 return (
                   <div key={sub}>
                     {/* Subcategory header */}
@@ -314,8 +317,9 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
                       onClick={() => toggleCollapse(subKey)}
                       className={cn(
                         'w-full flex items-center justify-between px-4 py-1.5 border-b border-black/10 text-gray-900 transition-colors',
-                        getSubcategoryColor(sub) || 'bg-gray-100'
+                        !subHex && (getSubcategoryColor(sub) || 'bg-gray-100')
                       )}
+                      style={subHex ? { backgroundColor: hexToRgba(subHex, 0.18) } : undefined}
                     >
                       <span className="text-xs font-semibold">{sub}</span>
                       {subCollapsed ? <ChevronRight className="w-3 h-3 opacity-40" /> : <ChevronDown className="w-3 h-3 opacity-40" />}

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { getSubcategoriesForCategory } from '@/lib/productClassification';
+import { getSubcategoriesForCategory, resolveSubcategoryColor } from '@/lib/productClassification';
 
 /**
  * Loads the user-managed subcategories (Settings → Categories) and exposes
@@ -20,9 +20,11 @@ export function useSubcategories() {
 
   return useMemo(() => {
     const byType = {};
+    const colorByName = {}; // lowercased subcategory name → stored hex
     rows.forEach(r => {
       if (!r.product_type || !r.name) return;
       (byType[r.product_type] = byType[r.product_type] || []).push(r.name);
+      if (r.color) colorByName[r.name.toLowerCase()] = r.color;
     });
 
     // DB names first (in their sort order), then any hardcoded defaults not
@@ -40,6 +42,10 @@ export function useSubcategories() {
       return out;
     };
 
-    return { subcatsByType: byType, getSubcategoriesForType };
+    // Resolved display hex for a subcategory: stored colour → keyword default →
+    // null (caller keeps its own fallback when null).
+    const getSubcategoryHex = (name) => resolveSubcategoryColor(name, colorByName);
+
+    return { rows, subcatsByType: byType, colorByName, getSubcategoriesForType, getSubcategoryHex };
   }, [rows]);
 }

@@ -2,7 +2,8 @@ import React, { useMemo } from 'react';
 import { formatZAR } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import TruncatedCell from '@/components/ui/TruncatedCell';
-import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory } from '@/lib/productClassification';
+import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory, hexToRgba } from '@/lib/productClassification';
+import { useSubcategories } from '@/lib/useSubcategories';
 
 const fmtQty = (n) => {
   const v = Number(n) || 0;
@@ -16,6 +17,7 @@ export default function StockCountVarianceTable({
   showPrev = false, showConversion = false, showLocation = false,
 }) {
   // Hooks must be called unconditionally — before any early returns.
+  const { getSubcategoryHex } = useSubcategories();
   const productById = useMemo(
     () => Object.fromEntries(products.map(p => [p.id, p])),
     [products]
@@ -95,17 +97,23 @@ export default function StockCountVarianceTable({
                   </tr>
                 ),
                 /* Subcategory header */
-                <tr key={`sub-${cat}-${sub}`}>
-                  <td
-                    colSpan={colCount}
-                    className={cn(
-                      'px-5 py-1.5 text-xs font-semibold text-gray-900 border-b border-black/10',
-                      getSubcategoryColor(sub) || 'bg-gray-100'
-                    )}
-                  >
-                    {sub}
-                  </td>
-                </tr>,
+                (() => {
+                  const subHex = getSubcategoryHex(sub);
+                  return (
+                    <tr key={`sub-${cat}-${sub}`}>
+                      <td
+                        colSpan={colCount}
+                        className={cn(
+                          'px-5 py-1.5 text-xs font-semibold text-gray-900 border-b border-black/10',
+                          !subHex && (getSubcategoryColor(sub) || 'bg-gray-100')
+                        )}
+                        style={subHex ? { backgroundColor: hexToRgba(subHex, 0.18) } : undefined}
+                      >
+                        {sub}
+                      </td>
+                    </tr>
+                  );
+                })(),
                 /* Product rows */
                 ...subRows.map(r => {
                   const pending = r._variance == null;

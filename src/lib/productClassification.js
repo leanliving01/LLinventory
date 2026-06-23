@@ -84,7 +84,62 @@ export function getSubcategoryColor(subcategory) {
   if (s.includes('WLM') || s.includes("Women's Lean Muscle")) return 'bg-orange-100';
   if (s.includes('WWL') || s.includes("Women's Weight Loss")) return 'bg-pink-100';
   if (s.includes('Low Carb') || s.includes('Smart Carb'))     return 'bg-yellow-100';
+  if (s.includes('Winter Warmer') || s.includes('WWR'))       return 'bg-sky-100';
   return null;
+}
+
+// ── Subcategory display colours (hex) ──────────────────────────────────────
+// A subcategory's colour is the identity of a "package" across the app
+// (Production Planning cards/sections, catalog group headers, stock-count
+// headers). Source of truth: the `color` column on the managed
+// product_subcategories row. When unset, fall back to these keyword defaults so
+// the familiar palette is preserved out of the box. Case-sensitive substring
+// matching mirrors getSubcategoryColor — capitalised full names avoid the
+// "women's" ⊃ "men's" collision; code tokens (MLM/MWL/WLM/WWL) are unambiguous.
+export function defaultSubcategoryHex(subcategory) {
+  const s = subcategory || '';
+  if (s.includes('MLM') || s.includes("Men's Lean Muscle"))   return '#22c55e'; // green
+  if (s.includes('MWL') || s.includes("Men's Weight Loss"))   return '#3b82f6'; // blue
+  if (s.includes('WLM') || s.includes("Women's Lean Muscle")) return '#f97316'; // orange
+  if (s.includes('WWL') || s.includes("Women's Weight Loss")) return '#f472b6'; // pink
+  if (s.includes('Low Carb') || s.includes('Smart Carb'))     return '#facc15'; // yellow
+  if (s.includes('Winter Warmer') || s.includes('WWR'))       return '#0ea5e9'; // sky
+  return null;
+}
+
+/**
+ * Resolve the display hex for a subcategory: stored colour (from a name→hex
+ * map built off the managed rows) → keyword default → null. Callers that need a
+ * guaranteed colour should `|| '#6b7280'`; callers with their own fallback
+ * (e.g. an existing Tailwind class) should keep it when this returns null.
+ */
+export function resolveSubcategoryColor(subcategory, colorMap = null) {
+  const name = (subcategory || '').trim();
+  if (!name) return null;
+  if (colorMap) {
+    const stored = colorMap[name.toLowerCase()];
+    if (stored) return stored;
+  }
+  return defaultSubcategoryHex(name);
+}
+
+// Curated swatches offered first in the colour picker (a custom hex is still
+// allowed via the native picker).
+export const SUBCATEGORY_COLOR_PALETTE = [
+  '#3b82f6', '#22c55e', '#f97316', '#f472b6', '#facc15', '#0ea5e9',
+  '#ef4444', '#a855f7', '#14b8a6', '#6366f1', '#f59e0b', '#64748b',
+];
+
+/** Convert a #rrggbb / #rgb hex to an rgba() string with the given alpha. */
+export function hexToRgba(hex, alpha = 1) {
+  if (!hex) return null;
+  let h = String(hex).replace('#', '').trim();
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  if (h.length !== 6) return hex;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 // ── Subcategory (= product.subcategory) ────────────────────────────────────
@@ -110,6 +165,7 @@ export const SUBCATEGORIES_BY_CATEGORY = {
     "Men's Weight Loss / BYO Meals (MWL)",
     "Women's Lean Muscle Meals (WLM)",
     "Women's Weight Loss Meals (WWL)",
+    'Winter Warmer Range',
     'Other Meals',
   ],
   wip_bulk: ['Meats', 'Starches', 'Vegetables', 'Sauces', 'Stir-Fry & Mixed', 'Other'],

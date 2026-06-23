@@ -1,3 +1,5 @@
+import { resolveSubcategory, resolveSubcategoryColor, makeSubcategorySorter } from '@/lib/productClassification';
+
 // Portion variant codes and their display info
 // Column display order: MWL (blue) → MLM (green) → WLM (orange) → WWL (pink)
 export const VARIANT_CODES = ['MWL', 'MLM', 'WLM', 'WWL'];
@@ -58,52 +60,75 @@ export const RING_COLORS = {
   LC:  '#facc15',
 };
 
-/**
- * Group finished meals by package type for the package-first production UI.
- * Returns an array of package objects in PACKAGE_ORDER, each with a `meals`
- * array of { baseName, product } for every meal in that package.
- * Empty packages are omitted.
- */
-export function groupMealsByPackage(finishedMeals) {
-  const goalMap = {};
-  const lcMeals = [];
+// Stable key from a subcategory name, used as the package `code`.
+function slugify(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'other';
+}
 
+// Trim a trailing variant-code suffix (e.g. " MWL1") for a cleaner display name.
+function cleanMealName(product) {
+  const n = (product.name || '').replace(/\s+(MLM|MWL|WLM|WWL)\d*\s*$/i, '').trim();
+  return n || product.name || '';
+}
+
+/**
+ * Group finished meals into "packages" for the package-first production UI,
+ * driven entirely by each product's resolved Subcategory (the single source of
+ * truth shared with the catalog — see resolveSubcategory). This makes the
+ * dashboard data-driven: any new subcategory automatically becomes a new
+ * package card, and NO meal is ever silently dropped (unknown → "Other Meals").
+ *
+ * @param finishedMeals  active finished_meal products
+ * @param subcatRows     managed product_subcategories rows (for order + colour);
+ *                       optional — falls back to canonical defaults when empty.
+ * Returns an array of { code, fullLabel, label, color, meals:[{baseName, product}] }.
+ */
+export function groupMealsByPackage(finishedMeals, subcatRows = []) {
+  const rows = (subcatRows || []).filter(r => r.product_type === 'finished_meal');
+
+  // Stored colours keyed by lowercased subcategory name.
+  const colorMap = {};
+  rows.forEach(r => {
+    const key = (r.name || '').toLowerCase();
+    if (key && r.color) colorMap[key] = r.color;
+  });
+
+  // Bucket every active meal by its resolved subcategory.
+  const buckets = {};
   for (const product of finishedMeals) {
     if (product.status !== 'active') continue;
-
-    if (isLowCarb(product)) {
-      lcMeals.push({ baseName: product.name, product });
-      continue;
-    }
-
-    const variant = detectVariant(product.sku);
-    const mealNum = extractMealNumber(product.sku);
-    if (!variant || mealNum === null) continue;
-
-    if (!goalMap[mealNum]) goalMap[mealNum] = { mealNumber: mealNum, baseName: null, variants: {} };
-    goalMap[mealNum].variants[variant] = product;
-
-    if (variant === 'MWL') {
-      goalMap[mealNum].baseName = product.name;
-    } else if (!goalMap[mealNum].baseName) {
-      goalMap[mealNum].baseName = product.name.replace(/\s+(MLM|MWL|WLM|WWL)\d*\s*$/, '').trim();
-    }
+    const name = resolveSubcategory(product) || 'Other Meals';
+    if (!buckets[name]) buckets[name] = [];
+    buckets[name].push({ baseName: cleanMealName(product), product });
   }
 
-  const sortedGoalRows = Object.values(goalMap).sort((a, b) => a.mealNumber - b.mealNumber);
-  lcMeals.sort((a, b) => a.baseName.localeCompare(b.baseName));
+  // Sort meals within each package by SKU (natural numeric order), then name.
+  Object.values(buckets).forEach(meals => {
+    meals.sort((a, b) =>
+      (a.product.sku || '').localeCompare(b.product.sku || '', undefined, { numeric: true }) ||
+      a.baseName.localeCompare(b.baseName));
+  });
 
-  const pkgMeals = { MWL: [], MLM: [], WLM: [], WWL: [], LC: [] };
-  for (const row of sortedGoalRows) {
-    for (const code of ['MWL', 'MLM', 'WLM', 'WWL']) {
-      if (row.variants[code]) pkgMeals[code].push({ baseName: row.baseName, product: row.variants[code] });
-    }
-  }
-  pkgMeals.LC = lcMeals;
+  // Order packages: managed rows' sort_order first, then canonical defaults,
+  // then alphabetical, with any "Other…" group pushed last.
+  const managedOrder = rows
+    .slice()
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    .map(r => r.name)
+    .filter(Boolean);
+  const sorter = makeSubcategorySorter('finished_meal', managedOrder.length ? managedOrder : undefined);
+  const names = Object.keys(buckets).sort(sorter);
 
-  return PACKAGE_ORDER
-    .filter(code => pkgMeals[code].length > 0)
-    .map(code => ({ code, ...VARIANT_INFO[code], meals: pkgMeals[code] }));
+  return names.map(name => ({
+    code: slugify(name),
+    fullLabel: name,
+    label: name,
+    color: resolveSubcategoryColor(name, colorMap) || '#6b7280',
+    meals: buckets[name],
+  }));
 }
 
 /**

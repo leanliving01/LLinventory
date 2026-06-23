@@ -38,6 +38,9 @@ export function getFinishedMealSubcategory(product) {
   for (const prefix of SLEEVE_PREFIXES) {
     if (sku.startsWith(prefix)) return MEAL_LABELS[prefix];
   }
+  // Winter Warmer Range (seasonal soups/stews, SKUs WWR1, WWR2, …) — group as
+  // its own package so it appears on the production plan without manual tagging.
+  if (sku.startsWith('WWR')) return 'Winter Warmer Range';
   // Check name patterns for low carb / smart carb
   const name = (product.name || '').toLowerCase();
   const cat = (product.category || '').toLowerCase();
