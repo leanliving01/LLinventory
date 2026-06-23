@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import CameraScanner from '@/components/floor/CameraScanner';
-import { saveFloorCounts, completeFloorCount, RECOUNT_STATUSES } from '@/lib/stockCount';
+import { saveFloorCounts, completeFloorCount, RECOUNT_STATUSES, buildUomOptions } from '@/lib/stockCount';
 
 /**
  * Floor counting screen. One row per product. NEVER shows system qty, variance,
@@ -50,9 +50,14 @@ export default function FloorCountSession({ count, onBack }) {
 
   // Count UOM options per product (default + alternates) for the unit dropdown.
   const productIds = useMemo(() => Array.from(new Set(lines.map(l => l.product_id))), [lines]);
-  const { data: countUoms = [] } = useQuery({
+  const { data: countUoms = [], isLoading: uomsLoading } = useQuery({
     queryKey: ['floor-count-uoms', count.id, productIds.length],
     queryFn: () => base44.entities.StockCountUom.filter({ product_id: productIds }, 'count_uom', 5000),
+    enabled: productIds.length > 0,
+  });
+  const { data: supplierProducts = [], isLoading: spLoading } = useQuery({
+    queryKey: ['floor-count-supplier-uoms', count.id, productIds.length],
+    queryFn: () => base44.entities.SupplierProduct.filter({ product_id: productIds }, 'purchase_uom_label', 5000),
     enabled: productIds.length > 0,
   });
 
@@ -66,24 +71,22 @@ export default function FloorCountSession({ count, onBack }) {
     [productsData]
   );
 
-  // optionsByProduct: list of selectable units, always including the base stock UOM.
+  // optionsByLine: selectable units = base stock UOM + Stock Count Units + Purchasing Units.
   const optionsByLine = useMemo(() => {
-    const byProduct = {};
-    countUoms.forEach(u => { (byProduct[u.product_id] = byProduct[u.product_id] || []).push(u); });
+    const cuByProduct = {}, spByProduct = {};
+    countUoms.forEach(u => { (cuByProduct[u.product_id] = cuByProduct[u.product_id] || []).push(u); });
+    supplierProducts.forEach(sp => { (spByProduct[sp.product_id] = spByProduct[sp.product_id] || []).push(sp); });
     const map = {};
     lines.forEach(l => {
-      const base = { key: '__stock__', count_uom: l.stock_uom || 'unit', conversion_factor: 1, count_uom_label: '' };
-      const extras = (byProduct[l.product_id] || []).map(u => ({
-        key: u.id, count_uom: u.count_uom, conversion_factor: Number(u.conversion_factor) || 1, count_uom_label: u.count_uom_label || '',
-      }));
-      map[l.id] = [base, ...extras];
+      map[l.id] = buildUomOptions(l.stock_uom, cuByProduct[l.product_id] || [], spByProduct[l.product_id] || []);
     });
     return map;
-  }, [lines, countUoms]);
+  }, [lines, countUoms, supplierProducts]);
 
-  // Seed local inputs + selected UOM key from saved lines (once).
+  // Seed local inputs + selected UOM key from saved lines (once UOM options are loaded).
   useEffect(() => {
     if (seeded || !lines.length) return;
+    if (productIds.length && (uomsLoading || spLoading)) return; // wait so we match the saved unit, not fall back to base
     const initCounts = {};
     const initUom = {};
     lines.forEach(l => {
@@ -95,7 +98,7 @@ export default function FloorCountSession({ count, onBack }) {
     setCounts(initCounts);
     setUomKey(initUom);
     setSeeded(true);
-  }, [lines, optionsByLine, seeded]);
+  }, [lines, optionsByLine, seeded, productIds.length, uomsLoading, spLoading]);
 
   const multiLocation = useMemo(
     () => new Set(lines.map(l => l.location_id || '').filter(Boolean)).size > 1,
@@ -381,7 +384,9 @@ function FloorCountLineRow({ l, counts, setCounts, uomKey, setUomKey, optionsByL
               <SelectContent>
                 {optionsByLine[l.id].map(o => (
                   <SelectItem key={o.key} value={o.key}>
-                    {o.count_uom}{o.count_uom_label ? ` — ${o.count_uom_label}` : ''}
+                    {o.key === '__stock__'
+                      ? o.count_uom
+                      : `${o.count_uom_label ? `${o.count_uom} — ${o.count_uom_label}` : o.count_uom} (×${o.conversion_factor} ${l.stock_uom || 'unit'})`}
                   </SelectItem>
                 ))}
               </SelectContent>

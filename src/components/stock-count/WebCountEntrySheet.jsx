@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Save, CheckCircle2, Search, Plus, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { toast } from 'sonner';
-import { saveFloorCounts, completeFloorCount, addCountLine, convertedFromLine } from '@/lib/stockCount';
+import { saveFloorCounts, completeFloorCount, addCountLine, convertedFromLine, buildUomOptions, STOCK_UOM_KEY } from '@/lib/stockCount';
 import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory } from '@/lib/productClassification';
 import { cn } from '@/lib/utils';
 
@@ -16,7 +16,14 @@ const fmtQty = (n) => {
   return Number.isInteger(v) ? String(v) : v.toFixed(3).replace(/\.?0+$/, '');
 };
 
-const STOCK_KEY = '__stock__';
+const STOCK_KEY = STOCK_UOM_KEY;
+
+// Dropdown label: base unit shows just the unit; others show name + conversion hint.
+const optionLabel = (o, stockUom) => {
+  if ((o.key || STOCK_KEY) === STOCK_KEY) return o.count_uom;
+  const name = o.count_uom_label ? `${o.count_uom} — ${o.count_uom_label}` : o.count_uom;
+  return `${name}  (×${fmtQty(o.conversion_factor)} ${stockUom})`;
+};
 
 export default function WebCountEntrySheet({ countId, header, lines, products, onSaved, onSubmitted }) {
   const productById = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products]);
@@ -42,35 +49,34 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
   const [showAdd, setShowAdd] = useState(false);
   const [addingLine, setAddingLine] = useState(false);
 
-  // ── Count-UOM options per product (base stock unit + any registered units) ───
+  // ── Count-UOM options per product (base unit + Stock Count Units + Purchasing Units) ─
   const productIds = useMemo(() => Array.from(new Set(lines.map(l => l.product_id))), [lines]);
   const { data: countUoms = [], isLoading: uomsLoading } = useQuery({
     queryKey: ['web-count-uoms', countId, productIds.length],
     queryFn: () => base44.entities.StockCountUom.filter({ product_id: productIds }, 'count_uom', 5000),
     enabled: productIds.length > 0,
   });
+  const { data: supplierProducts = [], isLoading: spLoading } = useQuery({
+    queryKey: ['web-count-supplier-uoms', countId, productIds.length],
+    queryFn: () => base44.entities.SupplierProduct.filter({ product_id: productIds }, 'purchase_uom_label', 5000),
+    enabled: productIds.length > 0,
+  });
 
   const optionsByLine = useMemo(() => {
-    const byProduct = {};
-    countUoms.forEach(u => { (byProduct[u.product_id] = byProduct[u.product_id] || []).push(u); });
+    const cuByProduct = {}, spByProduct = {};
+    countUoms.forEach(u => { (cuByProduct[u.product_id] = cuByProduct[u.product_id] || []).push(u); });
+    supplierProducts.forEach(sp => { (spByProduct[sp.product_id] = spByProduct[sp.product_id] || []).push(sp); });
     const map = {};
     lines.forEach(l => {
-      const base = { key: STOCK_KEY, count_uom: l.stock_uom || 'unit', conversion_factor: 1, count_uom_label: '' };
-      const extras = (byProduct[l.product_id] || []).map(u => ({
-        key: u.id,
-        count_uom: u.count_uom,
-        conversion_factor: Number(u.conversion_factor) || 1,
-        count_uom_label: u.count_uom_label || '',
-      }));
-      map[l.id] = [base, ...extras];
+      map[l.id] = buildUomOptions(l.stock_uom, cuByProduct[l.product_id] || [], spByProduct[l.product_id] || []);
     });
     return map;
-  }, [lines, countUoms]);
+  }, [lines, countUoms, supplierProducts]);
 
   // ── Seed inputs from saved lines (once UOM options are loaded) ───────────────
   useEffect(() => {
     if (seeded || !lines.length) return;
-    if (productIds.length && uomsLoading) return; // wait for registered UOMs so we seed the right unit
+    if (productIds.length && (uomsLoading || spLoading)) return; // wait for registered UOMs so we seed the right unit
     const initEntries = {}, initUom = {}, initBroken = {};
     lines.forEach(l => {
       if (l.counted_qty != null) initEntries[l.id] = String(l.counted_qty);
@@ -87,7 +93,7 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
     setUomKey(initUom);
     setBroken(initBroken);
     setSeeded(true);
-  }, [seeded, lines, productIds.length, uomsLoading, optionsByLine]);
+  }, [seeded, lines, productIds.length, uomsLoading, spLoading, optionsByLine]);
 
   // ── Grouping: category → subcategory → product name ──────────────────────────
   const grouped = useMemo(() => {
@@ -410,14 +416,14 @@ function SingleLineRow({ line, pname, options, uomKey, value, brokenValue, onUom
         {line.system_qty != null ? fmtQty(line.system_qty) : '—'} sys
       </span>
 
-      {/* Count UOM picker (base stock unit + any registered units) */}
+      {/* Count UOM picker (base unit + Stock Count Units + Purchasing Units) */}
       {options.length > 1 ? (
         <Select value={uomKey} onValueChange={onUomChange}>
-          <SelectTrigger className="h-7 text-xs w-auto min-w-[6rem] gap-1 px-2 shrink-0"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-7 text-xs w-auto min-w-[5rem] max-w-[12rem] gap-1 px-2 shrink-0 truncate"><SelectValue /></SelectTrigger>
           <SelectContent>
             {options.map(o => (
               <SelectItem key={o.key} value={o.key}>
-                {o.count_uom}{o.count_uom_label ? ` — ${o.count_uom_label}` : ''}
+                {optionLabel(o, stockUom)}
               </SelectItem>
             ))}
           </SelectContent>

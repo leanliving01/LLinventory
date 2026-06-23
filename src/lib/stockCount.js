@@ -43,6 +43,38 @@ export function convertedFromLine(countedQty, conversionFactor, brokenUnits = 0)
   return round(cq * cf + bu, 3);
 }
 
+// Build the count-UOM options for a product line: the base stock unit, plus any
+// Stock Count Units (stock_count_uoms) AND any Purchasing Units
+// (supplier_products) registered for the product. Every option carries
+// "1 unit = conversion_factor stock units". Deduped so the same pack registered
+// against several suppliers (or in both tables) only shows once.
+//   buildUomOptions('kg', countUoms, supplierProducts) →
+//     [{ key:'__stock__', count_uom:'kg', conversion_factor:1 }, { key:'sp_…', count_uom:'case', count_uom_label:'Case of 6', conversion_factor:6 }, …]
+export const STOCK_UOM_KEY = '__stock__';
+export function buildUomOptions(stockUom, countUoms = [], supplierProducts = []) {
+  const baseUom = stockUom || 'unit';
+  const seen = new Set([`${baseUom}|1|`.toLowerCase()]);
+  const options = [{ key: STOCK_UOM_KEY, count_uom: baseUom, count_uom_label: '', conversion_factor: 1, source: 'base' }];
+
+  const add = (key, uom, label, cf, source) => {
+    const factor = Number(cf) || 0;
+    if (!(factor > 0)) return;                       // skip unusable / missing conversions
+    const unit = uom || baseUom;
+    const lbl = label || '';
+    const dedupe = `${unit}|${factor}|${lbl}`.toLowerCase();
+    if (seen.has(dedupe)) return;
+    seen.add(dedupe);
+    options.push({ key, count_uom: unit, count_uom_label: lbl, conversion_factor: factor, source });
+  };
+
+  (countUoms || []).forEach(u =>
+    add(`scu_${u.id}`, u.count_uom, u.count_uom_label, u.conversion_factor, 'count'));
+  (supplierProducts || []).forEach(sp =>
+    add(`sp_${sp.id}`, sp.purchase_uom, sp.purchase_uom_label || sp.purchase_uom_name, sp.conversion_factor ?? sp.purchase_to_stock_factor, 'purchase'));
+
+  return options;
+}
+
 const costOf = (product) =>
   Number(product?.cost_avg) || Number(product?.cost_current) || 0;
 
