@@ -708,7 +708,8 @@ CREATE TABLE purchase_invoice_lines (
   product_name text,
   product_sku text,
   qty numeric NOT NULL,
-  unit_cost numeric NOT NULL,
+  unit text,                       -- invoice unit of measure for this line (kg/head/bunch/case/…); null for Xero lines
+  unit_cost numeric NOT NULL,      -- price per ONE unit (NOT the line total)
   tax_rule text,
   line_total numeric,
   match_status text NOT NULL DEFAULT 'unmatched' CHECK (match_status IN (

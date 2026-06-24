@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { X, Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import UomSelect from '@/components/shared/UomSelect';
+import { effectiveUnitCost, formatZAR } from '@/lib/utils';
 
 const PRODUCT_TYPES = ['raw', 'packaging', 'supplement', 'service'];
 const ITEM_TYPES = ['stock', 'non_stock', 'expense', 'service'];
@@ -25,12 +26,14 @@ export default function CreateProductFromLineModal({ line, invoice, onCreated, o
     item_type: 'stock',
     stock_uom: 'kg',
     purchasable: true,
-    // SupplierProduct fields
-    purchase_uom: 'kg',
+    // SupplierProduct fields — default the purchase unit to whatever the invoice
+    // used (kg/head/bunch/case…) so a per-head item isn't silently created as kg.
+    purchase_uom: (line.unit || 'kg').toLowerCase(),
     conversion_factor: 1,
     yield_factor: 1,
     xero_item_code: line.xero_item_code || '',
-    last_purchase_price: line.unit_cost || 0,
+    // Effective per-unit price (repairs legacy rows that stored the line total).
+    last_purchase_price: effectiveUnitCost(line) || 0,
   });
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
@@ -142,6 +145,13 @@ export default function CreateProductFromLineModal({ line, invoice, onCreated, o
           {/* Supplier product details */}
           <div className="space-y-3">
             <h4 className="text-sm font-semibold">Supplier Link — {invoice.supplier_name}</h4>
+            {line.unit && (
+              <p className="text-[11px] text-muted-foreground bg-muted/40 rounded px-2 py-1.5">
+                Invoiced in <span className="font-medium">{line.unit}</span> at {formatZAR(effectiveUnitCost(line) || 0)}/{line.unit}.
+                If 1 {form.purchase_uom || line.unit} ≠ 1 {form.stock_uom}, set the conversion factor below
+                (1 {form.purchase_uom || line.unit} = how many {form.stock_uom}).
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Purchase UoM</label>

@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { X, Loader2, Search, Link2, ArrowLeft, Check, Truck, FileText } from 'lucide-react';
-import { formatZAR } from '@/lib/utils';
+import { formatZAR, effectiveUnitCost } from '@/lib/utils';
 import UomSelect from '@/components/shared/UomSelect';
 
 /**
@@ -17,6 +17,9 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
   const invoiceCount = lineGroup.lines.length;
   const suggestion = possibleMatches[0];
   const suggestedSp = suggestion?.supplierProduct;
+  // True per-unit cost (repairs legacy rows that stored the line total).
+  const lineUnitCost = effectiveUnitCost(line);
+  const unitLabel = line.unit ? ` ${line.unit}` : '';
 
   const [search, setSearch] = useState('');
   // Pre-select the strongest possible-duplicate match so the reviewer can confirm
@@ -28,7 +31,7 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
     purchase_uom: suggestedSp?.purchase_uom || 'each',
     conversion_factor: suggestedSp?.conversion_factor != null ? String(suggestedSp.conversion_factor) : '',
     yield_factor: suggestedSp?.yield_factor != null ? String(suggestedSp.yield_factor) : '1',
-    nominal_cost: line.unit_cost != null ? String(line.unit_cost) : '',
+    nominal_cost: lineUnitCost ? String(lineUnitCost) : '',
     supplier_sku: line.xero_item_code || suggestedSp?.supplier_sku || '',
     supplier_description: line.xero_description || suggestedSp?.supplier_description || '',
     is_default: false,
@@ -90,7 +93,8 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
           <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm">
             <p className="font-medium">{line.xero_description || 'No description'}</p>
             <p className="text-xs text-muted-foreground tabular-nums mt-0.5">
-              {line.qty} × {formatZAR(line.unit_cost || 0)}
+              {line.qty}{unitLabel} × {formatZAR(lineUnitCost)}
+              {line.line_total != null && <span className="ml-1">= {formatZAR(line.line_total)}</span>}
             </p>
             {invoiceCount > 1 && (
               <p className="text-[11px] text-muted-foreground mt-1">
@@ -163,6 +167,12 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
               <h4 className="text-sm font-semibold flex items-center gap-1.5 pt-1">
                 <FileText className="w-4 h-4 text-muted-foreground" /> Purchasing Unit — {invoice?.supplier_name}
               </h4>
+              {line.unit && (
+                <p className="text-[11px] text-muted-foreground -mt-1">
+                  Invoiced in <span className="font-medium">{line.unit}</span> at {formatZAR(lineUnitCost)}/{line.unit}.
+                  Set the conversion to {picked.stock_uom || 'stock'} below (e.g. 1 {line.unit} = X {picked.stock_uom || 'stock'}).
+                </p>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">

@@ -171,6 +171,7 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
           product_name: product?.name || null,
           product_sku: product?.sku || null,
           qty,
+          unit: line.unit || null,
           unit_cost: unitCost,
           line_total: line.line_total || (qty * unitCost) || 0,
           match_status: matched ? 'manually_matched' : 'unmatched',

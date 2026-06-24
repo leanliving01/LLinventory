@@ -19,6 +19,22 @@ export function formatZAR(val) {
 }
 
 // ---------------------------------------------------------------------------
+// Per-unit cost of an invoice line — defends against rows where unit_cost was
+// stored as the LINE TOTAL (e.g. 20 × R660 → R660). When qty × unit_cost is
+// materially off from line_total, the true per-unit price is line_total ÷ qty.
+// New scans/imports are reconciled at extraction time; this guards legacy rows.
+// ---------------------------------------------------------------------------
+export function effectiveUnitCost(line) {
+  const qty = Number(line?.qty);
+  const stored = Number(line?.unit_cost) || 0;
+  const total = Number(line?.line_total);
+  if (qty && Number.isFinite(total) && Math.abs(stored * qty - total) > Math.max(0.02 * Math.abs(total), 0.01)) {
+    return total / qty;
+  }
+  return stored;
+}
+
+// ---------------------------------------------------------------------------
 // Payment terms — structured label + due date computation
 // ---------------------------------------------------------------------------
 export function computePaymentTermsLabel(basis, days, cutoffDay) {

@@ -2,7 +2,7 @@ import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Link2, Plus, Ban, Truck, FileText, EyeOff, Sparkles } from 'lucide-react';
-import { formatZAR } from '@/lib/utils';
+import { formatZAR, effectiveUnitCost } from '@/lib/utils';
 
 /**
  * One card per supplier+SKU group of unmatched invoice lines.
@@ -14,6 +14,8 @@ export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], onO
   const invoice = lineGroup.representativeInvoice;
   const count = lineGroup.lines.length;
   const totalQty = lineGroup.lines.reduce((s, l) => s + (l.line.qty || 0), 0);
+  const unitCost = effectiveUnitCost(line);
+  const unitLabel = line.unit ? ` ${line.unit}` : '';
   const topMatch = possibleMatches[0];
 
   return (
@@ -51,7 +53,7 @@ export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], onO
         </div>
         <div className="text-right shrink-0">
           <p className="text-sm tabular-nums">
-            {count > 1 ? `${totalQty} total` : line.qty} × {formatZAR(line.unit_cost || 0)}
+            {count > 1 ? `${totalQty}${unitLabel} total` : `${line.qty}${unitLabel}`} × {formatZAR(unitCost)}
           </p>
           <p className="text-sm font-bold tabular-nums">{formatZAR(line.line_total || 0)}</p>
         </div>
