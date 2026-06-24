@@ -4,14 +4,13 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, FileText, AlertTriangle, Loader2, Calendar, CheckCircle2, Plus, Search, Trash2, Save } from 'lucide-react';
+import { X, FileText, AlertTriangle, Loader2, CheckCircle2, Plus, Search, Trash2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { calculateDueDate, formatPaymentTerms, toISODate } from '@/lib/utils';
 import { updateShortageIfExists, resolveShortageKind, shortageKind } from '@/lib/shortageEngine';
+import { parseTolerances } from '@/lib/threeWayMatch';
 import TruncatedCell from '@/components/ui/TruncatedCell';
 import SupplierInfoBlock from './SupplierInfoBlock';
-
-const PRICE_VARIANCE_THRESHOLD = 5; // percent
 
 export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, onCreated, onCancel }) {
   const [invoiceNumber, setInvoiceNumber] = useState(existingInvoice?.invoice_number || '');
@@ -95,6 +94,15 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
     queryFn: () => base44.entities.TaxRate.filter({ active: true }, 'name', 20),
     staleTime: 300000,
   });
+
+  // Central three-way-match price tolerance (Settings → Purchasing); a line is
+  // price-flagged when it differs from the PO cost by more than this.
+  const { data: purchasingSettings = [] } = useQuery({
+    queryKey: ['match-tolerances'],
+    queryFn: () => base44.entities.Setting.filter({ group: 'purchasing' }, 'key', 50),
+    staleTime: 300000,
+  });
+  const priceThreshold = useMemo(() => parseTolerances(purchasingSettings).pricePct, [purchasingSettings]);
   const taxById = useMemo(() => Object.fromEntries(taxRates.map(t => [t.id, t])), [taxRates]);
   const defaultTax = useMemo(
     () => taxRates.find(t => Math.abs((t.rate || 0) - 0.15) < 0.001) || taxRates[0] || null,
@@ -245,11 +253,11 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
       taxRule: taxById[taxRateId]?.name || '',
       lineExcl: excl,
       lineIncl: incl,
-      priceFlag: Math.abs(varPct) >= PRICE_VARIANCE_THRESHOLD,
+      priceFlag: poCost > 0 && Math.abs(varPct) >= priceThreshold,
       qtyMismatch: invoicedQty > receivedQty,
       lineTotal: excl,
     };
-  }), [poLines, grnLineByProductId, lineEdits, isBlindReceipt, taxById, defaultTax]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [poLines, grnLineByProductId, lineEdits, isBlindReceipt, taxById, defaultTax, priceThreshold]);
 
   const activeRows = isBlindMode ? blindRows : rows;
   const subtotal = Math.round(activeRows.reduce((s, r) => s + (r.lineExcl ?? r.lineTotal ?? 0), 0) * 100) / 100;
@@ -848,7 +856,7 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
           {rows.some(r => r.priceFlag) && (
             <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm">
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>One or more lines have a price variance of 5% or more compared to the expected purchase order cost. Review before confirming.</span>
+              <span>One or more lines have a price variance of {priceThreshold}% or more compared to the expected purchase order cost. Review before confirming.</span>
             </div>
           )}
           {mismatchedRows.length > 0 && (

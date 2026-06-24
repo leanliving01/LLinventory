@@ -4,12 +4,15 @@ import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
-  X, FileText, Truck, Calendar, Package, PackageCheck, CreditCard, AlertTriangle, CheckCircle2, Plus
+  X, FileText, Truck, Calendar, Package, PackageCheck, CreditCard, AlertTriangle, CheckCircle2, Plus, ShieldCheck, Paperclip
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import InvoiceLineMatchRow from './InvoiceLineMatchRow';
 import CreditNoteModal from '@/components/purchasing/CreditNoteModal';
+import ThreeWayMatchPanel from '@/components/purchasing/ThreeWayMatchPanel';
+import PurchaseAttachmentsPanel from '@/components/purchasing/PurchaseAttachmentsPanel';
+import { useAuth } from '@/lib/AuthContext';
 
 const STATUS_STYLES = {
   pending_match: 'bg-amber-100 text-amber-700',
@@ -26,15 +29,27 @@ const PAYMENT_STYLES = {
   credit_applied: 'bg-blue-50 text-blue-600',
 };
 
+const MATCH_BADGE_STYLES = {
+  matched: 'bg-green-100 text-green-700',
+  price_variance: 'bg-amber-100 text-amber-700',
+  qty_variance: 'bg-red-100 text-red-700',
+  unmatched: 'bg-red-100 text-red-700',
+  no_po: 'bg-blue-100 text-blue-700',
+  no_grn: 'bg-blue-100 text-blue-700',
+};
+
 const TABS = [
   { key: 'invoice', label: 'Invoice Details', icon: FileText },
+  { key: 'match', label: '3-Way Match', icon: ShieldCheck },
   { key: 'order', label: 'Order Details', icon: Package },
   { key: 'grn', label: 'GRN Details', icon: PackageCheck },
   { key: 'credit', label: 'Credit Notes', icon: CreditCard },
+  { key: 'attachments', label: 'Attachments', icon: Paperclip },
 ];
 
 export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('invoice');
   const [showCreditNote, setShowCreditNote] = useState(false);
 
@@ -202,6 +217,11 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
               <Badge className={`text-[10px] ${PAYMENT_STYLES[invoice.payment_status] || ''}`}>
                 {(invoice.payment_status || '').replace(/_/g, ' ')}
               </Badge>
+              {invoice.three_way_match_status && (
+                <Badge className={`text-[10px] ${MATCH_BADGE_STYLES[invoice.three_way_match_status] || 'bg-gray-100 text-gray-600'}`}>
+                  {(invoice.three_way_match_status === 'matched' ? '3-way matched' : `match: ${invoice.three_way_match_status.replace(/_/g, ' ')}`)}
+                </Badge>
+              )}
             </div>
             <h2 className="text-lg font-bold flex items-center gap-2">
               <FileText className="w-5 h-5 text-primary" />
@@ -357,6 +377,21 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
                 </div>
               )}
             </div>
+          )}
+
+          {/* THREE-WAY MATCH TAB */}
+          {activeTab === 'match' && (
+            linesLoading ? (
+              <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>
+            ) : (
+              <ThreeWayMatchPanel
+                invoice={invoice}
+                invoiceLines={lines}
+                userName={user?.full_name || user?.email || 'Unknown'}
+                canApprove={canEdit}
+                onUpdated={onUpdated}
+              />
+            )
           )}
 
           {/* ORDER DETAILS TAB */}

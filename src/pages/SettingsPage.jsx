@@ -1,8 +1,6 @@
-import React, { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Users, Database, Building2, Bell, Ruler, Package, UserCog, FolderTree, ShoppingBag, RefreshCw, Calculator } from 'lucide-react';
+import { Users, Database, Building2, Bell, Ruler, Package, UserCog, FolderTree, ShoppingBag, RefreshCw, Calculator, ShieldCheck } from 'lucide-react';
 import SettingsOrgTab from '@/components/settings/SettingsOrgTab';
 import SettingsSyncTab from '@/components/settings/SettingsSyncTab';
 import SettingsAccountingTab from '@/components/settings/SettingsAccountingTab';
@@ -14,6 +12,7 @@ import SettingsAlertsTab from '@/components/settings/SettingsAlertsTab';
 import SettingsUomTab from '@/components/settings/SettingsUomTab';
 import SettingsPackingMaterialsTab from '@/components/settings/SettingsPackingMaterialsTab';
 import SettingsCategoriesTab from '@/components/settings/SettingsCategoriesTab';
+import SettingsPurchasingTab from '@/components/settings/SettingsPurchasingTab';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -37,6 +36,7 @@ export default function SettingsPage() {
           {perms.category_manage && <TabsTrigger value="categories" className="gap-1.5"><FolderTree className="w-3.5 h-3.5" />Categories</TabsTrigger>}
           <TabsTrigger value="uom" className="gap-1.5"><Ruler className="w-3.5 h-3.5" />Units</TabsTrigger>
           <TabsTrigger value="packing" className="gap-1.5"><Package className="w-3.5 h-3.5" />Packing Materials</TabsTrigger>
+          <TabsTrigger value="purchasing" className="gap-1.5"><ShieldCheck className="w-3.5 h-3.5" />Purchasing</TabsTrigger>
           <TabsTrigger value="alerts" className="gap-1.5"><Bell className="w-3.5 h-3.5" />Alerts</TabsTrigger>
           <TabsTrigger value="shopify" className="gap-1.5"><ShoppingBag className="w-3.5 h-3.5" />Shopify</TabsTrigger>
           <TabsTrigger value="cin7" className="gap-1.5"><Database className="w-3.5 h-3.5" />Cin7 Import</TabsTrigger>
@@ -49,6 +49,7 @@ export default function SettingsPage() {
         {perms.category_manage && <TabsContent value="categories" className="mt-4"><SettingsCategoriesTab /></TabsContent>}
         <TabsContent value="uom" className="mt-4"><SettingsUomTab /></TabsContent>
         <TabsContent value="packing" className="mt-4"><SettingsPackingMaterialsTab /></TabsContent>
+        <TabsContent value="purchasing" className="mt-4"><SettingsPurchasingTab /></TabsContent>
         <TabsContent value="alerts" className="mt-4"><SettingsAlertsTab /></TabsContent>
         <TabsContent value="shopify" className="mt-4"><SettingsShopifyTab /></TabsContent>
         <TabsContent value="cin7" className="mt-4"><SettingsCin7Tab /></TabsContent>
