@@ -525,6 +525,13 @@ export async function deleteGRN(grn) {
     await base44.entities.PurchaseOrder.update(grn.purchase_order_id, { status, grn_count: remainingConfirmed.length });
   }
 
+  // 4b. Unlink the supplier invoice (if any) so it returns to the outstanding
+  //     "not yet received" list and can be received again on a fresh GRN.
+  if (grn.invoice_id) {
+    try { await base44.entities.PurchaseInvoice.update(grn.invoice_id, { grn_id: null }); }
+    catch (e) { console.warn('[deleteGRN] invoice unlink failed:', e?.message); }
+  }
+
   // 5. Delete the GRN itself
   await base44.entities.GoodsReceivedNote.delete(grn.id);
 

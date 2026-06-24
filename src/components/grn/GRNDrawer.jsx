@@ -49,6 +49,13 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
   });
   const linkedPO = linkedPOList[0] || null;
 
+  const { data: linkedInvoiceList = [] } = useQuery({
+    queryKey: ['linked-invoice', grn.invoice_id],
+    queryFn: () => base44.entities.PurchaseInvoice.filter({ id: grn.invoice_id }),
+    enabled: !!grn.invoice_id,
+  });
+  const linkedInvoice = linkedInvoiceList[0] || null;
+
   const isDraft = grn.status === 'draft';
   const isConfirmed = grn.status === 'confirmed';
   const editingLines = localLines || lines;
@@ -260,6 +267,15 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
           <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" onClick={() => navigate(`/purchasing/workspace/${linkedPO.id}`)}>
             View PO <ExternalLink className="w-3 h-3" />
           </Button>
+        </div>
+      )}
+
+      {/* Linked supplier invoice info strip */}
+      {linkedInvoice && (
+        <div className="px-6 py-2 border-b border-border bg-muted/20 flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> Invoice: <span className="font-mono font-medium text-foreground">{linkedInvoice.invoice_number}</span></span>
+          {linkedInvoice.invoice_date && <span>Dated: {linkedInvoice.invoice_date}</span>}
+          <span>Invoiced total: <span className="font-medium text-foreground">R {Number(linkedInvoice.total || 0).toFixed(2)}</span></span>
         </div>
       )}
 

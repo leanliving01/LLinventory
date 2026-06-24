@@ -15,8 +15,9 @@ import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
 
 const HELP_ITEMS = [
-  { title: 'Create a GRN', text: 'Click "New GRN" to start. Select supplier and receiving location. Optionally link to an existing PO to pre-populate expected lines.' },
-  { title: 'Blind receipt', text: 'If no PO exists yet (e.g. supplier delivered without a formal order), leave the PO field blank. Add products manually from the supplier catalog.' },
+  { title: 'Create a GRN', text: 'Click "New GRN" to start. Type to search for the supplier, then pick the receiving location. Once a supplier is chosen, any outstanding (not-yet-received) supplier invoices appear — click one to receive its goods. The GRN is pre-filled with the invoice lines and quantities for you to verify.' },
+  { title: 'Receive against an invoice', text: 'Selecting an outstanding invoice links the GRN to that invoice and copies its lines in. Confirming the GRN updates stock; the invoice drops off the outstanding list. Deleting the draft puts the invoice back so it can be received again.' },
+  { title: 'Blind receipt / PO', text: 'No invoice yet? Leave the invoice list unselected and either link an open PO to pre-populate expected lines, or create a blind receipt and add products manually from the supplier catalog.' },
   { title: 'Enter quantities', text: 'Open a draft GRN and click "Edit Quantities". Enter actual received qty for each line. The system auto-calculates internal stock qty using the conversion factor and yield.' },
   { title: 'Flag issues', text: 'Set line condition to "Damaged" or "Rejected" for problem items. Rejected items are excluded from stock movements.' },
   { title: 'Confirm receipt', text: 'Click "Confirm Receipt" to finalise. This creates stock movements, updates on-hand quantities, recalculates weighted average costs, and logs shortages for any under-deliveries.' },
