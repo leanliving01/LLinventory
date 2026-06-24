@@ -48,6 +48,8 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
 
   // Extracted invoice data
   const [extracted, setExtracted] = useState(null);
+  // Original uploaded file — archived to the purchase-documents bucket on save.
+  const [scannedFile, setScannedFile] = useState(null);
   // Per-line product mappings (index → product_id | 'skip')
   const [mappings, setMappings] = useState({});
   // Editable header fields
@@ -95,6 +97,7 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
       if (!inv || !Array.isArray(inv.lines)) throw new Error('Unexpected response format from scan');
 
       setExtracted(inv);
+      setScannedFile(file);
 
       // Pre-fill header fields from extracted data
       setHeader(prev => ({
@@ -154,6 +157,30 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
         source: 'scan',
         unmatched_line_count: unmatchedCount,
       });
+
+      // Archive the original scanned document so it shows on the invoice / PO
+      // Attachments tab — same place Xero-sourced PDFs land. Non-fatal.
+      if (scannedFile) {
+        try {
+          const ext = (scannedFile.name?.split('.').pop() || 'pdf').toLowerCase();
+          const path = `native/${invoice.id}/${crypto.randomUUID()}.${ext}`;
+          const { error: upErr } = await supabase.storage
+            .from('purchase-documents')
+            .upload(path, scannedFile, { contentType: scannedFile.type || 'application/octet-stream', upsert: true });
+          if (!upErr) {
+            const { data: pub } = supabase.storage.from('purchase-documents').getPublicUrl(path);
+            await base44.entities.PurchaseAttachment.create({
+              invoice_id: invoice.id,
+              source: 'native',
+              file_name: scannedFile.name || `scan.${ext}`,
+              file_path: path,
+              file_url: pub?.publicUrl || null,
+              mime_type: scannedFile.type || null,
+              size_bytes: scannedFile.size || null,
+            });
+          }
+        } catch { /* non-fatal — invoice is already saved */ }
+      }
 
       // 2. Persist EVERY extracted line. Mapped lines are manually matched;
       //    everything else is saved as 'unmatched' so it flows into the
@@ -421,7 +448,7 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
             <Button className="flex-1" onClick={onClose}>Close</Button>
           ) : step === STEP_REVIEW ? (
             <>
-              <Button variant="outline" onClick={() => { setStep(STEP_UPLOAD); setExtracted(null); setMappings({}); }}>
+              <Button variant="outline" onClick={() => { setStep(STEP_UPLOAD); setExtracted(null); setMappings({}); setScannedFile(null); }}>
                 Rescan
               </Button>
               <Button

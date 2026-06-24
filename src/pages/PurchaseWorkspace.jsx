@@ -198,7 +198,7 @@ export default function PurchaseWorkspace() {
             </TabsContent>
 
             <TabsContent value="attachments">
-              <WorkspaceAttachmentsTab po={po} onUpdated={() => qc.invalidateQueries({ queryKey: ['po', id] })} />
+              <WorkspaceAttachmentsTab po={po} invoices={invoices} />
             </TabsContent>
 
             <TabsContent value="activity">

@@ -12,6 +12,9 @@ import InvoiceLineMatchRow from './InvoiceLineMatchRow';
 import CreditNoteModal from '@/components/purchasing/CreditNoteModal';
 import ThreeWayMatchPanel from '@/components/purchasing/ThreeWayMatchPanel';
 import PurchaseAttachmentsPanel from '@/components/purchasing/PurchaseAttachmentsPanel';
+import MatchInvoiceToPOModal from './MatchInvoiceToPOModal';
+import ReceiveInvoiceModal from './ReceiveInvoiceModal';
+import { Link2, PackagePlus } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 
 const STATUS_STYLES = {
@@ -52,6 +55,8 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('invoice');
   const [showCreditNote, setShowCreditNote] = useState(false);
+  const [showMatchPO, setShowMatchPO] = useState(false);
+  const [showReceive, setShowReceive] = useState(false);
 
   // Invoice lines
   const { data: lines = [], isLoading: linesLoading } = useQuery({
@@ -398,7 +403,24 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
           {activeTab === 'order' && (
             <div className="p-6 space-y-4">
               {!invoice.purchase_order_id ? (
-                <p className="text-sm text-muted-foreground">No purchase order linked to this invoice.</p>
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    No purchase order linked to this invoice. Link it to an existing PO, or receive it
+                    directly as a blind receipt (creates a GRN, no PO).
+                  </p>
+                  {invoice.grn_id ? (
+                    <p className="text-xs text-green-700">Already received — GRN linked.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowMatchPO(true)} disabled={!canEdit}>
+                        <Link2 className="w-3.5 h-3.5" /> Match to Purchase Order
+                      </Button>
+                      <Button variant="outline" size="sm" className="gap-1.5 border-primary/30 text-primary" onClick={() => setShowReceive(true)} disabled={!canEdit}>
+                        <PackagePlus className="w-3.5 h-3.5" /> Create Blind Receipt
+                      </Button>
+                    </div>
+                  )}
+                </div>
               ) : !po ? (
                 <p className="text-sm text-muted-foreground">Loading order details...</p>
               ) : (
@@ -616,6 +638,16 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
             </div>
           )}
 
+          {/* ATTACHMENTS TAB */}
+          {activeTab === 'attachments' && (
+            <div className="p-6">
+              <PurchaseAttachmentsPanel
+                purchaseOrderId={invoice.purchase_order_id || null}
+                invoiceIds={[invoice.id]}
+              />
+            </div>
+          )}
+
         </div>
       </div>
     </div>
@@ -625,6 +657,33 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
         po={po}
         onCreated={handleCreditNoteCreated}
         onCancel={() => setShowCreditNote(false)}
+      />
+    )}
+
+    {showMatchPO && (
+      <MatchInvoiceToPOModal
+        invoice={invoice}
+        onMatched={() => {
+          setShowMatchPO(false);
+          queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
+          queryClient.invalidateQueries({ queryKey: ['workspace-invoices'] });
+          onUpdated?.();
+        }}
+        onCancel={() => setShowMatchPO(false)}
+      />
+    )}
+
+    {showReceive && (
+      <ReceiveInvoiceModal
+        invoice={invoice}
+        invoiceLines={lines}
+        onDone={() => {
+          setShowReceive(false);
+          queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
+          queryClient.invalidateQueries({ queryKey: ['invoice-lines', invoice.id] });
+          onUpdated?.();
+        }}
+        onCancel={() => setShowReceive(false)}
       />
     )}
     </>

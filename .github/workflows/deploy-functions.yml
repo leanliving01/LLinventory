@@ -33,5 +33,7 @@ jobs:
           supabase functions deploy recalc-demand --project-ref cpzkmzcohujpybcocipe --no-verify-jwt
           supabase functions deploy recalc-committed-stock --project-ref cpzkmzcohujpybcocipe --no-verify-jwt
           supabase functions deploy scan-invoice --project-ref cpzkmzcohujpybcocipe --no-verify-jwt
+          supabase functions deploy fetch-xero-attachments --project-ref cpzkmzcohujpybcocipe --no-verify-jwt
+          supabase functions deploy reprice-from-attachments --project-ref cpzkmzcohujpybcocipe --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

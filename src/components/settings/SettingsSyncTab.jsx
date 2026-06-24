@@ -35,6 +35,8 @@ export default function SettingsSyncTab() {
   const [registeringWebhooks, setRegisteringWebhooks] = useState(false);
   const [webhookResult, setWebhookResult] = useState(null);
   const [showLogs, setShowLogs] = useState(false);
+  const [docBusy, setDocBusy] = useState(null);          // 'fetch' | 'preview' | 'apply'
+  const [repriceReport, setRepriceReport] = useState(null);
 
   const { data: syncStates = [], refetch } = useQuery({
     queryKey: ['sync-states'],
@@ -84,6 +86,45 @@ export default function SettingsSyncTab() {
       toast.error(`Webhook registration failed: ${err.message}`);
     }
     setRegisteringWebhooks(false);
+  };
+
+  // ── Purchasing documents & price recovery ────────────────────────────────
+  const fetchXeroDocs = async () => {
+    setDocBusy('fetch');
+    try {
+      const res = await base44.functions.invoke('fetch-xero-attachments', { mode: 'start' });
+      if (res?.data?.error) toast.error(res.data.error);
+      else toast.success(`Document fetch started — ${res.data?.imported ?? 0} imported, ${res.data?.remaining ?? 0} bills left (continues in background)`);
+    } catch (err) {
+      toast.error(`Failed: ${err.message}`);
+    }
+    setDocBusy(null);
+  };
+
+  const previewReprice = async () => {
+    setDocBusy('preview');
+    setRepriceReport(null);
+    try {
+      const res = await base44.functions.invoke('reprice-from-attachments', { mode: 'dryrun', batchSize: 8 });
+      if (res?.data?.error) toast.error(res.data.error);
+      setRepriceReport(res?.data || null);
+    } catch (err) {
+      toast.error(`Failed: ${err.message}`);
+    }
+    setDocBusy(null);
+  };
+
+  const applyReprice = async () => {
+    setDocBusy('apply');
+    try {
+      const res = await base44.functions.invoke('reprice-from-attachments', { mode: 'apply', batchSize: 8 });
+      if (res?.data?.error) toast.error(res.data.error);
+      else toast.success(`Applied — ${res.data?.changedLines ?? 0} lines corrected, ${res.data?.remaining ?? 0} invoices left (continues in background)`);
+      setRepriceReport(null);
+    } catch (err) {
+      toast.error(`Failed: ${err.message}`);
+    }
+    setDocBusy(null);
   };
 
   const cancelSync = async (src) => {
@@ -183,6 +224,62 @@ export default function SettingsSyncTab() {
                 {r.error && <span className="text-red-500 truncate">{r.error}</span>}
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold">Purchasing Documents & Price Recovery</h3>
+        <p className="text-xs text-muted-foreground">
+          Pull the original supplier PDF from each Xero bill into the Attachments tab, then re-derive
+          correct per-unit prices from those PDFs for bills that Xero collapsed into a single
+          "1 × total" line. Preview first — only confident matches are applied, and invoice totals never change.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={fetchXeroDocs} disabled={!!docBusy} className="gap-1.5 h-8 text-xs">
+            {docBusy === 'fetch' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+            Fetch Xero documents
+          </Button>
+          <Button variant="outline" size="sm" onClick={previewReprice} disabled={!!docBusy} className="gap-1.5 h-8 text-xs">
+            {docBusy === 'preview' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <PlayCircle className="w-3.5 h-3.5" />}
+            Preview price recovery
+          </Button>
+          <Button
+            variant="outline" size="sm" onClick={applyReprice}
+            disabled={!!docBusy || !repriceReport}
+            className="gap-1.5 h-8 text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
+          >
+            {docBusy === 'apply' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+            Apply price recovery
+          </Button>
+        </div>
+
+        {repriceReport && (
+          <div className="mt-1 bg-card border border-border rounded-lg p-4 space-y-2">
+            <p className="text-xs font-semibold">
+              Preview — {repriceReport.processed} invoice(s) checked, {repriceReport.changedLines} line(s) would change
+              {repriceReport.remaining > 0 && <span className="text-muted-foreground"> · {repriceReport.remaining} more not yet previewed</span>}
+            </p>
+            {(repriceReport.report || []).flatMap(inv => (inv.changes || []).map((c, i) => (
+              <div key={`${inv.invoiceId}-${i}`} className="text-[11px] border-t border-border pt-1.5 first:border-0 first:pt-0">
+                <span className="font-medium">{c.description || 'Line'}</span>
+                {c.willApply ? (
+                  <span className="text-muted-foreground">
+                    {' '}— {c.from?.qty} × R{Number(c.from?.unit_cost || 0).toFixed(2)}
+                    {' '}→ <span className="text-green-700 font-medium">{c.to?.qty}{c.to?.unit ? ` ${c.to.unit}` : ''} × R{Number(c.to?.unit_cost || 0).toFixed(2)}</span>
+                    {' '}<span className="text-muted-foreground">({Math.round((c.confidence || 0) * 100)}% match)</span>
+                  </span>
+                ) : (
+                  <span className="text-amber-600"> — skipped: {c.skipped}</span>
+                )}
+              </div>
+            )))}
+            {(repriceReport.report || []).every(inv => (inv.changes || []).length === 0) && (
+              <p className="text-[11px] text-muted-foreground">No changes proposed in this batch.</p>
+            )}
+            <p className="text-[11px] text-muted-foreground pt-1">
+              Preview shows one batch. "Apply" corrects this batch and continues through the rest in the background.
+            </p>
           </div>
         )}
       </div>
