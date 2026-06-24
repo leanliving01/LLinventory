@@ -197,7 +197,7 @@ Deno.serve(async (req) => {
   const rules = await loadClassificationRules(supabase);
 
   // Product type/subcategory classification rules (product_classification_rules,
-  // migration 060). Loaded once; applied to NEW products so a freshly-synced SKU
+  // migration 064). Loaded once; applied to NEW products so a freshly-synced SKU
   // auto-files into the right Category + Subcategory instead of the old blanket
   // 'finished_meal' default. Mirrors the SQL classify_product() first-match logic.
   const { data: typeRulesData } = await supabase
@@ -328,7 +328,7 @@ Deno.serve(async (req) => {
         // Use placeholder SKU if Shopify has none — user can assign real SKU later from
         // inventory UI or Shopify; next sync will keep it via the variant_id match.
         const effectiveSku = v.sku || `SHOPIFY-${v.id}`;
-        // Data-driven classification (migration 060). Falls back to the historical
+        // Data-driven classification (migration 064). Falls back to the historical
         // 'finished_meal' default only when no rule matches, so this can never
         // mis-file a SKU it doesn't recognise.
         const classified = classifyProductType(effectiveSku, productName, p.product_type);

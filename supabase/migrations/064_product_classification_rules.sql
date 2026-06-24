@@ -1,5 +1,5 @@
 -- ============================================================================
--- 060_product_classification_rules.sql
+-- 064_product_classification_rules.sql
 --
 -- Data-driven product classification so NEW products auto-file into the right
 -- Category (product.type) and Subcategory (product.subcategory) on Shopify sync
