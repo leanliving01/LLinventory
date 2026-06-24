@@ -52,6 +52,35 @@ export const CATEGORY_ORDER = [
 export const TYPE_LABELS = CATEGORY_LABELS;
 export const TYPE_COLORS = CATEGORY_COLORS;
 
+// ── BOM capability (single source of truth) ────────────────────────────────
+// Which product categories can carry a manufacturing BOM, and of which class.
+//   production BOM  → physically made (prep/cook/portion): raw → WIP → portioned meal.
+//   packing BOM     → finished meals assembled & packed into a sellable box.
+// Every BOM entry-point surface (ProductCookBomCard, CatalogDetailDrawer,
+// Recipes list, RecipeProductDetail) MUST read these instead of keeping its own
+// hardcoded type list, so enabling a new produced-in-house category is a
+// one-line change here.
+export const PRODUCTION_BOM_TYPES = ['wip_bulk', 'sauce', 'finished_meal'];
+export const PACKING_BOM_TYPES = ['package', 'bundle'];
+
+export function canHaveProductionBom(type) {
+  return PRODUCTION_BOM_TYPES.includes(type);
+}
+
+export function canHavePackingBom(type) {
+  return PACKING_BOM_TYPES.includes(type);
+}
+
+/** Any product category that can carry a manufacturing BOM (production or packing). */
+export function canHaveBom(type) {
+  return canHaveProductionBom(type) || canHavePackingBom(type);
+}
+
+/** The default BOM class to offer when starting a BOM for a given category. */
+export function defaultBomClassForType(type) {
+  return canHavePackingBom(type) ? 'packing' : 'production';
+}
+
 export function getCategoryLabel(type) {
   return CATEGORY_LABELS[type] || type || '—';
 }
@@ -180,6 +209,7 @@ export const SUBCATEGORIES_BY_CATEGORY = {
     "Men's Weight Loss Packages",
     "Women's Lean Muscle Packages",
     "Women's Weight Loss Packages",
+    'Winter Warmer Packages',
     'Build Your Own (BYO)',
     'Other Packages',
   ],

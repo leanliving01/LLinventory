@@ -18,7 +18,10 @@ const SCOPES = [
   { key: 'category',          label: 'By Category',          hint: 'One category across every location' },
 ];
 
-const COUNTABLE_TYPES = CATEGORY_ORDER.filter(c => c !== 'service');
+// Exclude service (non-stock) and package/bundle (assemble-on-demand — their
+// component meals are the counted stock, not the box) from countable categories.
+const NON_COUNTABLE_TYPES = ['service', 'package', 'bundle'];
+const COUNTABLE_TYPES = CATEGORY_ORDER.filter(c => !NON_COUNTABLE_TYPES.includes(c));
 
 function ToggleChip({ label, selected, onClick }) {
   return (

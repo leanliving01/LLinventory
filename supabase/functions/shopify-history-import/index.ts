@@ -16,6 +16,7 @@ import { chainNext } from '../_shared/chain.ts';
 import {
   loadClassificationRules, classifyLineItem, type ClassificationRule,
 } from '../_shared/order-classification.ts';
+import { loadPackageSkus, isPackageSku } from '../_shared/packaging.ts';
 
 const SOURCE_KEY  = 'shopify_history_import';
 const FN_NAME     = 'shopify-history-import';
@@ -149,6 +150,7 @@ async function flushBatch(
   supabase: SB,
   batch: PendingOrder[],
   rules: ClassificationRule[],
+  packageSkus: Set<string>,
 ): Promise<void> {
   if (!batch.length) return;
   const now = new Date().toISOString();
@@ -314,7 +316,7 @@ async function flushBatch(
         qty:                l.quantity || 0,
         unit_price:         unitPrice,
         line_total:         unitPrice * (l.quantity || 0),
-        is_package_parent:  lineType !== 'standalone',
+        is_package_parent:  isPackageSku(l.sku, packageSkus) || lineType !== 'standalone',
         is_package_component: false,
         parent_line_id:     null,
         line_type:          lineType,
@@ -522,6 +524,7 @@ Deno.serve(async (req) => {
     const maybeIncomplete = chunkText.endsWith('\n') ? '' : (lines.pop() || '');
 
     const rules = await loadClassificationRules(supabase);
+    const packageSkus = await loadPackageSkus(supabase);
 
     let pending: PendingOrder | null = cursor.pending ?? null;
     const batch: PendingOrder[] = [];
@@ -540,7 +543,7 @@ Deno.serve(async (req) => {
           batch.push(pending);
           if (batch.length >= ORDER_BATCH) {
             ordersThisChunk += batch.length;
-            await flushBatch(supabase, batch.splice(0), rules);
+            await flushBatch(supabase, batch.splice(0), rules, packageSkus);
           }
         }
         pending = { order: obj as unknown as GqlOrder, lineItems: [], shippingLines: [] };
@@ -557,7 +560,7 @@ Deno.serve(async (req) => {
     // Flush non-pending orders from this chunk
     if (batch.length) {
       ordersThisChunk += batch.length;
-      await flushBatch(supabase, batch, rules);
+      await flushBatch(supabase, batch, rules, packageSkus);
     }
 
     // Compute byte offset of last complete line
@@ -573,7 +576,7 @@ Deno.serve(async (req) => {
 
     if (isLastChunk) {
       // Flush the pending order that was still accumulating
-      if (pending) await flushBatch(supabase, [pending], rules);
+      if (pending) await flushBatch(supabase, [pending], rules, packageSkus);
       await markComplete(supabase, SOURCE_KEY, newTotal + (pending ? 1 : 0));
       console.log(`[history-import] Complete. Total: ${newTotal + (pending ? 1 : 0)} orders imported.`);
       return json({ status: 'completed', orders_imported: newTotal + (pending ? 1 : 0) });

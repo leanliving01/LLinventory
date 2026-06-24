@@ -4,6 +4,13 @@ import { nextDocNumber } from '@/lib/docNumbering';
 // Reviewed stock-count workflow (Build 1).
 // Floor counts NEVER touch stock-on-hand — they are reviewed and posted from the web.
 
+// Assemble-on-demand categories: a package/bundle is built FROM finished meals at
+// pack time, so the meals are the real counted stock — the box itself is never
+// stock-counted. Excluded explicitly so a stray on-hand row for a package SKU can
+// never pull it into a count (which the 036 freeze trigger would then block from
+// being assembled).
+const NON_COUNTABLE_TYPES = new Set(['package', 'bundle']);
+
 export const COUNT_STATUS = {
   draft: 'Draft',
   open: 'Open',
@@ -134,6 +141,7 @@ async function createCount({ location, locationScopeIds, date, countType, status
     for (const soh of sohRows) {
       if (!soh.product_id || !soh.location_id) continue;
       const product = productById[soh.product_id];
+      if (NON_COUNTABLE_TYPES.has(product?.type)) continue;
       if (cat && product?.type !== cat) continue;
       if (subCats && !subCats.includes((product?.subcategory || '').trim())) continue;
       if (!sohByProduct[soh.product_id]) sohByProduct[soh.product_id] = [];
@@ -156,6 +164,7 @@ async function createCount({ location, locationScopeIds, date, countType, status
       const key = `${soh.product_id}_${soh.location_id}`;
       if (seen.has(key)) continue;
       const product = productById[soh.product_id];
+      if (NON_COUNTABLE_TYPES.has(product?.type)) continue;
       if (cat && product?.type !== cat) continue;
       if (subCats && !subCats.includes((product?.subcategory || '').trim())) continue;
       seen.add(key);

@@ -5,6 +5,7 @@ import { upsertDraftReturnFromRefund, upsertDraftReturnFromReturn } from '../_sh
 import {
   loadClassificationRules, classifyLineItem, deriveOrderFinancialLines,
 } from '../_shared/order-classification.ts';
+import { loadPackageSkus, isPackageSku } from '../_shared/packaging.ts';
 
 const WEBHOOK_SECRET = Deno.env.get('SHOPIFY_WEBHOOK_SECRET') || '';
 
@@ -266,6 +267,7 @@ Deno.serve(async (req) => {
 
   const orderNumber = String(o.order_number || o.name || o.id);
   const rules = await loadClassificationRules(supabase);
+  const packageSkus = await loadPackageSkus(supabase);
   const financialLines: Array<Record<string, unknown>> = [];
   const newLines = new Map<string, number>();
   let linesInsertOk = true;
@@ -307,7 +309,9 @@ Deno.serve(async (req) => {
           qty: (l.quantity as number) || 0,
           unit_price: unitPrice,
           line_total: lineTotal,
-          is_package_parent: lineType !== 'standalone',
+          // Data-driven: any SKU with an active pack_boms row IS a package,
+          // regardless of title; fall back to the title heuristic otherwise.
+          is_package_parent: isPackageSku(skuKey, packageSkus) || lineType !== 'standalone',
           is_package_component: false,
           parent_line_id: null,
           line_type: lineType,

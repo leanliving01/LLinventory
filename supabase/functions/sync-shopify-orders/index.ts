@@ -9,6 +9,7 @@ import {
   loadClassificationRules, classifyLineItem, deriveOrderFinancialLines,
   type ClassificationRule,
 } from '../_shared/order-classification.ts';
+import { loadPackageSkus, isPackageSku } from '../_shared/packaging.ts';
 
 const SOURCE_KEY = 'shopify_orders';
 const FN_NAME = 'sync-shopify-orders';
@@ -404,6 +405,8 @@ Deno.serve(async (req) => {
 
   // Load classification rules once for this page.
   const rules: ClassificationRule[] = await loadClassificationRules(supabase);
+  // Known package SKUs (data-driven; from the pack_boms explosion map).
+  const packageSkus = await loadPackageSkus(supabase);
 
   // Only real product lines become inventory-tracked sales_order_lines.
   function detectLineType(title: string): string {
@@ -448,7 +451,9 @@ Deno.serve(async (req) => {
 
       if (category === 'inventory_product') {
         const lineType = detectLineType(l.title || '');
-        const isPackage = lineType !== 'standalone';
+        // Data-driven first: any SKU with an active pack_boms row IS a package,
+        // regardless of the title. Fall back to the title heuristic otherwise.
+        const isPackage = isPackageSku(l.sku, packageSkus) || lineType !== 'standalone';
         allSalesLines.push({
           id: crypto.randomUUID(),
           sales_order_id: ourSalesId,

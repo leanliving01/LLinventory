@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import CreateBomModal from '@/components/recipes/CreateBomModal';
 import TablePagination from '@/components/shared/TablePagination';
 import { parseSubcategories } from '@/lib/bomSubcategories';
+import { canHaveProductionBom, canHavePackingBom } from '@/lib/productClassification';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -81,8 +82,10 @@ export default function Recipes() {
     return catNameById[p.category_id] || p.category || '';
   };
 
-  // Product types that have a cook/portion recipe (as opposed to pack BOMs which live elsewhere).
-  const RECIPE_TYPES = new Set(['finished_meal', 'wip_bulk', 'sauce']);
+  // Product types that can carry a manufacturing BOM — production (cook/portion)
+  // AND packing (package/bundle boxes assembled in-house). Capability is owned by
+  // productClassification so packages now surface here as "no recipe yet" rows too.
+  const canSeedBom = (type) => canHaveProductionBom(type) || canHavePackingBom(type);
 
   // A BOM is "packing" if explicitly classed so, or (pre-migration fallback) if it's the pack stage.
   const isPacking = (b) => b.bom_class === 'packing' || b.bom_type === 'pack';
@@ -95,12 +98,13 @@ export default function Recipes() {
     const byProduct = {};
 
     // Seed with every relevant product so "no recipe yet" products appear in the list.
-    products.filter(p => RECIPE_TYPES.has(p.type)).forEach(p => {
+    products.filter(p => canSeedBom(p.type)).forEach(p => {
       byProduct[p.id] = {
         key: p.id,
         product_id: p.id,
         product_sku: p.sku || '',
         product_name: p.name || '',
+        product_type: p.type,
         subSet: new Set(),
         boms: [],
         hasBom: false,
@@ -138,9 +142,11 @@ export default function Recipes() {
       const rep = r.boms.find(b => b.bom_type === 'portion')
         || r.boms.find(b => b.bom_type === 'cook')
         || r.boms[0];
-      // One class per product row: packing only if every BOM is packing; else production
-      // (seeded "no recipe yet" rows default to production).
-      const bom_class = r.boms.length && r.boms.every(isPacking) ? 'packing' : 'production';
+      // One class per product row: packing if every BOM is packing, OR (for a
+      // seeded "no recipe yet" row) if the product category is a packing type.
+      const bom_class = (r.boms.length && r.boms.every(isPacking)) || canHavePackingBom(r.product_type)
+        ? 'packing'
+        : 'production';
       return {
         key: r.key,
         product_id: r.product_id,

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ChefHat, ExternalLink, Plus, Loader2, Check, Package } from 'lucide-react';
 import CreateBomModal from '@/components/recipes/CreateBomModal';
+import { canHaveProductionBom, canHavePackingBom, canHaveBom } from '@/lib/productClassification';
 
 // Production layers, in the order work flows on the floor.
 const LAYER_ORDER = ['prep', 'cook', 'portion', 'pack'];
@@ -28,13 +29,16 @@ export default function ProductCookBomCard({ product, onTypeChanged }) {
   });
 
   const hasBom = boms.length > 0;
-  const showableTypes = ['raw', 'wip_bulk', 'sauce', 'finished_meal'];
-  // Always show the card when a BOM exists (even for package / other types so
-  // packing BOMs surface too); otherwise only for types that can have a recipe.
-  if (!product || (!hasBom && !showableTypes.includes(product.type))) return null;
+  // Show the card when a BOM exists, for any BOM-capable category (production
+  // OR packing — so packages/bundles can get a packing BOM), or for raw (which
+  // gets a "promote to Bulk Cooked" affordance). Capability lives in
+  // productClassification so a new produced-in-house type is enabled in one place.
+  if (!product || (!hasBom && !canHaveBom(product.type) && product.type !== 'raw')) return null;
 
-  // Types that can have a cook BOM without needing promotion.
-  const canHaveRecipe = ['wip_bulk', 'sauce', 'finished_meal'].includes(product.type);
+  // A package / bundle is assembled in-house from finished meals → packing BOM.
+  const isPackingType = canHavePackingBom(product.type);
+  // Types that can have a production (cook/portion) recipe without promotion.
+  const canHaveRecipe = canHaveProductionBom(product.type) || isPackingType;
 
   // Class mirror — the BOM(s) are the single source of truth, so the product
   // and the recipe/BOM editor can never disagree. Packing only if every layer
@@ -114,10 +118,12 @@ export default function ProductCookBomCard({ product, onTypeChanged }) {
         <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
-              No recipe / BOM set up yet
+              {isPackingType ? 'No packing BOM set up yet' : 'No recipe / BOM set up yet'}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Add a Production or Packing BOM so the system can calculate costs and production requirements.
+              {isPackingType
+                ? 'This box is produced in-house. Add a Packing BOM to set which meals go in it — the system keeps stock deduction in sync from it.'
+                : 'Add a Production or Packing BOM so the system can calculate costs and production requirements.'}
             </p>
           </div>
           <Button
@@ -125,7 +131,7 @@ export default function ProductCookBomCard({ product, onTypeChanged }) {
             className="gap-1.5"
             onClick={() => setShowCreate(true)}
           >
-            <Plus className="w-3.5 h-3.5" /> Create BOM
+            <Plus className="w-3.5 h-3.5" /> {isPackingType ? 'Create Packing BOM' : 'Create BOM'}
           </Button>
         </div>
       ) : (
@@ -155,7 +161,7 @@ export default function ProductCookBomCard({ product, onTypeChanged }) {
           stage, yield — pre-selected to this product. */}
       {showCreate && (
         <CreateBomModal
-          defaults={{ productId: product.id }}
+          defaults={{ productId: product.id, bomType: isPackingType ? 'pack' : undefined }}
           onCancel={() => setShowCreate(false)}
           onCreated={(created) => {
             setShowCreate(false);

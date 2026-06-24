@@ -66,7 +66,10 @@ function InventoryToggle({ product }) {
 }
 
 const RECIPE_TYPES = new Set(['finished_meal', 'wip_bulk', 'sauce']);
-const PACK_BOM_TYPES = new Set(['package']);
+// Packages/bundles are assembled in-house → they carry a Packing BOM (the master)
+// and a derived pack explosion map. Keep in step with PACKING_BOM_TYPES in
+// productClassification.js.
+const PACK_BOM_TYPES = new Set(['package', 'bundle']);
 
 export default function CatalogDetailDrawer({ product, onClose }) {
   const p = product;
@@ -181,34 +184,37 @@ export default function CatalogDetailDrawer({ product, onClose }) {
 
           {/* Recipe / BOM shortcut */}
           {(RECIPE_TYPES.has(p.type) || PACK_BOM_TYPES.has(p.type)) && (
-            <div className="pt-2 border-t border-border">
+            <div className="pt-2 border-t border-border space-y-2">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                {RECIPE_TYPES.has(p.type) ? 'Recipe / BOM' : 'Pack BOM'}
+                {PACK_BOM_TYPES.has(p.type) ? 'Packing BOM' : 'Recipe / BOM'}
               </h3>
-              {RECIPE_TYPES.has(p.type) && (
-                <Button
-                  variant="outline"
-                  className="w-full justify-between gap-2"
-                  onClick={() => { onClose(); navigate(`/recipes/product/${p.id}`); }}
-                >
-                  <span className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4" />
-                    Open Recipe Editor
-                  </span>
-                  <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-                </Button>
-              )}
+              {/* Primary: the manufacturing recipe / packing BOM (the master). */}
+              <Button
+                variant="outline"
+                className="w-full justify-between gap-2"
+                onClick={() => { onClose(); navigate(`/recipes/product/${p.id}`); }}
+              >
+                <span className="flex items-center gap-2">
+                  <BookOpen className="w-4 h-4" />
+                  {PACK_BOM_TYPES.has(p.type) ? 'Open Packing BOM' : 'Open Recipe Editor'}
+                </span>
+                <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+              </Button>
+              {/* Secondary (packages only): the raw pack explosion map. The
+                  packing BOM is the master and auto-syncs this — only needed for
+                  advanced / legacy edits. */}
               {PACK_BOM_TYPES.has(p.type) && (
                 <Button
-                  variant="outline"
-                  className="w-full justify-between gap-2"
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-between gap-2 text-muted-foreground"
                   onClick={() => { onClose(); navigate('/purchasing/pack-bom'); }}
                 >
                   <span className="flex items-center gap-2">
-                    <Package className="w-4 h-4" />
-                    Open Pack BOM Manager
+                    <Package className="w-3.5 h-3.5" />
+                    Pack explosion map (advanced)
                   </span>
-                  <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+                  <ExternalLink className="w-3 h-3" />
                 </Button>
               )}
             </div>

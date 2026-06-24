@@ -21,7 +21,7 @@ import ConfirmActionModal from '@/components/recipes/ConfirmActionModal';
 import RecipeComponentTable from '@/components/recipes/RecipeComponentTable';
 import ProductEquipmentTab from '@/components/catalog/ProductEquipmentTab';
 import { parseSubcategories } from '@/lib/bomSubcategories';
-import { getCategoryLabel } from '@/lib/productClassification';
+import { getCategoryLabel, canHavePackingBom } from '@/lib/productClassification';
 
 // A BOM = a production layer. Ordered the way work flows on the floor.
 const LAYER_ORDER = ['prep', 'cook', 'portion', 'pack'];
@@ -141,7 +141,10 @@ export default function RecipeProductDetail() {
   // Top-level class for this product: packing only if every BOM is packing
   // (pre-migration fallback: the 'pack' stage counts as packing). Empty = production.
   const isPackingBom = (b) => b.bom_class === 'packing' || b.bom_type === 'pack';
-  const productClass = boms.length && boms.every(isPackingBom) ? 'packing' : 'production';
+  // A package/bundle product is assembled in-house → its BOM is a packing BOM,
+  // even before the first layer exists (drives the empty-state below).
+  const isPackingProduct = canHavePackingBom(product?.type);
+  const productClass = (boms.length && boms.every(isPackingBom)) || isPackingProduct ? 'packing' : 'production';
   // Layers you can add depend on the class (keeps the Production/Packing split coherent).
   const allowedAddLayers = productClass === 'packing' ? ['pack'] : ['prep', 'cook', 'portion'];
 
@@ -535,20 +538,26 @@ export default function RecipeProductDetail() {
         <div className="bg-card border border-border rounded-xl p-10 text-center space-y-6">
           <div className="flex justify-center">
             <div className="w-16 h-16 bg-orange-50 dark:bg-orange-900/20 rounded-full flex items-center justify-center">
-              <ChefHat className="w-8 h-8 text-orange-400" />
+              {isPackingProduct
+                ? <Package className="w-8 h-8 text-blue-400" />
+                : <ChefHat className="w-8 h-8 text-orange-400" />}
             </div>
           </div>
           <div>
-            <h2 className="text-lg font-semibold">No recipe set up yet</h2>
+            <h2 className="text-lg font-semibold">
+              {isPackingProduct ? 'No packing BOM set up yet' : 'No recipe set up yet'}
+            </h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Choose a production layer to start building the recipe for <strong>{product?.name}</strong>.
+              {isPackingProduct
+                ? <>Start the packing BOM for <strong>{product?.name}</strong> — add the finished meals that go into this box.</>
+                : <>Choose a production layer to start building the recipe for <strong>{product?.name}</strong>.</>}
             </p>
           </div>
           <div className="flex flex-wrap justify-center gap-3">
-            {['prep', 'cook', 'portion'].map(layer => (
+            {(isPackingProduct ? ['pack'] : ['prep', 'cook', 'portion']).map(layer => (
               <Button
                 key={layer}
-                variant={layer === 'cook' ? 'default' : 'outline'}
+                variant={(layer === 'cook' || layer === 'pack') ? 'default' : 'outline'}
                 className="gap-2"
                 onClick={() => handleAddLayer(layer)}
                 disabled={saving}
@@ -559,8 +568,9 @@ export default function RecipeProductDetail() {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            Most finished meals start with a <strong>Cook</strong> layer. You can add more layers (Prep, Portion) afterward.
-            Packing BOMs are created from the <strong>Create BOM</strong> button on the Bill of Materials page.
+            {isPackingProduct
+              ? <>A packing BOM lists the finished meals packed into this box. The stock-deduction map stays in sync from it automatically.</>
+              : <>Most finished meals start with a <strong>Cook</strong> layer. You can add more layers (Prep, Portion) afterward.</>}
           </p>
         </div>
       </div>

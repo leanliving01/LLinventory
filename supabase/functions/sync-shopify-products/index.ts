@@ -196,6 +196,35 @@ Deno.serve(async (req) => {
   // inventory products.
   const rules = await loadClassificationRules(supabase);
 
+  // Product type/subcategory classification rules (product_classification_rules,
+  // migration 060). Loaded once; applied to NEW products so a freshly-synced SKU
+  // auto-files into the right Category + Subcategory instead of the old blanket
+  // 'finished_meal' default. Mirrors the SQL classify_product() first-match logic.
+  const { data: typeRulesData } = await supabase
+    .from('product_classification_rules')
+    .select('match_type, pattern, assigned_type, assigned_subcategory, priority')
+    .eq('is_active', true)
+    .order('priority', { ascending: true });
+  const typeRules = (typeRulesData || []) as Array<{
+    match_type: string; pattern: string; assigned_type: string; assigned_subcategory: string | null;
+  }>;
+  const classifyProductType = (sku: string, name: string, shopifyType?: string):
+    { type: string; subcategory: string | null } | null => {
+    const vsku = (sku || '').toUpperCase();
+    const vname = (name || '').toLowerCase();
+    const vstype = (shopifyType || '').toLowerCase();
+    for (const r of typeRules) {
+      let matched = false;
+      const pat = r.pattern || '';
+      if (r.match_type === 'sku_prefix') matched = vsku.startsWith(pat.toUpperCase());
+      else if (r.match_type === 'sku_regex') { try { matched = new RegExp(pat.toUpperCase()).test(vsku); } catch { matched = false; } }
+      else if (r.match_type === 'title_keyword') matched = vname.includes(pat.toLowerCase());
+      else if (r.match_type === 'shopify_type') matched = vstype === pat.toLowerCase();
+      if (matched) return { type: r.assigned_type, subcategory: r.assigned_subcategory || null };
+    }
+    return null;
+  };
+
   // Process each product variant → upsert into products table.
   // Every Shopify variant becomes its own inventory record so that multi-variant
   // packages (e.g. 15/30/60 meal packs) each have their own SKU, price, and BOM.
@@ -299,11 +328,16 @@ Deno.serve(async (req) => {
         // Use placeholder SKU if Shopify has none — user can assign real SKU later from
         // inventory UI or Shopify; next sync will keep it via the variant_id match.
         const effectiveSku = v.sku || `SHOPIFY-${v.id}`;
+        // Data-driven classification (migration 060). Falls back to the historical
+        // 'finished_meal' default only when no rule matches, so this can never
+        // mis-file a SKU it doesn't recognise.
+        const classified = classifyProductType(effectiveSku, productName, p.product_type);
         const { error } = await supabase.from('products').insert({
           id: crypto.randomUUID(),
           sku: effectiveSku,
           name: productName,
-          type: 'finished_meal',
+          type: classified?.type || 'finished_meal',
+          ...(classified?.subcategory ? { subcategory: classified.subcategory } : {}),
           stock_uom: 'pcs',
           shopify_product_id: String(p.id),
           shopify_variant_id: String(v.id),
