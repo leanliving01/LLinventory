@@ -125,6 +125,20 @@ async function run() {
     console.log(`[xero-invoices] Skipped — next run at ${String(nextHour).padStart(2, '0')}:00 UTC`);
   }
 
+  // Xero bill attachments — every 4 hours, on the same cadence as the bill sync.
+  // Pulls the supplier PDF for any newly-synced bill into the purchase-documents
+  // bucket. Self-chains through all un-fetched bills in batches; idempotent
+  // (bills are marked attachments_fetched_at once processed), so it's safe to
+  // run repeatedly and only does work when there are new bills.
+  if (now.getUTCHours() % 4 === 0 && now.getUTCMinutes() < 15) {
+    try {
+      const r = await invoke('fetch-xero-attachments', { mode: 'start' });
+      console.log(`[xero-attachments] ${r.status} — ${JSON.stringify(r.data).slice(0, 120)}`);
+    } catch (e) {
+      console.error('[xero-attachments] Error:', e.message);
+    }
+  }
+
   // Shopify products — once per day at 03:00 SAST (01:00 UTC).
   // Pulls product changes (incl. price edits) from Shopify; the function stores
   // VAT-exclusive prices. Incremental via updated_at_min, so a price edit on
