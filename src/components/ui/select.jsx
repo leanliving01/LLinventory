@@ -172,6 +172,10 @@ const SelectContent = React.forwardRef(({ className, children, position, ...prop
       align="start"
       className={cn(
         "z-[100] w-[var(--radix-popover-trigger-width)] min-w-[10rem] p-0",
+        // When the dropdown opens upward, put the search box at the BOTTOM
+        // (next to the trigger) so you can keep typing where you clicked.
+        "data-[side=top]:[&_[cmdk-root]]:flex-col-reverse",
+        "data-[side=top]:[&_[cmdk-input-wrapper]]:border-b-0 data-[side=top]:[&_[cmdk-input-wrapper]]:border-t",
         className
       )}
       {...props}

@@ -84,7 +84,13 @@ export function SearchableSelect({
       </PopoverTrigger>
       <PopoverContent
         align={align}
-        className={cn("w-[var(--radix-popover-trigger-width)] min-w-[12rem] p-0", contentClassName)}
+        className={cn(
+          "w-[var(--radix-popover-trigger-width)] min-w-[12rem] p-0",
+          // Opening upward → search box hugs the trigger at the bottom.
+          "data-[side=top]:[&_[cmdk-root]]:flex-col-reverse",
+          "data-[side=top]:[&_[cmdk-input-wrapper]]:border-b-0 data-[side=top]:[&_[cmdk-input-wrapper]]:border-t",
+          contentClassName
+        )}
       >
         <Command shouldFilter={shouldFilter}>
           <CommandInput placeholder={searchPlaceholder} onValueChange={onSearchChange} />
