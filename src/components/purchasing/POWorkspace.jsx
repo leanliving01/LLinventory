@@ -1062,8 +1062,8 @@ export default function POWorkspace() {
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
                     <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[220px]">Product</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[130px]">Supplier SKU</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[200px]">Description</th>
+                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-20">Supplier SKU</th>
+                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[320px]">Description</th>
                     <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[110px]">UOM</th>
                     <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-20">Qty</th>
                     <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-28">Unit Cost</th>
@@ -1287,14 +1287,11 @@ function LineRow({
           <Select value={uomValue} onValueChange={v => onSetLineUom(line._key, v)}>
             <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Unit..." /></SelectTrigger>
             <SelectContent>
-              {uomOptions.map(sp => {
-                const cost = sp.nominal_cost || sp.last_purchase_price || 0;
-                return (
-                  <SelectItem key={sp.id} value={sp.id}>
-                    {sp.purchase_uom_label || sp.purchase_uom}{cost ? ` @ R${Number(cost).toFixed(2)}` : ''}
-                  </SelectItem>
-                );
-              })}
+              {uomOptions.map(sp => (
+                <SelectItem key={sp.id} value={sp.id}>
+                  {sp.purchase_uom_label || sp.purchase_uom}
+                </SelectItem>
+              ))}
               {stockUom && <SelectItem value="__stock__">Our stock unit ({stockUom})</SelectItem>}
             </SelectContent>
           </Select>
