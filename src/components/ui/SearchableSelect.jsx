@@ -95,7 +95,11 @@ export function SearchableSelect({
                 <CommandItem
                   key={String(opt.value)}
                   value={String(opt.value)}
-                  keywords={[opt.label ?? String(opt.value), ...(opt.keywords || [])]}
+                  // cmdk calls .trim() on every keyword — drop null/undefined and
+                  // coerce to string so a product with e.g. sku === null can't crash it.
+                  keywords={[opt.label ?? String(opt.value), ...(opt.keywords || [])]
+                    .filter(k => k != null && k !== "")
+                    .map(String)}
                   disabled={opt.disabled}
                   onSelect={() => {
                     onValueChange?.(opt.value)
