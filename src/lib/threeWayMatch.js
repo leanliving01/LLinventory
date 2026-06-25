@@ -30,6 +30,7 @@ export const MATCH_SETTING_KEYS = {
 };
 
 const EPS = 0.0001;
+const CENT = 0.005; // per-unit rounding band for price comparison (half a cent)
 
 const num = (v) => {
   const n = parseFloat(v);
@@ -102,14 +103,29 @@ export function matchThreeWay({
   const hasPO = !!po;
   const hasGRN = confirmedGRNs.length > 0;
 
-  // Index PO lines by product.
+  // Index PO lines by product, AGGREGATING when a product spans several PO lines
+  // (sum ordered qty; qty-weighted average unit cost) so split PO lines don't
+  // desync the comparison or silently drop one line's quantity.
   const poByKey = {};
-  (poLines || []).forEach((l) => { const k = keyOf(l); if (k) poByKey[k] = l; });
+  (poLines || []).forEach((l) => {
+    const k = keyOf(l);
+    if (!k) return;
+    const oq = num(l.ordered_qty);
+    const uc = num(l.unit_cost);
+    const w = Math.abs(oq) || 1; // weight by qty; lines with 0 qty still count once
+    const cur = poByKey[k] || { id: l.id, ordered_qty: 0, _costSum: 0, _costW: 0 };
+    cur.ordered_qty += oq;
+    if (uc > 0) { cur._costSum += uc * w; cur._costW += w; }
+    poByKey[k] = cur;
+  });
+  Object.values(poByKey).forEach((p) => { p.unit_cost = p._costW > 0 ? p._costSum / p._costW : 0; });
 
-  // Sum received qty (accepted only) across confirmed GRNs, per product.
+  // Sum received qty (accepted only) across CONFIRMED GRNs, per product. A line
+  // whose grn_id is null or not one of the confirmed GRNs is ignored — an orphan
+  // line must never count as received goods.
   const grnByKey = {};
   (grnLines || []).forEach((l) => {
-    if (confirmedGrnIds.size && l.grn_id && !confirmedGrnIds.has(l.grn_id)) return;
+    if (confirmedGrnIds.size && !confirmedGrnIds.has(l.grn_id)) return;
     if (l.condition === 'rejected') return;
     const k = keyOf(l);
     if (!k) return;
@@ -117,6 +133,15 @@ export function matchThreeWay({
     cur.receivedQty += num(l.received_qty);
     if (cur.unitCost == null && num(l.unit_cost) > 0) cur.unitCost = num(l.unit_cost);
     grnByKey[k] = cur;
+  });
+
+  // Aggregate invoiced qty per product across ALL invoice lines, so split
+  // billing (the same product on two lines, each ≤ received but together over)
+  // can't slip an over-bill past a per-line check.
+  const invoicedByKey = {};
+  (invoiceLines || []).forEach((il) => {
+    const k = keyOf(il);
+    if (k) invoicedByKey[k] = (invoicedByKey[k] || 0) + num(il.qty);
   });
 
   const lines = (invoiceLines || []).map((il) => {
@@ -127,32 +152,46 @@ export function matchThreeWay({
     const orderedQty = poLine
       ? num(poLine.ordered_qty)
       : il.ordered_qty != null ? num(il.ordered_qty) : null;
-    const receivedQty = grn
-      ? grn.receivedQty
-      : il.received_qty != null ? num(il.received_qty) : null;
-    const invoicedQty = num(il.qty);
+
+    // Received qty is product-level. When a confirmed GRN exists, a product that
+    // appears on NO confirmed GRN line was never received → 0 (you can't pay for
+    // what never arrived). Only with no GRN at all do we fall back to a qty
+    // pre-stamped on the invoice line.
+    let receivedQty;
+    if (hasGRN) receivedQty = grn ? grn.receivedQty : 0;
+    else receivedQty = il.received_qty != null ? num(il.received_qty) : null;
+
+    const invoicedQty = num(il.qty);                                  // this line only
+    const invoicedTotal = k ? (invoicedByKey[k] || 0) : invoicedQty;  // product aggregate
     const poUnitCost = poLine
       ? num(poLine.unit_cost)
       : il.expected_unit_cost != null ? num(il.expected_unit_cost) : null;
     const invUnitCost = num(il.unit_cost);
 
-    // Price check vs PO cost. Only flagged when both the % and the rand impact
-    // exceed tolerance, so a tiny % swing on a low-value line isn't noise.
+    // Price check vs PO cost — percentage-based. A half-cent per-unit band (CENT)
+    // absorbs float noise, but a large % is NEVER masked just because the line is
+    // cheap (a 40% overcharge on a R0.05 item still flags).
     let priceVariancePct = null;
     let priceExceeds = false;
     if (poUnitCost != null && poUnitCost > 0) {
       priceVariancePct = ((invUnitCost - poUnitCost) / poUnitCost) * 100;
-      const lineImpact = Math.abs(invUnitCost - poUnitCost) * Math.abs(invoicedQty || 0);
-      priceExceeds = Math.abs(priceVariancePct) > tol.pricePct + EPS && lineImpact > tol.valueAbs;
+      priceExceeds = Math.abs(priceVariancePct) > tol.pricePct + EPS
+        && Math.abs(invUnitCost - poUnitCost) > CENT;
     }
 
-    // Qty check — invoiced must not exceed received beyond tolerance.
+    // Qty check — the product's TOTAL invoiced qty must not exceed received
+    // beyond the % tolerance. The excess must also be worth more than the rand
+    // rounding allowance (valueAbs), so sub-unit rounding doesn't trip the gate
+    // while any financially-meaningful over-bill (incl. never-received goods) is
+    // caught.
     let qtyOver = null;
     let qtyExceeds = false;
     if (receivedQty != null) {
-      qtyOver = invoicedQty - receivedQty;
-      const allowed = Math.abs(receivedQty) * (tol.qtyOverPct / 100);
-      qtyExceeds = qtyOver > allowed + EPS;
+      qtyOver = invoicedTotal - receivedQty;
+      const allowedQty = Math.abs(receivedQty) * (tol.qtyOverPct / 100);
+      const costBasis = (poUnitCost != null && poUnitCost > 0) ? poUnitCost : invUnitCost;
+      const overRand = (qtyOver - allowedQty) * Math.max(costBasis, 0);
+      qtyExceeds = qtyOver > allowedQty + EPS && overRand > tol.valueAbs;
     }
 
     const unmatched = !poLine && !grn;
@@ -173,6 +212,7 @@ export function matchThreeWay({
       orderedQty,
       receivedQty,
       invoicedQty,
+      invoicedTotal,
       poUnitCost,
       invUnitCost,
       priceVariancePct,
@@ -185,22 +225,28 @@ export function matchThreeWay({
     };
   });
 
-  // Overall status — most severe wins.
+  // Overall status — most severe wins. An invoice with no lines can't be
+  // vacuously "matched": there's nothing to verify, so it stays unapprovable.
   let overallStatus;
   if (!hasPO) overallStatus = 'no_po';
   else if (!hasGRN) overallStatus = 'no_grn';
+  else if (lines.length === 0) overallStatus = 'unmatched';
   else if (lines.some((l) => l.lineStatus === 'unmatched')) overallStatus = 'unmatched';
   else if (lines.some((l) => l.lineStatus === 'qty_variance')) overallStatus = 'qty_variance';
   else if (lines.some((l) => l.lineStatus === 'price_variance')) overallStatus = 'price_variance';
   else overallStatus = 'matched';
 
   const exceptions = [];
+  const seenQtyKey = new Set();
   lines.forEach((l) => {
     if (l.lineStatus === 'qty_variance') {
+      if (l.key && seenQtyKey.has(l.key)) return; // one exception per product
+      if (l.key) seenQtyKey.add(l.key);
+      const recv = l.receivedQty === 0 ? '0 (never received)' : fmtQty(l.receivedQty);
       exceptions.push({
         type: 'qty',
         line: l,
-        message: `${l.product_name}: invoiced ${fmtQty(l.invoicedQty)} but only ${fmtQty(l.receivedQty)} received (over by ${fmtQty(l.qtyOver)})`,
+        message: `${l.product_name || 'Line'}: invoiced ${fmtQty(l.invoicedTotal)} but only ${recv} received (over by ${fmtQty(l.qtyOver)})`,
       });
     } else if (l.lineStatus === 'price_variance') {
       exceptions.push({
