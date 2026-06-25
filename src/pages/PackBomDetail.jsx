@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Save, Loader2, AlertTriangle, RotateCcw, Package, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import PackBomMealRow from '@/components/pack-bom/PackBomMealRow';
@@ -59,6 +58,10 @@ export default function PackBomDetail() {
     enabled: !!pkgProduct?.id,
   });
   const hasMasterBom = masterBoms.some(b => b.is_active !== false);
+  // Packs mastered by a Packing BOM are now edited ONLY there (single source of
+  // truth) — this page is a read-only view for them, so the autosync trigger can
+  // never clobber a manual edit. Hand-authored packs (no master BOM) stay editable.
+  const readOnly = hasMasterBom;
 
   // Local editable state
   const [disabledSkus, setDisabledSkus] = useState(null);
@@ -209,18 +212,20 @@ export default function PackBomDetail() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleResetAll} className="gap-1.5">
-            <RotateCcw className="w-3.5 h-3.5" /> Reset
-          </Button>
-        </div>
+        {!readOnly && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleResetAll} className="gap-1.5">
+              <RotateCcw className="w-3.5 h-3.5" /> Reset
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* Master-BOM notice — composition is auto-synced from the Packing BOM */}
-      {hasMasterBom && pkgProduct && (
+      {/* Master-BOM notice — composition is managed in the Packing BOM (read-only here) */}
+      {readOnly && pkgProduct && (
         <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800">
           <p className="text-xs text-blue-800 dark:text-blue-300">
-            <strong>Auto-synced from the Packing BOM.</strong> This pack’s meals come from its Packing BOM — edits here are a quick override and get replaced when the Packing BOM changes. Edit there to make permanent changes.
+            <strong>Managed in the Packing BOM.</strong> This pack’s meals — including enabling/disabling a meal and its quantity — are edited in the Packing BOM (the single source of truth). This view is read-only and stays in sync automatically.
           </p>
           <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => navigate(`/recipes/product/${pkgProduct.id}`)}>
             <Package className="w-3.5 h-3.5" /> Open Packing BOM
@@ -242,7 +247,7 @@ export default function PackBomDetail() {
           <span className={`text-lg font-bold tabular-nums ${isMismatch ? 'text-amber-700' : 'text-green-700'}`}>
             {totalMeals} / {originalTotal} meals
           </span>
-          {isMismatch && disabledSkus.size > 0 && (
+          {isMismatch && disabledSkus.size > 0 && !readOnly && (
             <Button size="sm" variant="outline" onClick={handleAutoRedistribute} className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-100">
               Auto-redistribute
             </Button>
@@ -279,6 +284,7 @@ export default function PackBomDetail() {
                 defaultMultiplier={defaultMultiplier}
                 onToggle={() => toggleSku(sku)}
                 onMultiplierChange={(val) => setSkuMultiplier(sku, val)}
+                readOnly={readOnly}
               />
             ))}
           </tbody>
@@ -334,7 +340,7 @@ export default function PackBomDetail() {
       </AlertDialog>
 
       {/* Sticky save bar */}
-      {hasChanges && (
+      {hasChanges && !readOnly && (
         <div className="sticky bottom-0 bg-card border-t border-border px-6 py-3 -mx-6 flex items-center justify-between">
           <p className="text-xs text-muted-foreground">
             {disabledSkus.size > 0 && `${disabledSkus.size} meal${disabledSkus.size !== 1 ? 's' : ''} disabled`}

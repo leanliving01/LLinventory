@@ -43,6 +43,7 @@ export default function RecipeProductDetail() {
   const [activeTab, setActiveTab] = useState('recipe'); // 'recipe' | 'equipment'
   const [editedQtys, setEditedQtys] = useState({});
   const [editedSteps, setEditedSteps] = useState({});
+  const [editedActive, setEditedActive] = useState({}); // { [compId]: bool } — packing BOM "meal active" toggle
   const [bomEdits, setBomEdits] = useState({}); // { [bomId]: {yieldQty, yieldUom, chefNotes, notes, subcategory, files} }
   const [addModalBomId, setAddModalBomId] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
@@ -165,6 +166,7 @@ export default function RecipeProductDetail() {
   const hasUnsavedChanges =
     Object.keys(editedQtys).length > 0 ||
     Object.keys(editedSteps).length > 0 ||
+    Object.keys(editedActive).length > 0 ||
     Object.keys(bomEdits).length > 0 ||
     pendingLayerDeletes.size > 0;
 
@@ -175,8 +177,33 @@ export default function RecipeProductDetail() {
     queryClient.invalidateQueries({ queryKey: ['recipes-boms'] });
   };
 
+  // Editing a packing BOM's composition (a meal's qty or active state) changes the
+  // derived pack_boms explosion via the DB trigger — but already-placed orders keep
+  // their old exploded component lines until recomposed. Rebuild them + refresh
+  // committed stock so the floor pick-list and deduction reflect the change now.
+  const recomposePackage = async (packageSku) => {
+    if (!packageSku) return;
+    try {
+      const fnBase = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+      };
+      await fetch(`${fnBase}/recalc-demand`, { method: 'POST', headers, body: JSON.stringify({ force_package_sku: packageSku }) });
+      fetch(`${fnBase}/recalc-committed-stock`, { method: 'POST', headers, body: '{}' }).catch(() => {});
+      toast.success('Open orders recomposed — committed stock refreshing (≈1–2 min).');
+    } catch {
+      toast.error('Saved, but order recompose failed — it self-corrects on the next 15-min sync.');
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
+    // A packing-BOM composition change (meal qty or active toggle) must propagate
+    // to open orders after the save — capture before the edit maps are cleared.
+    const willRecompose = productClass === 'packing'
+      && (Object.keys(editedActive).length > 0 || Object.keys(editedQtys).length > 0);
     try {
       // Layers staged for deletion — any field/qty/step edits on them are moot.
       const deletingBomIds = new Set(pendingLayerDeletes);
@@ -204,6 +231,10 @@ export default function RecipeProductDetail() {
         if (deletingCompIds.has(compId)) continue;
         await base44.entities.BomComponent.update(compId, { step_no: stepNo || null });
       }
+      for (const [compId, isAct] of Object.entries(editedActive)) {
+        if (deletingCompIds.has(compId)) continue;
+        await base44.entities.BomComponent.update(compId, { is_active: !!isAct });
+      }
 
       // Commit staged layer deletions (the BOM + all its components and steps).
       const failedDeletes = [];
@@ -221,7 +252,7 @@ export default function RecipeProductDetail() {
         }
       }
 
-      setEditedQtys({}); setEditedSteps({}); setBomEdits({});
+      setEditedQtys({}); setEditedSteps({}); setEditedActive({}); setBomEdits({});
       setPendingLayerDeletes(new Set(failedDeletes)); // keep any that couldn't be deleted
       if (deletingCompIds.size) {
         setSelectedIds(prev => {
@@ -236,6 +267,8 @@ export default function RecipeProductDetail() {
       } else {
         toast.success('Recipe saved');
       }
+      // Propagate a packing-BOM composition change to already-placed orders.
+      if (willRecompose && !failedDeletes.length) await recomposePackage(product?.sku);
     } catch (err) {
       toast.error('Save failed: ' + (err.message || 'Unknown error'));
     } finally {
@@ -800,9 +833,18 @@ export default function RecipeProductDetail() {
                   <OperationsEditor bomId={bom.id} defaultStation={bom.bom_type} ingredientsByStep={ingredientsByStep} />
                 </div>
 
-                {/* Layer ingredients */}
+                {/* Layer ingredients — for packing BOMs these are the meals in the box,
+                    each with an Active switch (off = dropped from stock deduction). */}
+                {productClass === 'packing' && (
+                  <p className="text-[11px] text-muted-foreground -mb-1">
+                    Toggle a meal <strong>off</strong> to drop it from this pack’s stock deduction without
+                    deleting it. Quantity and active state here are the single source of truth — the pack
+                    composition syncs from this automatically.
+                  </p>
+                )}
                 <RecipeComponentTable
-                  title="Ingredients into this layer" icon={<Utensils className="w-4 h-4 text-primary" />}
+                  title={productClass === 'packing' ? 'Meals in this pack' : 'Ingredients into this layer'}
+                  icon={<Utensils className="w-4 h-4 text-primary" />}
                   components={ingredients}
                   loading={loadingComps}
                   editedQtys={editedQtys}
@@ -820,6 +862,9 @@ export default function RecipeProductDetail() {
                   selectedIds={selectedIds}
                   onToggleSelect={toggleSelect}
                   onToggleSelectAll={toggleSelectAll}
+                  showActive={productClass === 'packing'}
+                  activeEdits={editedActive}
+                  onActiveToggle={(id, next) => setEditedActive(prev => ({ ...prev, [id]: next }))}
                 />
 
                 {consumables.length > 0 && (

@@ -3,7 +3,7 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-export default function PackBomMealRow({ sku, productName, isDisabled, multiplier, defaultMultiplier, onToggle, onMultiplierChange }) {
+export default function PackBomMealRow({ sku, productName, isDisabled, multiplier, defaultMultiplier, onToggle, onMultiplierChange, readOnly = false }) {
   const isOverridden = !isDisabled && multiplier !== defaultMultiplier;
 
   return (
@@ -13,7 +13,7 @@ export default function PackBomMealRow({ sku, productName, isDisabled, multiplie
       isOverridden && !isDisabled && 'bg-amber-50/50 dark:bg-amber-900/10'
     )}>
       <td className="px-3 py-2.5 text-center">
-        <Switch checked={!isDisabled} onCheckedChange={onToggle} className="scale-90" />
+        <Switch checked={!isDisabled} onCheckedChange={onToggle} disabled={readOnly} className="scale-90" />
       </td>
       <td className="px-3 py-2.5 text-xs font-mono">
         <span className={isDisabled ? 'line-through text-muted-foreground' : ''}>{sku}</span>
@@ -24,6 +24,8 @@ export default function PackBomMealRow({ sku, productName, isDisabled, multiplie
       <td className="px-3 py-2 text-center">
         {isDisabled ? (
           <span className="text-xs text-muted-foreground">—</span>
+        ) : readOnly ? (
+          <span className="text-xs tabular-nums">{multiplier}</span>
         ) : (
           <Input
             type="number"

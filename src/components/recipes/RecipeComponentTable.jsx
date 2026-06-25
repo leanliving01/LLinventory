@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Plus, Trash2, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -26,6 +27,9 @@ const LAYER_COLORS = {
  *    another layer (BOM). If omitted, the layer shows as a read-only badge.
  *  - onStepChange(compId, stepNo): pin the ingredient to a specific step.
  *  - subRecipeProductIds / onOpenSubRecipe: open an in-house ingredient's recipe.
+ *  - showActive + activeEdits + onActiveToggle: render an "Active" switch per row
+ *    (packing BOMs only). Toggling a meal off removes it from the pack's stock
+ *    deduction (derives pack_boms.disabled_skus) without deleting the component.
  */
 export default function RecipeComponentTable({
   title, icon, components, loading, editedQtys, onQtyChange,
@@ -33,8 +37,10 @@ export default function RecipeComponentTable({
   showLayer = false, onLayerChange, availableLayers = [],
   subRecipeProductIds, onOpenSubRecipe,
   selectable = false, selectedIds, onToggleSelect, onToggleSelectAll,
+  showActive = false, activeEdits, onActiveToggle,
 }) {
   const opsFor = (c) => operationsByBom[c.bom_id] || [];
+  const isActive = (c) => activeEdits?.[c.id] ?? (c.is_active !== false);
   const anyHasSteps = !!onStepChange && Object.values(operationsByBom).some(ops => (ops || []).length > 0);
   const isSel = (id) => selectedIds?.has?.(id);
   const allSel = selectable && components.length > 0 && components.every(c => isSel(c.id));
@@ -71,6 +77,9 @@ export default function RecipeComponentTable({
                       onChange={() => onToggleSelectAll?.(components.map(c => c.id), !allSel)} />
                   </th>
                 )}
+                {showActive && (
+                  <th className="text-center px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-16">Active</th>
+                )}
                 {showLayer && (
                   <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Layer</th>
                 )}
@@ -97,13 +106,24 @@ export default function RecipeComponentTable({
                 const hasSteps = !!onStepChange && stepOptions.length > 0;
                 const isSubRecipe = subRecipeProductIds?.has(c.input_product_id);
                 const layer = c._layer;
+                const active = isActive(c);
 
                 return (
-                  <tr key={c.id} className={cn("hover:bg-muted/20", isChanged && "bg-amber-50 dark:bg-amber-900/10", isSel(c.id) && "bg-primary/5")}>
+                  <tr key={c.id} className={cn(
+                    "hover:bg-muted/20",
+                    isChanged && "bg-amber-50 dark:bg-amber-900/10",
+                    isSel(c.id) && "bg-primary/5",
+                    showActive && !active && "bg-red-50/40 dark:bg-red-900/10 opacity-60",
+                  )}>
                     {selectable && (
                       <td className="px-3 py-2">
                         <input type="checkbox" className="rounded w-4 h-4" checked={!!isSel(c.id)}
                           onChange={() => onToggleSelect?.(c.id)} />
+                      </td>
+                    )}
+                    {showActive && (
+                      <td className="px-3 py-2 text-center">
+                        <Switch checked={active} onCheckedChange={(v) => onActiveToggle?.(c.id, v)} className="scale-90" />
                       </td>
                     )}
                     {showLayer && (
@@ -126,9 +146,9 @@ export default function RecipeComponentTable({
                         )}
                       </td>
                     )}
-                    <td className="px-3 py-2 text-xs font-mono">{c.input_product_sku}</td>
+                    <td className={cn("px-3 py-2 text-xs font-mono", showActive && !active && "line-through text-muted-foreground")}>{c.input_product_sku}</td>
                     <td className="px-3 py-2 text-xs">
-                      <span className="inline-flex items-center gap-1.5">
+                      <span className={cn("inline-flex items-center gap-1.5", showActive && !active && "line-through text-muted-foreground")}>
                         {c.input_product_name}
                         {isSubRecipe && onOpenSubRecipe && (
                           <button
