@@ -65,14 +65,16 @@ Deno.serve(async (req) => {
         if (!l.sku) continue;
         const qty = Number(l.qty || 0);
 
-        if (l.is_package_parent) {
-          const bom = bomMap.get(l.sku);
-          if (bom) {
-            for (const compSku of bom.component_skus) {
-              if (bom.disabled_skus.has(compSku)) continue;
-              const mealQty = (bom.sku_overrides[compSku] ?? bom.multiplier) * qty;
-              committedBySku[compSku] = (committedBySku[compSku] || 0) + mealQty;
-            }
+        // Decompose based on a LIVE pack_boms lookup, not the is_package_parent
+        // flag. A package line imported before its pack_boms row existed (or never
+        // flagged) would otherwise commit the package SKU itself and leave its
+        // component meals at 0 committed. Mirrors deduct_fulfilled_stock's safety net.
+        const bom = bomMap.get(l.sku);
+        if (bom) {
+          for (const compSku of bom.component_skus) {
+            if (bom.disabled_skus.has(compSku)) continue;
+            const mealQty = (bom.sku_overrides[compSku] ?? bom.multiplier) * qty;
+            committedBySku[compSku] = (committedBySku[compSku] || 0) + mealQty;
           }
         } else {
           committedBySku[l.sku] = (committedBySku[l.sku] || 0) + qty;

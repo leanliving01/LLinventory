@@ -126,7 +126,10 @@ Deno.serve(async (req) => {
     const orderLines = linesByOrder.get(order.id) || [];
     const salesOrderId = salesOrderMap.get(order.shopify_order_id);
 
-    const counts = { mwl: 0, mlm: 0, wwl: 0, wlm: 0, lc: 0, byo: 0 };
+    // `other` catches every non-variant range (e.g. Winter Warmer WWR meals) so
+    // they're included in total_meals — previously they exploded for stock but
+    // were silently dropped from the dashboard totals.
+    const counts = { mwl: 0, mlm: 0, wwl: 0, wlm: 0, lc: 0, byo: 0, other: 0 };
 
     for (const line of orderLines) {
       const bom = bomMap.get(line.sku);
@@ -168,7 +171,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    const totalMeals = counts.mwl + counts.mlm + counts.wwl + counts.wlm + counts.lc + counts.byo;
+    const totalMeals = counts.mwl + counts.mlm + counts.wwl + counts.wlm + counts.lc + counts.byo + counts.other;
 
     shopifyUpdates.push({
       id: order.id,
@@ -179,6 +182,7 @@ Deno.serve(async (req) => {
         wlm_meals: counts.wlm,
         lc_meals: counts.lc,
         byo_meals: counts.byo,
+        other_meals: counts.other,
         total_meals: totalMeals,
         demand_calculated: true,
         updated_date: now,
