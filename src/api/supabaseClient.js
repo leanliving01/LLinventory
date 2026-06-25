@@ -417,6 +417,7 @@ export const base44 = {
         cin7Import:                  'cin7-import',
         cin7BomImport:               'cin7-bom-import',
         bulkSyncOrders:              'sync-shopify-orders',
+        bulkSyncProducts:            'sync-shopify-products',
         recalcCommittedDemand:       'recalc-demand',
         'recalc-demand':             'recalc-demand',
         'recalc-committed-stock':    'recalc-committed-stock',
