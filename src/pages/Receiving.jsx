@@ -133,22 +133,26 @@ export default function Receiving() {
       <div className="flex items-center gap-4 bg-card border border-border rounded-xl px-6 py-5">
         <div className="flex-1">
           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">Supplier (optional)</label>
-          <Select value={supplierId} onValueChange={setSupplierId}>
-            <SelectTrigger><SelectValue placeholder="Any supplier..." /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value={null}>Any supplier</SelectItem>
-              {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            value={supplierId}
+            onValueChange={setSupplierId}
+            options={[
+              { value: '', label: 'Any supplier' },
+              ...suppliers.map(s => ({ value: s.id, label: s.name })),
+            ]}
+            placeholder="Any supplier..."
+            searchPlaceholder="Search suppliers..."
+          />
         </div>
         <div className="flex-1">
           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">Receive Into *</label>
-          <Select value={locationId} onValueChange={setLocationId}>
-            <SelectTrigger><SelectValue placeholder="Select location..." /></SelectTrigger>
-            <SelectContent>
-              {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name} ({l.code})</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            value={locationId}
+            onValueChange={setLocationId}
+            options={locations.map(l => ({ value: l.id, label: `${l.name} (${l.code})` }))}
+            placeholder="Select location..."
+            searchPlaceholder="Search locations..."
+          />
         </div>
         {totalLineValue > 0 && (
           <div className="text-right">

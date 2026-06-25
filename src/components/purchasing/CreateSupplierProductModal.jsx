@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { X, Loader2, Link2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import UomSelect from '@/components/shared/UomSelect';
@@ -107,12 +107,14 @@ export default function CreateSupplierProductModal({ preselectedSupplierId, onCr
           {!preselectedSupplierId && (
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase">Supplier *</label>
-              <Select value={form.supplier_id} onValueChange={v => set('supplier_id', v)}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select supplier" /></SelectTrigger>
-                <SelectContent>
-                  {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={form.supplier_id}
+                onValueChange={v => set('supplier_id', v)}
+                options={suppliers.map(s => ({ value: s.id, label: s.name }))}
+                placeholder="Select supplier"
+                searchPlaceholder="Search suppliers..."
+                triggerClassName="mt-1"
+              />
             </div>
           )}
 

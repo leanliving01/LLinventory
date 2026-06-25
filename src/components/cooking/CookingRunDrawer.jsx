@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { X, Play, CheckCircle2, Loader2, Scale, AlertTriangle, Plus, Trash2, Clock, RotateCcw, CookingPot } from 'lucide-react';
 import { toast } from 'sonner';
 import WastageEventForm from './WastageEventForm';
@@ -258,12 +258,14 @@ export default function CookingRunDrawer({ run, onClose, onUpdated }) {
           {(canStart || isActive) && (
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase">Supplier</label>
-              <Select value={supplierId} onValueChange={setSupplierId}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select supplier..." /></SelectTrigger>
-                <SelectContent>
-                  {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={supplierId}
+                onValueChange={setSupplierId}
+                options={suppliers.map(s => ({ value: s.id, label: s.name }))}
+                placeholder="Select supplier..."
+                searchPlaceholder="Search suppliers..."
+                triggerClassName="mt-1"
+              />
             </div>
           )}
 

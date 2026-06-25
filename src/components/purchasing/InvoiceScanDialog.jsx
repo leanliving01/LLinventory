@@ -4,7 +4,6 @@ import { base44, supabase } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import {
   X, Upload, Loader2, ScanLine, CheckCircle2, AlertCircle, FileText,
@@ -334,12 +333,13 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">Supplier *</label>
-                  <Select value={header.supplier_id} onValueChange={v => setHeader(p => ({ ...p, supplier_id: v }))}>
-                    <SelectTrigger><SelectValue placeholder="Select supplier..." /></SelectTrigger>
-                    <SelectContent>
-                      {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    value={header.supplier_id}
+                    onValueChange={v => setHeader(p => ({ ...p, supplier_id: v }))}
+                    options={suppliers.map(s => ({ value: s.id, label: s.name }))}
+                    placeholder="Select supplier..."
+                    searchPlaceholder="Search suppliers..."
+                  />
                   {extracted.supplier_name && (
                     <p className="text-[10px] text-muted-foreground mt-1">Detected: {extracted.supplier_name}</p>
                   )}

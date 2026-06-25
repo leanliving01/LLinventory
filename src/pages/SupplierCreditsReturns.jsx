@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import {
   CreditCard, AlertTriangle, RotateCcw, CheckCircle2, XCircle,
   Loader2, FileText
@@ -204,17 +205,17 @@ export default function SupplierCreditsReturns() {
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
-        <Select value={supplierFilter} onValueChange={setSupplierFilter}>
-          <SelectTrigger className="w-52">
-            <SelectValue placeholder="All suppliers" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Suppliers</SelectItem>
-            {suppliers.map(s => (
-              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={supplierFilter}
+          onValueChange={setSupplierFilter}
+          options={[
+            { value: 'all', label: 'All Suppliers' },
+            ...suppliers.map(s => ({ value: s.id, label: s.name })),
+          ]}
+          placeholder="All suppliers"
+          searchPlaceholder="Search suppliers..."
+          triggerClassName="w-52"
+        />
 
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-48">

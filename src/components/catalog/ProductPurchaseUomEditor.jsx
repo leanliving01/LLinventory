@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { Plus, Trash2, Loader2, Pencil, Check, X as XIcon, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatZAR } from '@/lib/utils';
@@ -51,15 +51,16 @@ function UomForm({ row, onChange, activeSuppliers, stockUom, onSave, onCancel, s
       </div>
       <div className="space-y-1">
         <Label className="text-xs">Supplier *</Label>
-        <Select value={row.supplier_id || 'none'} onValueChange={v => onChange('supplier_id', v === 'none' ? '' : v)}>
-          <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">— Select supplier —</SelectItem>
-            {activeSuppliers.map(s => (
-              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={row.supplier_id || 'none'}
+          onValueChange={v => onChange('supplier_id', v === 'none' ? '' : v)}
+          options={[
+            { value: 'none', label: '— Select supplier —' },
+            ...activeSuppliers.map(s => ({ value: s.id, label: s.name })),
+          ]}
+          placeholder="Select supplier"
+          searchPlaceholder="Search suppliers..."
+        />
         {activeSuppliers.length === 0 && (
           <p className="text-[10px] text-amber-600">No active suppliers yet — add a supplier first.</p>
         )}

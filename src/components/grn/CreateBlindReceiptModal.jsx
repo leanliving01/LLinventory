@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { X, Plus, Trash2, Loader2, PackageCheck, AlertCircle, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -294,21 +293,25 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase">Supplier *</label>
-              <Select value={supplierId} onValueChange={v => { setSupplierId(v); setLines([{ product_id: '', qty: '', unit_cost: '', uom: '', supplier_product_id: '' }]); }}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select supplier..." /></SelectTrigger>
-                <SelectContent>
-                  {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={supplierId}
+                onValueChange={v => { setSupplierId(v); setLines([{ product_id: '', qty: '', unit_cost: '', uom: '', supplier_product_id: '' }]); }}
+                options={suppliers.map(s => ({ value: s.id, label: s.name }))}
+                placeholder="Select supplier..."
+                searchPlaceholder="Search suppliers..."
+                triggerClassName="mt-1"
+              />
             </div>
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase">Deliver To *</label>
-              <Select value={locationId} onValueChange={setLocationId}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select location..." /></SelectTrigger>
-                <SelectContent>
-                  {locations.map(l => <SelectItem key={l.id} value={l.id}>{l.name} ({l.code})</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={locationId}
+                onValueChange={setLocationId}
+                options={locations.map(l => ({ value: l.id, label: `${l.name} (${l.code})` }))}
+                placeholder="Select location..."
+                searchPlaceholder="Search locations..."
+                triggerClassName="mt-1"
+              />
             </div>
           </div>
 

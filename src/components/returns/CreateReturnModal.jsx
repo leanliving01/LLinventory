@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { X, Loader2, RotateCcw, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -196,12 +197,14 @@ export default function CreateReturnModal({ po = null, onCreated, onCancel }) {
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase">Supplier *</label>
-            <Select value={supplierId} onValueChange={v => { setSupplierId(v); setGrnId(''); setSelectedLines([]); setLinkedPoId(''); setLinkedInvoiceId(''); }}>
-              <SelectTrigger className="mt-1"><SelectValue placeholder="Select supplier" /></SelectTrigger>
-              <SelectContent>
-                {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={supplierId}
+              onValueChange={v => { setSupplierId(v); setGrnId(''); setSelectedLines([]); setLinkedPoId(''); setLinkedInvoiceId(''); }}
+              options={suppliers.map(s => ({ value: s.id, label: s.name }))}
+              placeholder="Select supplier"
+              searchPlaceholder="Search suppliers..."
+              triggerClassName="mt-1"
+            />
           </div>
 
           {confirmedGRNs.length > 0 && (

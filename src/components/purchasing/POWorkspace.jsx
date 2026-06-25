@@ -894,16 +894,13 @@ export default function POWorkspace() {
               {isViewOnly ? (
                 <p className="text-sm font-medium">{po?.supplier_name || '—'}</p>
               ) : (
-                <Select value={supplierId} onValueChange={setSupplierId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select supplier..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {suppliers.map(s => (
-                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={supplierId}
+                  onValueChange={setSupplierId}
+                  placeholder="Select supplier..."
+                  searchPlaceholder="Search suppliers..."
+                  options={suppliers.map(s => ({ value: s.id, label: s.name }))}
+                />
               )}
               {termsText && (
                 <p className="text-[10px] text-muted-foreground mt-1">Payment terms: {termsText}</p>

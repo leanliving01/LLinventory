@@ -2,6 +2,7 @@ import React from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { Search, X, CalendarIcon } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -26,17 +27,17 @@ export default function POFilters({ filters, onChange, suppliers = [] }) {
       </div>
 
       {/* Supplier */}
-      <Select value={filters.supplierId} onValueChange={v => update('supplierId', v)}>
-        <SelectTrigger className="w-[180px]">
-          <SelectValue placeholder="All suppliers" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All suppliers</SelectItem>
-          {suppliers.map(s => (
-            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <SearchableSelect
+        value={filters.supplierId}
+        onValueChange={v => update('supplierId', v)}
+        options={[
+          { value: 'all', label: 'All suppliers' },
+          ...suppliers.map(s => ({ value: s.id, label: s.name })),
+        ]}
+        placeholder="All suppliers"
+        searchPlaceholder="Search suppliers..."
+        triggerClassName="w-[180px]"
+      />
 
       {/* Date From */}
       <Popover>
