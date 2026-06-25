@@ -12,6 +12,14 @@ import { Plus, Check, X as XIcon } from 'lucide-react';
 import { useSubcategories } from '@/lib/useSubcategories';
 import WarehouseZoneSelect from '@/components/shared/WarehouseZoneSelect';
 
+// Compact "21 May 2026" formatter for the cost "last updated" badges.
+const fmtCostDate = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
 const PRODUCT_TYPES = [
   { value: 'raw', label: 'Raw Material' },
   { value: 'packaging', label: 'Packaging' },
@@ -325,7 +333,16 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               <div className="flex-1 h-9 px-3 flex items-center rounded-md border border-border bg-muted/40 text-sm text-muted-foreground font-mono">
                 {formData.cost_current != null ? Number(formData.cost_current).toFixed(4) : '—'}
               </div>
-              <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">AUTO</span>
+              {fmtCostDate(formData.cost_current_updated_at) ? (
+                <span
+                  className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded whitespace-nowrap"
+                  title="When the current cost was last updated"
+                >
+                  {fmtCostDate(formData.cost_current_updated_at)}
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">AUTO</span>
+              )}
             </div>
           </FormField>
           {/* Weighted avg cost — read-only */}
@@ -334,7 +351,16 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               <div className="flex-1 h-9 px-3 flex items-center rounded-md border border-border bg-muted/40 text-sm text-muted-foreground font-mono">
                 {formData.cost_avg != null ? Number(formData.cost_avg).toFixed(4) : '—'}
               </div>
-              <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">AUTO</span>
+              {fmtCostDate(formData.cost_avg_updated_at) ? (
+                <span
+                  className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded whitespace-nowrap"
+                  title="When the weighted-average cost was last updated"
+                >
+                  {fmtCostDate(formData.cost_avg_updated_at)}
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">AUTO</span>
+              )}
             </div>
           </FormField>
         </div>

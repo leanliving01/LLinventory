@@ -108,7 +108,15 @@ Deno.serve(async (req) => {
       const batch = changes.slice(i, i + BATCH);
       await Promise.all(
         batch.map(({ id, newCost }) =>
-          supabase.from('products').update({ cost_avg: newCost, updated_date: now }).eq('id', id)
+          supabase.from('products').update({
+            cost_avg: newCost,
+            // Manufactured items have no GRN receipt, so their "current cost"
+            // mirrors the freshly rolled weighted-average cost.
+            cost_current: newCost,
+            cost_avg_updated_at: now,
+            cost_current_updated_at: now,
+            updated_date: now,
+          }).eq('id', id)
         )
       );
     }

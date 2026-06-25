@@ -4,6 +4,19 @@ import { upsertShortage, reconcileAwaitShortages } from '@/lib/shortageEngine';
 import { toast } from 'sonner';
 
 /**
+ * Re-roll BOM costs after a receipt so every finished meal / bulk / pack that
+ * consumes a just-received raw material immediately reflects the new price.
+ * Non-fatal: a roll-up failure must never block a GRN confirmation.
+ */
+async function triggerCostRollup() {
+  try {
+    await base44.functions.invoke('costRollup', {});
+  } catch (err) {
+    console.warn('[GRNConfirmLogic] Cost roll-up after receipt failed (non-fatal):', err?.message);
+  }
+}
+
+/**
  * Pre-flight validation for GRN confirmation.
  * Returns an array of error messages. An empty array means validation passed.
  * No DB writes happen here — safe to call before confirmGRN.
@@ -167,6 +180,7 @@ export async function confirmGRN(grn, lines, userName) {
     }
 
     // 4. FIFO: create a cost layer. Weighted average: update cost_avg from RPC result.
+    const nowIso = new Date().toISOString();
     if (product.costing_method === 'fifo') {
       try {
         await base44.entities.CostLayer.create({
@@ -183,6 +197,7 @@ export async function confirmGRN(grn, lines, userName) {
       }
       await base44.entities.Product.update(product.id, {
         cost_current: Math.round(costPerStockUnit * 100) / 100,
+        cost_current_updated_at: nowIso,
       });
     } else {
       // cost_current always reflects the latest receipt price (useful for price-creep tracking).
@@ -191,6 +206,8 @@ export async function confirmGRN(grn, lines, userName) {
       await base44.entities.Product.update(product.id, {
         cost_avg: Math.round(newCostAvg * 10000) / 10000,
         cost_current: Math.round(costPerStockUnit * 100) / 100,
+        cost_avg_updated_at: nowIso,
+        cost_current_updated_at: nowIso,
       });
     }
   }
@@ -302,6 +319,9 @@ export async function confirmGRN(grn, lines, userName) {
   if (grn.purchase_order_id) {
     try { await reconcileAwaitShortages(grn.purchase_order_id); } catch (_) {}
   }
+
+  // Re-cost every BOM that consumes a just-received raw material.
+  await triggerCostRollup();
 
   return { success: true, totalValue, lineCount: persistedLines.length, hasShortages, hasRejections };
 }
@@ -430,6 +450,9 @@ export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, u
   if (grn.purchase_order_id) {
     try { await reconcileAwaitShortages(grn.purchase_order_id); } catch (_) {}
   }
+
+  // Re-cost every BOM that consumes a just-received raw material.
+  await triggerCostRollup();
 
   return { success: true, totalValue, lineCount: persistedLines.length, hasShortages, hasRejections };
 }
