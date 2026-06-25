@@ -2,7 +2,8 @@ import React, { useMemo } from 'react';
 import { formatZAR } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import TruncatedCell from '@/components/ui/TruncatedCell';
-import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory, hexToRgba } from '@/lib/productClassification';
+import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory, hexToRgba, makeSubcategorySorter } from '@/lib/productClassification';
+import { compareNatural } from '@/lib/naturalSort';
 import { useSubcategories } from '@/lib/useSubcategories';
 
 const fmtQty = (n) => {
@@ -80,7 +81,7 @@ export default function StockCountVarianceTable({
             const subMap = grouped.cats[cat];
             const catLabel = CATEGORY_LABELS[cat] || cat;
             return Object.entries(subMap)
-              .sort(([a], [b]) => a.localeCompare(b))
+              .sort(([a], [b]) => makeSubcategorySorter(cat)(a, b))
               .map(([sub, subRows], subIdx) => [
                 /* Category header — only on the first subcategory of each category */
                 subIdx === 0 && (
@@ -114,8 +115,8 @@ export default function StockCountVarianceTable({
                     </tr>
                   );
                 })(),
-                /* Product rows */
-                ...subRows.map(r => {
+                /* Product rows — natural SKU order (MLM1, MLM2 … MLM10, MLM15) */
+                ...[...subRows].sort((a, b) => compareNatural(a.product_sku, b.product_sku)).map(r => {
                   const pending = r._variance == null;
                   const negative = !pending && r._variance < 0;
                   const positive = !pending && r._variance > 0;

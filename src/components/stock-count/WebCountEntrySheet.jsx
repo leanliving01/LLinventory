@@ -8,7 +8,8 @@ import { Save, CheckCircle2, Search, Plus, ChevronDown, ChevronRight, ChevronsDo
 import { toast } from 'sonner';
 import { saveFloorCounts, completeFloorCount, addCountLine, convertedFromLine, buildUomOptions, STOCK_UOM_KEY } from '@/lib/stockCount';
 import { useAutoSave } from '@/lib/useAutoSave';
-import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory, hexToRgba } from '@/lib/productClassification';
+import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory, hexToRgba, makeSubcategorySorter } from '@/lib/productClassification';
+import { compareNatural } from '@/lib/naturalSort';
 import { useSubcategories } from '@/lib/useSubcategories';
 import { cn } from '@/lib/utils';
 
@@ -304,7 +305,7 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
             </button>
 
             {!catCollapsed && Object.entries(subMap)
-              .sort(([a], [b]) => a.localeCompare(b))
+              .sort(([a], [b]) => makeSubcategorySorter(cat)(a, b))
               .map(([sub, productMap]) => {
                 const subKey = `${cat}::${sub}`;
                 const subCollapsed = collapsed[subKey];
@@ -326,7 +327,7 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
                     </button>
 
                     {!subCollapsed && Object.entries(productMap)
-                      .sort(([, aLines], [, bLines]) => (aLines[0]?.product_sku || '').localeCompare(bLines[0]?.product_sku || ''))
+                      .sort(([, aLines], [, bLines]) => compareNatural(aLines[0]?.product_sku, bLines[0]?.product_sku))
                       .map(([pname, plines]) => {
                         // For products that appear in multiple locations, show ONE row using
                         // the line at the product's default location (or highest system qty).

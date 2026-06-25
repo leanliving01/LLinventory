@@ -1,5 +1,6 @@
 import { base44 } from '@/api/base44Client';
 import { nextDocNumber } from '@/lib/docNumbering';
+import { resolveSubcategory } from '@/lib/productClassification';
 
 // Reviewed stock-count workflow (Build 1).
 // Floor counts NEVER touch stock-on-hand — they are reviewed and posted from the web.
@@ -127,48 +128,95 @@ async function createCount({ location, locationScopeIds, date, countType, status
   const products = await base44.entities.Product.filter({ status: 'active' }, 'name', 5000);
   const productById = Object.fromEntries(products.map(p => [p.id, p]));
 
-  // Build candidates.
-  // Category-only scope: one line per product at its default_location_id — prevents a product
-  // with incidental SOH in 4 locations from generating 4 count lines when counting by category.
-  // Falls back to the row with the highest qty if no default location is set on the product.
-  // Location scope: one line per product+location (existing behaviour, keeps every zone).
+  // Does a product belong in this count? Category matches product.type; the
+  // optional subcategory filter matches the SAME resolved subcategory the count
+  // screens group by (resolveSubcategory) — NOT the raw column — so a legacy /
+  // auto-classified meal (e.g. "Smart Carb" → "Low Carb Meals") is never dropped.
+  const matchesScope = (product) => {
+    if (!product) return false;
+    if (NON_COUNTABLE_TYPES.has(product.type)) return false;
+    if (cat && product.type !== cat) return false;
+    if (subCats && !subCats.includes(resolveSubcategory(product))) return false;
+    return true;
+  };
+
+  // Location-name lookup harvested from the SOH rows we already loaded, so a
+  // synthesised zero-stock line can still carry a readable location name.
+  const locNameById = {};
+  sohRows.forEach(s => { if (s.location_id && s.location_name) locNameById[s.location_id] = s.location_name; });
+
+  // A stand-in SOH row for a product that has NO stock-on-hand record yet, so the
+  // line-creation mapping below treats it like any other candidate (qty 0). This
+  // is what makes zero-stock meals show up to be counted (and confirmed at 0).
+  const syntheticSoh = (product, locId) => ({
+    product_id: product.id,
+    product_sku: product.sku || '',
+    product_name: product.name || '',
+    location_id: locId || null,
+    location_name: (locId && locNameById[locId]) || '',
+    qty_on_hand: 0,
+    uom: product.stock_uom || 'pcs',
+  });
+
+  // Build candidates. Every active product matching the category/subcategory is
+  // seeded — INCLUDING zero-stock products — so the floor sees the full range.
   const seen = new Set();
   const candidates = [];
 
   if (!location) {
-    // Category-only: group SOH rows by product, then pick one authoritative row per product.
+    // Category(/subcategory)-only across all locations: one line per matching
+    // product. Products with stock pick an authoritative SOH row (default
+    // location, else highest qty); zero-stock products fall back to their
+    // default location so they still appear.
     const sohByProduct = {};
     for (const soh of sohRows) {
       if (!soh.product_id || !soh.location_id) continue;
-      const product = productById[soh.product_id];
-      if (NON_COUNTABLE_TYPES.has(product?.type)) continue;
-      if (cat && product?.type !== cat) continue;
-      if (subCats && !subCats.includes((product?.subcategory || '').trim())) continue;
-      if (!sohByProduct[soh.product_id]) sohByProduct[soh.product_id] = [];
-      sohByProduct[soh.product_id].push(soh);
+      if (!matchesScope(productById[soh.product_id])) continue;
+      (sohByProduct[soh.product_id] ||= []).push(soh);
     }
-    for (const [pid, rows] of Object.entries(sohByProduct)) {
-      if (seen.has(pid)) continue;
-      seen.add(pid);
-      const product = productById[pid];
-      const defaultLocId = product?.default_location_id;
-      const pick = (defaultLocId && rows.find(s => s.location_id === defaultLocId))
-                   || rows.reduce((best, s) =>
-                     (Number(s.qty_on_hand) || 0) >= (Number(best.qty_on_hand) || 0) ? s : best, rows[0]);
-      candidates.push({ soh: pick, product });
+    for (const product of products) {
+      if (!matchesScope(product) || seen.has(product.id)) continue;
+      seen.add(product.id);
+      const rows = sohByProduct[product.id];
+      if (rows && rows.length) {
+        const defaultLocId = product.default_location_id;
+        const pick = (defaultLocId && rows.find(s => s.location_id === defaultLocId))
+                     || rows.reduce((best, s) =>
+                       (Number(s.qty_on_hand) || 0) >= (Number(best.qty_on_hand) || 0) ? s : best, rows[0]);
+        candidates.push({ soh: pick, product });
+      } else {
+        candidates.push({ soh: syntheticSoh(product, product.default_location_id), product });
+      }
     }
   } else {
-    // Location (or location+category): one line per product+location.
+    // Location (or location+category): one line per product+location with stock,
+    // PLUS a zero line for any matching product that belongs to this location
+    // (by default location) but has no stock-on-hand row there yet.
+    const scopeIds = locationScopeIds && locationScopeIds.length > 0 ? locationScopeIds : [location.id];
+    const scopeSet = new Set(scopeIds);
+    const productsWithStock = new Set();
     for (const soh of sohRows) {
       if (!soh.product_id || !soh.location_id) continue;
       const key = `${soh.product_id}_${soh.location_id}`;
       if (seen.has(key)) continue;
-      const product = productById[soh.product_id];
-      if (NON_COUNTABLE_TYPES.has(product?.type)) continue;
-      if (cat && product?.type !== cat) continue;
-      if (subCats && !subCats.includes((product?.subcategory || '').trim())) continue;
+      if (!matchesScope(productById[soh.product_id])) continue;
       seen.add(key);
-      candidates.push({ soh, product });
+      productsWithStock.add(soh.product_id);
+      candidates.push({ soh, product: productById[soh.product_id] });
+    }
+    for (const product of products) {
+      if (!matchesScope(product) || productsWithStock.has(product.id)) continue;
+      // Seat the zero line on the product's default location when it falls in
+      // scope, else the single target location (only meaningful for an unzoned
+      // warehouse). Products that belong to another location are left out.
+      const defLoc = product.default_location_id;
+      const loc = (defLoc && scopeSet.has(defLoc)) ? defLoc
+                : (scopeSet.has(location.id) ? location.id : null);
+      if (!loc) continue;
+      const key = `${product.id}_${loc}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      candidates.push({ soh: syntheticSoh(product, loc), product });
     }
   }
 

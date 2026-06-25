@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory, hexToRgba } from '@/lib/productClassification';
+import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory, hexToRgba, makeSubcategorySorter } from '@/lib/productClassification';
+import { compareNatural } from '@/lib/naturalSort';
 import { useSubcategories } from '@/lib/useSubcategories';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -315,7 +316,7 @@ export default function FloorCountSession({ count, onBack }) {
                   </Badge>
                 </button>
                 {isCatOpen && Object.entries(subMap)
-                  .sort(([a], [b]) => a.localeCompare(b))
+                  .sort(([a], [b]) => makeSubcategorySorter(cat)(a, b))
                   .map(([sub, productMap]) => {
                     const subKey = `${cat}::${sub}`;
                     const isSubOpen = !collapsed[subKey];
@@ -343,7 +344,7 @@ export default function FloorCountSession({ count, onBack }) {
                           <div className="divide-y divide-border">
                             {Object.entries(productMap)
                               .sort(([, aLines], [, bLines]) =>
-                                (aLines[0]?.product_sku || '').localeCompare(bLines[0]?.product_sku || ''))
+                                compareNatural(aLines[0]?.product_sku, bLines[0]?.product_sku))
                               .map(([, plines]) => plines.map(l => (
                                 <FloorCountLineRow
                                   key={l.id}
