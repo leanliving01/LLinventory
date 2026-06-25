@@ -1,6 +1,7 @@
 import React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Users, Database, Building2, Bell, Ruler, Package, UserCog, FolderTree, ShoppingBag, RefreshCw, Calculator, ShieldCheck } from 'lucide-react';
+import { Users, Database, Building2, Bell, Ruler, Package, UserCog, FolderTree, ShoppingBag, RefreshCw, Calculator, ShieldCheck, Smartphone, Download } from 'lucide-react';
+import { LATEST_APK_URL, REQUIRED_NATIVE_BUILD } from '@/config/nativeApp';
 import SettingsOrgTab from '@/components/settings/SettingsOrgTab';
 import SettingsSyncTab from '@/components/settings/SettingsSyncTab';
 import SettingsAccountingTab from '@/components/settings/SettingsAccountingTab';
@@ -27,6 +28,33 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold text-foreground">Settings</h1>
         <p className="text-sm text-muted-foreground mt-0.5">System configuration, integrations, and data import</p>
       </div>
+
+      {/* Android App download */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-border flex items-center gap-2">
+          <Smartphone className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Android App (Floor Tablet)</h3>
+        </div>
+        <div className="p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Download the Android app (APK)</p>
+            <p className="text-xs text-muted-foreground max-w-md">
+              Install the native app on your floor tablet instead of using the web version.
+              Open this page on the tablet and tap Download, or send the link to the device.
+            </p>
+            <p className="text-xs text-muted-foreground">Build {REQUIRED_NATIVE_BUILD}</p>
+          </div>
+          <a
+            href={LATEST_APK_URL}
+            download
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition shrink-0"
+          >
+            <Download className="w-4 h-4" />
+            Download APK
+          </a>
+        </div>
+      </div>
+
       <Tabs defaultValue="org">
         <TabsList>
           <TabsTrigger value="org" className="gap-1.5"><Building2 className="w-3.5 h-3.5" />Organisation</TabsTrigger>
