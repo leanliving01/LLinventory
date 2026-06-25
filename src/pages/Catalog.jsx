@@ -21,22 +21,26 @@ import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import { compareNatural } from '@/lib/naturalSort';
+import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
 
 export default function Catalog() {
-  const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('raw');
+  // UI/filter state is persisted for the session so that opening a product and
+  // pressing "back" returns to the exact view (active tab, search, expanded
+  // groups, scroll position) instead of resetting to the Raw Material default.
+  const [search, setSearch] = usePersistentState('catalog:search', '');
+  const [typeFilter, setTypeFilter] = usePersistentState('catalog:typeFilter', 'raw');
   // Normal view shows ACTIVE products only. Archived (inactive) products never
   // appear in the list/search/filters — they are reachable only by toggling the
   // Archive view on. `statusFilter` is derived from this so all the existing
   // filtering logic keeps working.
-  const [showArchive, setShowArchive] = useState(false);
+  const [showArchive, setShowArchive] = usePersistentState('catalog:showArchive', false);
   const statusFilter = showArchive ? 'archived' : 'active';
-  const [sellableFilter, setSellableFilter] = useState('all');
-  const [purchasableFilter, setPurchasableFilter] = useState('all');
-  const [inventoryFilter, setInventoryFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('name_asc');
+  const [sellableFilter, setSellableFilter] = usePersistentState('catalog:sellableFilter', 'all');
+  const [purchasableFilter, setPurchasableFilter] = usePersistentState('catalog:purchasableFilter', 'all');
+  const [inventoryFilter, setInventoryFilter] = usePersistentState('catalog:inventoryFilter', 'all');
+  const [sortBy, setSortBy] = usePersistentState('catalog:sortBy', 'name_asc');
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('catalog_view_mode') || 'grouped');
-  const [expanded, setExpanded] = useState({});
+  const [expanded, setExpanded] = usePersistentState('catalog:expanded', {});
   const navigate = useNavigate();
   const { user } = useAuth();
   const customRoles = useCustomRoles();
@@ -59,6 +63,9 @@ export default function Catalog() {
     queryKey: ['catalog-products'],
     queryFn: () => base44.entities.Product.list('-created_date', 500),
   });
+
+  // Restore the scroll position once the list has rendered (back-from-detail).
+  useScrollRestoration('catalog:scroll', !isLoading);
 
   const { data: stockRecords = [] } = useQuery({
     queryKey: ['stock-on-hand'],
