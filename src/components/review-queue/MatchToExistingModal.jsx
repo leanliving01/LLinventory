@@ -64,7 +64,7 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
 
   // Read the supplier's invoice PDF and pre-fill the purchasing unit from it
   // (UoM + description + unit price → conversion + cost). Needs the stored PDF
-  // (Settings → Fetch Xero documents) and the Gemini key for extraction.
+  // (Settings → Fetch Xero documents) and the OpenAI key for extraction.
   // `silent` (auto-run on open) records the failure reason instead of toasting.
   const runAnalyze = async ({ silent = false } = {}) => {
     if (!picked) { if (!silent) toast.error('Pick a product first'); return; }

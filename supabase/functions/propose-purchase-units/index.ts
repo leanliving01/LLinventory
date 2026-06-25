@@ -1,16 +1,16 @@
-// AI purchasing-unit recovery — RULES-FIRST, Gemini only for the leftovers.
+// AI purchasing-unit recovery — RULES-FIRST, OpenAI only for the leftovers.
 //
 // For each active raw/supplement/packaging supplier_product:
 //   1. Deterministic parser reads the stated pack (purchase_uom_label, product
 //      name, and recent invoice-line descriptions) and converts it into the
 //      product's stock_uom to get the correct conversion_factor. This is exact
 //      and free, and handles the bulk (e.g. "1kg" + grams stock -> 1000).
-//   2. Only when the rules find NO pack at all do we call Gemini (batched) with
-//      the same text evidence. (Skipped automatically if GEMINI_API_KEY is unset
+//   2. Only when the rules find NO pack at all do we call OpenAI (batched) with
+//      the same text evidence. (Skipped automatically if OPENAI_API_KEY is unset
 //      — the function still runs rules-only.)
 //
 // Unambiguous gram/ml "missing ×factor" errors auto-apply; kg/L packs, label↔name
-// conflicts and low-confidence Gemini results go to purchase_unit_proposals as
+// conflicts and low-confidence AI results go to purchase_unit_proposals as
 // 'pending' for review. Idempotent via supplier_products.purchase_unit_checked_at.
 
 import { getSupabase, corsHeaders, json } from '../_shared/xero.ts';
@@ -20,8 +20,8 @@ const FN_NAME = 'propose-purchase-units';
 const DEFAULT_BATCH = 15;
 const DEFAULT_THRESHOLD = 0.85;
 const SCOPE_TYPES = ['raw', 'supplement', 'packaging'];
-const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+const OPENAI_MODEL = 'gpt-4.1';
 const VALID_STOCK = new Set(['g', 'kg', 'ml', 'l', 'pcs']);
 
 const MASS: Record<string, number> = { kg: 1000, kgs: 1000, g: 1, gr: 1, gram: 1, grams: 1, kilo: 1000, kilogram: 1000 };
@@ -120,7 +120,7 @@ Deno.serve(async (req) => {
 
   // ── Pass 1: deterministic rules ───────────────────────────────────────────
   let autoApplied = 0, pending = 0;
-  const needGemini: any[] = [];
+  const needAI: any[] = [];
   for (const sp of inScope) {
     const prod = prodById.get(sp.product_id);
     const su = (prod?.stock_uom || '').trim();
@@ -135,7 +135,7 @@ Deno.serve(async (req) => {
     for (const d of (evidence.get(sp.id) || [])) { invC = convFromText(d, su); if (invC) break; }
     const cands = [labelC, nameC, invC].filter((c): c is number => !!c);
 
-    if (cands.length === 0) { needGemini.push({ sp, su, cur }); continue; }
+    if (cands.length === 0) { needAI.push({ sp, su, cur }); continue; }
 
     const newc = labelC ?? nameC ?? invC!;
     const conflict = labelC && nameC && Math.abs(labelC - nameC) > Math.max(0.01 * Math.max(labelC, nameC), 0.01);
@@ -146,15 +146,15 @@ Deno.serve(async (req) => {
     else { await writeProposal(supabase, sp, su, cur, newc, 'pending', conflict ? 0.55 : 0.6, conflict ? 'label/name conflict — verify pack' : 'kg/L or ambiguous — confirm pack', now); pending++; }
   }
 
-  // ── Pass 2: Gemini for records with no parsable pack in any field ──────────
-  if (needGemini.length && GEMINI_API_KEY) {
+  // ── Pass 2: OpenAI for records with no parsable pack in any field ──────────
+  if (needAI.length && OPENAI_API_KEY) {
     let proposals: Record<string, any> = {};
-    try { proposals = await askGemini(needGemini.map(x => ({
+    try { proposals = await askOpenAI(needAI.map(x => ({
       id: x.sp.id, product_name: prodById.get(x.sp.product_id)?.name || x.sp.product_name,
       stock_uom: x.su, supplier_name: x.sp.supplier_name, current_label: x.sp.purchase_uom_label,
       invoice_examples: evidence.get(x.sp.id) || [],
-    }))); } catch (e) { console.error('[propose-purchase-units] gemini:', e); }
-    for (const x of needGemini) {
+    }))); } catch (e) { console.error('[propose-purchase-units] openai:', e); }
+    for (const x of needAI) {
       const p = proposals[x.sp.id];
       const newc = p ? Number(p.conversion_factor) : NaN;
       if (!p || !Number.isFinite(newc) || newc <= 0 || Math.abs(x.cur - newc) <= Math.max(0.001 * newc, 0.001)) {
@@ -162,11 +162,11 @@ Deno.serve(async (req) => {
       }
       const conf = Number(p.confidence) || 0;
       const auto = conf >= threshold && ['g', 'ml'].includes(x.su.toLowerCase()) && newc >= 50 && x.cur < newc / 5;
-      if (auto) { await applyFix(supabase, x.sp, x.su, newc, now, p.reasoning || 'gemini'); autoApplied++; }
-      else { await writeProposal(supabase, x.sp, x.su, x.cur, newc, 'pending', conf, p.reasoning || 'gemini proposal', now); pending++; }
+      if (auto) { await applyFix(supabase, x.sp, x.su, newc, now, p.reasoning || 'openai'); autoApplied++; }
+      else { await writeProposal(supabase, x.sp, x.su, x.cur, newc, 'pending', conf, p.reasoning || 'openai proposal', now); pending++; }
     }
   } else {
-    for (const x of needGemini) {
+    for (const x of needAI) {
       await writeProposal(supabase, x.sp, x.su, x.cur, null, 'pending', 0, 'no pack in fields — add a label or attach an invoice', now);
     }
   }
@@ -179,7 +179,7 @@ Deno.serve(async (req) => {
   const hasMore = (remaining || 0) > 0;
   if (hasMore) chainNext(FN_NAME, { batchSize, threshold }, 2);
 
-  return json({ status: hasMore ? 'running' : 'completed', processed: sps.length, inScope: inScope.length, autoApplied, pending, geminiUsed: needGemini.length && !!GEMINI_API_KEY, remaining: remaining || 0, hasMore });
+  return json({ status: hasMore ? 'running' : 'completed', processed: sps.length, inScope: inScope.length, autoApplied, pending, aiUsed: needAI.length && !!OPENAI_API_KEY, remaining: remaining || 0, hasMore });
 });
 
 async function applyFix(supabase: any, sp: any, su: string, newc: number, now: string, reason: string) {
@@ -204,22 +204,28 @@ async function markChecked(supabase: any, id: string, now: string) {
   await supabase.from('supplier_products').update({ purchase_unit_checked_at: now }).eq('id', id);
 }
 
-async function askGemini(items: any[]): Promise<Record<string, any>> {
+async function askOpenAI(items: any[]): Promise<Record<string, any>> {
   const prompt = `You determine the purchasing unit of measure for inventory products from invoice evidence.
 For EACH item return how it is bought. "conversion_factor" = how many of the product's stock_uom are in ONE purchase unit (e.g. 1kg pack + stock_uom g -> 1000; 5kg bag + g -> 5000; 400ml + ml -> 400; per kg + kg -> 1).
 Use the current_label, product_name and invoice_examples to find the pack size.
 confidence 0..1: >=0.85 only when the pack is explicit; lower when guessing.
-Return ONLY a JSON array: [{"id","conversion_factor","purchase_uom","confidence","reasoning"}]
+Return ONLY a JSON object of the form {"items":[{"id","conversion_factor","purchase_uom","confidence","reasoning"}]}.
 Items:
 ${JSON.stringify(items)}`;
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0, maxOutputTokens: 4000, responseMimeType: 'application/json' } }),
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: OPENAI_MODEL, temperature: 0, max_tokens: 4000,
+      response_format: { type: 'json_object' },
+      messages: [{ role: 'user', content: prompt }],
+    }),
   });
-  if (!res.ok) throw new Error(`Gemini ${res.status}`);
+  if (!res.ok) throw new Error(`OpenAI ${res.status}`);
   const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-  const arr = JSON.parse(raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim());
+  const raw = data?.choices?.[0]?.message?.content || '{}';
+  const parsed = JSON.parse(raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim());
+  const arr = Array.isArray(parsed) ? parsed : (parsed?.items || []);
   const out: Record<string, any> = {};
   for (const p of (Array.isArray(arr) ? arr : [])) if (p?.id) out[p.id] = p;
   return out;

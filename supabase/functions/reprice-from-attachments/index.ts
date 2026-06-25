@@ -1,6 +1,6 @@
 // Recover correct per-line quantities and unit prices from the archived supplier
 // PDF, for invoices whose lines were collapsed at the source (typically Xero
-// bills booked as "1 × line-total"). Reads each stored PDF through Gemini (same
+// bills booked as "1 × line-total"). Reads each stored PDF through OpenAI (same
 // logic as the live scanner), matches the extracted lines to our invoice lines
 // by description / item code, and corrects qty + unit_cost + unit while keeping
 // line_total (so the invoice total never changes).
@@ -18,7 +18,7 @@ import { extractInvoiceData, bytesToBase64, num } from '../_shared/invoice-extra
 
 const FN_NAME = 'reprice-from-attachments';
 const BUCKET = 'purchase-documents';
-const DEFAULT_BATCH = 4;          // Gemini call per invoice — keep batches small
+const DEFAULT_BATCH = 4;          // OpenAI call per invoice — keep batches small
 const MIN_CONFIDENCE = 0.5;       // token-overlap threshold to auto-apply
 
 const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');

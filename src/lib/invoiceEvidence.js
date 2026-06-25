@@ -59,7 +59,7 @@ export async function analyzeInvoiceLine({ invoiceId, line, stockUom }) {
   const res = await base44.functions.invoke('scan-invoice', { fileBase64, mimeType: att.mime_type || 'application/pdf' });
   const payload = res?.data?.data || res?.data;
   const err = res?.data?.error || payload?.error;
-  if (err) return { ok: false, reason: String(err).includes('GEMINI') ? 'no-key' : String(err) };
+  if (err) return { ok: false, reason: String(err).includes('OPENAI') ? 'no-key' : String(err) };
 
   const exLines = payload?.lines || [];
   if (!exLines.length) return { ok: false, reason: 'no-lines' };
@@ -98,7 +98,7 @@ export async function analyzeInvoiceLine({ invoiceId, line, stockUom }) {
 export const EVIDENCE_REASONS = {
   'no-invoice': 'No invoice linked to this line.',
   'no-pdf': 'No invoice PDF stored yet — run Settings → Fetch Xero documents.',
-  'no-key': 'Add the Gemini API key to enable AI analysis.',
+  'no-key': 'Add the OpenAI API key to enable AI analysis.',
   'no-lines': 'No lines could be read from the invoice PDF.',
   'no-match': 'Could not find this line in the invoice PDF.',
 };

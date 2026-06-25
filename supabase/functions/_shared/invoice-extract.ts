@@ -1,11 +1,11 @@
-// Shared supplier-invoice extraction: send a PDF/image to Gemini, parse the
+// Shared supplier-invoice extraction: send a PDF/image to OpenAI, parse the
 // line items, and reconcile each line's arithmetic so the per-unit price is the
 // true unit price (line_total ÷ qty), not the line total. Used by both
 // scan-invoice (live native scans) and reprice-from-attachments (backfill from
 // Xero-attached PDFs).
 
-const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+const OPENAI_MODEL = 'gpt-4.1'; // vision-capable, large context — matches ai-chat
 
 export const EXTRACT_PROMPT = `You are an invoice data extraction assistant. Extract the invoice data from the attached document and return it as a single JSON object with this exact structure:
 
@@ -100,54 +100,56 @@ export interface ExtractResult {
 }
 
 /**
- * Run a base64-encoded invoice file through Gemini and return reconciled data.
+ * Run a base64-encoded invoice file through OpenAI and return reconciled data.
  * Never throws — returns { error } on failure.
  */
 export async function extractInvoiceData(fileBase64: string, mimeType: string): Promise<ExtractResult> {
-  if (!GEMINI_API_KEY) {
-    return { error: 'GEMINI_API_KEY not configured', status: 500 };
+  if (!OPENAI_API_KEY) {
+    return { error: 'OPENAI_API_KEY not configured', status: 500 };
   }
 
-  let geminiRes: Response;
+  // OpenAI takes images as an image_url data-URL and PDFs as a `file` part.
+  const dataUrl = `data:${mimeType};base64,${fileBase64}`;
+  const filePart = mimeType === 'application/pdf'
+    ? { type: 'file', file: { filename: 'invoice.pdf', file_data: dataUrl } }
+    : { type: 'image_url', image_url: { url: dataUrl } };
+
+  let openaiRes: Response;
   try {
-    geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: EXTRACT_PROMPT },
-              { inline_data: { mime_type: mimeType, data: fileBase64 } },
-            ],
-          }],
-          generationConfig: {
-            temperature: 0,
-            maxOutputTokens: 2000,
-            responseMimeType: 'application/json',
-          },
-        }),
+    openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
-    );
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        temperature: 0,
+        max_tokens: 2000,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'user', content: [{ type: 'text', text: EXTRACT_PROMPT }, filePart] },
+        ],
+      }),
+    });
   } catch (err) {
-    return { error: 'Gemini request failed: ' + String(err), status: 502 };
+    return { error: 'OpenAI request failed: ' + String(err), status: 502 };
   }
 
-  if (!geminiRes.ok) {
-    const errText = await geminiRes.text();
-    return { error: `Gemini API error ${geminiRes.status}: ${errText.slice(0, 300)}`, status: 502 };
+  if (!openaiRes.ok) {
+    const errText = await openaiRes.text();
+    return { error: `OpenAI API error ${openaiRes.status}: ${errText.slice(0, 300)}`, status: 502 };
   }
 
-  const geminiData = await geminiRes.json();
-  const rawContent = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const openaiData = await openaiRes.json();
+  const rawContent = openaiData?.choices?.[0]?.message?.content || '';
   const cleaned = rawContent.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
 
   let extracted: any;
   try {
     extracted = JSON.parse(cleaned);
   } catch {
-    return { error: 'Failed to parse Gemini response as JSON', status: 422 };
+    return { error: 'Failed to parse OpenAI response as JSON', status: 422 };
   }
 
   if (extracted && Array.isArray(extracted.lines)) {

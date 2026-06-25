@@ -28,7 +28,7 @@ Deno.serve(async (req) => {
     return json({ error: 'Failed to parse request: ' + String(err) }, 400);
   }
 
-  // Gemini extraction + per-line arithmetic reconciliation live in the shared
+  // OpenAI extraction + per-line arithmetic reconciliation live in the shared
   // module so the Xero-attachment backfill uses the exact same logic.
   const result = await extractInvoiceData(fileBase64, mimeType);
   if (result.error) return json({ error: result.error }, result.status || 502);
