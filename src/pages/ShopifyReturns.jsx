@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import TablePagination from '@/components/shared/TablePagination';
 import { formatDateTimeSAST } from '@/lib/dateUtils';
+import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
 import {
   STATUS_LABELS, STATUS_COLORS, COURIER_LABELS,
   matchesTab, returnAggregates,
@@ -32,22 +33,28 @@ export default function ShopifyReturns() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queueParam = searchParams.get('queue');
-  const [tab, setTab] = useState(
+  // View state persists for the session so returning from a return detail
+  // restores the same tab/search/page. A deep-link ?queue= still overrides it.
+  const [tab, setTab] = usePersistentState(
+    'returns:tab',
     queueParam && TABS.some(t => t.key === queueParam) ? queueParam : 'draft_return',
   );
   // Follow the dashboard deep-link if the query param changes.
   React.useEffect(() => {
     if (queueParam && TABS.some(t => t.key === queueParam)) setTab(queueParam);
   }, [queueParam]);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(25);
+  const [search, setSearch] = usePersistentState('returns:search', '');
+  const [page, setPage] = useState(0); // reset to 0 on tab/search change (effect below)
+  const [pageSize, setPageSize] = usePersistentState('returns:pageSize', 25);
 
   const { data: returns = [], isLoading } = useQuery({
     queryKey: ['shopify-returns'],
     queryFn: () => base44.entities.ShopifyReturn.list('-created_date', 5000),
     staleTime: 30000,
   });
+
+  // Restore scroll position when returning from a return detail.
+  useScrollRestoration('returns:scroll', !isLoading);
   const { data: lines = [] } = useQuery({
     queryKey: ['shopify-return-lines-all'],
     queryFn: () => base44.entities.ShopifyReturnLine.list('-created_date', 20000),

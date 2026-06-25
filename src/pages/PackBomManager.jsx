@@ -9,6 +9,7 @@ import { Search, Package, ChevronRight, AlertTriangle, Plus, X, Loader2 } from '
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { resolveSubcategory, getSubcategoryColor } from '@/lib/productClassification';
+import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
 
 // Legacy coarse grouping stored on pack_boms.package_type. The displayed
 // "Range" now comes from the linked package product's subcategory (data-driven,
@@ -31,8 +32,10 @@ function parseOverrides(str) {
 export default function PackBomManager() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
+  // Search/filter persist for the session so returning from a pack-BOM detail
+  // restores the same view instead of resetting to defaults.
+  const [search, setSearch] = usePersistentState('packBom:search', '');
+  const [typeFilter, setTypeFilter] = usePersistentState('packBom:typeFilter', 'all');
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(BLANK);
   const [creating, setCreating] = useState(false);
@@ -44,6 +47,9 @@ export default function PackBomManager() {
     queryKey: ['pack-boms'],
     queryFn: () => base44.entities.PackBom.list('package_sku', 200),
   });
+
+  // Restore scroll position when returning from a pack-BOM detail.
+  useScrollRestoration('packBom:scroll', !isLoading);
 
   const { data: finishedMeals = [], isLoading: loadingMeals } = useQuery({
     queryKey: ['finished-meals-for-packbom'],

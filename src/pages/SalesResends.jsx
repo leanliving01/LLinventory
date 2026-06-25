@@ -11,6 +11,7 @@ import { formatDateTimeSAST } from '@/lib/dateUtils';
 import { toast } from 'sonner';
 import { RESEND_STATUS_LABELS, RESEND_STATUS_COLORS, reasonLabel, resendMatchesQueue } from '@/lib/salesResends';
 import { createResendFromOrder } from '@/lib/createResend';
+import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
 
 // Composite dashboard queues (not plain statuses) deep-linked from Operations.
 const QUEUE_LABELS = {
@@ -33,10 +34,12 @@ export default function SalesResends() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queueParam = searchParams.get('queue'); // composite queue from Operations dashboard
-  const [tab, setTab] = useState('draft');
-  const [search, setSearch] = useState('');
+  // View state persists for the session so returning from a re-send detail
+  // restores the same tab/search. Page resets to 0 on tab/search change (below).
+  const [tab, setTab] = usePersistentState('resends:tab', 'draft');
+  const [search, setSearch] = usePersistentState('resends:search', '');
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistentState('resends:pageSize', 25);
   const [showNew, setShowNew] = useState(false);
 
   const { data: resends = [], isLoading } = useQuery({
@@ -44,6 +47,9 @@ export default function SalesResends() {
     queryFn: () => base44.entities.SalesResend.list('-created_date', 5000),
     staleTime: 20000,
   });
+
+  // Restore scroll position when returning from a re-send detail.
+  useScrollRestoration('resends:scroll', !isLoading);
   const { data: lines = [] } = useQuery({
     queryKey: ['sales-resend-lines-all'],
     queryFn: () => base44.entities.SalesResendLine.list('-created_date', 20000),

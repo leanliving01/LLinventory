@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import PageHelp from '@/components/help/PageHelp';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
+import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
 
 const STATUS_FILTER_OPTIONS = [
   'All statuses',
@@ -63,16 +64,21 @@ export default function SupplierShortages() {
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles); // eslint-disable-line no-unused-vars
 
-  const [statusTab, setStatusTab] = useState('open');
-  const [statusFilter, setStatusFilter] = useState('All statuses');
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-  const [filters, setFilters] = useState({ search: '', supplierId: 'all', dateFrom: null, dateTo: null, sortBy: 'date_desc' });
+  // View/filter state persists for the session so returning from a PO restores
+  // the same tab, filters and page instead of resetting to defaults.
+  const [statusTab, setStatusTab] = usePersistentState('shortages:statusTab', 'open');
+  const [statusFilter, setStatusFilter] = usePersistentState('shortages:statusFilter', 'All statuses');
+  const [page, setPage] = usePersistentState('shortages:page', 1);
+  const [pageSize, setPageSize] = usePersistentState('shortages:pageSize', 50);
+  const [filters, setFilters] = usePersistentState('shortages:filters', { search: '', supplierId: 'all', dateFrom: null, dateTo: null, sortBy: 'date_desc' });
 
   const { data: shortages = [], isLoading } = useQuery({
     queryKey: ['supplier-shortages'],
     queryFn: () => base44.entities.SupplierShortage.list('-created_date', 5000),
   });
+
+  // Restore scroll position when returning from a PO.
+  useScrollRestoration('shortages:scroll', !isLoading);
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers-for-shortages-filter'],
     queryFn: () => base44.entities.Supplier.list('name', 500),

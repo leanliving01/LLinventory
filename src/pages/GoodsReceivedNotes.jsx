@@ -13,6 +13,7 @@ import GRNDrawer from '@/components/grn/GRNDrawer';
 import PageHelp from '@/components/help/PageHelp';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
+import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
 
 const HELP_ITEMS = [
   { title: 'Create a GRN', text: 'Click "New GRN" to start. Type to search for the supplier, then pick the receiving location. Once a supplier is chosen, any outstanding (not-yet-received) supplier invoices appear — click one to receive its goods. The GRN is pre-filled with the invoice lines and quantities for you to verify.' },
@@ -44,12 +45,14 @@ export default function GoodsReceivedNotes() {
     }
   };
 
-  const [statusTab, setStatusTab] = useState('draft');
+  // View/filter state persists for the session so returning from a PO workspace
+  // restores the same tab, filters and page instead of resetting to defaults.
+  const [statusTab, setStatusTab] = usePersistentState('grn:statusTab', 'draft');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedGRN, setSelectedGRN] = useState(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-  const [filters, setFilters] = useState({
+  const [page, setPage] = usePersistentState('grn:page', 1);
+  const [pageSize, setPageSize] = usePersistentState('grn:pageSize', 50);
+  const [filters, setFilters] = usePersistentState('grn:filters', {
     search: '',
     supplierId: 'all',
     dateFrom: null,
@@ -61,6 +64,9 @@ export default function GoodsReceivedNotes() {
     queryKey: ['grns-list'],
     queryFn: () => base44.entities.GoodsReceivedNote.list('-received_date', 5000),
   });
+
+  // Restore scroll position when returning from a PO workspace.
+  useScrollRestoration('grn:scroll', !isLoading);
 
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers-for-grn-filter'],

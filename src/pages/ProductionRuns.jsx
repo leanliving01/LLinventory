@@ -13,6 +13,7 @@ import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
+import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
 
 const STATUS_STYLES = {
   draft: 'bg-muted text-muted-foreground',
@@ -44,10 +45,12 @@ export default function ProductionRuns() {
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
 
-  const [statusTab, setStatusTab] = useState('all');
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-  const [filters, setFilters] = useState({
+  // View/filter state persists for the session so returning from a run detail
+  // restores the same tab, filters and page instead of resetting to defaults.
+  const [statusTab, setStatusTab] = usePersistentState('prodRuns:statusTab', 'all');
+  const [page, setPage] = usePersistentState('prodRuns:page', 1);
+  const [pageSize, setPageSize] = usePersistentState('prodRuns:pageSize', 50);
+  const [filters, setFilters] = usePersistentState('prodRuns:filters', {
     search: '',
     supplierId: 'all',
     dateFrom: null,
@@ -59,6 +62,9 @@ export default function ProductionRuns() {
     queryKey: ['production-runs'],
     queryFn: () => base44.entities.ProductionRun.list('-created_date', 5000),
   });
+
+  // Restore scroll position when returning from a run detail.
+  useScrollRestoration('prodRuns:scroll', !isLoading);
 
   const filtered = useMemo(() => {
     const result = runs.filter(r => {

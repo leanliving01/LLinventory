@@ -17,6 +17,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import { dueDateColour } from '@/lib/utils';
+import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
 
 const STATUS_COLORS = {
   draft: 'bg-gray-100 text-gray-600',
@@ -46,12 +47,14 @@ export default function PurchaseOrders() {
   const { user } = useAuth();
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
-  const [statusFilter, setStatusFilter] = useState('open');
+  // View/filter state persists for the session so returning from a PO workspace
+  // restores the same queue, filters and page instead of resetting to defaults.
+  const [statusFilter, setStatusFilter] = usePersistentState('po:statusFilter', 'open');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-  const [filters, setFilters] = useState({
+  const [page, setPage] = usePersistentState('po:page', 1);
+  const [pageSize, setPageSize] = usePersistentState('po:pageSize', 50);
+  const [filters, setFilters] = usePersistentState('po:filters', {
     search: '',
     supplierId: 'all',
     dateFrom: null,
@@ -59,13 +62,16 @@ export default function PurchaseOrders() {
     sortBy: 'date_desc',
   });
 
-  const [needsAttentionOnly, setNeedsAttentionOnly] = useState(false);
-  const [activeFolder, setActiveFolder] = useState(null);
+  const [needsAttentionOnly, setNeedsAttentionOnly] = usePersistentState('po:needsAttentionOnly', false);
+  const [activeFolder, setActiveFolder] = usePersistentState('po:activeFolder', null);
 
   const { data: pos = [], isLoading } = useQuery({
     queryKey: ['purchase-orders'],
     queryFn: () => base44.entities.PurchaseOrder.list('-created_date', 5000),
   });
+
+  // Restore scroll position when returning from a PO workspace/detail.
+  useScrollRestoration('po:scroll', !isLoading);
 
   // Auto-refresh on Xero PO sync progress
   const { data: syncStates = [] } = useQuery({

@@ -9,6 +9,7 @@ import TablePagination from '@/components/shared/TablePagination';
 import { formatDateTimeSAST } from '@/lib/dateUtils';
 import { hasRefund, refundIsOpen, refundCompleted } from '@/lib/shopifyReturns';
 import { REFUND_DECISIONS } from '@/lib/salesResends';
+import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
 
 // Refunds queue (Phase 7) — a lens over shopify_returns. Open vs Completed.
 // A refund-only record is just a return with stock_path='not_receiving'.
@@ -20,15 +21,20 @@ export default function RefundsQueue() {
   const tab = searchParams.get('tab') === 'completed' ? 'completed'
     : searchParams.get('tab') === 'all' ? 'all' : 'open';
   const setTab = (t) => setSearchParams(t === 'open' ? {} : { tab: t });
-  const [search, setSearch] = useState('');
+  // Search/page-size persist for the session so returning from a refund detail
+  // restores the same view. Page resets to 0 on tab/search change (effect below).
+  const [search, setSearch] = usePersistentState('refunds:search', '');
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistentState('refunds:pageSize', 25);
 
   const { data: returns = [], isLoading } = useQuery({
     queryKey: ['shopify-returns'],
     queryFn: () => base44.entities.ShopifyReturn.list('-created_date', 5000),
     staleTime: 20000,
   });
+
+  // Restore scroll position when returning from a refund detail.
+  useScrollRestoration('refunds:scroll', !isLoading);
 
   // Only returns that participate in a refund.
   const refundRows = useMemo(() => returns.filter(hasRefund), [returns]);

@@ -20,6 +20,7 @@ import { canHaveProductionBom, canHavePackingBom } from '@/lib/productClassifica
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
+import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
 
 export default function Recipes() {
   const queryClient = useQueryClient();
@@ -28,24 +29,26 @@ export default function Recipes() {
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
   const canEdit = !!perms.recipes_edit;
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(15);
+  // View/filter state persists for the session so returning from a recipe/BOM
+  // detail restores the exact list view instead of resetting to defaults.
+  const [page, setPage] = usePersistentState('recipes:page', 0);
+  const [pageSize, setPageSize] = usePersistentState('recipes:pageSize', 15);
   const [showCreate, setShowCreate] = useState(false);
   const [createDefaults, setCreateDefaults] = useState(null);
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [subcategoryFilter, setSubcategoryFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = usePersistentState('recipes:categoryFilter', 'all');
+  const [subcategoryFilter, setSubcategoryFilter] = usePersistentState('recipes:subcategoryFilter', 'all');
   // Normal view shows ACTIVE BOMs only. Inactive/archived recipes are reachable
   // only by toggling the Archive view on — they never bleed into the main list.
-  const [showArchive, setShowArchive] = useState(false);
-  const [classFilter, setClassFilter] = useState('all');
-  const [sortConfig, setSortConfig] = useState({ field: null, dir: 'asc' });
+  const [showArchive, setShowArchive] = usePersistentState('recipes:showArchive', false);
+  const [classFilter, setClassFilter] = usePersistentState('recipes:classFilter', 'all');
+  const [sortConfig, setSortConfig] = usePersistentState('recipes:sortConfig', { field: null, dir: 'asc' });
   const [selected, setSelected] = useState([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   // Support URL params: ?search=X or ?create=cook&productId=ID
   const urlParams = new URLSearchParams(window.location.search);
-  const [search, setSearch] = useState(urlParams.get('search') || '');
+  const [search, setSearch] = usePersistentState('recipes:search', urlParams.get('search') || '');
 
   // Auto-open Create BOM modal if deep-linked from Product page
   React.useEffect(() => {
@@ -62,6 +65,9 @@ export default function Recipes() {
     queryKey: ['recipes-boms'],
     queryFn: () => base44.entities.Bom.list('-created_date', 500),
   });
+
+  // Restore scroll position when returning from a recipe/BOM detail.
+  useScrollRestoration('recipes:scroll', !isLoading);
 
   // Products + categories — to derive each output's category.
   const { data: products = [] } = useQuery({

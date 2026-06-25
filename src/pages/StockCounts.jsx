@@ -19,6 +19,7 @@ import CreatePlannedCountModal from '@/components/stock-count/CreatePlannedCount
 import StockCountCSVImport from '@/components/stock-count/StockCountCSVImport';
 import StockCountFilters, { EMPTY_STOCK_COUNT_FILTERS } from '@/components/stock-count/StockCountFilters';
 import { COUNT_STATUS, deleteStockCount } from '@/lib/stockCount';
+import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
 
 const STATUS_STYLES = {
   draft: 'bg-gray-100 text-gray-600',
@@ -50,8 +51,10 @@ export default function StockCounts() {
   const perms = getUserPermissions(user || {}, customRoles);
   const canCreate = !!perms.stocktake_create;
 
-  const [filter, setFilter] = useState('active');
-  const [advFilters, setAdvFilters] = useState({ ...EMPTY_STOCK_COUNT_FILTERS });
+  // View/filter state persists for the session so returning from a count detail
+  // restores the same filters instead of resetting to defaults.
+  const [filter, setFilter] = usePersistentState('stockCounts:filter', 'active');
+  const [advFilters, setAdvFilters] = usePersistentState('stockCounts:advFilters', { ...EMPTY_STOCK_COUNT_FILTERS });
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
@@ -61,6 +64,9 @@ export default function StockCounts() {
     queryKey: ['stock-counts'],
     queryFn: () => base44.entities.NewStockTake.list('-created_date', 500),
   });
+
+  // Restore scroll position when returning from a count detail.
+  useScrollRestoration('stockCounts:scroll', !isLoading);
 
   const filtered = useMemo(() => {
     const f = FILTERS.find(x => x.key === filter) || FILTERS[0];

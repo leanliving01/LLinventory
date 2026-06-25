@@ -10,6 +10,7 @@ import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
 import TablePagination from '@/components/shared/TablePagination';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
 
 // Map a few payment_status synonyms to the filter's canonical values.
 const PAYMENT_SYNONYMS = {
@@ -21,16 +22,18 @@ const PAYMENT_SYNONYMS = {
 };
 
 export default function Sales() {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('paid_unfulfilled');
-  const [packFilter, setPackFilter] = useState('all');
-  const [channelFilter, setChannelFilter] = useState('all');
-  const [paymentFilter, setPaymentFilter] = useState('all');
-  const [fulfilmentFilter, setFulfilmentFilter] = useState('all');
-  const [quickFilter, setQuickFilter] = useState('none'); // none | needs_attention | has_returns | has_resends
-  const [sortBy, setSortBy] = useState('date_desc');
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(15);
+  // View/filter state persists for the session so returning from an order detail
+  // restores the same filters and page instead of resetting to defaults.
+  const [search, setSearch] = usePersistentState('sales:search', '');
+  const [statusFilter, setStatusFilter] = usePersistentState('sales:statusFilter', 'paid_unfulfilled');
+  const [packFilter, setPackFilter] = usePersistentState('sales:packFilter', 'all');
+  const [channelFilter, setChannelFilter] = usePersistentState('sales:channelFilter', 'all');
+  const [paymentFilter, setPaymentFilter] = usePersistentState('sales:paymentFilter', 'all');
+  const [fulfilmentFilter, setFulfilmentFilter] = usePersistentState('sales:fulfilmentFilter', 'all');
+  const [quickFilter, setQuickFilter] = usePersistentState('sales:quickFilter', 'none'); // none | needs_attention | has_returns | has_resends
+  const [sortBy, setSortBy] = usePersistentState('sales:sortBy', 'date_desc');
+  const [page, setPage] = usePersistentState('sales:page', 0);
+  const [pageSize, setPageSize] = usePersistentState('sales:pageSize', 15);
   const queryClient = useQueryClient();
 
   const { data: orders = [], isLoading, error: queryError } = useQuery({
@@ -40,6 +43,9 @@ export default function Sales() {
     retry: 2,
     retryDelay: 3000,
   });
+
+  // Restore scroll position when returning from an order detail.
+  useScrollRestoration('sales:scroll', !isLoading);
 
   // Sets of order ids that have returns / resends — used by the quick toggles.
   // Only fetched lazily when a relevant toggle is active to keep the list fast.
