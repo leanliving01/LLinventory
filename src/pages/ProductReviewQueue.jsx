@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { ClipboardList } from 'lucide-react';
@@ -10,7 +10,7 @@ import UnmatchedLineCard from '@/components/review-queue/UnmatchedLineCard';
 import CreateProductFromLineModal from '@/components/review-queue/CreateProductFromLineModal';
 import MatchToExistingModal from '@/components/review-queue/MatchToExistingModal';
 import PurchasingUnitsReviewTab from '@/components/review-queue/PurchasingUnitsReviewTab';
-import { findPossibleMatches } from '@/lib/reviewQueueMatching';
+import { findPossibleMatches, findExistingLink } from '@/lib/reviewQueueMatching';
 import PageHelp from '@/components/help/PageHelp';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
@@ -114,9 +114,61 @@ export default function ProductReviewQueue() {
     return map;
   }, [allSPs]);
 
+  // Lines that are ALREADY linked to a product for their supplier (exact supplier
+  // SKU or description match). These are auto-resolved and never shown — the queue
+  // only surfaces genuinely new / unlinked supplier items.
+  const autoLinkable = useMemo(() => {
+    const out = [];
+    for (const l of unmatchedLines) {
+      const inv = invoiceMap[l.invoice_id];
+      if (!inv?.supplier_id) continue;
+      const sp = findExistingLink(l, spBySupplier[inv.supplier_id] || []);
+      if (sp) out.push({ line: l, sp });
+    }
+    return out;
+  }, [unmatchedLines, invoiceMap, spBySupplier]);
+  const autoLinkedIds = useMemo(() => new Set(autoLinkable.map(x => x.line.id)), [autoLinkable]);
+
+  // Write the auto-resolved links to the DB so they drop out of the queue
+  // permanently (and the invoice line is correctly costed). Idempotent: each line
+  // is processed at most once per page session.
+  const resolvedRef = useRef(new Set());
+  useEffect(() => {
+    const todo = autoLinkable.filter(x => !resolvedRef.current.has(x.line.id));
+    if (todo.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const invoiceIds = new Set();
+      let n = 0;
+      for (const { line, sp } of todo) {
+        resolvedRef.current.add(line.id);
+        try {
+          await base44.entities.PurchaseInvoiceLine.update(line.id, {
+            supplier_product_id: sp.id,
+            product_id: sp.product_id,
+            product_name: sp.product_name,
+            product_sku: sp.product_sku,
+            match_status: 'auto_matched',
+          });
+          invoiceIds.add(line.invoice_id);
+          n++;
+        } catch { /* leave for manual review */ }
+      }
+      if (cancelled) return;
+      for (const id of invoiceIds) await recountInvoice(id);
+      if (n > 0) {
+        queryClient.invalidateQueries({ queryKey: ['unmatched-invoice-lines'] });
+        toast.success(`Auto-linked ${n} already-known item${n > 1 ? 's' : ''} to existing products`);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [autoLinkable]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Filter
   const filtered = useMemo(() => {
     const result = unmatchedLines.filter(l => {
+      // Hide lines already linked to a product (auto-resolved above).
+      if (autoLinkedIds.has(l.id)) return false;
       const inv = invoiceMap[l.invoice_id];
       // Production-supplier scope: hide lines from non-production suppliers.
       if (productionOnly && !(inv?.supplier_id && productionSupplierIds.has(inv.supplier_id))) return false;
@@ -154,7 +206,13 @@ export default function ProductReviewQueue() {
       return 0;
     });
     return sorted;
-  }, [unmatchedLines, filters, invoiceMap, productionOnly, productionSupplierIds]);
+  }, [unmatchedLines, filters, invoiceMap, productionOnly, productionSupplierIds, autoLinkedIds]);
+
+  // Lines that still need manual action (excludes auto-linked already-known items).
+  const toLinkCount = useMemo(
+    () => unmatchedLines.filter(l => !autoLinkedIds.has(l.id)).length,
+    [unmatchedLines, autoLinkedIds],
+  );
 
   // How many unmatched lines belong to non-production suppliers (hidden by the scope).
   const hiddenNonProductionCount = useMemo(() => (
@@ -357,12 +415,12 @@ export default function ProductReviewQueue() {
             <ClipboardList className="w-6 h-6 text-primary" /> Product Review Queue
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Match unmatched invoice lines (Xero + scanned PDFs) to products
+            Link new supplier items (Xero + scanned PDFs) to products. Already-linked items are auto-matched and hidden.
           </p>
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-right">
-          <p className="text-[10px] text-amber-600 uppercase font-semibold">Unmatched Lines</p>
-          <p className="text-lg font-bold text-amber-700">{unmatchedLines.length}</p>
+          <p className="text-[10px] text-amber-600 uppercase font-semibold">Items to Link</p>
+          <p className="text-lg font-bold text-amber-700">{toLinkCount}</p>
         </div>
       </div>
 
@@ -371,8 +429,8 @@ export default function ProductReviewQueue() {
       {/* Tabs: unmatched invoice lines vs. flagged purchasing units */}
       <div className="flex items-center gap-1 border-b border-border">
         {[
-          { key: 'lines', label: 'Unmatched Lines', count: unmatchedLines.length },
-          { key: 'units', label: 'Purchasing Units', count: unitProposals.length },
+          { key: 'lines', label: 'Items to Link', count: toLinkCount },
+          { key: 'units', label: 'Product Auditing', count: unitProposals.length },
         ].map(t => (
           <button
             key={t.key}
@@ -424,7 +482,7 @@ export default function ProductReviewQueue() {
           </div>
           <p className="text-sm font-medium text-foreground">All clear!</p>
           <p className="text-xs text-muted-foreground mt-1">
-            {unmatchedLines.length === 0 ? 'No unmatched invoice lines. Everything is matched.' : 'No results match your filter.'}
+            {toLinkCount === 0 ? 'Every supplier item is linked to a product.' : 'No results match your filter.'}
           </p>
         </div>
       ) : (

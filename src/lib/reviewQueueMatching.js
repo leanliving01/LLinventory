@@ -16,6 +16,32 @@
 
 const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
+/**
+ * Decide whether an invoice line is ALREADY linked to a product for this supplier.
+ *
+ * A line counts as already-linked when its supplier SKU (item code) OR its
+ * description exactly matches an existing supplier_product for the same supplier.
+ * These lines should be auto-resolved and never shown in the review queue — the
+ * product is known, there's nothing to review.
+ *
+ * Matching is exact-on-normalised-text (case/punctuation-insensitive); empty
+ * values never match, so a blank item code can't collapse unrelated lines.
+ *
+ * @param {object} line                 PurchaseInvoiceLine ({ xero_item_code, xero_description })
+ * @param {object[]} supplierProducts   supplier_products for THIS supplier
+ * @returns {object|null} the matching supplier_product, or null
+ */
+export function findExistingLink(line, supplierProducts = []) {
+  const sku = norm(line?.xero_item_code);
+  const desc = norm(line?.xero_description);
+  if (!sku && !desc) return null;
+  for (const sp of supplierProducts) {
+    if (sku && (norm(sp.supplier_sku) === sku || norm(sp.xero_item_code) === sku)) return sp;
+    if (desc && (norm(sp.supplier_description) === desc || norm(sp.product_name) === desc)) return sp;
+  }
+  return null;
+}
+
 const tokenize = (s) =>
   (s || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2);
 

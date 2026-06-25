@@ -1,7 +1,7 @@
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Link2, Plus, Ban, Truck, FileText, EyeOff, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Link2, Plus, Ban, Truck, FileText, EyeOff, Sparkles } from 'lucide-react';
 import { formatZAR, effectiveUnitCost } from '@/lib/utils';
 
 /**
@@ -14,13 +14,12 @@ export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], onO
   const invoice = lineGroup.representativeInvoice;
   const count = lineGroup.lines.length;
   const totalQty = lineGroup.lines.reduce((s, l) => s + (l.line.qty || 0), 0);
+  // Price PER UNIT (not the line total, which is qty × unit price). effectiveUnitCost
+  // repairs legacy rows where the total was stored in the unit-cost column.
   const unitCost = effectiveUnitCost(line);
+  const perUnitLabel = line.unit ? `per ${line.unit}` : 'per unit';
   const unitLabel = line.unit ? ` ${line.unit}` : '';
   const topMatch = possibleMatches[0];
-  // When the best match already has a supplier_products link, this line is really
-  // an already-known product — the action is to confirm its purchasing unit, not
-  // to create / match from scratch.
-  const alreadyLinked = !!topMatch?.supplierProduct;
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -56,32 +55,30 @@ export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], onO
           )}
         </div>
         <div className="text-right shrink-0">
-          <p className="text-sm tabular-nums">
-            {count > 1 ? `${totalQty}${unitLabel} total` : `${line.qty}${unitLabel}`} × {formatZAR(unitCost)}
+          {/* Price per UNIT is the headline — the line total is secondary. */}
+          <p className="text-sm font-bold tabular-nums">{formatZAR(unitCost)} <span className="text-[11px] font-normal text-muted-foreground">{perUnitLabel}</span></p>
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            {count > 1 ? `${totalQty}${unitLabel} total` : `${line.qty}${unitLabel}`} · {formatZAR(line.line_total || 0)} line total
           </p>
-          <p className="text-sm font-bold tabular-nums">{formatZAR(line.line_total || 0)}</p>
         </div>
       </div>
 
-      {/* Match hint — green when the product is already linked (just confirm the
-          purchasing unit), amber when it's a likely-but-unlinked product. */}
+      {/* Possible product to link this new item to (suggestion only — already-linked
+          items are auto-matched and never reach this queue). */}
       {topMatch && (
-        <div className={`px-4 py-2 border-t border-border flex items-center gap-2 flex-wrap ${alreadyLinked ? 'bg-green-50/70' : 'bg-amber-50/60'}`}>
-          {alreadyLinked
-            ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
-            : <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />}
-          <span className={`text-xs ${alreadyLinked ? 'text-green-800' : 'text-amber-800'}`}>
-            {alreadyLinked ? 'Already linked: ' : 'Possible match: '}
-            <span className="font-medium">{topMatch.product.name}</span>
-            {topMatch.product.sku && <span className={`font-mono ${alreadyLinked ? 'text-green-700' : 'text-amber-700'}`}> ({topMatch.product.sku})</span>}
-            <span className={alreadyLinked ? 'text-green-600' : 'text-amber-600'}> — {alreadyLinked ? 'confirm the purchasing unit' : topMatch.reasons[0]}</span>
-            {possibleMatches.length > 1 && <span className={alreadyLinked ? 'text-green-600' : 'text-amber-600'}> · +{possibleMatches.length - 1} more</span>}
+        <div className="px-4 py-2 border-t border-border bg-amber-50/60 flex items-center gap-2 flex-wrap">
+          <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+          <span className="text-xs text-amber-800">
+            Possible match: <span className="font-medium">{topMatch.product.name}</span>
+            {topMatch.product.sku && <span className="font-mono text-amber-700"> ({topMatch.product.sku})</span>}
+            <span className="text-amber-600"> — {topMatch.reasons[0]}</span>
+            {possibleMatches.length > 1 && <span className="text-amber-600"> · +{possibleMatches.length - 1} more</span>}
           </span>
           <Button
             variant="outline" size="sm" onClick={() => onOpenMatch(lineGroup)}
-            className={`gap-1.5 text-xs h-7 ml-auto ${alreadyLinked ? 'border-green-300 text-green-800 hover:bg-green-100' : 'border-amber-300 text-amber-800 hover:bg-amber-100'}`}
+            className="gap-1.5 text-xs h-7 ml-auto border-amber-300 text-amber-800 hover:bg-amber-100"
           >
-            {alreadyLinked ? <><CheckCircle2 className="w-3 h-3" /> Confirm unit</> : <><Link2 className="w-3 h-3" /> Review match</>}
+            <Link2 className="w-3 h-3" /> Link
           </Button>
         </div>
       )}
@@ -89,7 +86,7 @@ export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], onO
       {/* Actions */}
       <div className="px-4 py-2 border-t border-border bg-muted/20 flex items-center gap-2 flex-wrap">
         <Button variant="outline" size="sm" onClick={() => onOpenMatch(lineGroup)} className="gap-1.5 text-xs">
-          {alreadyLinked ? <><CheckCircle2 className="w-3.5 h-3.5" /> Confirm Unit</> : <><Link2 className="w-3.5 h-3.5" /> Match Existing</>}
+          <Link2 className="w-3.5 h-3.5" /> Link to Product
         </Button>
         <Button variant="outline" size="sm" onClick={() => onCreateProduct(lineGroup)} className="gap-1.5 text-xs">
           <Plus className="w-3.5 h-3.5" /> Create Product

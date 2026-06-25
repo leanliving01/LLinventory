@@ -310,7 +310,7 @@ export default function SettingsSyncTab() {
           Maintenance task: AI reads the last ~4 months of invoices for each raw / supplement / packaging product and
           corrects the purchase unit + conversion factor (e.g. a 10kg box mistakenly set to "1 kg"), which drives costing.
           Clear-cut fixes apply automatically; anything uncertain is sent to the
-          <strong> Product Review Queue → Purchasing Units</strong> tab for review. Re-run it here whenever you've
+          <strong> Product Review Queue → Product Auditing</strong> tab for review. Re-run it here whenever you've
           imported new invoices.
         </p>
         <div className="flex flex-wrap gap-2 items-center">
@@ -320,7 +320,7 @@ export default function SettingsSyncTab() {
           </Button>
           {unitProposals.length > 0 && (
             <span className="text-xs text-muted-foreground self-center">
-              {unitProposals.length} awaiting review in the Review Queue → Purchasing Units tab
+              {unitProposals.length} awaiting review in the Review Queue → Product Auditing tab
             </span>
           )}
         </div>

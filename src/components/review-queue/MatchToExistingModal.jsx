@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { X, Loader2, Search, Link2, ArrowLeft, Check, Truck, FileText, Sparkles, CheckCircle2 } from 'lucide-react';
+import { X, Loader2, Search, Link2, ArrowLeft, Check, Truck, FileText, Sparkles } from 'lucide-react';
 import { formatZAR, effectiveUnitCost } from '@/lib/utils';
 import UomSelect from '@/components/shared/UomSelect';
 import SupplierEvidencePanel from '@/components/review-queue/SupplierEvidencePanel';
@@ -20,10 +20,6 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
   const invoiceCount = lineGroup.lines.length;
   const suggestion = possibleMatches[0];
   const suggestedSp = suggestion?.supplierProduct;
-  // An "already-linked" match is one where the best candidate already has a
-  // supplier_products row for this supplier — the product is effectively matched
-  // and this is really just a purchasing-unit confirmation, not a new match.
-  const alreadyLinked = !!suggestedSp;
   // True per-unit cost (repairs legacy rows that stored the line total).
   const lineUnitCost = effectiveUnitCost(line);
   const unitLabel = line.unit ? ` ${line.unit}` : '';
@@ -137,12 +133,9 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="min-w-0">
             <h3 className="text-lg font-bold flex items-center gap-2">
-              {alreadyLinked
-                ? <><CheckCircle2 className="w-5 h-5 text-green-600" /> Confirm Purchasing Unit</>
-                : <><Link2 className="w-5 h-5 text-primary" /> Match to Existing Product</>}
+              <Link2 className="w-5 h-5 text-primary" /> Link to Product
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
-              {alreadyLinked && <span className="text-green-700 font-medium">Already linked to this supplier</span>}
               <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> {invoice?.supplier_name}</span>
               {line.xero_item_code && <span className="font-mono">SKU {line.xero_item_code}</span>}
               {invoiceCount > 1 && (
@@ -350,9 +343,7 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               {saving
                 ? 'Saving…'
-                : invoiceCount > 1
-                  ? `${alreadyLinked ? 'Confirm' : 'Match'} & save (${invoiceCount} lines)`
-                  : alreadyLinked ? 'Confirm & save unit' : 'Match & save link'}
+                : invoiceCount > 1 ? `Link & save (${invoiceCount} lines)` : 'Link & save'}
             </Button>
           )}
         </div>

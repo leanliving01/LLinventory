@@ -7,15 +7,13 @@ import { toast } from 'sonner';
 import PurchaseUnitReviewModal from '@/components/settings/PurchaseUnitReviewModal';
 
 /**
- * "Purchasing Units" tab of the Review Queue.
+ * "Product Auditing" tab of the Review Queue.
  *
- * Already-linked supplier products whose conversion factor looks wrong (flagged
- * by the `propose-purchase-units` maintenance run in Settings) are reviewed here
- * — NOT in Settings. Each row opens the same rich purchasing-unit editor used
- * when matching an invoice line, with the supplier evidence auto-pulled.
- *
- * Run / re-run the analysis from Settings → Sync (maintenance), then come here to
- * review what it surfaced.
+ * An audit of ALREADY-linked supplier products whose conversion factor looks wrong
+ * (e.g. a 10kg box mistakenly set to "1 kg"), which silently corrupts costing.
+ * Flagged by the `propose-purchase-units` maintenance run in Settings → Sync; each
+ * row opens the rich purchasing-unit editor with the supplier evidence auto-pulled
+ * so you can confirm or correct the conversion. Separate from linking new items.
  */
 export default function PurchasingUnitsReviewTab() {
   const [busy, setBusy] = useState(null);          // 'all' | <proposalId>
@@ -68,9 +66,10 @@ export default function PurchasingUnitsReviewTab() {
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <p className="text-xs text-muted-foreground max-w-2xl">
-          Already-linked products whose purchase unit / conversion looks wrong. The analysis runs as a maintenance
-          task in <strong>Settings → Sync → Purchasing Units</strong>; review what it flags here. Click
-          <strong> Review</strong> to open the full editor (supplier UoM, description, unit price → price per stock unit).
+          Audit of already-linked products whose <strong>conversion factor</strong> looks wrong (e.g. a 10kg box set to
+          "1 kg") — these quietly corrupt costing. The analysis runs as a maintenance task in
+          <strong> Settings → Sync → Purchasing Units</strong>; review what it flags here. Click <strong>Review</strong> to
+          open the full editor (supplier UoM, description, unit price → price per stock unit).
         </p>
         {proposals.length > 0 && (
           <Button variant="outline" size="sm" onClick={approveAll} disabled={!!busy} className="gap-1.5 h-8 text-xs shrink-0">
@@ -85,7 +84,7 @@ export default function PurchasingUnitsReviewTab() {
           <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto mb-4">
             <ArrowRightLeft className="w-8 h-8 text-green-500" />
           </div>
-          <p className="text-sm font-medium text-foreground">No purchasing units to review</p>
+          <p className="text-sm font-medium text-foreground">No conversions to audit</p>
           <p className="text-xs text-muted-foreground mt-1">
             Run the analysis in Settings → Sync to surface mis-set conversion factors.
           </p>
