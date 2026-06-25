@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { CheckCircle2, ArrowLeft, Save, Loader2, Receipt, AlertTriangle, Ban, Package, Truck, FileText, CreditCard, Plus, Trash2 } from 'lucide-react';
@@ -420,7 +421,8 @@ export default function POWorkspace() {
     const errors = localLines.flatMap((line, i) => {
       if (!line.product_id) return [];
       const errs = [];
-      if (!line.supplier_sku) errs.push(`Line ${i + 1}: Supplier SKU missing`);
+      // Supplier SKU OR a description is enough — some suppliers don't issue SKUs.
+      if (!line.supplier_sku && !line.description) errs.push(`Line ${i + 1}: Supplier SKU or description required`);
       if (!line.purchase_uom) errs.push(`Line ${i + 1}: Purchase UOM missing`);
       if (!line.unit_cost || parseFloat(line.unit_cost) === 0) errs.push(`Line ${i + 1}: Unit cost missing`);
       if (!line.tax_rule) errs.push(`Line ${i + 1}: Tax rule missing`);
@@ -1221,31 +1223,26 @@ function LineRow({
             )}
           </div>
         ) : (
-          <Select
+          <SearchableSelect
             value={line.product_id}
             onValueChange={v => onSelectProduct(line._key, v)}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select product..." />
-            </SelectTrigger>
-            <SelectContent>
-              <div className="px-2 pb-2 pt-1">
-                <Input
-                  placeholder="Search products..."
-                  value={productSearch}
-                  onChange={e => setProductSearch(e.target.value)}
-                  className="h-7 text-xs"
-                />
-              </div>
-              {filteredProducts.map(p => (
-                <SelectItem key={p.id} value={p.id}>
+            placeholder="Select product..."
+            searchPlaceholder="Search products..."
+            triggerClassName="h-8 text-xs"
+            contentClassName="w-[360px]"
+            options={products.map(p => ({
+              value: p.id,
+              label: `${p.sku} ${p.name}`,
+              keywords: [p.sku, p.name],
+              node: (
+                <span className="truncate">
                   <span className="font-mono text-xs text-muted-foreground">{p.sku}</span>
                   {' — '}
                   {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+                </span>
+              ),
+            }))}
+          />
         )}
       </td>
 

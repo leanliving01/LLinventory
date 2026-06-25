@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -121,6 +122,19 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
     }
     return list.slice(0, 25);
   }, [products, supplierId, supplierProducts, spSearchMap, search]);
+
+  // Supplier-scoped product list (unfiltered) — SearchableSelect filters internally
+  const scopedProducts = useMemo(() => {
+    let list = products;
+    if (supplierId && supplierProducts.length > 0) {
+      const spProductIds = new Set(supplierProducts.map(sp => sp.product_id));
+      list = list.filter(p => spProductIds.has(p.id));
+    } else if (supplierId) {
+      const supplierFiltered = list.filter(p => p.supplier_id === supplierId);
+      if (supplierFiltered.length > 0) list = supplierFiltered;
+    }
+    return list;
+  }, [products, supplierId, supplierProducts]);
 
   // Resolve PO-level tax rate from supplier
   const poTaxRate = useMemo(() => resolveTaxRate(null, selectedSupplier, taxRates), [selectedSupplier, taxRates]);
@@ -557,36 +571,35 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
                     return (
                       <tr key={idx} className={hasVariance ? 'bg-amber-50 dark:bg-amber-950/20' : ''}>
                         <td className="px-3 py-2">
-                          <Select value={line.product_id} onValueChange={v => selectProduct(idx, v)}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
-                            <SelectContent>
-                              <div className="px-2 pb-2">
-                                <Input
-                                  placeholder={isLoadingSPs ? 'Loading...' : 'Search...'}
-                                  value={search}
-                                  onChange={e => setSearch(e.target.value)}
-                                  className="h-7 text-xs"
-                                  disabled={isLoadingSPs}
-                                />
-                              </div>
-                              {filteredProducts.map(p => {
-                                const sp = spByProductId[p.id];
-                                const uom = sp?.purchase_uom_label || sp?.purchase_uom || p.purchase_uom || p.stock_uom || '';
-                                const lastPrice = sp?.last_purchase_price;
-                                return (
-                                  <SelectItem key={p.id} value={p.id}>
-                                    <span className="font-mono text-xs text-muted-foreground">{p.sku}</span>
+                          <SearchableSelect
+                            value={line.product_id}
+                            onValueChange={v => selectProduct(idx, v)}
+                            placeholder="Select..."
+                            searchPlaceholder={isLoadingSPs ? 'Loading...' : 'Search...'}
+                            disabled={isLoadingSPs}
+                            triggerClassName="h-8 text-xs"
+                            contentClassName="w-[420px]"
+                            options={scopedProducts.map(p => {
+                              const sp = spByProductId[p.id];
+                              const ssp = spSearchMap[p.id];
+                              const uom = sp?.purchase_uom_label || sp?.purchase_uom || p.purchase_uom || p.stock_uom || '';
+                              return {
+                                value: p.id,
+                                label: `${p.sku} ${sp?.supplier_description || p.name}`,
+                                keywords: [p.sku, p.name, ssp?.supplierSku || '', ssp?.supplierDesc || ''],
+                                node: (
+                                  <span className="truncate text-xs">
+                                    <span className="font-mono text-muted-foreground">{p.sku}</span>
                                     {' — '}
                                     {sp?.supplier_description
                                       ? <><span className="font-medium">{sp.supplier_description}</span><span className="text-muted-foreground"> / {p.name}</span></>
                                       : p.name}
                                     {uom && <span className="text-muted-foreground"> · {uom}</span>}
-                                    {lastPrice > 0 && <span className="text-muted-foreground"> @ R{Number(lastPrice).toFixed(2)}</span>}
-                                  </SelectItem>
-                                );
-                              })}
-                            </SelectContent>
-                          </Select>
+                                  </span>
+                                ),
+                              };
+                            })}
+                          />
                           {product && (
                             <p className="text-[10px] text-muted-foreground mt-0.5">
                               {spByProductId[line.product_id]?.purchase_uom_label || product.purchase_uom || product.stock_uom || ''}
