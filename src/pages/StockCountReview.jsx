@@ -20,7 +20,7 @@ import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import StockCountVarianceTable from '@/components/stock-count/StockCountVarianceTable';
 import LockedCountReport from '@/components/stock-count/LockedCountReport';
 import WebCountEntrySheet from '@/components/stock-count/WebCountEntrySheet';
-import { buildVarianceRows, buildProgressRows, postStockCount, cancelStockCount, requestRecount, syncCountLines, FLOOR_OPEN_STATUSES, RECOUNT_STATUSES, COUNT_STATUS } from '@/lib/stockCount';
+import { buildVarianceRows, buildProgressRows, postStockCount, cancelStockCount, requestRecount, syncCountLines, pruneArchivedLines, FLOOR_OPEN_STATUSES, RECOUNT_STATUSES, COUNT_STATUS } from '@/lib/stockCount';
 
 const STATUS_STYLES = {
   open: 'bg-blue-100 text-blue-700',
@@ -60,25 +60,37 @@ export default function StockCountReview() {
   const locked = header?.status === 'completed';
   const live = header && !['completed', 'cancelled'].includes(header.status);
 
-  // Top up this count once with any in-scope meals that were missing (zero-stock
-  // meals weren't seeded on older counts). Runs only while still being captured.
+  // Reconcile this count once on load (while it's still editable):
+  //  • prune lines for products that have since been archived/deleted, and
+  //  • top up any in-scope meals that were missing (zero-stock meals weren't
+  //    seeded on older counts).
   const syncedRef = useRef(false);
   useEffect(() => {
     if (syncedRef.current || !header) return;
-    if (!FLOOR_OPEN_STATUSES.includes(header.status)) return;
+    if (['completed', 'cancelled'].includes(header.status)) return;
     syncedRef.current = true;
-    syncCountLines(id)
-      .then((added) => {
+    (async () => {
+      let changed = false;
+      const removed = await pruneArchivedLines(id).catch(() => 0);
+      if (removed > 0) {
+        changed = true;
+        toast.info(`Removed ${removed} archived item${removed > 1 ? 's' : ''} from this count`);
+      }
+      if (FLOOR_OPEN_STATUSES.includes(header.status)) {
+        const added = await syncCountLines(id).catch(() => 0);
         if (added > 0) {
-          queryClient.invalidateQueries({ queryKey: ['stock-count', id] });
-          queryClient.invalidateQueries({ queryKey: ['stock-count-lines', id] });
+          changed = true;
           toast.success(`Added ${added} missing item${added > 1 ? 's' : ''} to this count`);
         }
-      })
-      .catch(() => {});
+      }
+      if (changed) {
+        queryClient.invalidateQueries({ queryKey: ['stock-count', id] });
+        queryClient.invalidateQueries({ queryKey: ['stock-count-lines', id] });
+      }
+    })();
   }, [header, id, queryClient]);
 
-  const { data: lines = [], isLoading: loadingLines } = useQuery({
+  const { data: allLines = [], isLoading: loadingLines } = useQuery({
     queryKey: ['stock-count-lines', id],
     queryFn: () => base44.entities.StockTakeLine.filter({ stocktake_id: id }, 'product_name', 5000),
     refetchInterval: live ? 12000 : false,
@@ -89,6 +101,16 @@ export default function StockCountReview() {
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 5000),
   });
   const productById = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products]);
+
+  // Hide lines whose product has been archived/deleted (only active products are
+  // loaded above, so a line with no match is stale). Until products load we show
+  // every line to avoid a flash of an empty table. A completed count is a frozen
+  // historical record, so it's shown verbatim. The prune effect above clears
+  // these from the data on the next round-trip.
+  const lines = useMemo(
+    () => (locked || !products.length ? allLines : allLines.filter(l => productById[l.product_id])),
+    [allLines, productById, products.length, locked]
+  );
 
   // Live stock-on-hand for the count's locations — so the web shows system qty
   // (and forming variances) before the floor completes/snapshots.

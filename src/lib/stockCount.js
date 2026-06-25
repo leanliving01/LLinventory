@@ -471,6 +471,43 @@ export async function syncCountLines(countId) {
   return toAdd.length;
 }
 
+// ---------------------------------------------------------------------------
+// Remove count lines for products that have since been ARCHIVED (or deleted)
+// from any still-editable count. A product that's been retired should never be
+// counted, so a line seeded before it was archived is stale — drop it. Completed
+// and cancelled counts are historical records and are left untouched.
+//
+// This is what makes an archived meal disappear from an in-progress count
+// everywhere (web review + floor) instead of lingering under "__UNKNOWN__".
+// Returns the number of lines removed.
+// ---------------------------------------------------------------------------
+export async function pruneArchivedLines(countId) {
+  const header = await base44.entities.NewStockTake.filter({ id: countId }).then(r => r[0]);
+  if (!header) return 0;
+  if (['completed', 'cancelled'].includes(header.status)) return 0;
+
+  const lines = await base44.entities.StockTakeLine.filter({ stocktake_id: countId }, 'product_name', 5000);
+  if (!lines.length) return 0;
+
+  const productIds = [...new Set(lines.map(l => l.product_id).filter(Boolean))];
+  if (!productIds.length) return 0;
+  const products = await base44.entities.Product.filter({ id: productIds }, 'name', 5000);
+  const statusById = Object.fromEntries(products.map(p => [p.id, p.status]));
+
+  // Stale = product is archived, or no longer exists at all.
+  const stale = lines.filter(l => statusById[l.product_id] !== 'active');
+  if (!stale.length) return 0;
+
+  await base44.entities.StockTakeLine.bulkDelete(stale.map(l => l.id));
+
+  const surviving = lines.filter(l => statusById[l.product_id] === 'active');
+  await base44.entities.NewStockTake.update(countId, {
+    total_lines: surviving.length,
+    uncounted_count: surviving.filter(l => !l.counted).length,
+  });
+  return stale.length;
+}
+
 // Delete a count outright (header + all its lines). Used from the list screen.
 // Active counts freeze stock, so cancel them first — deleting a completed count
 // keeps the posted stock movements (they reference the count only by number).

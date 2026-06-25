@@ -75,6 +75,17 @@ export default function FloorCountSession({ count, onBack }) {
     [productsData]
   );
 
+  // Hide lines for products that have been archived/deleted — a retired meal
+  // should never be counted. Product detail is loaded by id (incl. archived), so
+  // once it resolves we keep only active products; before then we show every line
+  // to avoid a flash. A completed count is a frozen record, shown verbatim.
+  const visibleLines = useMemo(
+    () => (locked || !productsData.length
+      ? lines
+      : lines.filter(l => productById[l.product_id]?.status === 'active')),
+    [lines, productById, productsData.length, locked]
+  );
+
   // optionsByLine: selectable units = base stock UOM + Stock Count Units + Purchasing Units.
   const optionsByLine = useMemo(() => {
     const cuByProduct = {}, spByProduct = {};
@@ -105,22 +116,22 @@ export default function FloorCountSession({ count, onBack }) {
   }, [lines, optionsByLine, seeded, productIds.length, uomsLoading, spLoading]);
 
   const multiLocation = useMemo(
-    () => new Set(lines.map(l => l.location_id || '').filter(Boolean)).size > 1,
-    [lines]
+    () => new Set(visibleLines.map(l => l.location_id || '').filter(Boolean)).size > 1,
+    [visibleLines]
   );
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return lines;
+    if (!search.trim()) return visibleLines;
     const q = search.trim().toLowerCase();
-    return lines.filter(l =>
+    return visibleLines.filter(l =>
       (l.product_name || '').toLowerCase().includes(q) ||
       (l.product_sku || '').toLowerCase().includes(q)
     );
-  }, [lines, search]);
+  }, [visibleLines, search]);
 
   const grouped = useMemo(() => {
     const cats = {};
-    for (const line of lines) {
+    for (const line of visibleLines) {
       const product = productById[line.product_id];
       const cat = product?.type || '__unknown__';
       const sub = product ? resolveSubcategory(product) : 'Unknown';
@@ -132,7 +143,7 @@ export default function FloorCountSession({ count, onBack }) {
     }
     const order = [...CATEGORY_ORDER.filter(c => cats[c]), ...(cats['__unknown__'] ? ['__unknown__'] : [])];
     return { order, cats };
-  }, [lines, productById]);
+  }, [visibleLines, productById]);
 
   // Explicitly mark every new group key as open (false) the moment it appears,
   // so stale HMR state or a re-render never leaves a group silently closed.
