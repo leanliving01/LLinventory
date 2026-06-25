@@ -191,13 +191,28 @@ export default function Recipes() {
     });
   }, [productRows, search, categoryFilter, subcategoryFilter, showArchive, classFilter, productById, catNameById]);
 
-  // Sort. Default grouping is category → subcategory → name.
+  // Sort. Default grouping is category → subcategory → SKU.
   const sorted = useMemo(() => {
     const dir = sortConfig.dir === 'asc' ? 1 : -1;
+
+    // The legacy `category` field is empty on some freshly-created meals (e.g.
+    // replacement meals built outside the New Product form). Left as-is, an empty
+    // category sorts to the very bottom and strands those meals away from their
+    // family (e.g. MLM6/8/9 dropping below MLM15). Infer the category from any
+    // sibling that shares the same subcategory so a meal always groups with its
+    // family — this keeps the 1…15 SKU order intact for current AND future meals,
+    // regardless of whether the legacy category was ever filled in.
+    const subcatCategory = {};
+    for (const r of filtered) {
+      const c = categoryOf(r);
+      if (c && r.subcategory && !subcatCategory[r.subcategory]) subcatCategory[r.subcategory] = c;
+    }
+    const catKey = (row) => categoryOf(row) || subcatCategory[row.subcategory] || '';
+
     const val = (row) => {
       switch (sortConfig.field) {
         case 'bom_class': return row.bom_class || '';
-        case 'category': return categoryOf(row) || '';
+        case 'category': return catKey(row);
         case 'subcategory': return row.subcategory || '';
         case 'product_sku': return row.product_sku || '';
         case 'product_name': return row.product_name || '';
@@ -212,7 +227,7 @@ export default function Recipes() {
       // Default: category, then subcategory, then SKU (natural numeric order so
       // MLM1 … MLM10, not MLM1, MLM10, MLM2).
       return arr.sort((a, b) =>
-        (categoryOf(a) || 'zzz').localeCompare(categoryOf(b) || 'zzz')
+        (catKey(a) || 'zzz').localeCompare(catKey(b) || 'zzz')
         || (a.subcategory || 'zzz').localeCompare(b.subcategory || 'zzz')
         || compareNatural(a.product_sku, b.product_sku));
     }
@@ -222,8 +237,10 @@ export default function Recipes() {
       if (typeof av === 'number') cmp = av - bv;
       else if (sortConfig.field === 'product_sku') cmp = compareNatural(av, bv);
       else cmp = String(av).localeCompare(String(bv));
+      // Equal category → keep families together by subcategory, then SKU order.
       if (cmp === 0 && sortConfig.field === 'category') {
-        cmp = (a.subcategory || '').localeCompare(b.subcategory || '');
+        cmp = (a.subcategory || '').localeCompare(b.subcategory || '')
+          || compareNatural(a.product_sku, b.product_sku);
       }
       return cmp * dir;
     });
