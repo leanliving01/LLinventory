@@ -8,7 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Search, Package, ChevronRight, AlertTriangle, Plus, X, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { resolveSubcategory, getSubcategoryColor } from '@/lib/productClassification';
 
+// Legacy coarse grouping stored on pack_boms.package_type. The displayed
+// "Range" now comes from the linked package product's subcategory (data-driven,
+// consistent with the rest of the app), falling back to these labels.
 const TYPE_LABELS = { goal_based: 'Goal-Based', low_carb: 'Low Carb', byo: 'BYO', bundle: 'Bundle' };
 const TYPE_COLORS = {
   goal_based: 'bg-green-100 text-green-700',
@@ -56,8 +60,32 @@ export default function PackBomManager() {
       const products = await base44.entities.Product.filter({ type: 'package' }, 'name', 500);
       return products.filter(p => p.sku);
     },
-    enabled: showCreate,
   });
+
+  // Map package SKU → product so each pack composition can display its real
+  // RANGE (the product's subcategory, e.g. "Winter Warmer Packages") instead of
+  // the coarse legacy package_type ("Bundle").
+  const productBySku = useMemo(() => {
+    const m = {};
+    packageProducts.forEach(p => { if (p.sku) m[p.sku.toUpperCase()] = p; });
+    return m;
+  }, [packageProducts]);
+
+  const rangeOf = (pb) => {
+    const p = productBySku[(pb.package_sku || '').toUpperCase()];
+    if (p) return resolveSubcategory(p);
+    return TYPE_LABELS[pb.package_type] || pb.package_type || '—';
+  };
+
+  // Keep the legacy package_type column meaningful by inferring it from the
+  // package's range, so the user never has to pick the coarse enum by hand.
+  const inferPackageType = (product) => {
+    const s = (resolveSubcategory(product) || '').toLowerCase();
+    if (s.includes('low carb') || s.includes('smart carb')) return 'low_carb';
+    if (s.includes('byo') || s.includes('build your own')) return 'byo';
+    if (s.includes('lean muscle') || s.includes('weight loss')) return 'goal_based';
+    return 'bundle';
+  };
 
   const existingPackSkus = useMemo(
     () => new Set(packBoms.map(pb => (pb.package_sku || '').toUpperCase())),
@@ -79,20 +107,25 @@ export default function PackBomManager() {
   const filtered = useMemo(() => {
     return packBoms.filter(pb => {
       if (!pb.active) return false;
-      if (typeFilter !== 'all' && pb.package_type !== typeFilter) return false;
+      if (typeFilter !== 'all' && rangeOf(pb) !== typeFilter) return false;
       if (search) {
         const q = search.toLowerCase();
-        return pb.package_sku.toLowerCase().includes(q);
+        const p = productBySku[(pb.package_sku || '').toUpperCase()];
+        return pb.package_sku.toLowerCase().includes(q) || (p?.name || '').toLowerCase().includes(q);
       }
       return true;
     });
-  }, [packBoms, search, typeFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [packBoms, search, typeFilter, productBySku]);
 
-  const typeCounts = useMemo(() => {
+  // Filter chips are the distinct RANGES actually present (data-driven), so a new
+  // range (e.g. "Winter Warmer Packages") appears automatically — no hardcoding.
+  const rangeCounts = useMemo(() => {
     const c = {};
-    packBoms.filter(pb => pb.active).forEach(pb => { c[pb.package_type] = (c[pb.package_type] || 0) + 1; });
+    packBoms.filter(pb => pb.active).forEach(pb => { const r = rangeOf(pb); c[r] = (c[r] || 0) + 1; });
     return c;
-  }, [packBoms]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [packBoms, productBySku]);
 
   const toggleSku = (sku) => {
     setForm(f => ({
@@ -148,16 +181,20 @@ export default function PackBomManager() {
         </Button>
       </div>
 
-      {/* Type chips */}
+      {/* Range chips — data-driven from the package products' subcategories */}
       <div className="flex flex-wrap gap-2">
-        {['goal_based', 'low_carb', 'byo', 'bundle'].map(t => (
-          <button key={t} onClick={() => setTypeFilter(typeFilter === t ? 'all' : t)}
-            className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
-              typeFilter === t ? TYPE_COLORS[t] + ' ring-2 ring-primary/30' : TYPE_COLORS[t] + ' opacity-60 hover:opacity-100'
-            }`}>
-            {TYPE_LABELS[t]} ({typeCounts[t] || 0})
-          </button>
-        ))}
+        {Object.keys(rangeCounts).sort().map(r => {
+          const colorCls = getSubcategoryColor(r) || 'bg-muted';
+          const activeChip = typeFilter === r;
+          return (
+            <button key={r} onClick={() => setTypeFilter(activeChip ? 'all' : r)}
+              className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all text-foreground ${colorCls} ${
+                activeChip ? 'ring-2 ring-primary/40' : 'opacity-70 hover:opacity-100'
+              }`}>
+              {r} ({rangeCounts[r] || 0})
+            </button>
+          );
+        })}
       </div>
 
       <div className="relative max-w-sm">
@@ -172,8 +209,8 @@ export default function PackBomManager() {
           <table className="w-full">
             <thead>
               <tr className="bg-muted/50 border-b border-border">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Package SKU</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Type</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Package</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Range</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Portion</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Meals</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Default ×</th>
@@ -192,9 +229,18 @@ export default function PackBomManager() {
                 return (
                   <tr key={pb.id} className="hover:bg-muted/30 transition-colors cursor-pointer"
                     onClick={() => navigate(`/purchasing/pack-bom/${pb.id}`)}>
-                    <td className="px-4 py-2.5 text-sm font-mono font-medium">{pb.package_sku}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="text-sm font-mono font-medium">{pb.package_sku}</div>
+                      {productBySku[(pb.package_sku || '').toUpperCase()]?.name && (
+                        <div className="text-[11px] text-muted-foreground truncate max-w-[260px]">
+                          {productBySku[(pb.package_sku || '').toUpperCase()].name}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-center">
-                      <Badge className={`text-[10px] ${TYPE_COLORS[pb.package_type]}`}>{TYPE_LABELS[pb.package_type]}</Badge>
+                      <Badge className={`text-[10px] text-foreground ${getSubcategoryColor(rangeOf(pb)) || 'bg-muted'}`}>
+                        {rangeOf(pb)}
+                      </Badge>
                     </td>
                     <td className="px-4 py-2.5 text-sm text-center tabular-nums">{pb.portion_weight_g}g</td>
                     <td className="px-4 py-2.5 text-sm text-center tabular-nums">{totalMeals}</td>
@@ -282,6 +328,7 @@ export default function PackBomManager() {
                               setForm(f => ({
                                 ...f,
                                 packageSku: p.sku,
+                                packageType: inferPackageType(p),
                                 portionWeightG: p.weight_g ? String(p.weight_g) : f.portionWeightG,
                               }));
                               setPkgPickerOpen(false);
@@ -311,18 +358,16 @@ export default function PackBomManager() {
                 )}
               </div>
 
-              {/* Type + Portion weight row */}
+              {/* Range (auto from the picked package's subcategory) + Portion weight */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Category</label>
-                  <Select value={form.packageType} onValueChange={v => setForm(f => ({ ...f, packageType: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(TYPE_LABELS).map(([k, v]) => (
-                        <SelectItem key={k} value={k}>{v}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Range</label>
+                  <div className="h-10 flex items-center px-3 rounded-md border border-border bg-muted/40 text-sm">
+                    {form.packageSku && productBySku[form.packageSku.toUpperCase()]
+                      ? resolveSubcategory(productBySku[form.packageSku.toUpperCase()])
+                      : <span className="text-muted-foreground">Pick a package first</span>}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">Taken from the package’s subcategory in the catalog.</p>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Portion Weight (g)</label>

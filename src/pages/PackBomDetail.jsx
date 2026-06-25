@@ -47,6 +47,19 @@ export default function PackBomDetail() {
     return m;
   }, [products]);
 
+  // Is this pack's composition mastered by a Packing BOM? If so, direct edits
+  // here are auto-overwritten from that BOM — point the user to the master.
+  const pkgProduct = useMemo(
+    () => products.find(p => (p.sku || '').toUpperCase() === (packBom?.package_sku || '').toUpperCase()) || null,
+    [products, packBom],
+  );
+  const { data: masterBoms = [] } = useQuery({
+    queryKey: ['pack-bom-master', pkgProduct?.id],
+    queryFn: () => base44.entities.Bom.filter({ product_id: pkgProduct.id, bom_class: 'packing' }),
+    enabled: !!pkgProduct?.id,
+  });
+  const hasMasterBom = masterBoms.some(b => b.is_active !== false);
+
   // Local editable state
   const [disabledSkus, setDisabledSkus] = useState(null);
   const [overrides, setOverrides] = useState(null);
@@ -72,7 +85,14 @@ export default function PackBomDetail() {
     return activeSkus.reduce((sum, sku) => sum + (overrides[sku] || defaultMultiplier), 0);
   }, [activeSkus, overrides, defaultMultiplier, disabledSkus]);
 
-  const originalTotal = allSkus.length * defaultMultiplier;
+  // The full pack size = every meal at its saved per-meal quantity (override or
+  // default ×). Using allSkus.length * defaultMultiplier was wrong for packs that
+  // store per-meal overrides (e.g. WWR uses multiplier=1 + a qty per meal), which
+  // produced a false "doesn't match expected size" warning.
+  const originalTotal = useMemo(() => {
+    const orig = parseOverrides(packBom?.sku_overrides);
+    return allSkus.reduce((sum, sku) => sum + (orig[sku] || defaultMultiplier), 0);
+  }, [allSkus, packBom, defaultMultiplier]);
 
   const toggleSku = useCallback((sku) => {
     setDisabledSkus(prev => {
@@ -195,6 +215,18 @@ export default function PackBomDetail() {
           </Button>
         </div>
       </div>
+
+      {/* Master-BOM notice — composition is auto-synced from the Packing BOM */}
+      {hasMasterBom && pkgProduct && (
+        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800">
+          <p className="text-xs text-blue-800 dark:text-blue-300">
+            <strong>Auto-synced from the Packing BOM.</strong> This pack’s meals come from its Packing BOM — edits here are a quick override and get replaced when the Packing BOM changes. Edit there to make permanent changes.
+          </p>
+          <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => navigate(`/recipes/product/${pkgProduct.id}`)}>
+            <Package className="w-3.5 h-3.5" /> Open Packing BOM
+          </Button>
+        </div>
+      )}
 
       {/* Summary bar */}
       <div className={`flex items-center justify-between px-4 py-3 rounded-xl border ${
