@@ -12,6 +12,7 @@ import {
 import { useSubcategories } from '@/lib/useSubcategories';
 import { Droppable, Draggable } from '@hello-pangea/dnd';
 import { locationLabels } from '@/lib/locationHierarchy';
+import { compareNatural } from '@/lib/naturalSort';
 
 const GROUP_COLORS = [
   'bg-red-100 text-red-700',
@@ -281,8 +282,13 @@ export default function GroupedProductTable({
     const sorter = makeSubcategorySorter(type, subcategoryOrder);
     return Object.entries(groups)
       .sort(([a], [b]) => sorter(a, b))
-      .map(([name, items]) => ({ name, items }));
-  }, [products, type]);
+      // Within every group, order rows by SKU (MLM1, MLM2 … MLM10) so meals
+      // always read in natural numeric sequence regardless of the page sort.
+      .map(([name, items]) => ({
+        name,
+        items: [...items].sort((a, b) => compareNatural(a.sku, b.sku)),
+      }));
+  }, [products, type, subcategoryOrder]);
 
   // Auto-expand all groups when a search is active (collapsible mode only).
   useEffect(() => {

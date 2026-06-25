@@ -77,10 +77,11 @@ export default function ProductReviewQueue() {
     return m;
   }, [attachments]);
 
-  // Full product catalogue — "Match to existing" searches this, then links it to the supplier.
+  // Active product catalogue — "Match to existing" searches this, then links it
+  // to the supplier. Archived products are excluded so retired SKUs can't be matched.
   const { data: products = [] } = useQuery({
     queryKey: ['products-for-queue'],
-    queryFn: () => base44.entities.Product.list('name', 5000),
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 5000),
   });
 
   // Suppliers + which are production suppliers — the queue only surfaces lines

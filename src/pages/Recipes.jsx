@@ -5,7 +5,7 @@ import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, X, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, ChevronsUpDown, Loader2, Package, ChefHat } from 'lucide-react';
+import { Search, X, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, ChevronsUpDown, Loader2, Package, ChefHat, Archive } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import CreateBomModal from '@/components/recipes/CreateBomModal';
 import TablePagination from '@/components/shared/TablePagination';
 import { parseSubcategories } from '@/lib/bomSubcategories';
+import { compareNatural } from '@/lib/naturalSort';
 import { canHaveProductionBom, canHavePackingBom } from '@/lib/productClassification';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
@@ -33,7 +34,9 @@ export default function Recipes() {
   const [createDefaults, setCreateDefaults] = useState(null);
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [subcategoryFilter, setSubcategoryFilter] = useState('all');
-  const [activeFilter, setActiveFilter] = useState('all');
+  // Normal view shows ACTIVE BOMs only. Inactive/archived recipes are reachable
+  // only by toggling the Archive view on — they never bleed into the main list.
+  const [showArchive, setShowArchive] = useState(false);
   const [classFilter, setClassFilter] = useState('all');
   const [sortConfig, setSortConfig] = useState({ field: null, dir: 'asc' });
   const [selected, setSelected] = useState([]);
@@ -97,8 +100,10 @@ export default function Recipes() {
   const productRows = useMemo(() => {
     const byProduct = {};
 
-    // Seed with every relevant product so "no recipe yet" products appear in the list.
-    products.filter(p => canSeedBom(p.type)).forEach(p => {
+    // Seed with every relevant ACTIVE product so "no recipe yet" products appear
+    // in the list. Archived products are intentionally excluded so they never
+    // surface in the normal BOM list (their deactivated BOMs show under Archive).
+    products.filter(p => canSeedBom(p.type) && p.status !== 'archived').forEach(p => {
       byProduct[p.id] = {
         key: p.id,
         product_id: p.id,
@@ -175,10 +180,8 @@ export default function Recipes() {
         const effectiveSubs = subs.length > 0 ? subs : ['Uncategorised'];
         if (!effectiveSubs.includes(subcategoryFilter)) return false;
       }
-      if (activeFilter !== 'all') {
-        if (activeFilter === 'active' && !row.is_active) return false;
-        if (activeFilter === 'inactive' && row.is_active) return false;
-      }
+      // Archive view → inactive recipes only; normal view → active only.
+      if (showArchive ? row.is_active : !row.is_active) return false;
       if (search) {
         const s = search.toLowerCase();
         return (row.product_sku || '').toLowerCase().includes(s) ||
@@ -186,7 +189,7 @@ export default function Recipes() {
       }
       return true;
     });
-  }, [productRows, search, categoryFilter, subcategoryFilter, activeFilter, classFilter, productById, catNameById]);
+  }, [productRows, search, categoryFilter, subcategoryFilter, showArchive, classFilter, productById, catNameById]);
 
   // Sort. Default grouping is category → subcategory → name.
   const sorted = useMemo(() => {
@@ -206,15 +209,19 @@ export default function Recipes() {
     };
     const arr = [...filtered];
     if (!sortConfig.field) {
-      // Default: category, then subcategory, then name
+      // Default: category, then subcategory, then SKU (natural numeric order so
+      // MLM1 … MLM10, not MLM1, MLM10, MLM2).
       return arr.sort((a, b) =>
         (categoryOf(a) || 'zzz').localeCompare(categoryOf(b) || 'zzz')
         || (a.subcategory || 'zzz').localeCompare(b.subcategory || 'zzz')
-        || (a.product_name || '').localeCompare(b.product_name || ''));
+        || compareNatural(a.product_sku, b.product_sku));
     }
     return arr.sort((a, b) => {
       const av = val(a), bv = val(b);
-      let cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv));
+      let cmp;
+      if (typeof av === 'number') cmp = av - bv;
+      else if (sortConfig.field === 'product_sku') cmp = compareNatural(av, bv);
+      else cmp = String(av).localeCompare(String(bv));
       if (cmp === 0 && sortConfig.field === 'category') {
         cmp = (a.subcategory || '').localeCompare(b.subcategory || '');
       }
@@ -250,7 +257,7 @@ export default function Recipes() {
 
   const clearAll = () => {
     setSearch(''); setCategoryFilter('all'); setClassFilter('all');
-    setSubcategoryFilter('all'); setActiveFilter('all'); setPage(0);
+    setSubcategoryFilter('all'); setPage(0);
   };
 
   // Multi-select (by product row key)
@@ -309,16 +316,30 @@ export default function Recipes() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Bill of Materials</h1>
+          <h1 className="text-2xl font-bold text-foreground">
+            Bill of Materials{showArchive && <span className="text-amber-600"> · Archive</span>}
+          </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {filtered.length} of {productRows.length} product outputs — open one to manage its full Prep → Cook → Portion process
+            {showArchive
+              ? `${filtered.length} archived recipe${filtered.length !== 1 ? 's' : ''}`
+              : `${filtered.length} of ${productRows.length} product outputs — open one to manage its full Prep → Cook → Portion process`}
           </p>
         </div>
-        {canEdit && (
-          <Button className="gap-2" onClick={() => setShowCreate(true)}>
-            <Plus className="w-4 h-4" /> Create BOM
+        <div className="flex items-center gap-2">
+          <Button
+            variant={showArchive ? 'default' : 'outline'}
+            className="gap-2"
+            onClick={() => { setShowArchive(v => !v); setSelected([]); setPage(0); }}
+          >
+            <Archive className="w-4 h-4" />
+            {showArchive ? 'Exit Archive' : 'View Archive'}
           </Button>
-        )}
+          {canEdit && (
+            <Button className="gap-2" onClick={() => setShowCreate(true)}>
+              <Plus className="w-4 h-4" /> Create BOM
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Search + filters */}
@@ -354,15 +375,7 @@ export default function Recipes() {
             {subcategoryOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Select value={activeFilter} onValueChange={v => { setActiveFilter(v); setPage(0); }}>
-          <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="inactive">Inactive</SelectItem>
-          </SelectContent>
-        </Select>
-        {(search || categoryFilter !== 'all' || subcategoryFilter !== 'all' || activeFilter !== 'all' || classFilter !== 'all') && (
+        {(search || categoryFilter !== 'all' || subcategoryFilter !== 'all' || classFilter !== 'all') && (
           <Button variant="ghost" size="sm" onClick={clearAll} className="gap-1">
             <X className="w-3.5 h-3.5" /> Clear
           </Button>

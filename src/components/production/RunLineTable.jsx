@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import { Trash2, Save, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { compareNatural } from '@/lib/naturalSort';
 
 const VARIANCE_REASONS = [
   { value: 'as_planned', label: 'As planned' },
@@ -39,9 +40,9 @@ function groupLines(lines) {
   }
 
   const sorted = [];
-  const groupKeys = Object.keys(groups).sort();
+  const groupKeys = Object.keys(groups).sort(compareNatural);
   for (const key of groupKeys) {
-    groups[key].sort((a, b) => (a.product_sku || '').localeCompare(b.product_sku || ''));
+    groups[key].sort((a, b) => compareNatural(a.product_sku, b.product_sku));
     sorted.push(...groups[key]);
   }
   return { sorted, groups, groupKeys };

@@ -20,11 +20,17 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
+import { compareNatural } from '@/lib/naturalSort';
 
 export default function Catalog() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('raw');
-  const [statusFilter, setStatusFilter] = useState('active');
+  // Normal view shows ACTIVE products only. Archived (inactive) products never
+  // appear in the list/search/filters — they are reachable only by toggling the
+  // Archive view on. `statusFilter` is derived from this so all the existing
+  // filtering logic keeps working.
+  const [showArchive, setShowArchive] = useState(false);
+  const statusFilter = showArchive ? 'archived' : 'active';
   const [sellableFilter, setSellableFilter] = useState('all');
   const [purchasableFilter, setPurchasableFilter] = useState('all');
   const [inventoryFilter, setInventoryFilter] = useState('all');
@@ -176,7 +182,7 @@ export default function Catalog() {
         list.sort((a, b) => new Date(a.created_date || 0) - new Date(b.created_date || 0));
         break;
       case 'sku_asc':
-        list.sort((a, b) => (a.sku || '').localeCompare(b.sku || ''));
+        list.sort((a, b) => compareNatural(a.sku, b.sku));
         break;
       case 'name_asc':
       default:
@@ -239,13 +245,26 @@ export default function Catalog() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Products</h1>
+          <h1 className="text-2xl font-bold text-foreground">
+            Products{showArchive && <span className="text-amber-600"> · Archive</span>}
+          </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {filtered.length} of {products.length} products
+            {showArchive
+              ? `${filtered.length} archived product${filtered.length !== 1 ? 's' : ''}`
+              : `${filtered.length} of ${products.filter(p => p.status === 'active').length} products`}
             {mergeSelection.length > 0 && ` · ${mergeSelection.length} selected`}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant={showArchive ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => { setShowArchive(v => !v); setMergeSelection([]); }}
+            className="gap-1.5"
+          >
+            <Archive className="w-3.5 h-3.5" />
+            {showArchive ? 'Exit Archive' : 'View Archive'}
+          </Button>
           {perms.catalog_edit && mergeSelection.length > 0 && (
             <>
               <Button variant="outline" size="sm" onClick={() => setShowBulkEdit(true)} className="gap-1.5">
@@ -306,14 +325,6 @@ export default function Catalog() {
             className="pl-9"
           />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="archived">Inactive</SelectItem>
-          </SelectContent>
-        </Select>
         <Select value={sellableFilter} onValueChange={setSellableFilter}>
           <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -348,8 +359,8 @@ export default function Catalog() {
             <SelectItem value="sku_asc">SKU (A-Z)</SelectItem>
           </SelectContent>
         </Select>
-        {(search || typeFilter !== 'all' || statusFilter !== 'active' || sellableFilter !== 'all' || purchasableFilter !== 'all' || inventoryFilter !== 'all') && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setTypeFilter('all'); setStatusFilter('active'); setSellableFilter('all'); setPurchasableFilter('all'); setInventoryFilter('all'); }} className="gap-1">
+        {(search || typeFilter !== 'all' || sellableFilter !== 'all' || purchasableFilter !== 'all' || inventoryFilter !== 'all') && (
+          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setTypeFilter('all'); setSellableFilter('all'); setPurchasableFilter('all'); setInventoryFilter('all'); }} className="gap-1">
             <X className="w-3.5 h-3.5" /> Clear
           </Button>
         )}

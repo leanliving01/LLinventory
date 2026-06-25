@@ -1,4 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
+import { compareNatural } from '@/lib/naturalSort';
+
+// Any sort field that holds a SKU (e.g. 'sku', 'product_sku', 'package_sku')
+// must order MLM1, MLM2 … MLM9, MLM10 — NOT the lexicographic MLM1, MLM10, MLM2
+// that Postgres/`localeCompare` give. Postgres can't do this ordering cheaply,
+// so when a caller sorts by a SKU column we re-sort the page client-side with
+// numeric-aware natural ordering. This makes EVERY screen that fetches by SKU
+// (catalog, BOMs, production, packing, supplier catalogs, floor) consistent.
+const isSkuField = (field) => field === 'sku' || field.endsWith('_sku');
+
+function naturalSkuSort(rows, field, ascending) {
+  if (!Array.isArray(rows)) return rows;
+  const dir = ascending ? 1 : -1;
+  return [...rows].sort((a, b) => compareNatural(a?.[field], b?.[field]) * dir);
+}
 
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -182,7 +197,7 @@ function createEntityProxy(entityName) {
         supabase.from(table).select('*').order(field, { ascending }).limit(limit)
       );
       if (error) { console.error(`[supabase] ${table} list:`, error.message); return []; }
-      return data || [];
+      return isSkuField(field) ? naturalSkuSort(data || [], field, ascending) : (data || []);
     },
 
     async filter(filters = {}, sortField = '-created_date', limit = 1000) {
@@ -192,7 +207,7 @@ function createEntityProxy(entityName) {
       query = applyFilters(query, filters);
       const { data, error } = await withTimeout(query.order(field, { ascending }).limit(limit));
       if (error) { console.error(`[supabase] ${table} filter:`, error.message); return []; }
-      return data || [];
+      return isSkuField(field) ? naturalSkuSort(data || [], field, ascending) : (data || []);
     },
 
     async get(id) {

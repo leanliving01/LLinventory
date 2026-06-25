@@ -81,7 +81,8 @@ export default function NewSalesOrder() {
 
   const { data: products = [] } = useQuery({
     queryKey: ['products-for-manual-order'],
-    queryFn: () => base44.entities.Product.list('name', 3000),
+    // Active only — archived products must not be pickable onto a new order.
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 3000),
     staleTime: 60000,
   });
 

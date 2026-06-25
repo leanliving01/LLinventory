@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { RefreshCw, X, ArrowUp, ArrowDown, Minus, Loader2, Plus, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { compareNatural } from '@/lib/naturalSort';
 
 /**
  * Recalculate modal — compares existing run lines against ALL finished meals
@@ -136,7 +137,7 @@ export default function RecalculateRunModal({ runId, existingLines, onConfirm, o
     uncapped.sort((a, b) => {
       if (a.isNew !== b.isNew) return a.isNew ? -1 : 1;
       if ((b.committed || 0) !== (a.committed || 0)) return (b.committed || 0) - (a.committed || 0);
-      return (a.product_sku || '').localeCompare(b.product_sku || '');
+      return compareNatural(a.product_sku, b.product_sku);
     });
 
     return uncapped;
