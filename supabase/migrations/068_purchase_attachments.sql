@@ -1,5 +1,6 @@
 -- ============================================================================
--- 061_purchase_attachments
+-- 068_purchase_attachments  (was 061 — renumbered to clear a number collision
+-- with 061_pack_bom_autosync from parallel work)
 -- Source documents (supplier invoice PDFs) for purchasing.
 --   * Xero bills carry the original supplier PDF as a Xero attachment, but the
 --     sync never pulled it. The fetch-xero-attachments fn now downloads each
