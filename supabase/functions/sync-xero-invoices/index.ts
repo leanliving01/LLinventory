@@ -122,10 +122,12 @@ Deno.serve(async (req) => {
   // ── BULK PROCESSING ──────────────────────────────────────────────────────
   const now = new Date().toISOString();
 
-  // Pre-load all suppliers
-  const { data: allSuppliers } = await supabase.from('suppliers').select('id, name, xero_contact_id');
-  const supplierByXeroId = new Map<string, { id: string; name: string }>();
-  const supplierByName = new Map<string, { id: string; name: string }>();
+  // Pre-load all suppliers (incl. the production flag — we only import invoices
+  // from suppliers flagged as production suppliers; everything else is skipped).
+  type Sup = { id: string; name: string; is_production_supplier?: boolean };
+  const { data: allSuppliers } = await supabase.from('suppliers').select('id, name, xero_contact_id, is_production_supplier');
+  const supplierByXeroId = new Map<string, Sup>();
+  const supplierByName = new Map<string, Sup>();
   for (const s of allSuppliers || []) {
     if (s.xero_contact_id) supplierByXeroId.set(s.xero_contact_id, s);
     supplierByName.set((s.name as string).toLowerCase().trim(), s);
@@ -164,8 +166,10 @@ Deno.serve(async (req) => {
     await supabase.from('xero_unmatched_contacts').upsert(rows, { onConflict: 'xero_contact_id' });
   }
 
-  // Resolve supplier for each invoice
-  const resolved: Array<{ inv: XeroInvoice; supplier: { id: string; name: string } }> = [];
+  // Resolve supplier for each invoice — and only keep invoices whose supplier is a
+  // PRODUCTION supplier. Non-production (overheads, services, admin) suppliers are
+  // skipped entirely: their invoices are never imported into the system.
+  const resolved: Array<{ inv: XeroInvoice; supplier: Sup }> = [];
   for (const inv of invoices) {
     const cid = inv.Contact?.ContactID || '';
     const name = (inv.Contact?.Name || '').trim();
@@ -176,7 +180,7 @@ Deno.serve(async (req) => {
         if (name.toLowerCase().includes(key) || key.includes(name.toLowerCase())) { supplier = val; break; }
       }
     }
-    if (supplier) resolved.push({ inv, supplier });
+    if (supplier && supplier.is_production_supplier) resolved.push({ inv, supplier });
   }
 
   // Backfill xero_contact_id for newly-matched suppliers
