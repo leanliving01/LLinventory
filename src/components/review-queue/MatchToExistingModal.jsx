@@ -2,9 +2,30 @@ import React, { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { X, Loader2, Search, Link2, ArrowLeft, Check, Truck, FileText } from 'lucide-react';
+import { X, Loader2, Search, Link2, ArrowLeft, Check, Truck, FileText, Sparkles } from 'lucide-react';
 import { formatZAR, effectiveUnitCost } from '@/lib/utils';
 import UomSelect from '@/components/shared/UomSelect';
+import { base44 } from '@/api/base44Client';
+import { toast } from 'sonner';
+
+// Parse a pack ("Bale of 10 × 2kg", "800g", "5L") into the conversion factor for
+// a given stock unit (1 purchase unit = X stock units). Used by AI pre-fill.
+const _MASS = { kg: 1000, kgs: 1000, g: 1, gr: 1, gram: 1, grams: 1 };
+const _VOL = { l: 1000, lt: 1000, litre: 1000, liter: 1000, ml: 1 };
+function packToConversion(text, stockUom) {
+  if (!text || !stockUom) return null;
+  const t = String(text).toLowerCase();
+  let qty = null, unit = null;
+  let m = t.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(kg|kgs|g|gr|gram|grams|ml|l|lt|litre|liter)\b/)
+       || t.match(/(?:case|bale|bag|box|carton|pack|crate)\s*of\s*(\d+)\D*?(\d+(?:\.\d+)?)\s*(kg|kgs|g|gr|gram|grams|ml|l|lt|litre|liter)\b/);
+  if (m) { qty = parseFloat(m[1]) * parseFloat(m[2]); unit = m[3]; }
+  else { m = t.match(/(\d+(?:\.\d+)?)\s*(kg|kgs|g|gr|gram|grams|ml|l|lt|litre|liter)\b/); if (m) { qty = parseFloat(m[1]); unit = m[2]; } }
+  if (qty == null) return null;
+  const su = stockUom.toLowerCase();
+  if (unit in _MASS) { const g = qty * _MASS[unit]; if (su === 'g') return g; if (su === 'kg') return g / 1000; }
+  if (unit in _VOL) { const ml = qty * _VOL[unit]; if (su === 'ml') return ml; if (su === 'l') return ml / 1000; }
+  return null;
+}
 
 /**
  * Match an unmatched invoice line (or a SKU group of lines) to an existing
@@ -26,6 +47,7 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
   // rather than search from scratch.
   const [picked, setPicked] = useState(suggestion?.product || null);
   const [saving, setSaving] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [form, setForm] = useState({
     purchase_uom_label: suggestedSp?.purchase_uom_label || line.xero_description || '',
     purchase_uom: suggestedSp?.purchase_uom || 'each',
@@ -52,6 +74,63 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
   const yf = parseFloat(form.yield_factor) || 1;
   const nc = parseFloat(form.nominal_cost);
   const pricePerStock = cf > 0 && nc >= 0 && yf > 0 ? nc / (cf * yf) : null;
+
+  // Read the supplier's invoice PDF and pre-fill the purchasing unit from it
+  // (UoM + description + unit price → conversion + cost). Needs the stored PDF
+  // (Settings → Fetch Xero documents) and the Gemini key for extraction.
+  const handleAnalyze = async () => {
+    if (!picked) { toast.error('Pick a product first'); return; }
+    setAnalyzing(true);
+    try {
+      const atts = await base44.entities.PurchaseAttachment.filter({ invoice_id: invoice?.id });
+      const att = (atts || []).find(a => a.file_url);
+      if (!att) { toast.error('No invoice PDF stored for this bill yet — run Settings → Sync → Fetch Xero documents.'); return; }
+
+      const resp = await fetch(att.file_url);
+      const bytes = new Uint8Array(await resp.arrayBuffer());
+      let bin = ''; for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      const fileBase64 = btoa(bin);
+
+      const res = await base44.functions.invoke('scan-invoice', { fileBase64, mimeType: att.mime_type || 'application/pdf' });
+      const payload = res?.data?.data || res?.data;
+      if (res?.data?.error || payload?.error) {
+        const msg = res?.data?.error || payload?.error;
+        toast.error(String(msg).includes('GEMINI') ? 'Add the Gemini API key to enable AI analysis.' : msg);
+        return;
+      }
+      const exLines = payload?.lines || [];
+      if (!exLines.length) { toast.error('No lines could be read from the invoice PDF.'); return; }
+
+      const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const tok = s => (s || '').toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length > 2);
+      const want = norm(line.xero_item_code);
+      const wantToks = new Set(tok(line.xero_description));
+      let best = null, bestScore = 0;
+      for (const el of exLines) {
+        if (want && norm(el.item_code) === want) { best = el; break; }
+        const b = tok(el.description); const hits = b.filter(t => wantToks.has(t)).length;
+        const sc = wantToks.size && b.length ? hits / Math.max(wantToks.size, b.length) : 0;
+        if (sc > bestScore) { bestScore = sc; best = el; }
+      }
+      if (!best) { toast.error('Could not match this line in the invoice.'); return; }
+
+      const conv = packToConversion(`${best.unit || ''} ${best.description || ''}`, stockUom);
+      const unitPrice = best.unit_price != null ? best.unit_price : (best.qty ? (best.line_total / best.qty) : null);
+      setForm(prev => ({
+        ...prev,
+        supplier_sku: best.item_code || prev.supplier_sku,
+        supplier_description: best.description || prev.supplier_description,
+        purchase_uom_label: best.unit || best.description || prev.purchase_uom_label,
+        conversion_factor: conv != null ? String(conv) : prev.conversion_factor,
+        nominal_cost: unitPrice != null ? String(unitPrice) : prev.nominal_cost,
+      }));
+      toast.success('Pre-filled from the invoice — verify the conversion & price.');
+    } catch (err) {
+      toast.error(`Analysis failed: ${err.message}`);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!form.purchase_uom_label.trim() || !form.conversion_factor || form.nominal_cost === '') {
@@ -164,9 +243,16 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
                 <span>Linking to <span className="font-medium">{picked.name}</span> <span className="font-mono text-muted-foreground text-xs">({picked.sku})</span></span>
               </div>
 
-              <h4 className="text-sm font-semibold flex items-center gap-1.5 pt-1">
-                <FileText className="w-4 h-4 text-muted-foreground" /> Purchasing Unit — {invoice?.supplier_name}
-              </h4>
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <h4 className="text-sm font-semibold flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-muted-foreground" /> Purchasing Unit — {invoice?.supplier_name}
+                </h4>
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1.5 border-primary/40 text-primary"
+                  onClick={handleAnalyze} disabled={analyzing}>
+                  {analyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  Analyze from invoice (AI)
+                </Button>
+              </div>
               {line.unit && (
                 <p className="text-[11px] text-muted-foreground -mt-1">
                   Invoiced in <span className="font-medium">{line.unit}</span> at {formatZAR(lineUnitCost)}/{line.unit}.
