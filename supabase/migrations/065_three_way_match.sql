@@ -34,11 +34,14 @@ ALTER TABLE purchase_invoice_lines
   ADD COLUMN IF NOT EXISTS qty_variance_flagged boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS match_line_status    text;
 
--- 3a. Allow a 'purchasing' settings group (the CHECK constraint predates it)
+-- 3a. Ensure the 'purchasing' settings group is allowed. Re-declare the FULL
+--     superset of every group used anywhere (migration 002 already added 'sync'
+--     and 'purchasing'); listing them all keeps this safe whether or not 002 ran
+--     and never drops an existing group.
 ALTER TABLE settings DROP CONSTRAINT IF EXISTS settings_group_check;
 ALTER TABLE settings
   ADD CONSTRAINT settings_group_check
-  CHECK ("group" IN ('org','tax','shopify','cin7','production','alerts','xero','purchasing'));
+  CHECK ("group" IN ('org','tax','shopify','cin7','production','alerts','xero','sync','purchasing'));
 
 -- 3b. Seed default tolerances (STRICT). ON CONFLICT (uq_settings_key) keeps any
 --     value finance has already tuned.

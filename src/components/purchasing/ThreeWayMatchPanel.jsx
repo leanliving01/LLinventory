@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { base44, supabase } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
@@ -38,6 +38,7 @@ const fmtQty = (n) => (n == null ? '—' : String(Math.round(Number(n) * 1000) /
 const fmtR = (n) => (n == null ? '—' : `R ${Number(n).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`);
 
 export default function ThreeWayMatchPanel({ invoice, invoiceLines = [], userName = 'Unknown', canApprove: canAct = true, onUpdated }) {
+  const queryClient = useQueryClient();
   const [linkPoId, setLinkPoId] = useState('');
   const [approving, setApproving] = useState(false);
   const [overrideStage, setOverrideStage] = useState(null); // null | 'pin' | 'reason'
@@ -45,6 +46,22 @@ export default function ThreeWayMatchPanel({ invoice, invoiceLines = [], userNam
 
   const poId = invoice.purchase_order_id || linkPoId || '';
   const isApproved = invoice.status === 'approved';
+
+  // Schema-readiness probe: the approval columns only exist after migration 065.
+  // The data layer silently strips unknown columns, so without this an approval
+  // could set status='approved' while the match metadata is dropped. If the probe
+  // errors (columns absent), we block approval entirely.
+  const { data: schemaReady = true } = useQuery({
+    queryKey: ['invoice-match-schema-ready'],
+    queryFn: async () => {
+      const { error } = await supabase
+        .from('purchase_invoices')
+        .select('id, three_way_match_status, approved_by, match_overridden')
+        .limit(1);
+      return !error;
+    },
+    staleTime: Infinity,
+  });
 
   // Tolerances
   const { data: settings = [] } = useQuery({
@@ -101,41 +118,62 @@ export default function ThreeWayMatchPanel({ invoice, invoiceLines = [], userNam
   );
 
   const meta = OVERALL_STATUS_META[result.overallStatus] || OVERALL_STATUS_META.not_checked;
-  const lineByInvLineId = useMemo(() => {
-    const m = {};
-    result.lines.forEach((l) => { if (l.invoice_line_id) m[l.invoice_line_id] = l; });
-    return m;
-  }, [result.lines]);
 
   // ── Approve / override ────────────────────────────────────────────────────
-  const persistMatch = async ({ approve, overridden, reason }) => {
-    const nowISO = new Date().toISOString();
 
-    // 1. Persist the per-line match outcome
-    await Promise.all(
-      invoiceLines.map((il) => {
-        const r = lineByInvLineId[il.id];
-        if (!r) return null;
-        return base44.entities.PurchaseInvoiceLine.update(il.id, {
-          ordered_qty: r.orderedQty,
-          received_qty: r.receivedQty,
-          qty_variance: r.qtyOver,
-          qty_variance_flagged: r.qtyExceeds,
-          price_variance_pct: r.priceVariancePct != null ? Math.round(r.priceVariancePct * 10) / 10 : null,
-          price_variance_flagged: r.priceExceeds,
-          match_line_status: r.lineStatus,
-        }).catch((e) => { console.warn('[3way] line persist failed:', e?.message); });
-      })
+  // Re-fetch the source documents and recompute the match right before writing,
+  // so an approval can never be based on a stale render (e.g. a GRN/invoice line
+  // changed in another tab after this drawer opened).
+  const computeFresh = async () => {
+    const [freshInvLines, freshPoList, freshGrns, freshPoLines] = await Promise.all([
+      base44.entities.PurchaseInvoiceLine.filter({ invoice_id: invoice.id }, 'product_name', 200),
+      poId ? base44.entities.PurchaseOrder.filter({ id: poId }) : Promise.resolve([]),
+      poId ? base44.entities.GoodsReceivedNote.filter({ purchase_order_id: poId }, '-received_date', 50) : Promise.resolve([]),
+      poId ? base44.entities.PurchaseOrderLine.filter({ purchase_order_id: poId }, 'product_name', 200) : Promise.resolve([]),
+    ]);
+    const freshPo = freshPoList[0] || null;
+    const freshConfirmed = freshGrns.filter((g) => g.status === 'confirmed');
+    const chunks = await Promise.all(
+      freshConfirmed.map((g) => base44.entities.GRNLine.filter({ grn_id: g.id }, 'product_name', 200))
     );
+    const freshGrnLines = chunks.flat();
+    const res = matchThreeWay({
+      po: freshPo, poLines: freshPoLines, grns: freshGrns, grnLines: freshGrnLines,
+      invoice, invoiceLines: freshInvLines, tolerances,
+    });
+    return { res, lines: freshInvLines };
+  };
+
+  const persistMatch = async (res, lines, { approve, overridden, reason }) => {
+    const nowISO = new Date().toISOString();
+    const byId = {};
+    res.lines.forEach((l) => { if (l.invoice_line_id) byId[l.invoice_line_id] = l; });
+
+    // 1. Persist the per-line match outcome. FAIL HARD — never approve a payment
+    //    whose per-line match record couldn't be written.
+    await Promise.all(lines.map((il) => {
+      const r = byId[il.id];
+      if (!r) return null;
+      return base44.entities.PurchaseInvoiceLine.update(il.id, {
+        ordered_qty: r.orderedQty,
+        received_qty: r.receivedQty,
+        qty_variance: r.qtyOver,
+        qty_variance_flagged: r.qtyExceeds,
+        price_variance_pct: r.priceVariancePct != null ? Math.round(r.priceVariancePct * 10) / 10 : null,
+        price_variance_flagged: r.priceExceeds,
+        match_line_status: r.lineStatus,
+      });
+    }));
 
     // 2. Update the invoice header
     const headerPatch = {
-      three_way_match_status: result.overallStatus,
+      three_way_match_status: res.overallStatus,
       three_way_checked_at: nowISO,
       three_way_checked_by: userName,
+      total_variance: res.headerVariance ?? null,
     };
     if (!invoice.purchase_order_id && linkPoId) headerPatch.purchase_order_id = linkPoId;
-    if (!invoice.grn_id && confirmedGRNs[0]) headerPatch.grn_id = confirmedGRNs[0].id;
+    if (!invoice.grn_id && res.confirmedGRNs?.[0]) headerPatch.grn_id = res.confirmedGRNs[0].id;
     if (approve) {
       headerPatch.status = 'approved';
       headerPatch.approved_by = userName;
@@ -150,15 +188,33 @@ export default function ThreeWayMatchPanel({ invoice, invoiceLines = [], userNam
       entity_type: 'PurchaseInvoice',
       entity_id: invoice.id,
       description: approve
-        ? `${overridden ? 'Override-approved' : 'Approved'} invoice ${invoice.invoice_number} for payment (3-way match: ${result.overallStatus}${overridden && reason ? ` — override reason: ${reason}` : ''})`
-        : `Recorded 3-way match for invoice ${invoice.invoice_number}: ${result.overallStatus}`,
+        ? `${overridden ? 'Override-approved' : 'Approved'} invoice ${invoice.invoice_number} for payment (3-way match: ${res.overallStatus}${overridden && reason ? ` — override reason: ${reason}` : ''})`
+        : `Recorded 3-way match for invoice ${invoice.invoice_number}: ${res.overallStatus}`,
     });
   };
 
+  const guardReady = () => {
+    if (!schemaReady) {
+      toast.error('Database not ready — run migration 065 before approving invoices.');
+      return false;
+    }
+    return true;
+  };
+
   const handleApprove = async () => {
+    if (approving || !guardReady()) return;
     setApproving(true);
     try {
-      await persistMatch({ approve: true, overridden: false, reason: null });
+      const { res, lines } = await computeFresh();
+      if (!res.canApprove) {
+        toast.error('The match changed since you opened this — re-review before approving.');
+        queryClient.invalidateQueries({ queryKey: ['match-po-lines', poId] });
+        queryClient.invalidateQueries({ queryKey: ['match-grns', poId] });
+        queryClient.invalidateQueries({ queryKey: ['match-grn-lines', confirmedKey] });
+        onUpdated?.();
+        return;
+      }
+      await persistMatch(res, lines, { approve: true, overridden: false, reason: null });
       toast.success('Invoice approved for payment');
       onUpdated?.();
     } catch (err) {
@@ -169,9 +225,11 @@ export default function ThreeWayMatchPanel({ invoice, invoiceLines = [], userNam
   };
 
   const handleSaveCheck = async () => {
+    if (approving || !guardReady()) return;
     setApproving(true);
     try {
-      await persistMatch({ approve: false });
+      const { res, lines } = await computeFresh();
+      await persistMatch(res, lines, { approve: false });
       toast.success('Match result saved');
       onUpdated?.();
     } catch (err) {
@@ -182,11 +240,14 @@ export default function ThreeWayMatchPanel({ invoice, invoiceLines = [], userNam
   };
 
   const handleOverrideConfirmed = async () => {
+    if (approving) return;
     if (!overrideReason.trim()) { toast.error('Enter a reason for the override'); return; }
+    if (!guardReady()) return;
     setOverrideStage(null);
     setApproving(true);
     try {
-      await persistMatch({ approve: true, overridden: true, reason: overrideReason.trim() });
+      const { res, lines } = await computeFresh();
+      await persistMatch(res, lines, { approve: true, overridden: true, reason: overrideReason.trim() });
       toast.success('Invoice override-approved for payment');
       setOverrideReason('');
       onUpdated?.();
@@ -327,16 +388,24 @@ export default function ThreeWayMatchPanel({ invoice, invoiceLines = [], userNam
         Editable in Settings → Purchasing.
       </p>
 
+      {/* Migration-not-applied guard */}
+      {!schemaReady && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          Match columns are missing from the database — run migration 065 before approving invoices, or the approval audit won't be saved.
+        </div>
+      )}
+
       {/* Actions */}
       {!isApproved && canAct && (
         <div className="flex items-center gap-3 pt-1 border-t border-border">
-          <Button variant="outline" size="sm" onClick={handleSaveCheck} disabled={approving} className="gap-2">
+          <Button variant="outline" size="sm" onClick={handleSaveCheck} disabled={approving || !schemaReady} className="gap-2">
             {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
             Save Match Result
           </Button>
           <div className="flex-1" />
           {result.canApprove ? (
-            <Button size="sm" onClick={handleApprove} disabled={approving} className="gap-2 bg-green-600 hover:bg-green-700">
+            <Button size="sm" onClick={handleApprove} disabled={approving || !schemaReady} className="gap-2 bg-green-600 hover:bg-green-700">
               {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               Approve for Payment
             </Button>
@@ -344,7 +413,7 @@ export default function ThreeWayMatchPanel({ invoice, invoiceLines = [], userNam
             <Button
               size="sm"
               onClick={() => setOverrideStage('pin')}
-              disabled={approving}
+              disabled={approving || !schemaReady}
               className="gap-2 bg-amber-600 hover:bg-amber-700"
             >
               {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
@@ -396,8 +465,8 @@ export default function ThreeWayMatchPanel({ invoice, invoiceLines = [], userNam
               />
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1" onClick={() => setOverrideStage(null)}>Cancel</Button>
-                <Button className="flex-1 gap-2 bg-amber-600 hover:bg-amber-700" onClick={handleOverrideConfirmed}>
-                  <CheckCircle2 className="w-4 h-4" /> Approve for Payment
+                <Button className="flex-1 gap-2 bg-amber-600 hover:bg-amber-700" onClick={handleOverrideConfirmed} disabled={approving}>
+                  {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Approve for Payment
                 </Button>
               </div>
             </div>

@@ -36,6 +36,7 @@ const MATCH_BADGE_STYLES = {
   matched: 'bg-green-100 text-green-700',
   price_variance: 'bg-amber-100 text-amber-700',
   qty_variance: 'bg-red-100 text-red-700',
+  total_variance: 'bg-amber-100 text-amber-700',
   unmatched: 'bg-red-100 text-red-700',
   no_po: 'bg-blue-100 text-blue-700',
   no_grn: 'bg-blue-100 text-blue-700',

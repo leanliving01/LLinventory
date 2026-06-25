@@ -68,6 +68,7 @@ export const OVERALL_STATUS_META = {
   matched:        { label: 'Fully Matched', tone: 'green',  blocking: false },
   price_variance: { label: 'Price Variance', tone: 'amber', blocking: true },
   qty_variance:   { label: 'Over-Billed',    tone: 'red',   blocking: true },
+  total_variance: { label: 'Total Mismatch', tone: 'amber', blocking: true },
   unmatched:      { label: 'Unmatched Lines', tone: 'red',  blocking: true },
   no_po:          { label: 'No PO Linked',    tone: 'blue', blocking: true },
   no_grn:         { label: 'No GRN Linked',   tone: 'blue', blocking: true },
@@ -112,13 +113,18 @@ export function matchThreeWay({
     if (!k) return;
     const oq = num(l.ordered_qty);
     const uc = num(l.unit_cost);
-    const w = Math.abs(oq) || 1; // weight by qty; lines with 0 qty still count once
-    const cur = poByKey[k] || { id: l.id, ordered_qty: 0, _costSum: 0, _costW: 0 };
+    const w = oq > 0 ? oq : 0; // only positive qty weights the average; never negative
+    const cur = poByKey[k] || { id: l.id, ordered_qty: 0, _costSum: 0, _costW: 0, _scSum: 0, _scN: 0 };
     cur.ordered_qty += oq;
-    if (uc > 0) { cur._costSum += uc * w; cur._costW += w; }
+    if (uc > 0) { cur._costSum += uc * w; cur._costW += w; cur._scSum += uc; cur._scN += 1; }
     poByKey[k] = cur;
   });
-  Object.values(poByKey).forEach((p) => { p.unit_cost = p._costW > 0 ? p._costSum / p._costW : 0; });
+  // Weighted average over positive-qty lines; fall back to a plain average of the
+  // positive unit costs when no positive qty exists (credit/amendment lines), so
+  // a zero/negative-qty PO line never yields a garbage cost.
+  Object.values(poByKey).forEach((p) => {
+    p.unit_cost = p._costW > 0 ? p._costSum / p._costW : (p._scN > 0 ? p._scSum / p._scN : 0);
+  });
 
   // Sum received qty (accepted only) across CONFIRMED GRNs, per product. A line
   // whose grn_id is null or not one of the confirmed GRNs is ignored — an orphan
@@ -173,10 +179,16 @@ export function matchThreeWay({
     // cheap (a 40% overcharge on a R0.05 item still flags).
     let priceVariancePct = null;
     let priceExceeds = false;
+    let priceUnverifiable = false;
     if (poUnitCost != null && poUnitCost > 0) {
       priceVariancePct = ((invUnitCost - poUnitCost) / poUnitCost) * 100;
       priceExceeds = Math.abs(priceVariancePct) > tol.pricePct + EPS
         && Math.abs(invUnitCost - poUnitCost) > CENT;
+    } else if (poLine && invUnitCost > CENT) {
+      // A PO line exists but carries no usable cost to validate against. We can't
+      // confirm the billed price, so don't auto-pass — flag it for manual review.
+      priceExceeds = true;
+      priceUnverifiable = true;
     }
 
     // Qty check — the product's TOTAL invoiced qty must not exceed received
@@ -217,6 +229,7 @@ export function matchThreeWay({
       invUnitCost,
       priceVariancePct,
       priceExceeds,
+      priceUnverifiable,
       qtyOver,
       qtyExceeds,
       hasPoLine: !!poLine,
@@ -224,6 +237,14 @@ export function matchThreeWay({
       lineStatus,
     };
   });
+
+  // Header integrity — the invoice's own subtotal must agree with the sum of its
+  // line items, so a tampered or garbled header total can't be paid. Skipped when
+  // the invoice carries no subtotal (nothing to compare against).
+  const lineExclSum = (invoiceLines || []).reduce((s, il) => s + num(il.qty) * num(il.unit_cost), 0);
+  const invSubtotal = invoice ? num(invoice.subtotal) : 0;
+  const headerVariance = Math.round((invSubtotal - lineExclSum) * 100) / 100;
+  const headerExceeds = !!invoice && invSubtotal > 0 && Math.abs(headerVariance) > tol.valueAbs;
 
   // Overall status — most severe wins. An invoice with no lines can't be
   // vacuously "matched": there's nothing to verify, so it stays unapprovable.
@@ -234,6 +255,7 @@ export function matchThreeWay({
   else if (lines.some((l) => l.lineStatus === 'unmatched')) overallStatus = 'unmatched';
   else if (lines.some((l) => l.lineStatus === 'qty_variance')) overallStatus = 'qty_variance';
   else if (lines.some((l) => l.lineStatus === 'price_variance')) overallStatus = 'price_variance';
+  else if (headerExceeds) overallStatus = 'total_variance';
   else overallStatus = 'matched';
 
   const exceptions = [];
@@ -252,7 +274,9 @@ export function matchThreeWay({
       exceptions.push({
         type: 'price',
         line: l,
-        message: `${l.product_name}: invoiced R${num(l.invUnitCost).toFixed(2)} vs PO R${num(l.poUnitCost).toFixed(2)} (${l.priceVariancePct > 0 ? '+' : ''}${num(l.priceVariancePct).toFixed(1)}%)`,
+        message: l.priceUnverifiable
+          ? `${l.product_name}: invoiced R${num(l.invUnitCost).toFixed(2)} but the PO has no price to verify against`
+          : `${l.product_name}: invoiced R${num(l.invUnitCost).toFixed(2)} vs PO R${num(l.poUnitCost).toFixed(2)} (${l.priceVariancePct > 0 ? '+' : ''}${num(l.priceVariancePct).toFixed(1)}%)`,
       });
     } else if (l.lineStatus === 'unmatched') {
       exceptions.push({
@@ -262,6 +286,13 @@ export function matchThreeWay({
       });
     }
   });
+
+  if (headerExceeds) {
+    exceptions.push({
+      type: 'total',
+      message: `Invoice subtotal R${invSubtotal.toFixed(2)} doesn't match its line items (R${lineExclSum.toFixed(2)}) — off by R${Math.abs(headerVariance).toFixed(2)}`,
+    });
+  }
 
   const poTotal = hasPO ? num(po.total) : null;
   const grnTotal = hasGRN ? confirmedGRNs.reduce((s, g) => s + num(g.total_received_value), 0) : null;
@@ -275,7 +306,9 @@ export function matchThreeWay({
     confirmedGRNs,
     lines,
     exceptions,
-    totals: { poTotal, grnTotal, invTotal },
+    headerVariance,
+    headerExceeds,
+    totals: { poTotal, grnTotal, invTotal, lineExclSum },
     tolerances: tol,
   };
 }
