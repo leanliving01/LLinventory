@@ -21,7 +21,7 @@ const DEFAULT_BATCH = 15;
 const DEFAULT_THRESHOLD = 0.85;
 const SCOPE_TYPES = ['raw', 'supplement', 'packaging'];
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
-const OPENAI_MODEL = 'gpt-4.1';
+const OPENAI_MODEL = 'gpt-5-mini';
 const VALID_STOCK = new Set(['g', 'kg', 'ml', 'l', 'pcs']);
 
 const MASS: Record<string, number> = { kg: 1000, kgs: 1000, g: 1, gr: 1, gram: 1, grams: 1, kilo: 1000, kilogram: 1000 };
@@ -216,7 +216,7 @@ ${JSON.stringify(items)}`;
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: OPENAI_MODEL, temperature: 0, max_tokens: 4000,
+      model: OPENAI_MODEL, reasoning_effort: 'low', max_completion_tokens: 8000,
       response_format: { type: 'json_object' },
       messages: [{ role: 'user', content: prompt }],
     }),

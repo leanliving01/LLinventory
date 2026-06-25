@@ -5,7 +5,7 @@
 // Xero-attached PDFs).
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
-const OPENAI_MODEL = 'gpt-4.1'; // vision-capable, large context — matches ai-chat
+const OPENAI_MODEL = 'gpt-5-mini'; // vision-capable reasoning model — fast + cost-effective
 
 export const EXTRACT_PROMPT = `You are an invoice data extraction assistant. Extract the invoice data from the attached document and return it as a single JSON object with this exact structure:
 
@@ -124,8 +124,8 @@ export async function extractInvoiceData(fileBase64: string, mimeType: string): 
       },
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        temperature: 0,
-        max_tokens: 2000,
+        reasoning_effort: 'low',         // light reasoning — keep extraction fast/cheap
+        max_completion_tokens: 8000,     // covers reasoning + JSON output on long invoices
         response_format: { type: 'json_object' },
         messages: [
           { role: 'user', content: [{ type: 'text', text: EXTRACT_PROMPT }, filePart] },
