@@ -37,6 +37,27 @@ function friendlyPackageName(sku, name) {
   return name || sku;
 }
 
+/** Parse a pack_boms.sku_overrides value (JSON string or object) into a {sku: qty} map */
+function parseOverrides(raw) {
+  if (!raw) return {};
+  try {
+    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return obj && typeof obj === 'object' ? obj : {};
+  } catch { return {}; }
+}
+
+/** Find the matching active pack_boms row for a parent SKU (exact, then prefix — mirrors resolvePackColor) */
+function resolvePackBom(parentSku, packBoms) {
+  if (!parentSku || !packBoms?.length) return null;
+  const skuLower = parentSku.toLowerCase();
+  const exact = packBoms.find(pb => (pb.package_sku || '').toLowerCase() === skuLower);
+  if (exact) return exact;
+  return packBoms.find(pb => {
+    const pbSku = (pb.package_sku || '').toLowerCase();
+    return pbSku && (skuLower.startsWith(pbSku) || pbSku.startsWith(skuLower));
+  }) || null;
+}
+
 /** Find the matching PackBom color for a parent SKU */
 function resolvePackColor(parentSku, packBoms) {
   if (!parentSku || !packBoms?.length) return null;
@@ -158,16 +179,40 @@ export default function FloorPack() {
 
     parentLines.forEach(parent => {
       const children = componentLines.filter(c => c.parent_line_id === parent.id);
-      if (children.length === 0) return;
+      // Real component lines from recalc-demand take priority. When they don't exist yet
+      // (packed before the cron ran, or generation failed), fall back to exploding the
+      // package's pack_boms row into synthetic pick-list items — the same explosion the
+      // backend uses (honour disabled_skus, sku_overrides and multiplier).
+      let items;
+      let mealCount;
+      if (children.length > 0) {
+        mealCount = children.reduce((s, c) => s + (c.qty || 0), 0);
+        items = children.map(c => ({
+          key: `sol-${c.id}`, sku: c.sku || '', skuLower: (c.sku || '').toLowerCase(),
+          name: resolvedName(c.sku, c.name), qty: c.qty || 0, variantTitle: c.variant_title || '',
+        }));
+      } else {
+        const bom = resolvePackBom(parent.sku, packBoms);
+        if (!bom) return; // no component lines AND no active pack_boms — genuinely nothing to pack
+        const disabled = new Set(bom.disabled_skus || []);
+        const overrides = parseOverrides(bom.sku_overrides);
+        const multiplier = Number(bom.multiplier) || 1;
+        const parentQty = parent.qty || 1;
+        items = (bom.component_skus || [])
+          .filter(sku => sku && !disabled.has(sku))
+          .map(sku => ({
+            key: `pkgbom-${parent.id}-${sku}`, sku, skuLower: sku.toLowerCase(),
+            name: resolvedName(sku, sku), qty: (overrides[sku] ?? multiplier) * parentQty, variantTitle: '',
+          }));
+        if (items.length === 0) return; // pack_boms row has no enabled components
+        mealCount = items.reduce((s, c) => s + (c.qty || 0), 0);
+      }
       result.push({
         groupKey: `pkg-${parent.id}`,
         label: friendlyPackageName(parent.sku, parent.name),
-        subtitle: `${parent.sku} · ${children.reduce((s, c) => s + (c.qty || 0), 0)} meals`,
+        subtitle: `${parent.sku} · ${mealCount} meals`,
         colorTheme: resolvePackColor(parent.sku, packBoms),
-        items: children.map(c => ({
-          key: `sol-${c.id}`, sku: c.sku || '', skuLower: (c.sku || '').toLowerCase(),
-          name: resolvedName(c.sku, c.name), qty: c.qty || 0, variantTitle: c.variant_title || '',
-        })),
+        items,
       });
     });
 

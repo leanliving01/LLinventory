@@ -1,16 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { Button } from '@/components/ui/button';
-import { Package, Plus } from 'lucide-react';
+import { Package } from 'lucide-react';
 import { PACKAGE_COLORS } from '@/lib/mealGrouping';
-import { cn } from '@/lib/utils';
 import PackageFamilyCard from './PackageFamilyCard';
 import AddPackageForm from './AddPackageForm';
 
 export default function BOMTab() {
-  const [showAddPackage, setShowAddPackage] = useState(false);
-
   const { data: packages = [], isLoading } = useQuery({
     queryKey: ['packageProducts'],
     queryFn: () => base44.entities.PackageProduct.list('-created_date', 100),
@@ -54,22 +50,14 @@ export default function BOMTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 flex-wrap">
-        <Button variant="outline" size="sm" onClick={() => setShowAddPackage(true)} className="gap-2">
-          <Plus className="w-3.5 h-3.5" />
-          Add Package
-        </Button>
-
-      </div>
-
-      {showAddPackage && (
-        <AddPackageForm onClose={() => setShowAddPackage(false)} />
-      )}
+      {/* Legacy package creation has been retired — this is now a signpost to the
+          modern Catalog + Packing BOM flow. Existing packages remain listed below. */}
+      <AddPackageForm />
 
       {sortedFamilies.length === 0 ? (
         <div className="bg-card border border-border rounded-xl p-12 text-center">
           <Package className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
-          <p className="text-sm text-muted-foreground">No packages found. Add a package to get started.</p>
+          <p className="text-sm text-muted-foreground">No legacy packages found.</p>
         </div>
       ) : (
         sortedFamilies.map(group => (

@@ -11,6 +11,9 @@ export const VARIANT_INFO = {
   WLM: { label: 'WLM', fullLabel: "Women's Lean Muscle", portion_g: 260, bg: 'bg-orange-500', text: 'text-white', light: 'bg-orange-50', lightText: 'text-orange-700' },
   WWL: { label: 'WWL', fullLabel: "Women's Weight Loss", portion_g: 240, bg: 'bg-pink-400', text: 'text-white', light: 'bg-pink-50', lightText: 'text-pink-700' },
   LC:  { label: 'LC', fullLabel: 'Low Carb', portion_g: 330, bg: 'bg-yellow-400', text: 'text-yellow-900', light: 'bg-yellow-50', lightText: 'text-yellow-700' },
+  // Single "Qty" column for meals that don't follow the goal/Low-Carb variant
+  // scheme (e.g. Winter Warmer Range WWR#). Used by the Ad-Hoc run picker.
+  OTHER: { label: 'Qty', fullLabel: 'Quantity', portion_g: null, bg: 'bg-slate-500', text: 'text-white', light: 'bg-slate-50', lightText: 'text-slate-700' },
 };
 
 // MWL SKUs now use clean numbered format (MWL1–MWL15) matching Shopify and products.sku.
@@ -135,12 +138,18 @@ export function groupMealsByPackage(finishedMeals, subcatRows = []) {
  * Group finished_meal products into rows for the production table.
  * Each row = one base recipe with variant columns (MLM/MWL/WLM/WWL) or a single LC column.
  *
- * Returns: { goalRows: [...], lowCarbRows: [...] }
+ * Returns: { goalRows: [...], lowCarbRows: [...], otherRows: [...] }
  * Each row: { mealNumber, baseName, variants: { MLM: product, MWL: product, ... } }
+ *
+ * `otherRows` holds active finished meals that don't follow the goal-variant or
+ * Low-Carb scheme (e.g. Winter Warmer Range WWR#). Each is a single-column row
+ * keyed under the synthetic `OTHER` variant. This bucket is additive — callers
+ * that only read goalRows/lowCarbRows are unaffected.
  */
 export function groupMealsForProduction(finishedMeals) {
   const goalMap = {}; // mealNumber → { baseName, variants }
   const lowCarbRows = [];
+  const otherRows = [];
 
   for (const product of finishedMeals) {
     if (product.status !== 'active') continue;
@@ -157,7 +166,16 @@ export function groupMealsForProduction(finishedMeals) {
 
     const variant = detectVariant(product.sku);
     const mealNum = extractMealNumber(product.sku);
-    if (!variant || mealNum === null) continue; // skip unrecognized products (e.g. SSBR)
+    if (!variant || mealNum === null) {
+      // Non-variant finished meal (e.g. WWR#) — keep it selectable as a single
+      // "Qty" column instead of silently dropping it.
+      otherRows.push({
+        mealNumber: product.sku || product.id,
+        baseName: product.name,
+        variants: { OTHER: product },
+      });
+      continue;
+    }
 
     if (!goalMap[mealNum]) {
       goalMap[mealNum] = { mealNumber: mealNum, baseName: null, variants: {} };
@@ -176,6 +194,9 @@ export function groupMealsForProduction(finishedMeals) {
 
   const goalRows = Object.values(goalMap).sort((a, b) => a.mealNumber - b.mealNumber);
   lowCarbRows.sort((a, b) => a.baseName.localeCompare(b.baseName));
+  otherRows.sort((a, b) =>
+    String(a.mealNumber).localeCompare(String(b.mealNumber), undefined, { numeric: true }) ||
+    a.baseName.localeCompare(b.baseName));
 
-  return { goalRows, lowCarbRows };
+  return { goalRows, lowCarbRows, otherRows };
 }

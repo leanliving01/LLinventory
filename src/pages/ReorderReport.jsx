@@ -5,10 +5,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertTriangle, Search, ShoppingCart, X, CheckCircle2, Clock, Pencil, Check, Loader2 } from 'lucide-react';
+import { Search, ShoppingCart, X, Clock, Pencil, Check, Loader2 } from 'lucide-react';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import { toast } from 'sonner';
+
+// Packages/bundles are produced/assembled on demand from component meals, so
+// they hold no stock of their own — never raise reorder/shortage alerts for them.
+const isAssembledOnDemand = (p) => p.type === 'package' || p.type === 'bundle';
 
 export default function ReorderReport() {
   const queryClient = useQueryClient();
@@ -52,7 +56,8 @@ export default function ReorderReport() {
         || supplierProducts.find(sp => sp.product_id === p.id);
       const legacySupplier = suppliers.find(s => s.id === p.supplier_id);
       const reorderPoint = p.min_before_reorder || 0;
-      const isBelow = reorderPoint > 0 && totalOnHand < reorderPoint;
+      // Suppress reorder/out-of-stock/critical alerting for assembled-on-demand packages/bundles.
+      const isBelow = !isAssembledOnDemand(p) && reorderPoint > 0 && totalOnHand < reorderPoint;
       const shortfall = isBelow ? reorderPoint - totalOnHand : 0;
 
       let severity = 'ok';

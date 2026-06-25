@@ -1,23 +1,23 @@
-import React, { useState, useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { PACKAGE_LABELS } from '@/lib/mealGrouping';
-import CreateCustomSKU from './CreateCustomSKU';
 
-export default function VariantBOMEditor({ packageProduct, familyColors }) {
-  const queryClient = useQueryClient();
-  const [addSkuId, setAddSkuId] = useState('');
-  const [addQty, setAddQty] = useState(1);
-  const [saving, setSaving] = useState(false);
-  const [showCreateSKU, setShowCreateSKU] = useState(false);
-
+// LEGACY package BOM editor — now READ-ONLY.
+//
+// This editor used to create / update / soft-delete `PackageBOMLine` rows for a
+// legacy `PackageProduct`. Those rows feed NOTHING in the live stock / deduction
+// / production / par flow, so editing here only produced orphan data.
+//
+// The correct, modern flow is to define the package's components in its
+// PACKING BOM (a Catalog product with type = "package"), which derives the
+// pack_boms explosion map that actually drives deduction, demand and packing.
+//
+// Existing legacy lines are still listed below (so nothing visually disappears),
+// but all add / edit / remove actions have been removed.
+export default function VariantBOMEditor({ packageProduct }) {
   const { data: skus = [] } = useQuery({
     queryKey: ['skus'],
     queryFn: () => base44.entities.SKU.list('-sku_code', 500),
@@ -33,50 +33,7 @@ export default function VariantBOMEditor({ packageProduct, familyColors }) {
     return bomLines.filter(line => !line.effective_to || line.effective_to >= today);
   }, [bomLines]);
 
-  const availableSkus = useMemo(() => {
-    const usedSkuIds = new Set(activeBomLines.map(l => l.sku_id));
-    return skus.filter(s => s.is_active !== false && !usedSkuIds.has(s.id));
-  }, [skus, activeBomLines]);
-
   const totalMeals = activeBomLines.reduce((sum, l) => sum + (l.quantity_per_pack || 0), 0);
-
-  const handleAddLine = async () => {
-    if (!addSkuId) return;
-    setSaving(true);
-
-    try {
-      const sku = skus.find(s => s.id === addSkuId);
-      const today = format(new Date(), 'yyyy-MM-dd');
-      await base44.entities.PackageBOMLine.create({
-        package_product_id: packageProduct.id,
-        sku_id: addSkuId,
-        sku_display_name: sku?.display_name || sku?.meal_name || '',
-        quantity_per_pack: Number(addQty),
-        effective_from: today,
-      });
-      queryClient.invalidateQueries({ queryKey: ['bomLines', packageProduct.id] });
-      setAddSkuId('');
-      setAddQty(1);
-      toast.success(`Added ${sku?.display_name || 'SKU'} to BOM`);
-    } catch (err) {
-      toast.error('Save failed: ' + (err.message || 'Unknown error'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleRemoveLine = async (line) => {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    await base44.entities.PackageBOMLine.update(line.id, { effective_to: today });
-    queryClient.invalidateQueries({ queryKey: ['bomLines', packageProduct.id] });
-    toast.success('Removed from BOM');
-  };
-
-  const handleUpdateQty = async (line, newQty) => {
-    if (!newQty || Number(newQty) < 1) return;
-    await base44.entities.PackageBOMLine.update(line.id, { quantity_per_pack: Number(newQty) });
-    queryClient.invalidateQueries({ queryKey: ['bomLines', packageProduct.id] });
-  };
 
   if (isLoading) {
     return <div className="flex justify-center py-6"><div className="w-5 h-5 border-2 border-muted border-t-primary rounded-full animate-spin" /></div>;
@@ -88,7 +45,7 @@ export default function VariantBOMEditor({ packageProduct, familyColors }) {
       <div className="px-6 py-3 bg-muted/20 border-b border-border flex items-center justify-between">
         <div className="text-sm">
           <span className="font-semibold">{packageProduct.name}</span>
-          <span className="text-muted-foreground ml-2">— Bill of Materials</span>
+          <span className="text-muted-foreground ml-2">— Bill of Materials (legacy, read-only)</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Meals in BOM:</span>
@@ -101,44 +58,21 @@ export default function VariantBOMEditor({ packageProduct, familyColors }) {
         </div>
       </div>
 
-      {/* Add SKU controls */}
-      <div className="px-6 py-3 border-b border-border flex items-center gap-3 flex-wrap">
-        <Select value={addSkuId} onValueChange={setAddSkuId}>
-          <SelectTrigger className="w-[280px]">
-            <SelectValue placeholder="Select a meal / SKU to add..." />
-          </SelectTrigger>
-          <SelectContent>
-            {availableSkus.map(sku => (
-              <SelectItem key={sku.id} value={sku.id}>
-                {sku.display_name || sku.meal_name} {sku.package_type ? `(${PACKAGE_LABELS[sku.package_type] || sku.package_type})` : ''}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Input
-          type="number"
-          min="1"
-          value={addQty}
-          onChange={e => setAddQty(e.target.value)}
-          className="w-16 text-center h-9"
-          placeholder="Qty"
-        />
-        <Button size="sm" onClick={handleAddLine} disabled={!addSkuId || saving} className="gap-2">
-          <Plus className="w-3.5 h-3.5" />
-          Add
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => setShowCreateSKU(!showCreateSKU)} className="gap-2 ml-auto">
-          + Custom SKU
-        </Button>
+      {/* Legacy notice — creation/editing retired */}
+      <div className="px-6 py-3 border-b border-border bg-amber-50/60 flex items-start gap-3">
+        <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+        <div className="text-xs text-muted-foreground">
+          <p className="font-semibold text-foreground">This legacy package BOM is read-only.</p>
+          <p className="mt-1">
+            Define this package&apos;s components in the <span className="font-semibold text-foreground">Catalog</span> instead:
+            create the package as a product with <span className="font-mono text-foreground">type = package</span>, then open its{' '}
+            <span className="font-semibold text-foreground">Packing BOM</span>. The Packing BOM drives the live deduction,
+            demand and packing flow; rows shown below do not.
+          </p>
+        </div>
       </div>
 
-      {showCreateSKU && (
-        <div className="border-b border-border">
-          <CreateCustomSKU onClose={() => setShowCreateSKU(false)} />
-        </div>
-      )}
-
-      {/* BOM table */}
+      {/* BOM table (read-only) */}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse">
           <thead>
@@ -147,14 +81,13 @@ export default function VariantBOMEditor({ packageProduct, familyColors }) {
               <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">SKU Code</th>
               <th className="text-center px-4 py-2 text-xs font-semibold text-muted-foreground uppercase w-24">Qty per Pack</th>
               <th className="text-center px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Effective From</th>
-              <th className="text-center px-4 py-2 text-xs font-semibold text-muted-foreground uppercase w-16"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {activeBomLines.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  No meals in this BOM yet. Add SKUs above.
+                <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  No legacy meals in this BOM.
                 </td>
               </tr>
             ) : activeBomLines.map(line => {
@@ -170,22 +103,11 @@ export default function VariantBOMEditor({ packageProduct, familyColors }) {
                   <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground">
                     {sku?.sku_code || '—'}
                   </td>
-                  <td className="px-4 py-2.5 text-center">
-                    <Input
-                      type="number"
-                      min="1"
-                      value={line.quantity_per_pack}
-                      onChange={e => handleUpdateQty(line, e.target.value)}
-                      className="w-14 text-center h-7 text-xs mx-auto"
-                    />
+                  <td className="px-4 py-2.5 text-center text-sm tabular-nums">
+                    {line.quantity_per_pack}
                   </td>
                   <td className="px-4 py-2.5 text-center text-xs text-muted-foreground">
                     {line.effective_from || '—'}
-                  </td>
-                  <td className="px-4 py-2.5 text-center">
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleRemoveLine(line)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
                   </td>
                 </tr>
               );

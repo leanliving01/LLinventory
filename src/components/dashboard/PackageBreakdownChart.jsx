@@ -12,16 +12,33 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
+// Known package-range labels for the `*_meals` order columns. Any range not
+// listed here is still charted (label derived from the column key) so new
+// package ranges are never silently dropped.
+const KNOWN_LABELS = {
+  mwl_meals: 'MWL',
+  mlm_meals: 'MLM',
+  wwl_meals: 'WWL',
+  wlm_meals: 'WLM',
+  lc_meals: 'LC',
+  byo_meals: 'BYO',
+};
+
+// Derive a readable label from an unknown `*_meals` key (e.g. 'foo_bar_meals' → 'FOO BAR').
+const deriveLabel = (key) =>
+  key.replace(/_meals$/, '').replace(/_/g, ' ').trim().toUpperCase() || key;
+
 export default function PackageBreakdownChart({ orders }) {
   const chartData = useMemo(() => {
     const counts = {};
     orders.forEach(o => {
-      if (o.mwl_meals) counts['MWL'] = (counts['MWL'] || 0) + o.mwl_meals;
-      if (o.mlm_meals) counts['MLM'] = (counts['MLM'] || 0) + o.mlm_meals;
-      if (o.wwl_meals) counts['WWL'] = (counts['WWL'] || 0) + o.wwl_meals;
-      if (o.wlm_meals) counts['WLM'] = (counts['WLM'] || 0) + o.wlm_meals;
-      if (o.lc_meals) counts['LC'] = (counts['LC'] || 0) + o.lc_meals;
-      if (o.byo_meals) counts['BYO'] = (counts['BYO'] || 0) + o.byo_meals;
+      Object.keys(o).forEach(key => {
+        if (!key.endsWith('_meals') || key === 'total_meals') return;
+        const qty = Number(o[key]) || 0;
+        if (!qty) return;
+        const name = KNOWN_LABELS[key] || deriveLabel(key);
+        counts[name] = (counts[name] || 0) + qty;
+      });
     });
     return Object.entries(counts)
       .map(([name, value]) => ({ name, value }))

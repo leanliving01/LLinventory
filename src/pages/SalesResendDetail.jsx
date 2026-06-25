@@ -55,6 +55,13 @@ export default function SalesResendDetail() {
     queryFn: () => base44.entities.Product.filter({ sku: { $ilike: addQuery.trim() } }, 'name', 15),
     enabled: addQuery.trim().length >= 2,
   });
+  // Active package SKUs — mirrors backend loadPackageSkus (packaging.ts) so a
+  // manually-added package SKU is flagged as a parent and explodes on approval.
+  const { data: packBoms = [] } = useQuery({
+    queryKey: ['pack-boms-active'],
+    queryFn: () => base44.entities.PackBom.filter({ active: true }, 'package_sku', 200),
+  });
+  const packageSkuSet = new Set(packBoms.map(pb => (pb.package_sku || '').toUpperCase()));
 
   useEffect(() => {
     if (rs) setForm({
@@ -164,7 +171,7 @@ export default function SalesResendDetail() {
   };
 
   const addItem = (p) => {
-    setRows(rs2 => [...rs2, { id: crypto.randomUUID(), _new: true, product_id: p.id, sku: p.sku, product_name: p.name, variant_title: null, is_package_parent: false, line_type: 'standalone', qty: 1, unit_price: 0 }]);
+    setRows(rs2 => [...rs2, { id: crypto.randomUUID(), _new: true, product_id: p.id, sku: p.sku, product_name: p.name, variant_title: null, is_package_parent: packageSkuSet.has((p.sku || '').toUpperCase()), line_type: 'standalone', qty: 1, unit_price: 0 }]);
     setAddQuery('');
   };
 

@@ -91,6 +91,18 @@ export default function NewSalesOrder() {
     staleTime: 60000,
   });
 
+  // Active package SKUs — mirrors backend loadPackageSkus (packaging.ts) so a
+  // manually-entered package SKU is flagged as a parent and explodes server-side.
+  const { data: packBoms = [] } = useQuery({
+    queryKey: ['pack-boms-for-manual-order'],
+    queryFn: () => base44.entities.PackBom.filter({ active: true }, 'package_sku', 200),
+    staleTime: 60000,
+  });
+  const packageSkuSet = useMemo(
+    () => new Set(packBoms.map(pb => (pb.package_sku || '').toUpperCase())),
+    [packBoms],
+  );
+
   const availableByProduct = useMemo(() => {
     const map = {};
     for (const r of stockRows) {
@@ -245,7 +257,7 @@ export default function NewSalesOrder() {
         qty: Number(l.qty),
         unit_price: Number(l.unit_price) || 0,
         our_product_id: l.our_product_id,
-        is_package_parent: false,
+        is_package_parent: packageSkuSet.has((l.sku || '').toUpperCase()),
         line_type: 'standalone',
       })),
       financial_lines: financialLines,

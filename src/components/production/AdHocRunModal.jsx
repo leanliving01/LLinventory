@@ -23,7 +23,7 @@ export default function AdHocRunModal({ open, onOpenChange }) {
     queryFn: () => base44.entities.Product.filter({ type: 'finished_meal', status: 'active' }, '-sku', 500),
   });
 
-  const { goalRows, lowCarbRows } = useMemo(() => {
+  const { goalRows, lowCarbRows, otherRows } = useMemo(() => {
     return groupMealsForProduction(finishedMeals);
   }, [finishedMeals]);
 
@@ -38,6 +38,12 @@ export default function AdHocRunModal({ open, onOpenChange }) {
     const s = search.toLowerCase();
     return lowCarbRows.filter(r => r.baseName.toLowerCase().includes(s));
   }, [lowCarbRows, search]);
+
+  const filteredOther = useMemo(() => {
+    if (!search) return otherRows;
+    const s = search.toLowerCase();
+    return otherRows.filter(r => r.baseName.toLowerCase().includes(s));
+  }, [otherRows, search]);
 
   const handleQtyChange = (productId, value) => {
     setQuantities(prev => ({ ...prev, [productId]: value }));
@@ -77,6 +83,7 @@ export default function AdHocRunModal({ open, onOpenChange }) {
       };
       collectLines(goalRows, VARIANT_CODES);
       collectLines(lowCarbRows, ['LC']);
+      collectLines(otherRows, ['OTHER']);
 
       const created = await base44.entities.ProductionRun.create({
         run_number: runNumber,
@@ -171,6 +178,14 @@ export default function AdHocRunModal({ open, onOpenChange }) {
             title="Low Carb Meals"
             rows={filteredLC}
             variantCodes={['LC']}
+            quantities={quantities}
+            onQtyChange={handleQtyChange}
+          />
+
+          <AdHocRunTable
+            title="Other Meals"
+            rows={filteredOther}
+            variantCodes={['OTHER']}
             quantities={quantities}
             onQtyChange={handleQtyChange}
           />

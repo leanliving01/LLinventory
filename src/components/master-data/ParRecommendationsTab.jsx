@@ -15,6 +15,19 @@ const FAMILY_COLORS = {
   LOW_CARB: 'bg-yellow-100 text-yellow-700',
 };
 
+/**
+ * Normalize a SKU code from the SKU entity format to the Product entity format.
+ * "WLM-006" → "WLM6", "MLM-015" → "MLM15", "MWL-001" → "MWL1"; descriptive
+ * (BYO) codes are returned as-is. Mirrors src/lib/demandBridge.js so a
+ * recommendation (keyed by SKU.id) resolves to its products.sku row.
+ */
+function normalizeSKUCode(skuCode) {
+  if (!skuCode) return null;
+  const match = skuCode.match(/^([A-Z]+)-(\d+)$/);
+  if (match) return `${match[1]}${parseInt(match[2], 10)}`;
+  return skuCode;
+}
+
 export default function ParRecommendationsTab() {
   const queryClient = useQueryClient();
   const [calculating, setCalculating] = useState(false);
@@ -27,13 +40,35 @@ export default function ParRecommendationsTab() {
     queryFn: () => base44.entities.ParLevelRecommendation.filter({ status: 'pending' }, '-created_date', 200),
   });
 
-  const { data: parLevels = [] } = useQuery({
-    queryKey: ['parLevels'],
-    queryFn: () => base44.entities.ParLevel.list('-created_date', 200),
+  // Canonical par store: products.par_level (the single source of truth Production
+  // Planning and the Par Levels tab read). Loaded so we can map a recommendation →
+  // product and apply / display against the real column.
+  const { data: products = [] } = useQuery({
+    queryKey: ['finished-meals'],
+    queryFn: () => base44.entities.Product.filter({ type: 'finished_meal', status: 'active' }, '-sku', 500),
   });
 
-  const parBySkuId = {};
-  parLevels.forEach(p => { parBySkuId[p.sku_id] = p; });
+  // Legacy linkage — only used to resolve a recommendation's SKU.id → sku_code,
+  // which we then normalize to products.sku. (par_levels itself is no longer written.)
+  const { data: skus = [] } = useQuery({
+    queryKey: ['skus'],
+    queryFn: () => base44.entities.SKU.list('-sku_code', 500),
+  });
+
+  // SKU.id → products.sku (normalized), then products.sku → product row.
+  const productSkuBySkuId = {};
+  skus.forEach(s => {
+    const norm = normalizeSKUCode(s.sku_code);
+    if (norm) productSkuBySkuId[s.id] = norm;
+  });
+  const productBySku = {};
+  products.forEach(p => { if (p.sku) productBySku[p.sku] = p; });
+
+  // Resolve a recommendation to its canonical Product (via SKU.id → sku_code → products.sku).
+  const productForRec = (rec) => {
+    const productSku = productSkuBySkuId[rec.sku_id];
+    return productSku ? productBySku[productSku] : undefined;
+  };
 
   const handleSyncHistorical = async () => {
     setSyncing(true);
@@ -60,23 +95,23 @@ export default function ParRecommendationsTab() {
 
   const handleApply = async (rec) => {
     setApplyingId(rec.id);
-    const existing = parBySkuId[rec.sku_id];
-    if (existing) {
-      await base44.entities.ParLevel.update(existing.id, { par_level: rec.recommended_par_level });
-    } else {
-      await base44.entities.ParLevel.create({
-        sku_id: rec.sku_id,
-        sku_display_name: rec.sku_display_name,
-        package_type: rec.package_type,
-        par_level: rec.recommended_par_level,
-        effective_from: new Date().toISOString().split('T')[0],
-      });
+    try {
+      // Write the canonical column directly — products.par_level is the single
+      // source of truth Production Planning + the Par Levels tab read (the legacy
+      // par_levels mirror is gone, see migration 071_drop_par_level_sync.sql).
+      const product = productForRec(rec);
+      if (!product) {
+        toast.error(`Couldn't match "${rec.sku_display_name}" to a product — skipped`);
+        return;
+      }
+      await base44.entities.Product.update(product.id, { par_level: rec.recommended_par_level });
+      await base44.entities.ParLevelRecommendation.update(rec.id, { status: 'applied', notes: `Applied on ${new Date().toISOString().split('T')[0]}. ${rec.notes}` });
+      queryClient.invalidateQueries({ queryKey: ['parRecommendations'] });
+      queryClient.invalidateQueries({ queryKey: ['finished-meals'] });
+      toast.success(`Applied par level ${rec.recommended_par_level} for ${rec.sku_display_name}`);
+    } finally {
+      setApplyingId(null);
     }
-    await base44.entities.ParLevelRecommendation.update(rec.id, { status: 'applied', notes: `Applied on ${new Date().toISOString().split('T')[0]}. ${rec.notes}` });
-    queryClient.invalidateQueries({ queryKey: ['parRecommendations'] });
-    queryClient.invalidateQueries({ queryKey: ['parLevels'] });
-    toast.success(`Applied par level ${rec.recommended_par_level} for ${rec.sku_display_name}`);
-    setApplyingId(null);
   };
 
   const handleDismiss = async (rec) => {
@@ -141,13 +176,18 @@ export default function ParRecommendationsTab() {
             </thead>
             <tbody className="divide-y divide-border">
               {recommendations.map(rec => {
-                const diff = rec.recommended_par_level - rec.current_par_level;
+                // "Current" = the canonical products.par_level (what production reads),
+                // not the legacy par_levels snapshot baked into the recommendation.
+                const product = productForRec(rec);
+                const currentPar = product ? (product.par_level || 0) : (rec.current_par_level || 0);
+                const diff = rec.recommended_par_level - currentPar;
                 const isIncrease = diff > 0;
                 const isDecrease = diff < 0;
                 return (
                   <RecommendationRow
                     key={rec.id}
                     rec={rec}
+                    currentPar={currentPar}
                     diff={diff}
                     isIncrease={isIncrease}
                     isDecrease={isDecrease}
@@ -166,7 +206,7 @@ export default function ParRecommendationsTab() {
   );
 }
 
-function RecommendationRow({ rec, diff, isIncrease, isDecrease, applyingId, dismissingId, onApply, onDismiss }) {
+function RecommendationRow({ rec, currentPar, diff, isIncrease, isDecrease, applyingId, dismissingId, onApply, onDismiss }) {
   return (
     <tr className="hover:bg-muted/30 transition-colors">
       <td className="px-4 py-2.5 text-sm font-medium">{rec.sku_display_name}</td>
@@ -175,7 +215,7 @@ function RecommendationRow({ rec, diff, isIncrease, isDecrease, applyingId, dism
           {rec.package_type}
         </Badge>
       </td>
-      <td className="px-4 py-2.5 text-right text-sm tabular-nums text-muted-foreground">{rec.current_par_level || '—'}</td>
+      <td className="px-4 py-2.5 text-right text-sm tabular-nums text-muted-foreground">{currentPar || '—'}</td>
       <td className="px-4 py-2.5 text-right text-sm tabular-nums font-semibold">{rec.recommended_par_level}</td>
       <td className="px-4 py-2.5 text-right text-sm tabular-nums text-muted-foreground">{rec.avg_weekly_demand}</td>
       <td className="px-4 py-2.5 text-center">

@@ -98,6 +98,14 @@ async function run() {
   try {
     const { status, data } = await callRpc('/rest/v1/rpc/deduct_fulfilled_stock', '{"p_limit":50}');
     console.log(`[deduct-fulfilled-stock] ${status} — orders=${data?.orders_processed ?? '?'} rows_written=${data?.rows_written ?? '?'} missing_skus=${JSON.stringify(data?.missing_skus ?? [])}`);
+    // Surface the two silent failure modes so stuck orders / negative stock are visible:
+    //  • missing_boms → a package whose explosion couldn't resolve; its order is parked
+    //    stock_deducted=false and retried forever until someone intervenes.
+    //  • went_negative → a SKU deducted below zero (the migration-057 "investigate me" signal).
+    const missingBoms = data?.missing_boms ?? [];
+    const wentNegative = data?.went_negative ?? [];
+    if (missingBoms.length) console.warn(`[deduct-fulfilled-stock] ⚠ missing_boms (${missingBoms.length}) — orders stuck undeducted: ${JSON.stringify(missingBoms)}`);
+    if (wentNegative.length) console.warn(`[deduct-fulfilled-stock] ⚠ went_negative (${wentNegative.length}) — stock below zero: ${JSON.stringify(wentNegative)}`);
   } catch (e) {
     console.error('[deduct-fulfilled-stock] Error:', e.message);
   }

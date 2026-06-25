@@ -24,6 +24,10 @@ import {
   resolveSubcategory,
 } from '@/lib/productClassification';
 
+// Packages/bundles are produced/assembled on demand from component meals, so
+// their stock isn't held — never raise reorder/out-of-stock alerts for them.
+const isAssembledOnDemand = (p) => p.type === 'package' || p.type === 'bundle';
+
 export default function InventoryOverview() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -85,9 +89,11 @@ export default function InventoryOverview() {
       const stock = stockByProduct[p.id];
       const onHand = stock?.on_hand || 0;
       const reorder = p.min_before_reorder || 0;
+      // Suppress low/out shortage alerting for assembled-on-demand packages/bundles.
+      const alertsStock = !isAssembledOnDemand(p);
       if (stockFilter === 'in_stock' && onHand <= 0) return false;
-      if (stockFilter === 'low' && (onHand <= 0 || onHand > reorder)) return false;
-      if (stockFilter === 'out' && onHand > 0) return false;
+      if (stockFilter === 'low' && (!alertsStock || onHand <= 0 || onHand > reorder)) return false;
+      if (stockFilter === 'out' && (!alertsStock || onHand > 0)) return false;
       if (search) {
         const s = search.toLowerCase();
         return (p.sku || '').toLowerCase().includes(s) ||
@@ -258,8 +264,9 @@ export default function InventoryOverview() {
               {pageProducts.map(p => {
                 const stock = stockByProduct[p.id] || { on_hand: 0, committed: 0, available: 0 };
                 const reorder = p.min_before_reorder || 0;
-                const isLow = stock.on_hand > 0 && reorder > 0 && stock.on_hand <= reorder;
-                const isOut = stock.on_hand <= 0;
+                const alertsStock = !isAssembledOnDemand(p);
+                const isLow = alertsStock && stock.on_hand > 0 && reorder > 0 && stock.on_hand <= reorder;
+                const isOut = alertsStock && stock.on_hand <= 0;
                 const isSelected = selection.includes(p.id);
 
                 return (
