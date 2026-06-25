@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { RefreshCw, PlayCircle, StopCircle, CheckCircle2, AlertCircle, Clock, Webhook, FileText, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
 import SyncHealthIndicator from '@/components/shared/SyncHealthIndicator';
-import PurchaseUnitReviewModal from '@/components/settings/PurchaseUnitReviewModal';
 import { differenceInMinutes, format } from 'date-fns';
 
 const SOURCES = [
@@ -38,8 +37,7 @@ export default function SettingsSyncTab() {
   const [showLogs, setShowLogs] = useState(false);
   const [docBusy, setDocBusy] = useState(null);          // 'fetch' | 'preview' | 'apply'
   const [repriceReport, setRepriceReport] = useState(null);
-  const [puBusy, setPuBusy] = useState(null);            // 'run' | 'all' | <proposalId>
-  const [reviewProposal, setReviewProposal] = useState(null);
+  const [puBusy, setPuBusy] = useState(null);            // 'run'
 
   const { data: syncStates = [], refetch } = useQuery({
     queryKey: ['sync-states'],
@@ -146,51 +144,6 @@ export default function SettingsSyncTab() {
     } catch (err) {
       toast.error(`Failed: ${err.message}`);
     }
-    setPuBusy(null);
-  };
-
-  // Write a proposal's values onto the supplier product. No toast (used in bulk).
-  const applyProposal = async (p) => {
-    const conv = Number(p.proposed_conversion_factor);
-    if (!Number.isFinite(conv) || conv <= 0) {
-      throw new Error('No valid proposed conversion — this record needs manual cleanup (e.g. fix its stock unit)');
-    }
-    const spList = await base44.entities.SupplierProduct.filter({ id: p.supplier_product_id });
-    const sp = spList[0];
-    if (!sp) throw new Error('Supplier product not found');
-    const yf = Number(sp.yield_factor) || 1;
-    const update = {
-      purchase_uom: p.proposed_purchase_uom || sp.purchase_uom,
-      conversion_factor: conv,
-      conversion_uom: p.stock_uom || sp.conversion_uom,
-      purchase_uom_label: p.proposed_purchase_uom_label || sp.purchase_uom_label,
-      effective_internal_qty: Math.round(conv * yf * 1000) / 1000,
-    };
-    if ((p.proposed_supplier_sku || '') && !(sp.supplier_sku || '')) update.supplier_sku = p.proposed_supplier_sku;
-    await base44.entities.SupplierProduct.update(sp.id, update);
-    await base44.entities.PurchaseUnitProposal.update(p.id, { status: 'applied', applied_at: new Date().toISOString() });
-  };
-
-  const approveOne = async (p) => {
-    setPuBusy(p.id);
-    try { await applyProposal(p); toast.success(`Updated ${p.product_name}`); refetchProposals(); }
-    catch (err) { toast.error(`Failed: ${err.message}`); }
-    setPuBusy(null);
-  };
-
-  const rejectOne = async (p) => {
-    setPuBusy(p.id);
-    try { await base44.entities.PurchaseUnitProposal.update(p.id, { status: 'rejected' }); refetchProposals(); }
-    catch (err) { toast.error(`Failed: ${err.message}`); }
-    setPuBusy(null);
-  };
-
-  const approveAll = async () => {
-    setPuBusy('all');
-    let n = 0;
-    for (const p of unitProposals) { try { await applyProposal(p); n++; } catch { /* skip */ } }
-    toast.success(`Applied ${n} of ${unitProposals.length}`);
-    refetchProposals();
     setPuBusy(null);
   };
 
@@ -354,10 +307,11 @@ export default function SettingsSyncTab() {
       <div className="space-y-3">
         <h3 className="text-sm font-semibold">Purchasing Units (AI)</h3>
         <p className="text-xs text-muted-foreground">
-          AI reads the last ~4 months of invoices for each raw / supplement / packaging product and corrects the
-          purchase unit + conversion factor (e.g. a 10kg box mistakenly set to "1 kg"), which drives costing.
-          Clear-cut fixes apply automatically; anything uncertain is listed below — click <strong>Review</strong> to
-          open the full purchasing-unit editor (invoice UoM, description, unit price → price per stock unit).
+          Maintenance task: AI reads the last ~4 months of invoices for each raw / supplement / packaging product and
+          corrects the purchase unit + conversion factor (e.g. a 10kg box mistakenly set to "1 kg"), which drives costing.
+          Clear-cut fixes apply automatically; anything uncertain is sent to the
+          <strong> Product Review Queue → Purchasing Units</strong> tab for review. Re-run it here whenever you've
+          imported new invoices.
         </p>
         <div className="flex flex-wrap gap-2 items-center">
           <Button variant="outline" size="sm" onClick={runUnitAnalysis} disabled={!!puBusy} className="gap-1.5 h-8 text-xs">
@@ -365,46 +319,11 @@ export default function SettingsSyncTab() {
             Run purchasing-unit analysis
           </Button>
           {unitProposals.length > 0 && (
-            <span className="text-xs text-muted-foreground self-center">{unitProposals.length} awaiting review</span>
+            <span className="text-xs text-muted-foreground self-center">
+              {unitProposals.length} awaiting review in the Review Queue → Purchasing Units tab
+            </span>
           )}
         </div>
-
-        {unitProposals.length > 0 && (
-          <div className="border border-border rounded-lg divide-y divide-border max-h-96 overflow-y-auto">
-            {unitProposals.map(p => (
-              <div key={p.id} className="p-3 flex items-start gap-3 text-xs">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{p.product_name}</p>
-                  <p className="text-muted-foreground">{p.supplier_name}</p>
-                  <p className="mt-1">
-                    <span className="text-muted-foreground">
-                      {p.current_purchase_uom_label || p.current_purchase_uom || '—'} · 1 = {p.current_conversion_factor} {p.stock_uom}
-                    </span>
-                    <span className="mx-1">→</span>
-                    <span className="text-green-700 font-medium">
-                      {p.proposed_purchase_uom_label || p.proposed_purchase_uom} · 1 = {p.proposed_conversion_factor} {p.stock_uom}
-                    </span>
-                    <span className="text-muted-foreground ml-1">({Math.round((p.confidence || 0) * 100)}%)</span>
-                  </p>
-                  {p.reasoning && <p className="text-muted-foreground mt-0.5 italic">{p.reasoning}</p>}
-                </div>
-                <div className="flex gap-1.5 shrink-0">
-                  <Button variant="outline" size="sm" className="h-7 text-xs border-primary/40 text-primary"
-                    onClick={() => setReviewProposal(p)} disabled={!!puBusy}>
-                    Review →
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground"
-                    onClick={() => rejectOne(p)} disabled={!!puBusy}>
-                    Reject
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {unitProposals.length === 0 && (
-          <p className="text-[11px] text-muted-foreground">No proposals awaiting review. Run the analysis to generate them.</p>
-        )}
       </div>
 
       <div className="bg-muted/40 rounded-lg border border-border p-4 text-sm space-y-2">
@@ -485,13 +404,6 @@ export default function SettingsSyncTab() {
         )}
       </div>
 
-      {reviewProposal && (
-        <PurchaseUnitReviewModal
-          proposal={reviewProposal}
-          onClose={() => setReviewProposal(null)}
-          onSaved={() => { setReviewProposal(null); refetchProposals(); }}
-        />
-      )}
     </div>
   );
 }

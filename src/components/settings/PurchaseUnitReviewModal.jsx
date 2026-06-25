@@ -8,6 +8,8 @@ import { X, Loader2, Check, Truck, FileText, ExternalLink, ArrowRightLeft } from
 import { formatZAR } from '@/lib/utils';
 import { toast } from 'sonner';
 import UomSelect from '@/components/shared/UomSelect';
+import SupplierEvidencePanel from '@/components/review-queue/SupplierEvidencePanel';
+import { analyzeInvoiceLine, EVIDENCE_REASONS } from '@/lib/invoiceEvidence';
 
 /**
  * Review one purchasing-unit proposal in the SAME rich editor used when matching
@@ -72,6 +74,51 @@ export default function PurchaseUnitReviewModal({ proposal, onClose, onSaved }) 
       });
     }
   }, [sp]); // eslint-disable-line
+
+  // Auto-pull the supplier evidence (UoM / SKU / description / unit price) from
+  // the invoice PDF when the modal opens, and pre-fill any empty fields.
+  const [pdfEvidence, setPdfEvidence] = useState(null);
+  const [evLoading, setEvLoading] = useState(false);
+  const [evError, setEvError] = useState(null);
+  const autoRan = React.useRef(false);
+  const runAnalyze = async ({ silent = false } = {}) => {
+    if (!latestLine?.invoice_id) { if (!silent) toast.error('No invoice PDF available for this product yet.'); return; }
+    setEvLoading(true);
+    setEvError(null);
+    try {
+      const result = await analyzeInvoiceLine({
+        invoiceId: latestLine.invoice_id,
+        line: { xero_item_code: sp?.supplier_sku, xero_description: latestLine.xero_description },
+        stockUom,
+      });
+      if (!result.ok) {
+        setEvError(EVIDENCE_REASONS[result.reason] || result.reason || 'Could not read the invoice.');
+        return;
+      }
+      const ev = result.evidence;
+      setPdfEvidence(ev);
+      setForm(prev => prev && ({
+        ...prev,
+        supplier_sku: silent ? (prev.supplier_sku || ev.sku) : (ev.sku || prev.supplier_sku),
+        purchase_uom_label: silent ? (prev.purchase_uom_label || ev.uom || ev.description) : (ev.uom || ev.description || prev.purchase_uom_label),
+        purchase_uom: silent && prev.purchase_uom && prev.purchase_uom !== 'each'
+          ? prev.purchase_uom : (ev.uom ? String(ev.uom).toLowerCase() : prev.purchase_uom),
+        conversion_factor: ev.conversion != null && (!silent || !prev.conversion_factor) ? String(ev.conversion) : prev.conversion_factor,
+        nominal_cost: ev.unitPrice != null && (!silent || !prev.nominal_cost) ? String(ev.unitPrice) : prev.nominal_cost,
+      }));
+      if (!silent) toast.success('Pre-filled from the invoice — verify the conversion & price.');
+    } catch (err) {
+      setEvError(`Analysis failed: ${err.message}`);
+    } finally {
+      setEvLoading(false);
+    }
+  };
+  React.useEffect(() => {
+    if (form && latestLine?.invoice_id && !autoRan.current) {
+      autoRan.current = true;
+      runAnalyze({ silent: true });
+    }
+  }, [form, latestLine]); // eslint-disable-line
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
   const cf = parseFloat(form?.conversion_factor);
@@ -160,6 +207,15 @@ export default function PurchaseUnitReviewModal({ proposal, onClose, onSaved }) 
                   <strong> unit price</strong> from the invoice, then enter the purchasing unit below. 1 Bale of 10 × 2kg = 20 {stockUom}.
                 </p>
               </div>
+
+              {/* Auto-pulled supplier evidence from the PDF (UoM / SKU / unit price). */}
+              <SupplierEvidencePanel
+                evidence={pdfEvidence}
+                loading={evLoading}
+                error={evError}
+                stockUom={stockUom}
+                onRetry={() => runAnalyze()}
+              />
 
               {/* Purchasing unit editor — same fields as the review-queue match */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

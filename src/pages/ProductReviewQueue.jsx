@@ -9,6 +9,7 @@ import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import UnmatchedLineCard from '@/components/review-queue/UnmatchedLineCard';
 import CreateProductFromLineModal from '@/components/review-queue/CreateProductFromLineModal';
 import MatchToExistingModal from '@/components/review-queue/MatchToExistingModal';
+import PurchasingUnitsReviewTab from '@/components/review-queue/PurchasingUnitsReviewTab';
 import { findPossibleMatches } from '@/lib/reviewQueueMatching';
 import PageHelp from '@/components/help/PageHelp';
 import POFilters from '@/components/purchasing/POFilters';
@@ -30,6 +31,7 @@ export default function ProductReviewQueue() {
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
 
+  const [tab, setTab] = useState('lines');                // 'lines' | 'units'
   const [createGroup, setCreateGroup] = useState(null);   // lineGroup → Create Product modal
   const [matchGroup, setMatchGroup] = useState(null);     // lineGroup → Match Existing modal
   const [productionOnly, setProductionOnly] = useState(true); // only show production-supplier lines
@@ -53,6 +55,12 @@ export default function ProductReviewQueue() {
   const { data: invoices = [] } = useQuery({
     queryKey: ['purchase-invoices-for-queue'],
     queryFn: () => base44.entities.PurchaseInvoice.list('-created_date', 5000),
+  });
+
+  // Pending purchasing-unit proposals (just for the tab badge count).
+  const { data: unitProposals = [] } = useQuery({
+    queryKey: ['purchase-unit-proposals'],
+    queryFn: () => base44.entities.PurchaseUnitProposal.filter({ status: 'pending' }, '-confidence', 300),
   });
 
   // Full product catalogue — "Match to existing" searches this, then links it to the supplier.
@@ -360,6 +368,33 @@ export default function ProductReviewQueue() {
 
       <PageHelp items={HELP_ITEMS} />
 
+      {/* Tabs: unmatched invoice lines vs. flagged purchasing units */}
+      <div className="flex items-center gap-1 border-b border-border">
+        {[
+          { key: 'lines', label: 'Unmatched Lines', count: unmatchedLines.length },
+          { key: 'units', label: 'Purchasing Units', count: unitProposals.length },
+        ].map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${
+              tab === t.key ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t.label}
+            {t.count > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${tab === t.key ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                {t.count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'units' && <PurchasingUnitsReviewTab />}
+
+      {tab === 'lines' && (
+      <>
       <div className="flex items-center justify-between flex-wrap gap-2">
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input
@@ -426,6 +461,8 @@ export default function ProductReviewQueue() {
             onPageSizeChange={v => { setPageSize(v); setPage(1); }}
           />
         </>
+      )}
+      </>
       )}
 
       {createGroup && (

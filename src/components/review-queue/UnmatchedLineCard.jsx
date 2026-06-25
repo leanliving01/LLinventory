@@ -1,7 +1,7 @@
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Link2, Plus, Ban, Truck, FileText, EyeOff, Sparkles } from 'lucide-react';
+import { Link2, Plus, Ban, Truck, FileText, EyeOff, Sparkles, CheckCircle2 } from 'lucide-react';
 import { formatZAR, effectiveUnitCost } from '@/lib/utils';
 
 /**
@@ -17,6 +17,10 @@ export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], onO
   const unitCost = effectiveUnitCost(line);
   const unitLabel = line.unit ? ` ${line.unit}` : '';
   const topMatch = possibleMatches[0];
+  // When the best match already has a supplier_products link, this line is really
+  // an already-known product — the action is to confirm its purchasing unit, not
+  // to create / match from scratch.
+  const alreadyLinked = !!topMatch?.supplierProduct;
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -59,18 +63,25 @@ export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], onO
         </div>
       </div>
 
-      {/* Possible duplicate hint */}
+      {/* Match hint — green when the product is already linked (just confirm the
+          purchasing unit), amber when it's a likely-but-unlinked product. */}
       {topMatch && (
-        <div className="px-4 py-2 border-t border-border bg-amber-50/60 flex items-center gap-2 flex-wrap">
-          <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-          <span className="text-xs text-amber-800">
-            Possible match: <span className="font-medium">{topMatch.product.name}</span>
-            {topMatch.product.sku && <span className="font-mono text-amber-700"> ({topMatch.product.sku})</span>}
-            <span className="text-amber-600"> — {topMatch.reasons[0]}</span>
-            {possibleMatches.length > 1 && <span className="text-amber-600"> · +{possibleMatches.length - 1} more</span>}
+        <div className={`px-4 py-2 border-t border-border flex items-center gap-2 flex-wrap ${alreadyLinked ? 'bg-green-50/70' : 'bg-amber-50/60'}`}>
+          {alreadyLinked
+            ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
+            : <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />}
+          <span className={`text-xs ${alreadyLinked ? 'text-green-800' : 'text-amber-800'}`}>
+            {alreadyLinked ? 'Already linked: ' : 'Possible match: '}
+            <span className="font-medium">{topMatch.product.name}</span>
+            {topMatch.product.sku && <span className={`font-mono ${alreadyLinked ? 'text-green-700' : 'text-amber-700'}`}> ({topMatch.product.sku})</span>}
+            <span className={alreadyLinked ? 'text-green-600' : 'text-amber-600'}> — {alreadyLinked ? 'confirm the purchasing unit' : topMatch.reasons[0]}</span>
+            {possibleMatches.length > 1 && <span className={alreadyLinked ? 'text-green-600' : 'text-amber-600'}> · +{possibleMatches.length - 1} more</span>}
           </span>
-          <Button variant="outline" size="sm" onClick={() => onOpenMatch(lineGroup)} className="gap-1.5 text-xs h-7 ml-auto border-amber-300 text-amber-800 hover:bg-amber-100">
-            <Link2 className="w-3 h-3" /> Review match
+          <Button
+            variant="outline" size="sm" onClick={() => onOpenMatch(lineGroup)}
+            className={`gap-1.5 text-xs h-7 ml-auto ${alreadyLinked ? 'border-green-300 text-green-800 hover:bg-green-100' : 'border-amber-300 text-amber-800 hover:bg-amber-100'}`}
+          >
+            {alreadyLinked ? <><CheckCircle2 className="w-3 h-3" /> Confirm unit</> : <><Link2 className="w-3 h-3" /> Review match</>}
           </Button>
         </div>
       )}
@@ -78,7 +89,7 @@ export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], onO
       {/* Actions */}
       <div className="px-4 py-2 border-t border-border bg-muted/20 flex items-center gap-2 flex-wrap">
         <Button variant="outline" size="sm" onClick={() => onOpenMatch(lineGroup)} className="gap-1.5 text-xs">
-          <Link2 className="w-3.5 h-3.5" /> Match Existing
+          {alreadyLinked ? <><CheckCircle2 className="w-3.5 h-3.5" /> Confirm Unit</> : <><Link2 className="w-3.5 h-3.5" /> Match Existing</>}
         </Button>
         <Button variant="outline" size="sm" onClick={() => onCreateProduct(lineGroup)} className="gap-1.5 text-xs">
           <Plus className="w-3.5 h-3.5" /> Create Product

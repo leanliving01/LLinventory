@@ -1,31 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { X, Loader2, Search, Link2, ArrowLeft, Check, Truck, FileText, Sparkles } from 'lucide-react';
+import { X, Loader2, Search, Link2, ArrowLeft, Check, Truck, FileText, Sparkles, CheckCircle2 } from 'lucide-react';
 import { formatZAR, effectiveUnitCost } from '@/lib/utils';
 import UomSelect from '@/components/shared/UomSelect';
-import { base44 } from '@/api/base44Client';
+import SupplierEvidencePanel from '@/components/review-queue/SupplierEvidencePanel';
+import { analyzeInvoiceLine, EVIDENCE_REASONS } from '@/lib/invoiceEvidence';
 import { toast } from 'sonner';
-
-// Parse a pack ("Bale of 10 × 2kg", "800g", "5L") into the conversion factor for
-// a given stock unit (1 purchase unit = X stock units). Used by AI pre-fill.
-const _MASS = { kg: 1000, kgs: 1000, g: 1, gr: 1, gram: 1, grams: 1 };
-const _VOL = { l: 1000, lt: 1000, litre: 1000, liter: 1000, ml: 1 };
-function packToConversion(text, stockUom) {
-  if (!text || !stockUom) return null;
-  const t = String(text).toLowerCase();
-  let qty = null, unit = null;
-  let m = t.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(kg|kgs|g|gr|gram|grams|ml|l|lt|litre|liter)\b/)
-       || t.match(/(?:case|bale|bag|box|carton|pack|crate)\s*of\s*(\d+)\D*?(\d+(?:\.\d+)?)\s*(kg|kgs|g|gr|gram|grams|ml|l|lt|litre|liter)\b/);
-  if (m) { qty = parseFloat(m[1]) * parseFloat(m[2]); unit = m[3]; }
-  else { m = t.match(/(\d+(?:\.\d+)?)\s*(kg|kgs|g|gr|gram|grams|ml|l|lt|litre|liter)\b/); if (m) { qty = parseFloat(m[1]); unit = m[2]; } }
-  if (qty == null) return null;
-  const su = stockUom.toLowerCase();
-  if (unit in _MASS) { const g = qty * _MASS[unit]; if (su === 'g') return g; if (su === 'kg') return g / 1000; }
-  if (unit in _VOL) { const ml = qty * _VOL[unit]; if (su === 'ml') return ml; if (su === 'l') return ml / 1000; }
-  return null;
-}
 
 /**
  * Match an unmatched invoice line (or a SKU group of lines) to an existing
@@ -38,6 +20,10 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
   const invoiceCount = lineGroup.lines.length;
   const suggestion = possibleMatches[0];
   const suggestedSp = suggestion?.supplierProduct;
+  // An "already-linked" match is one where the best candidate already has a
+  // supplier_products row for this supplier — the product is effectively matched
+  // and this is really just a purchasing-unit confirmation, not a new match.
+  const alreadyLinked = !!suggestedSp;
   // True per-unit cost (repairs legacy rows that stored the line total).
   const lineUnitCost = effectiveUnitCost(line);
   const unitLabel = line.unit ? ` ${line.unit}` : '';
@@ -48,9 +34,14 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
   const [picked, setPicked] = useState(suggestion?.product || null);
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  // Supplier evidence pulled from the invoice PDF (UoM / desc / SKU / unit price).
+  const [evidence, setEvidence] = useState(null);
+  const [evError, setEvError] = useState(null);
   const [form, setForm] = useState({
     purchase_uom_label: suggestedSp?.purchase_uom_label || line.xero_description || '',
-    purchase_uom: suggestedSp?.purchase_uom || 'each',
+    // Default the purchase UoM to whatever the invoice used (if any) so it isn't
+    // silently 'each'; fall back to the existing link, then 'each'.
+    purchase_uom: suggestedSp?.purchase_uom || (line.unit ? String(line.unit).toLowerCase() : 'each'),
     conversion_factor: suggestedSp?.conversion_factor != null ? String(suggestedSp.conversion_factor) : '',
     yield_factor: suggestedSp?.yield_factor != null ? String(suggestedSp.yield_factor) : '1',
     nominal_cost: lineUnitCost ? String(lineUnitCost) : '',
@@ -78,59 +69,51 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
   // Read the supplier's invoice PDF and pre-fill the purchasing unit from it
   // (UoM + description + unit price → conversion + cost). Needs the stored PDF
   // (Settings → Fetch Xero documents) and the Gemini key for extraction.
-  const handleAnalyze = async () => {
-    if (!picked) { toast.error('Pick a product first'); return; }
+  // `silent` (auto-run on open) records the failure reason instead of toasting.
+  const runAnalyze = async ({ silent = false } = {}) => {
+    if (!picked) { if (!silent) toast.error('Pick a product first'); return; }
     setAnalyzing(true);
+    setEvError(null);
     try {
-      const atts = await base44.entities.PurchaseAttachment.filter({ invoice_id: invoice?.id });
-      const att = (atts || []).find(a => a.file_url);
-      if (!att) { toast.error('No invoice PDF stored for this bill yet — run Settings → Sync → Fetch Xero documents.'); return; }
-
-      const resp = await fetch(att.file_url);
-      const bytes = new Uint8Array(await resp.arrayBuffer());
-      let bin = ''; for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-      const fileBase64 = btoa(bin);
-
-      const res = await base44.functions.invoke('scan-invoice', { fileBase64, mimeType: att.mime_type || 'application/pdf' });
-      const payload = res?.data?.data || res?.data;
-      if (res?.data?.error || payload?.error) {
-        const msg = res?.data?.error || payload?.error;
-        toast.error(String(msg).includes('GEMINI') ? 'Add the Gemini API key to enable AI analysis.' : msg);
+      const result = await analyzeInvoiceLine({ invoiceId: invoice?.id, line, stockUom });
+      if (!result.ok) {
+        const msg = EVIDENCE_REASONS[result.reason] || result.reason || 'Could not read the invoice.';
+        setEvError(msg);
+        if (!silent) toast.error(msg);
         return;
       }
-      const exLines = payload?.lines || [];
-      if (!exLines.length) { toast.error('No lines could be read from the invoice PDF.'); return; }
-
-      const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const tok = s => (s || '').toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length > 2);
-      const want = norm(line.xero_item_code);
-      const wantToks = new Set(tok(line.xero_description));
-      let best = null, bestScore = 0;
-      for (const el of exLines) {
-        if (want && norm(el.item_code) === want) { best = el; break; }
-        const b = tok(el.description); const hits = b.filter(t => wantToks.has(t)).length;
-        const sc = wantToks.size && b.length ? hits / Math.max(wantToks.size, b.length) : 0;
-        if (sc > bestScore) { bestScore = sc; best = el; }
-      }
-      if (!best) { toast.error('Could not match this line in the invoice.'); return; }
-
-      const conv = packToConversion(`${best.unit || ''} ${best.description || ''}`, stockUom);
-      const unitPrice = best.unit_price != null ? best.unit_price : (best.qty ? (best.line_total / best.qty) : null);
+      const ev = result.evidence;
+      setEvidence(ev);
+      // Only fill empty fields on auto-run; a manual "Re-analyze" overwrites.
       setForm(prev => ({
         ...prev,
-        supplier_sku: best.item_code || prev.supplier_sku,
-        supplier_description: best.description || prev.supplier_description,
-        purchase_uom_label: best.unit || best.description || prev.purchase_uom_label,
-        conversion_factor: conv != null ? String(conv) : prev.conversion_factor,
-        nominal_cost: unitPrice != null ? String(unitPrice) : prev.nominal_cost,
+        supplier_sku: silent ? (prev.supplier_sku || ev.sku) : (ev.sku || prev.supplier_sku),
+        supplier_description: silent ? (prev.supplier_description || ev.description) : (ev.description || prev.supplier_description),
+        purchase_uom_label: silent ? (prev.purchase_uom_label || ev.uom || ev.description) : (ev.uom || ev.description || prev.purchase_uom_label),
+        purchase_uom: silent && prev.purchase_uom && prev.purchase_uom !== 'each'
+          ? prev.purchase_uom
+          : (ev.uom ? String(ev.uom).toLowerCase() : prev.purchase_uom),
+        conversion_factor: ev.conversion != null && (!silent || !prev.conversion_factor) ? String(ev.conversion) : prev.conversion_factor,
+        nominal_cost: ev.unitPrice != null && (!silent || !prev.nominal_cost) ? String(ev.unitPrice) : prev.nominal_cost,
       }));
-      toast.success('Pre-filled from the invoice — verify the conversion & price.');
+      if (!silent) toast.success('Pre-filled from the invoice — verify the conversion & price.');
     } catch (err) {
-      toast.error(`Analysis failed: ${err.message}`);
+      setEvError(`Analysis failed: ${err.message}`);
+      if (!silent) toast.error(`Analysis failed: ${err.message}`);
     } finally {
       setAnalyzing(false);
     }
   };
+
+  // Auto-analyze the invoice PDF once when a product is in focus (per Q2: pull the
+  // supplier UoM / SKU / description in automatically), once per picked product.
+  const autoRunFor = useRef(null);
+  useEffect(() => {
+    if (picked && autoRunFor.current !== picked.id) {
+      autoRunFor.current = picked.id;
+      runAnalyze({ silent: true });
+    }
+  }, [picked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async () => {
     if (!form.purchase_uom_label.trim() || !form.conversion_factor || form.nominal_cost === '') {
@@ -154,9 +137,12 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="min-w-0">
             <h3 className="text-lg font-bold flex items-center gap-2">
-              <Link2 className="w-5 h-5 text-primary" /> Match to Existing Product
+              {alreadyLinked
+                ? <><CheckCircle2 className="w-5 h-5 text-green-600" /> Confirm Purchasing Unit</>
+                : <><Link2 className="w-5 h-5 text-primary" /> Match to Existing Product</>}
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
+              {alreadyLinked && <span className="text-green-700 font-medium">Already linked to this supplier</span>}
               <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> {invoice?.supplier_name}</span>
               {line.xero_item_code && <span className="font-mono">SKU {line.xero_item_code}</span>}
               {invoiceCount > 1 && (
@@ -248,11 +234,22 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
                   <FileText className="w-4 h-4 text-muted-foreground" /> Purchasing Unit — {invoice?.supplier_name}
                 </h4>
                 <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1.5 border-primary/40 text-primary"
-                  onClick={handleAnalyze} disabled={analyzing}>
+                  onClick={() => runAnalyze()} disabled={analyzing}>
                   {analyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
                   Analyze from invoice (AI)
                 </Button>
               </div>
+
+              {/* What the supplier actually says (auto-pulled from the PDF) — the
+                  inputs behind the conversion / yield, shown for review. */}
+              <SupplierEvidencePanel
+                evidence={evidence}
+                loading={analyzing}
+                error={evError}
+                stockUom={picked.stock_uom || 'stock'}
+                onRetry={() => runAnalyze()}
+              />
+
               {line.unit && (
                 <p className="text-[11px] text-muted-foreground -mt-1">
                   Invoiced in <span className="font-medium">{line.unit}</span> at {formatZAR(lineUnitCost)}/{line.unit}.
@@ -352,8 +349,10 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
             <Button className="flex-1 gap-2" onClick={handleSave} disabled={saving || formInvalid}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               {saving
-                ? 'Matching…'
-                : invoiceCount > 1 ? `Match & save (${invoiceCount} lines)` : 'Match & save link'}
+                ? 'Saving…'
+                : invoiceCount > 1
+                  ? `${alreadyLinked ? 'Confirm' : 'Match'} & save (${invoiceCount} lines)`
+                  : alreadyLinked ? 'Confirm & save unit' : 'Match & save link'}
             </Button>
           )}
         </div>
