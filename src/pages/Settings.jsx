@@ -2,8 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
-import { Settings as SettingsIcon, Users, ShoppingCart, Database, Smartphone, Download } from 'lucide-react';
-import { LATEST_APK_URL, REQUIRED_NATIVE_BUILD } from '@/config/nativeApp';
+import { Settings as SettingsIcon, Users, ShoppingCart, Database } from 'lucide-react';
 
 export default function Settings() {
   const { data: users = [] } = useQuery({
@@ -85,32 +84,6 @@ export default function Settings() {
               <span className="text-sm font-medium">Production</span>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Android App */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-border flex items-center gap-2">
-          <Smartphone className="w-4 h-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">Android App (Floor Tablet)</h3>
-        </div>
-        <div className="p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="space-y-1">
-            <p className="text-sm font-medium">Download the Android app (APK)</p>
-            <p className="text-xs text-muted-foreground max-w-md">
-              Install the native app on your floor tablet instead of using the web version.
-              Open this page on the tablet and tap Download, or send the link to the device.
-            </p>
-            <p className="text-xs text-muted-foreground">Build {REQUIRED_NATIVE_BUILD}</p>
-          </div>
-          <a
-            href={LATEST_APK_URL}
-            download
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition shrink-0"
-          >
-            <Download className="w-4 h-4" />
-            Download APK
-          </a>
         </div>
       </div>
     </div>
