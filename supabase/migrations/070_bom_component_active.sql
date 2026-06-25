@@ -1,5 +1,6 @@
 -- ============================================================================
--- 068_bom_component_active.sql
+-- 070_bom_component_active.sql  (renumbered from 068 to avoid a clash with the
+-- existing 068_purchase_attachments.sql / 069_purchase_unit_proposals.sql)
 --
 -- Fold the pack "enable/disable a meal" lever INTO the packing BOM (the master),
 -- so a pack's whole composition (which meals, qty, and now active/inactive) lives
