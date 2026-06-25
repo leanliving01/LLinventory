@@ -71,6 +71,7 @@ const ENTITY_TABLE_MAP = {
   DecomposedLine:           'decomposed_lines',
   PurchaseInvoiceLine:      'purchase_invoice_lines',
   PurchaseAttachment:       'purchase_attachments',
+  PurchaseUnitProposal:     'purchase_unit_proposals',
   SupplierShortage:         'supplier_shortages',
   SupplierReturn:           'supplier_returns',
   SupplierReturnLine:       'supplier_return_lines',

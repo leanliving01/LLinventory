@@ -37,6 +37,7 @@ export default function SettingsSyncTab() {
   const [showLogs, setShowLogs] = useState(false);
   const [docBusy, setDocBusy] = useState(null);          // 'fetch' | 'preview' | 'apply'
   const [repriceReport, setRepriceReport] = useState(null);
+  const [puBusy, setPuBusy] = useState(null);            // 'run' | 'all' | <proposalId>
 
   const { data: syncStates = [], refetch } = useQuery({
     queryKey: ['sync-states'],
@@ -49,6 +50,11 @@ export default function SettingsSyncTab() {
     queryKey: ['importLogs'],
     queryFn: () => base44.entities.ImportLog.list('-created_date', 20),
     enabled: showLogs,
+  });
+
+  const { data: unitProposals = [], refetch: refetchProposals } = useQuery({
+    queryKey: ['purchase-unit-proposals'],
+    queryFn: () => base44.entities.PurchaseUnitProposal.filter({ status: 'pending' }, '-confidence', 300),
   });
 
   const stateByKey = Object.fromEntries(syncStates.map(s => [s.source_key, s]));
@@ -125,6 +131,62 @@ export default function SettingsSyncTab() {
       toast.error(`Failed: ${err.message}`);
     }
     setDocBusy(null);
+  };
+
+  // ── AI purchasing-unit recovery ──────────────────────────────────────────
+  const runUnitAnalysis = async () => {
+    setPuBusy('run');
+    try {
+      const res = await base44.functions.invoke('propose-purchase-units', { mode: 'run' });
+      if (res?.data?.error) toast.error(res.data.error);
+      else toast.success(`Analysis running — ${res.data?.autoApplied ?? 0} auto-fixed, ${res.data?.pending ?? 0} to review, ${res.data?.remaining ?? 0} left (continues in background)`);
+      refetchProposals();
+    } catch (err) {
+      toast.error(`Failed: ${err.message}`);
+    }
+    setPuBusy(null);
+  };
+
+  // Write a proposal's values onto the supplier product. No toast (used in bulk).
+  const applyProposal = async (p) => {
+    const spList = await base44.entities.SupplierProduct.filter({ id: p.supplier_product_id });
+    const sp = spList[0];
+    if (!sp) throw new Error('Supplier product not found');
+    const conv = Number(p.proposed_conversion_factor) || 1;
+    const yf = Number(sp.yield_factor) || 1;
+    const update = {
+      purchase_uom: p.proposed_purchase_uom || sp.purchase_uom,
+      conversion_factor: conv,
+      conversion_uom: p.stock_uom || sp.conversion_uom,
+      purchase_uom_label: p.proposed_purchase_uom_label || sp.purchase_uom_label,
+      effective_internal_qty: Math.round(conv * yf * 1000) / 1000,
+    };
+    if ((p.proposed_supplier_sku || '') && !(sp.supplier_sku || '')) update.supplier_sku = p.proposed_supplier_sku;
+    await base44.entities.SupplierProduct.update(sp.id, update);
+    await base44.entities.PurchaseUnitProposal.update(p.id, { status: 'applied', applied_at: new Date().toISOString() });
+  };
+
+  const approveOne = async (p) => {
+    setPuBusy(p.id);
+    try { await applyProposal(p); toast.success(`Updated ${p.product_name}`); refetchProposals(); }
+    catch (err) { toast.error(`Failed: ${err.message}`); }
+    setPuBusy(null);
+  };
+
+  const rejectOne = async (p) => {
+    setPuBusy(p.id);
+    try { await base44.entities.PurchaseUnitProposal.update(p.id, { status: 'rejected' }); refetchProposals(); }
+    catch (err) { toast.error(`Failed: ${err.message}`); }
+    setPuBusy(null);
+  };
+
+  const approveAll = async () => {
+    setPuBusy('all');
+    let n = 0;
+    for (const p of unitProposals) { try { await applyProposal(p); n++; } catch { /* skip */ } }
+    toast.success(`Applied ${n} of ${unitProposals.length}`);
+    refetchProposals();
+    setPuBusy(null);
   };
 
   const cancelSync = async (src) => {
@@ -281,6 +343,65 @@ export default function SettingsSyncTab() {
               Preview shows one batch. "Apply" corrects this batch and continues through the rest in the background.
             </p>
           </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold">Purchasing Units (AI)</h3>
+        <p className="text-xs text-muted-foreground">
+          AI reads the last ~4 months of invoices for each raw / supplement / packaging product and corrects the
+          purchase unit + conversion factor (e.g. a 10kg box mistakenly set to "1 kg"), which drives costing.
+          Clear-cut fixes apply automatically; anything uncertain is listed below for you to approve.
+        </p>
+        <div className="flex flex-wrap gap-2 items-center">
+          <Button variant="outline" size="sm" onClick={runUnitAnalysis} disabled={!!puBusy} className="gap-1.5 h-8 text-xs">
+            {puBusy === 'run' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <PlayCircle className="w-3.5 h-3.5" />}
+            Run purchasing-unit analysis
+          </Button>
+          {unitProposals.length > 0 && (
+            <Button variant="outline" size="sm" onClick={approveAll} disabled={!!puBusy}
+              className="gap-1.5 h-8 text-xs border-green-300 text-green-700 hover:bg-green-50">
+              {puBusy === 'all' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              Approve all ({unitProposals.length})
+            </Button>
+          )}
+        </div>
+
+        {unitProposals.length > 0 && (
+          <div className="border border-border rounded-lg divide-y divide-border max-h-96 overflow-y-auto">
+            {unitProposals.map(p => (
+              <div key={p.id} className="p-3 flex items-start gap-3 text-xs">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{p.product_name}</p>
+                  <p className="text-muted-foreground">{p.supplier_name}</p>
+                  <p className="mt-1">
+                    <span className="text-muted-foreground">
+                      {p.current_purchase_uom_label || p.current_purchase_uom || '—'} · 1 = {p.current_conversion_factor} {p.stock_uom}
+                    </span>
+                    <span className="mx-1">→</span>
+                    <span className="text-green-700 font-medium">
+                      {p.proposed_purchase_uom_label || p.proposed_purchase_uom} · 1 = {p.proposed_conversion_factor} {p.stock_uom}
+                    </span>
+                    <span className="text-muted-foreground ml-1">({Math.round((p.confidence || 0) * 100)}%)</span>
+                  </p>
+                  {p.reasoning && <p className="text-muted-foreground mt-0.5 italic">{p.reasoning}</p>}
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <Button variant="outline" size="sm" className="h-7 text-xs border-green-300 text-green-700"
+                    onClick={() => approveOne(p)} disabled={!!puBusy}>
+                    {puBusy === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : 'Approve'}
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground"
+                    onClick={() => rejectOne(p)} disabled={!!puBusy}>
+                    Reject
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {unitProposals.length === 0 && (
+          <p className="text-[11px] text-muted-foreground">No proposals awaiting review. Run the analysis to generate them.</p>
         )}
       </div>
 
