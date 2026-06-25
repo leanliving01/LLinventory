@@ -28,7 +28,7 @@ const optionLabel = (o, stockUom) => {
   return `${name}  (×${fmtQty(o.conversion_factor)} ${stockUom})`;
 };
 
-export default function WebCountEntrySheet({ countId, header, lines, products, onSaved, onSubmitted }) {
+export default function WebCountEntrySheet({ countId, header, lines, products, sohByKey = {}, onSaved, onSubmitted }) {
   const { getSubcategoryHex } = useSubcategories();
   const productById = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products]);
 
@@ -343,6 +343,9 @@ export default function WebCountEntrySheet({ countId, header, lines, products, o
                             <SingleLineRow
                               line={primaryLine}
                               pname={pname}
+                              systemQty={primaryLine.system_qty != null
+                                ? Number(primaryLine.system_qty)
+                                : (sohByKey[`${primaryLine.product_id}_${primaryLine.location_id}`] ?? 0)}
                               options={optionsByLine[primaryLine.id] || []}
                               uomKey={uomKey[primaryLine.id] || STOCK_KEY}
                               value={entries[primaryLine.id] ?? ''}
@@ -450,7 +453,7 @@ function AutoSaveStatus({ status }) {
   );
 }
 
-function SingleLineRow({ line, pname, options, uomKey, value, brokenValue, onUomChange, onChange, onBrokenChange }) {
+function SingleLineRow({ line, pname, systemQty, options, uomKey, value, brokenValue, onUomChange, onChange, onBrokenChange }) {
   const stockUom = line.stock_uom || 'pcs';
   const sel = options.find(o => o.key === uomKey) || options[0] || { count_uom: stockUom, conversion_factor: 1 };
   const inBaseUnit = (sel.key || '__stock__') === '__stock__';
@@ -466,8 +469,8 @@ function SingleLineRow({ line, pname, options, uomKey, value, brokenValue, onUom
     <div className="flex items-center gap-2 px-4 py-2 hover:bg-muted/20 flex-wrap">
       <span className="text-sm font-medium flex-1 min-w-[8rem] truncate">{pname}</span>
       <span className="text-xs font-mono text-muted-foreground hidden lg:block w-24 shrink-0 truncate">{line.product_sku}</span>
-      <span className="text-xs text-muted-foreground tabular-nums w-16 text-right shrink-0">
-        {line.system_qty != null ? fmtQty(line.system_qty) : '—'} sys
+      <span className="text-xs text-muted-foreground tabular-nums w-24 text-right shrink-0" title="System on-hand quantity">
+        {fmtQty(systemQty ?? 0)} system
       </span>
 
       {/* Count UOM picker (base unit + Stock Count Units + Purchasing Units) */}

@@ -328,6 +328,7 @@ export default function StockCountReview() {
           header={header}
           lines={lines}
           products={products}
+          sohByKey={sohByKey}
           onSaved={() => {
             queryClient.invalidateQueries({ queryKey: ['stock-count-lines', id] });
           }}
