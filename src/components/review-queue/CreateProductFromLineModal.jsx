@@ -65,6 +65,7 @@ export default function CreateProductFromLineModal({ line, invoice, onCreated, o
         product_name: product.name,
         product_sku: product.sku,
         xero_item_code: form.xero_item_code,
+        supplier_sku: form.xero_item_code || '',   // the supplier's item code IS the supplier SKU
         supplier_description: line.xero_description || '',
         purchase_uom: form.purchase_uom,
         purchase_uom_qty: 1,

@@ -32,6 +32,7 @@ export default function ProductReviewQueue() {
 
   const [createGroup, setCreateGroup] = useState(null);   // lineGroup → Create Product modal
   const [matchGroup, setMatchGroup] = useState(null);     // lineGroup → Match Existing modal
+  const [productionOnly, setProductionOnly] = useState(true); // only show production-supplier lines
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [filters, setFilters] = useState({
@@ -59,6 +60,17 @@ export default function ProductReviewQueue() {
     queryKey: ['products-for-queue'],
     queryFn: () => base44.entities.Product.list('name', 5000),
   });
+
+  // Suppliers + which are production suppliers — the queue only surfaces lines
+  // from production suppliers (the rest are hidden, not deleted).
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ['suppliers-production-flag'],
+    queryFn: () => base44.entities.Supplier.list('name', 1000),
+  });
+  const productionSupplierIds = useMemo(
+    () => new Set(suppliers.filter(s => s.is_production_supplier).map(s => s.id)),
+    [suppliers],
+  );
 
   // Build invoice lookup
   const invoiceMap = useMemo(() => {
@@ -98,6 +110,8 @@ export default function ProductReviewQueue() {
   const filtered = useMemo(() => {
     const result = unmatchedLines.filter(l => {
       const inv = invoiceMap[l.invoice_id];
+      // Production-supplier scope: hide lines from non-production suppliers.
+      if (productionOnly && !(inv?.supplier_id && productionSupplierIds.has(inv.supplier_id))) return false;
       if (filters.search) {
         const q = filters.search.toLowerCase();
         if (!((l.xero_description || '').toLowerCase().includes(q) ||
@@ -132,7 +146,15 @@ export default function ProductReviewQueue() {
       return 0;
     });
     return sorted;
-  }, [unmatchedLines, filters, invoiceMap]);
+  }, [unmatchedLines, filters, invoiceMap, productionOnly, productionSupplierIds]);
+
+  // How many unmatched lines belong to non-production suppliers (hidden by the scope).
+  const hiddenNonProductionCount = useMemo(() => (
+    unmatchedLines.filter(l => {
+      const inv = invoiceMap[l.invoice_id];
+      return !(inv?.supplier_id && productionSupplierIds.has(inv.supplier_id));
+    }).length
+  ), [unmatchedLines, invoiceMap, productionSupplierIds]);
 
   // Supplier dropdown options
   const supplierOptions = useMemo(() => {
@@ -337,6 +359,23 @@ export default function ProductReviewQueue() {
       </div>
 
       <PageHelp items={HELP_ITEMS} />
+
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={productionOnly}
+            onChange={e => { setProductionOnly(e.target.checked); setPage(1); }}
+            className="rounded"
+          />
+          <span className="font-medium">Production suppliers only</span>
+        </label>
+        {productionOnly && hiddenNonProductionCount > 0 && (
+          <span className="text-xs text-muted-foreground">
+            {hiddenNonProductionCount} line{hiddenNonProductionCount !== 1 ? 's' : ''} from non-production suppliers hidden
+          </span>
+        )}
+      </div>
 
       <POFilters filters={filters} onChange={handleFiltersChange} suppliers={supplierOptions} />
 
