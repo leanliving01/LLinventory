@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { RefreshCw, PlayCircle, StopCircle, CheckCircle2, AlertCircle, Clock, Webhook, FileText, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
 import SyncHealthIndicator from '@/components/shared/SyncHealthIndicator';
+import PurchaseUnitReviewModal from '@/components/settings/PurchaseUnitReviewModal';
 import { differenceInMinutes, format } from 'date-fns';
 
 const SOURCES = [
@@ -38,6 +39,7 @@ export default function SettingsSyncTab() {
   const [docBusy, setDocBusy] = useState(null);          // 'fetch' | 'preview' | 'apply'
   const [repriceReport, setRepriceReport] = useState(null);
   const [puBusy, setPuBusy] = useState(null);            // 'run' | 'all' | <proposalId>
+  const [reviewProposal, setReviewProposal] = useState(null);
 
   const { data: syncStates = [], refetch } = useQuery({
     queryKey: ['sync-states'],
@@ -354,7 +356,8 @@ export default function SettingsSyncTab() {
         <p className="text-xs text-muted-foreground">
           AI reads the last ~4 months of invoices for each raw / supplement / packaging product and corrects the
           purchase unit + conversion factor (e.g. a 10kg box mistakenly set to "1 kg"), which drives costing.
-          Clear-cut fixes apply automatically; anything uncertain is listed below for you to approve.
+          Clear-cut fixes apply automatically; anything uncertain is listed below — click <strong>Review</strong> to
+          open the full purchasing-unit editor (invoice UoM, description, unit price → price per stock unit).
         </p>
         <div className="flex flex-wrap gap-2 items-center">
           <Button variant="outline" size="sm" onClick={runUnitAnalysis} disabled={!!puBusy} className="gap-1.5 h-8 text-xs">
@@ -362,11 +365,7 @@ export default function SettingsSyncTab() {
             Run purchasing-unit analysis
           </Button>
           {unitProposals.length > 0 && (
-            <Button variant="outline" size="sm" onClick={approveAll} disabled={!!puBusy}
-              className="gap-1.5 h-8 text-xs border-green-300 text-green-700 hover:bg-green-50">
-              {puBusy === 'all' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-              Approve all ({unitProposals.length})
-            </Button>
+            <span className="text-xs text-muted-foreground self-center">{unitProposals.length} awaiting review</span>
           )}
         </div>
 
@@ -390,9 +389,9 @@ export default function SettingsSyncTab() {
                   {p.reasoning && <p className="text-muted-foreground mt-0.5 italic">{p.reasoning}</p>}
                 </div>
                 <div className="flex gap-1.5 shrink-0">
-                  <Button variant="outline" size="sm" className="h-7 text-xs border-green-300 text-green-700"
-                    onClick={() => approveOne(p)} disabled={!!puBusy}>
-                    {puBusy === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : 'Approve'}
+                  <Button variant="outline" size="sm" className="h-7 text-xs border-primary/40 text-primary"
+                    onClick={() => setReviewProposal(p)} disabled={!!puBusy}>
+                    Review →
                   </Button>
                   <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground"
                     onClick={() => rejectOne(p)} disabled={!!puBusy}>
@@ -485,6 +484,14 @@ export default function SettingsSyncTab() {
           </div>
         )}
       </div>
+
+      {reviewProposal && (
+        <PurchaseUnitReviewModal
+          proposal={reviewProposal}
+          onClose={() => setReviewProposal(null)}
+          onSaved={() => { setReviewProposal(null); refetchProposals(); }}
+        />
+      )}
     </div>
   );
 }
