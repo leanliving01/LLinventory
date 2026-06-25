@@ -149,10 +149,13 @@ export default function SettingsSyncTab() {
 
   // Write a proposal's values onto the supplier product. No toast (used in bulk).
   const applyProposal = async (p) => {
+    const conv = Number(p.proposed_conversion_factor);
+    if (!Number.isFinite(conv) || conv <= 0) {
+      throw new Error('No valid proposed conversion — this record needs manual cleanup (e.g. fix its stock unit)');
+    }
     const spList = await base44.entities.SupplierProduct.filter({ id: p.supplier_product_id });
     const sp = spList[0];
     if (!sp) throw new Error('Supplier product not found');
-    const conv = Number(p.proposed_conversion_factor) || 1;
     const yf = Number(sp.yield_factor) || 1;
     const update = {
       purchase_uom: p.proposed_purchase_uom || sp.purchase_uom,
