@@ -241,11 +241,43 @@ Deno.serve(async (req) => {
     await supabase.from('purchase_invoice_lines').delete().in('invoice_id', affectedInvoiceIds);
   }
 
+  // Auto-match each line to an existing supplier_product (by supplier SKU or exact
+  // description) so already-linked items never hit the Product Review Queue. Mirrors
+  // findExistingLink() on the front end. Anything unrecognised stays 'unmatched'.
+  const norm = (s: string | null | undefined) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const supplierIds = [...new Set(resolved.map(r => r.supplier.id))];
+  const spBySupplier = new Map<string, any[]>();
+  if (supplierIds.length) {
+    const { data: sps } = await supabase
+      .from('supplier_products')
+      .select('id, supplier_id, product_id, product_name, product_sku, supplier_sku, xero_item_code, supplier_description')
+      .eq('active', true)
+      .in('supplier_id', supplierIds);
+    for (const sp of sps || []) {
+      const arr = spBySupplier.get(sp.supplier_id) || [];
+      arr.push(sp);
+      spBySupplier.set(sp.supplier_id, arr);
+    }
+  }
+  const findLink = (supplierId: string, itemCode: string, desc: string) => {
+    const sku = norm(itemCode);
+    const d = norm(desc);
+    if (!sku && !d) return null;
+    for (const sp of spBySupplier.get(supplierId) || []) {
+      if (sku && (norm(sp.supplier_sku) === sku || norm(sp.xero_item_code) === sku)) return sp;
+      if (d && (norm(sp.supplier_description) === d || norm(sp.product_name) === d)) return sp;
+    }
+    return null;
+  };
+
   const allLines: Record<string, unknown>[] = [];
-  for (const { inv } of resolved) {
+  const unmatchedByInvoice = new Map<string, number>();
+  for (const { inv, supplier } of resolved) {
     const ourInvoiceId = invoiceIdMap.get(inv.InvoiceID);
     if (!ourInvoiceId || !inv.LineItems?.length) continue;
     for (const l of inv.LineItems) {
+      const link = findLink(supplier.id, l.ItemCode, l.Description);
+      if (!link) unmatchedByInvoice.set(ourInvoiceId, (unmatchedByInvoice.get(ourInvoiceId) || 0) + 1);
       allLines.push({
         id: crypto.randomUUID(),
         invoice_id: ourInvoiceId,
@@ -256,13 +288,28 @@ Deno.serve(async (req) => {
         unit_cost: l.UnitAmount || 0,
         line_total: l.LineAmount || 0,
         account_code: l.AccountCode || '',
-        match_status: 'unmatched',
+        ...(link
+          ? {
+              supplier_product_id: link.id,
+              product_id: link.product_id,
+              product_name: link.product_name,
+              product_sku: link.product_sku,
+              match_status: 'auto_matched',
+            }
+          : { match_status: 'unmatched' }),
         created_date: now,
         updated_date: now,
       });
     }
   }
   if (allLines.length) await supabase.from('purchase_invoice_lines').insert(allLines);
+
+  // Keep each affected invoice's unmatched-line count accurate after auto-matching.
+  for (const invId of affectedInvoiceIds) {
+    await supabase.from('purchase_invoices')
+      .update({ unmatched_line_count: unmatchedByInvoice.get(invId) || 0 })
+      .eq('id', invId);
+  }
 
   // ── PROGRESS + CHAIN ────────────────────────────────────────────────────
   const processedThisPage = invoices.length;
