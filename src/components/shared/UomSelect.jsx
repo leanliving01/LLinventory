@@ -73,32 +73,46 @@ export default function UomSelect({ value, onValueChange, placeholder = 'Select'
             <X className="w-3.5 h-3.5" />
           </Button>
         </div>
+        <p className="text-[11px] text-muted-foreground -mt-1">
+          Create a unit you buy in. <strong>Code</strong> = short symbol used everywhere (e.g. <code>box</code>,
+          <code> bag</code>, <code>ea</code>). <strong>Name</strong> = full label (e.g. "Box of 10").
+          <strong> Category</strong> just groups it in the list.
+        </p>
         <div className="flex flex-wrap gap-2">
-          <Input
-            placeholder="Code (e.g. m)"
-            value={newCode}
-            onChange={e => setNewCode(e.target.value)}
-            className="w-24 text-sm"
-            autoFocus
-          />
-          <Input
-            placeholder="Name (e.g. Metres)"
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            className="flex-1 min-w-[140px] text-sm"
-          />
+          <div className="w-24">
+            <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-0.5">Code *</label>
+            <Input
+              placeholder="e.g. box"
+              value={newCode}
+              onChange={e => setNewCode(e.target.value)}
+              className="text-sm"
+              autoFocus
+            />
+          </div>
+          <div className="flex-1 min-w-[140px]">
+            <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-0.5">Name</label>
+            <Input
+              placeholder="e.g. Box of 10"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              className="text-sm"
+            />
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Select value={newCategory} onValueChange={setNewCategory}>
-            <SelectTrigger className="h-8 text-xs w-28">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(categoryLabels).map(([k, v]) => (
-                <SelectItem key={k} value={k}>{v}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-0.5">Category</label>
+            <Select value={newCategory} onValueChange={setNewCategory}>
+              <SelectTrigger className="h-8 text-xs w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(categoryLabels).map(([k, v]) => (
+                  <SelectItem key={k} value={k}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <Button size="sm" className="h-8 gap-1" onClick={handleAdd} disabled={saving || !newCode.trim()}>
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
             Add
