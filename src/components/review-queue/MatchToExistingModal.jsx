@@ -128,7 +128,7 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-      <div className="bg-card rounded-2xl border border-border w-full max-w-lg shadow-xl max-h-[88vh] flex flex-col">
+      <div className="bg-card rounded-2xl border border-border w-full max-w-2xl shadow-xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="min-w-0">

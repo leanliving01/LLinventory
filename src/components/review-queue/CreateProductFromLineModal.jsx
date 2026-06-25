@@ -90,7 +90,7 @@ export default function CreateProductFromLineModal({ line, invoice, onCreated, o
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-      <div className="bg-card rounded-2xl border border-border w-full max-w-md shadow-xl max-h-[85vh] flex flex-col">
+      <div className="bg-card rounded-2xl border border-border w-full max-w-2xl shadow-xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
             <h3 className="text-lg font-bold flex items-center gap-2">

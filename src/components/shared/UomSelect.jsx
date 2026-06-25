@@ -73,22 +73,22 @@ export default function UomSelect({ value, onValueChange, placeholder = 'Select'
             <X className="w-3.5 h-3.5" />
           </Button>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Input
             placeholder="Code (e.g. m)"
             value={newCode}
             onChange={e => setNewCode(e.target.value)}
-            className="w-20 text-sm"
+            className="w-24 text-sm"
             autoFocus
           />
           <Input
             placeholder="Name (e.g. Metres)"
             value={newName}
             onChange={e => setNewName(e.target.value)}
-            className="flex-1 text-sm"
+            className="flex-1 min-w-[140px] text-sm"
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Select value={newCategory} onValueChange={setNewCategory}>
             <SelectTrigger className="h-8 text-xs w-28">
               <SelectValue />
