@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { X, Receipt, Truck, MapPin, Calendar, FileText, CheckCircle2, Loader2, Ban, Package, Pencil, Save, Plus, Trash2, Check, AlertTriangle, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
@@ -34,7 +35,6 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
   const [editNotes, setEditNotes] = useState(po.notes || '');
   const [editLocationId, setEditLocationId] = useState(po.location_id || '');
   const [editLines, setEditLines] = useState([]);
-  const [search, setSearch] = useState('');
 
   const { data: lines = [] } = useQuery({
     queryKey: ['po-lines', po.id],
@@ -51,12 +51,6 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
     enabled: editing,
   });
-
-  const filteredProducts = useMemo(() => {
-    if (!search) return products.slice(0, 15);
-    const q = search.toLowerCase();
-    return products.filter(p => p.name.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)).slice(0, 15);
-  }, [products, search]);
 
   const location = useMemo(() => locations.find(l => l.id === po.location_id), [locations, po.location_id]);
 
@@ -381,25 +375,28 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                         <tr key={el.id || `new-${idx}`}>
                           <td className="px-3 py-2">
                             {el._isNew ? (
-                              <Select value={el.product_id} onValueChange={v => {
-                                const p = products.find(pr => pr.id === v);
-                                updateEditLine(idx, 'product_id', v);
-                                if (p) {
-                                  updateEditLine(idx, 'product_name', p.name);
-                                  updateEditLine(idx, 'product_sku', p.sku);
-                                  if (!el.unit_cost) updateEditLine(idx, 'unit_cost', String(p.cost_avg || 0));
-                                }
-                              }}>
-                                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
-                                <SelectContent>
-                                  <div className="px-2 pb-2">
-                                    <Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="h-7 text-xs" />
-                                  </div>
-                                  {filteredProducts.map(p => (
-                                    <SelectItem key={p.id} value={p.id}>{p.sku} — {p.name}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <SearchableSelect
+                                value={el.product_id}
+                                onValueChange={v => {
+                                  const p = products.find(pr => pr.id === v);
+                                  updateEditLine(idx, 'product_id', v);
+                                  if (p) {
+                                    updateEditLine(idx, 'product_name', p.name);
+                                    updateEditLine(idx, 'product_sku', p.sku);
+                                    if (!el.unit_cost) updateEditLine(idx, 'unit_cost', String(p.cost_avg || 0));
+                                  }
+                                }}
+                                placeholder="Select..."
+                                searchPlaceholder="Search products..."
+                                triggerClassName="h-9 text-xs"
+                                contentClassName="w-[360px]"
+                                options={products.map(p => ({
+                                  value: p.id,
+                                  label: `${p.sku} — ${p.name}`,
+                                  keywords: [p.sku, p.name],
+                                  node: (<span className="truncate">{p.sku} — {p.name}</span>),
+                                }))}
+                              />
                             ) : (
                               <div>
                                 <p className="text-xs font-medium">{el.product_name}</p>

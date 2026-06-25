@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import {
   X, Upload, Loader2, ScanLine, CheckCircle2, AlertCircle, FileText,
   ChevronRight, Package, Link2, Unlink,
@@ -472,49 +473,37 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
 }
 
 function ProductPicker({ value, onChange, products, allProducts }) {
-  const [search, setSearch] = useState('');
-
-  const filtered = useMemo(() => {
-    if (!search) return products.slice(0, 30);
-    const q = search.toLowerCase();
-    return allProducts
-      .filter(p => p.name.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q))
-      .slice(0, 30);
-  }, [products, allProducts, search]);
+  const options = useMemo(() => [
+    {
+      value: 'skip',
+      label: 'Send to review queue',
+      node: (
+        <span className="flex items-center gap-1.5 text-muted-foreground"><Unlink className="w-3 h-3" /> Send to review queue</span>
+      ),
+    },
+    ...allProducts.map(p => ({
+      value: p.id,
+      label: `${p.name}${p.sku ? ` ${p.sku}` : ''}`,
+      keywords: [p.name, p.sku].filter(Boolean),
+      node: (
+        <span className="flex items-center gap-1.5 truncate">
+          <Package className="w-3 h-3 text-muted-foreground shrink-0" />
+          <span className="truncate">{p.name}</span>
+          {p.sku && <span className="text-muted-foreground font-mono text-[10px]">· {p.sku}</span>}
+        </span>
+      ),
+    })),
+  ], [allProducts]);
 
   return (
-    <Select value={value || 'skip'} onValueChange={onChange}>
-      <SelectTrigger className="h-8 text-xs">
-        <SelectValue>
-          {value && value !== 'skip'
-            ? <span className="flex items-center gap-1"><Link2 className="w-3 h-3 text-green-600" />{allProducts.find(p => p.id === value)?.name || 'Unknown'}</span>
-            : <span className="flex items-center gap-1 text-muted-foreground"><Unlink className="w-3 h-3" />Review queue</span>
-          }
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        <div className="px-2 py-1.5">
-          <Input
-            placeholder="Search products..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="h-7 text-xs"
-            onClick={e => e.stopPropagation()}
-          />
-        </div>
-        <SelectItem value="skip">
-          <span className="flex items-center gap-1.5 text-muted-foreground"><Unlink className="w-3 h-3" /> Send to review queue</span>
-        </SelectItem>
-        {filtered.map(p => (
-          <SelectItem key={p.id} value={p.id}>
-            <span className="flex items-center gap-1.5">
-              <Package className="w-3 h-3 text-muted-foreground shrink-0" />
-              <span>{p.name}</span>
-              {p.sku && <span className="text-muted-foreground font-mono text-[10px]">· {p.sku}</span>}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <SearchableSelect
+      value={value || 'skip'}
+      onValueChange={onChange}
+      options={options}
+      placeholder="Review queue"
+      searchPlaceholder="Search products..."
+      triggerClassName="h-8 text-xs"
+      contentClassName="w-[320px]"
+    />
   );
 }

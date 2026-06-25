@@ -4,6 +4,7 @@ import { base44, adjustStockOnHand } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { Plus, Trash2, PackageCheck, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import HelpDrawer from '@/components/help/HelpDrawer';
@@ -15,7 +16,6 @@ export default function Receiving() {
   const [locationId, setLocationId] = useState('');
   const [lines, setLines] = useState([{ product_id: '', qty: '', unit_cost: '' }]);
   const [saving, setSaving] = useState(false);
-  const [search, setSearch] = useState('');
 
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers'],
@@ -32,17 +32,14 @@ export default function Receiving() {
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
   });
 
-  // Filter products by supplier if selected
+  // Scope products to the selected supplier (search filtering is handled by SearchableSelect)
   const supplierProducts = useMemo(() => {
-    let list = products;
     if (supplierId) {
       const supplierFiltered = products.filter(p => p.supplier_id === supplierId);
-      if (supplierFiltered.length > 0) list = supplierFiltered;
+      if (supplierFiltered.length > 0) return supplierFiltered;
     }
-    if (!search) return list.slice(0, 15);
-    const s = search.toLowerCase();
-    return list.filter(p => p.name.toLowerCase().includes(s) || p.sku?.toLowerCase().includes(s)).slice(0, 15);
-  }, [products, supplierId, search]);
+    return products;
+  }, [products, supplierId]);
 
   const addLine = () => setLines(prev => [...prev, { product_id: '', qty: '', unit_cost: '' }]);
   const removeLine = (idx) => setLines(prev => prev.filter((_, i) => i !== idx));
@@ -186,19 +183,23 @@ export default function Receiving() {
                 return (
                   <tr key={idx}>
                     <td className="px-4 py-2">
-                      <Select value={line.product_id} onValueChange={v => updateLine(idx, 'product_id', v)}>
-                        <SelectTrigger><SelectValue placeholder="Select product..." /></SelectTrigger>
-                        <SelectContent>
-                          <div className="px-2 pb-2">
-                            <Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 text-xs" />
-                          </div>
-                          {supplierProducts.map(p => (
-                            <SelectItem key={p.id} value={p.id}>
+                      <SearchableSelect
+                        value={line.product_id}
+                        onValueChange={v => updateLine(idx, 'product_id', v)}
+                        placeholder="Select product..."
+                        searchPlaceholder="Search products..."
+                        contentClassName="w-[360px]"
+                        options={supplierProducts.map(p => ({
+                          value: p.id,
+                          label: `${p.sku} ${p.name} ${p.stock_uom}`,
+                          keywords: [p.sku, p.name],
+                          node: (
+                            <span className="truncate">
                               {p.sku} — {p.name} ({p.stock_uom})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                            </span>
+                          ),
+                        }))}
+                      />
                     </td>
                     <td className="px-4 py-2">
                       <Input type="number" placeholder="0" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} min="0" />

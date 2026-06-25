@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { X, Plus, Trash2, Loader2, PackageCheck, AlertCircle, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirmGRN } from './GRNConfirmLogic';
@@ -24,7 +25,6 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
   const [dueDateOverridden, setDueDateOverridden] = useState(false);
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState([{ product_id: '', qty: '', unit_cost: '', uom: '', supplier_product_id: '' }]);
-  const [search, setSearch] = useState('');
   const [duplicateInvoice, setDuplicateInvoice] = useState(null);
 
   const { data: suppliers = [] } = useQuery({
@@ -73,26 +73,34 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
     return map;
   }, [supplierProducts]);
 
-  const filteredProducts = useMemo(() => {
-    let list = products;
+  // Supplier-scoped product list (no search filter, no render cap — the
+  // SearchableSelect handles type-to-search internally over the full list).
+  const scopedProducts = useMemo(() => {
     if (supplierId && supplierProducts.length > 0) {
       const spIds = new Set(supplierProducts.map(sp => sp.product_id));
-      list = list.filter(p => spIds.has(p.id));
+      return products.filter(p => spIds.has(p.id));
     }
-    if (search) {
-      const q = search.toLowerCase();
-      list = list.filter(p => {
-        const sp = spByProductId[p.id];
-        return (
-          p.name.toLowerCase().includes(q) ||
-          (p.sku || '').toLowerCase().includes(q) ||
-          (sp?.supplier_sku || '').toLowerCase().includes(q) ||
-          (sp?.supplier_description || '').toLowerCase().includes(q)
-        );
-      });
-    }
-    return list.slice(0, 25);
-  }, [products, supplierId, supplierProducts, spByProductId, search]);
+    return products;
+  }, [products, supplierId, supplierProducts]);
+
+  const productOptions = useMemo(() => scopedProducts.map(p => {
+    const sp = spByProductId[p.id];
+    return {
+      value: p.id,
+      label: `${p.sku || ''} ${sp?.supplier_description || ''} ${p.name}`.trim(),
+      keywords: [p.sku, p.name, sp?.supplier_sku, sp?.supplier_description].filter(Boolean),
+      node: (
+        <span className="truncate">
+          <span className="font-mono text-xs text-muted-foreground">{p.sku}</span>
+          {' — '}
+          {sp?.supplier_description ? (
+            <><span className="font-medium">{sp.supplier_description}</span><span className="text-muted-foreground"> / {p.name}</span></>
+          ) : p.name}
+          {sp?.last_purchase_price > 0 && <span className="text-muted-foreground"> @ R{Number(sp.last_purchase_price).toFixed(2)}</span>}
+        </span>
+      ),
+    };
+  }), [scopedProducts, spByProductId]);
 
   const addLine = () => setLines(prev => [...prev, { product_id: '', qty: '', unit_cost: '', uom: '', supplier_product_id: '' }]);
   const removeLine = idx => setLines(prev => prev.filter((_, i) => i !== idx));
@@ -371,33 +379,15 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
                     return (
                       <tr key={idx}>
                         <td className="px-3 py-2">
-                          <Select value={line.product_id} onValueChange={v => selectProduct(idx, v)}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select product..." /></SelectTrigger>
-                            <SelectContent>
-                              <div className="px-2 pb-2">
-                                <Input
-                                  placeholder={isLoadingSPs ? 'Loading...' : 'Search...'}
-                                  value={search}
-                                  onChange={e => setSearch(e.target.value)}
-                                  className="h-7 text-xs"
-                                  disabled={isLoadingSPs}
-                                />
-                              </div>
-                              {filteredProducts.map(p => {
-                                const sp = spByProductId[p.id];
-                                return (
-                                  <SelectItem key={p.id} value={p.id}>
-                                    <span className="font-mono text-xs text-muted-foreground">{p.sku}</span>
-                                    {' — '}
-                                    {sp?.supplier_description ? (
-                                      <><span className="font-medium">{sp.supplier_description}</span><span className="text-muted-foreground"> / {p.name}</span></>
-                                    ) : p.name}
-                                    {sp?.last_purchase_price > 0 && <span className="text-muted-foreground"> @ R{Number(sp.last_purchase_price).toFixed(2)}</span>}
-                                  </SelectItem>
-                                );
-                              })}
-                            </SelectContent>
-                          </Select>
+                          <SearchableSelect
+                            value={line.product_id}
+                            onValueChange={v => selectProduct(idx, v)}
+                            options={productOptions}
+                            placeholder="Select product..."
+                            searchPlaceholder={isLoadingSPs ? 'Loading...' : 'Search...'}
+                            triggerClassName="h-8 text-xs"
+                            contentClassName="w-[420px]"
+                          />
                           {product && (
                             <p className="text-[10px] text-muted-foreground mt-0.5">
                               {line.uom || spByProductId[line.product_id]?.purchase_uom_label || product.purchase_uom || product.stock_uom || ''}
