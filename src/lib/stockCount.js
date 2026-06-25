@@ -190,10 +190,12 @@ async function createCount({ location, locationScopeIds, date, countType, status
     }
   } else {
     // Location (or location+category): one line per product+location with stock,
-    // PLUS a zero line for any matching product that belongs to this location
-    // (by default location) but has no stock-on-hand row there yet.
+    // PLUS a zero line for matching products that have no stock-on-hand row here.
     const scopeIds = locationScopeIds && locationScopeIds.length > 0 ? locationScopeIds : [location.id];
     const scopeSet = new Set(scopeIds);
+    // Where to seat a zero-stock line: the product's default location if it falls
+    // in scope, else a concrete in-scope location to post against.
+    const fallbackLoc = scopeSet.has(location.id) ? location.id : scopeIds[0];
     const productsWithStock = new Set();
     for (const soh of sohRows) {
       if (!soh.product_id || !soh.location_id) continue;
@@ -206,12 +208,12 @@ async function createCount({ location, locationScopeIds, date, countType, status
     }
     for (const product of products) {
       if (!matchesScope(product) || productsWithStock.has(product.id)) continue;
-      // Seat the zero line on the product's default location when it falls in
-      // scope, else the single target location (only meaningful for an unzoned
-      // warehouse). Products that belong to another location are left out.
       const defLoc = product.default_location_id;
-      const loc = (defLoc && scopeSet.has(defLoc)) ? defLoc
-                : (scopeSet.has(location.id) ? location.id : null);
+      // With a category filter the user is counting that whole range, so every
+      // matching meal is included (seated on the count's location). Without one
+      // (pure location count), only products that actually belong here appear —
+      // so a location count doesn't drag in the entire catalogue.
+      const loc = (defLoc && scopeSet.has(defLoc)) ? defLoc : (cat ? fallbackLoc : null);
       if (!loc) continue;
       const key = `${product.id}_${loc}`;
       if (seen.has(key)) continue;
@@ -395,6 +397,87 @@ export async function addCountLine(countId, product, locationId, locationName) {
     counted: false,
     count_attempt: 1,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Top up an editable count with in-scope products that are missing a line.
+// Counts created before the "seed every meal" fix only have lines for products
+// that had a stock-on-hand row, so zero-stock meals never appeared. This adds
+// them (uncounted, qty 0) WITHOUT touching any line already entered.
+//
+// The subcategory scope is INFERRED from the subcategories already present in
+// the count (the original chip selection isn't persisted on the header), so a
+// count scoped to "Low Carb Meals" only gains other Low Carb meals — it never
+// pulls in the rest of the category. Returns the number of lines added.
+// ---------------------------------------------------------------------------
+export async function syncCountLines(countId) {
+  const header = await base44.entities.NewStockTake.filter({ id: countId }).then(r => r[0]);
+  if (!header) return 0;
+  if (!FLOOR_OPEN_STATUSES.includes(header.status)) return 0; // only open / in_progress
+  const cat = header.item_group && header.item_group !== 'all' ? header.item_group : null;
+  if (!cat) return 0; // pure location count — never dump the whole catalogue
+
+  const lines = await base44.entities.StockTakeLine.filter({ stocktake_id: countId }, 'product_name', 5000);
+  if (!lines.length) return 0;
+  const products = await base44.entities.Product.filter({ status: 'active', type: cat }, 'name', 5000);
+  const productById = Object.fromEntries(products.map(p => [p.id, p]));
+
+  // Subcategories already represented in the count = the inferred scope.
+  const presentSubs = new Set(
+    lines.map(l => { const p = productById[l.product_id]; return p ? resolveSubcategory(p) : null; })
+      .filter(Boolean)
+  );
+  if (!presentSubs.size) return 0;
+
+  const haveProductIds = new Set(lines.map(l => l.product_id));
+  const scopeLocs = new Set(lines.map(l => l.location_id).filter(Boolean));
+  const fallbackLoc = header.location_id || lines[0]?.location_id || null;
+  const fallbackLocName = (header.location_name && header.location_name !== 'All locations')
+    ? header.location_name : (lines[0]?.location_name || '');
+
+  const toAdd = products.filter(p =>
+    !NON_COUNTABLE_TYPES.has(p.type) &&
+    !haveProductIds.has(p.id) &&
+    presentSubs.has(resolveSubcategory(p))
+  );
+  if (!toAdd.length) return 0;
+
+  await base44.entities.StockTakeLine.bulkCreate(toAdd.map(p => {
+    // Seat the new zero line at the product's default location if that location
+    // is part of this count, else the count's location.
+    const loc = (p.default_location_id && scopeLocs.has(p.default_location_id))
+      ? p.default_location_id
+      : (header.location_id ? fallbackLoc : (p.default_location_id || fallbackLoc));
+    return {
+      stocktake_id: countId,
+      product_id: p.id,
+      product_sku: p.sku || '',
+      product_name: p.name || '',
+      location_id: loc || null,
+      location_name: loc === p.default_location_id ? '' : fallbackLocName,
+      stock_uom: p.stock_uom || 'pcs',
+      count_uom: p.stock_uom || 'pcs',
+      conversion_factor: 1,
+      counted: false,
+      count_attempt: 1,
+    };
+  }));
+
+  await base44.entities.NewStockTake.update(countId, {
+    total_lines: (Number(header.total_lines) || lines.length) + toAdd.length,
+    uncounted_count: (Number(header.uncounted_count) || 0) + toAdd.length,
+  });
+
+  return toAdd.length;
+}
+
+// Delete a count outright (header + all its lines). Used from the list screen.
+// Active counts freeze stock, so cancel them first — deleting a completed count
+// keeps the posted stock movements (they reference the count only by number).
+export async function deleteStockCount(countId) {
+  const lines = await base44.entities.StockTakeLine.filter({ stocktake_id: countId }, 'product_name', 5000);
+  if (lines.length) await base44.entities.StockTakeLine.bulkDelete(lines.map(l => l.id));
+  await base44.entities.NewStockTake.delete(countId);
 }
 
 // ---------------------------------------------------------------------------

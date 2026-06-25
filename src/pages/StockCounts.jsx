@@ -4,15 +4,21 @@ import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ClipboardCheck, Plus, MapPin, ChevronRight, FileSpreadsheet } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { ClipboardCheck, Plus, MapPin, ChevronRight, FileSpreadsheet, Trash2, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import CreatePlannedCountModal from '@/components/stock-count/CreatePlannedCountModal';
 import StockCountCSVImport from '@/components/stock-count/StockCountCSVImport';
 import StockCountFilters, { EMPTY_STOCK_COUNT_FILTERS } from '@/components/stock-count/StockCountFilters';
-import { COUNT_STATUS } from '@/lib/stockCount';
+import { COUNT_STATUS, deleteStockCount } from '@/lib/stockCount';
 
 const STATUS_STYLES = {
   draft: 'bg-gray-100 text-gray-600',
@@ -48,6 +54,8 @@ export default function StockCounts() {
   const [advFilters, setAdvFilters] = useState({ ...EMPTY_STOCK_COUNT_FILTERS });
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
+  const [deleting, setDeleting] = useState(false);
 
   const { data: counts = [], isLoading } = useQuery({
     queryKey: ['stock-counts'],
@@ -89,6 +97,41 @@ export default function StockCounts() {
     });
   }, [counts, filter, advFilters]);
 
+  const toggle = (id) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const allVisibleSelected = filtered.length > 0 && filtered.every(c => selected.has(c.id));
+  const toggleAll = () => setSelected(prev => {
+    if (filtered.every(c => prev.has(c.id))) {
+      const next = new Set(prev);
+      filtered.forEach(c => next.delete(c.id));
+      return next;
+    }
+    return new Set([...prev, ...filtered.map(c => c.id)]);
+  });
+
+  const selectedCounts = useMemo(
+    () => counts.filter(c => selected.has(c.id)),
+    [counts, selected]
+  );
+  const activeSelectedCount = selectedCounts.filter(c => !['completed', 'cancelled'].includes(c.status)).length;
+
+  const handleDeleteSelected = async () => {
+    setDeleting(true);
+    try {
+      for (const id of selected) await deleteStockCount(id);
+      toast.success(`Deleted ${selected.size} count${selected.size > 1 ? 's' : ''}`);
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ['stock-counts'] });
+    } catch (err) {
+      toast.error('Delete failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -128,6 +171,52 @@ export default function StockCounts() {
 
       <StockCountFilters filters={advFilters} onChange={setAdvFilters} />
 
+      {/* Selection / delete bar */}
+      {canCreate && filtered.length > 0 && (
+        <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm flex-wrap">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <Checkbox checked={allVisibleSelected} onCheckedChange={toggleAll} />
+            <span className="text-xs text-muted-foreground">Select all ({filtered.length})</span>
+          </label>
+          {selected.size > 0 && (
+            <>
+              <span className="text-xs font-medium">{selected.size} selected</span>
+              <button onClick={() => setSelected(new Set())} className="text-xs text-muted-foreground hover:text-foreground underline">
+                Clear
+              </button>
+              <div className="ml-auto">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-1.5 text-destructive border-destructive/40 hover:bg-destructive/10">
+                      {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      Delete ({selected.size})
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete {selected.size} stock count{selected.size > 1 ? 's' : ''}?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This permanently removes the selected count{selected.size > 1 ? 's' : ''} and all their lines.
+                        {activeSelectedCount > 0 && (
+                          <> <strong>{activeSelectedCount}</strong> of them {activeSelectedCount > 1 ? 'are' : 'is'} still active and freezing stock — deleting releases that freeze without posting any counts.</>
+                        )}
+                        {' '}This can't be undone. Posted stock movements from completed counts are kept.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Keep them</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">
+                        Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>
       ) : filtered.length === 0 ? (
@@ -145,31 +234,43 @@ export default function StockCounts() {
           {filtered.map(c => {
             const counted = (c.total_lines || 0) - (c.uncounted_count || 0);
             return (
-              <button
+              <div
                 key={c.id}
-                onClick={() => navigate(`/stock/stock-take/${c.id}`)}
-                className="w-full text-left bg-card border border-border rounded-xl px-4 py-3 flex items-center gap-3 hover:border-primary/30 transition-colors"
+                className="w-full bg-card border border-border rounded-xl pl-3 pr-4 py-3 flex items-center gap-3 hover:border-primary/30 transition-colors"
               >
-                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <ClipboardCheck className="w-4 h-4 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono font-semibold text-sm">{c.reference || c.id.slice(0, 8)}</span>
-                    <Badge className={`text-[10px] ${STATUS_STYLES[c.status] || 'bg-gray-100 text-gray-600'}`}>
-                      {COUNT_STATUS[c.status] || c.status}
-                    </Badge>
-                    <span className="text-[10px] text-muted-foreground uppercase">{c.count_type}</span>
+                {canCreate && (
+                  <Checkbox
+                    checked={selected.has(c.id)}
+                    onCheckedChange={() => toggle(c.id)}
+                    aria-label={`Select ${c.reference || 'count'}`}
+                    className="shrink-0"
+                  />
+                )}
+                <button
+                  onClick={() => navigate(`/stock/stock-take/${c.id}`)}
+                  className="flex-1 min-w-0 text-left flex items-center gap-3"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <ClipboardCheck className="w-4 h-4 text-primary" />
                   </div>
-                  <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
-                    <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {c.location_name || '—'}</span>
-                    <span>{c.stocktake_date ? format(new Date(c.stocktake_date), 'dd MMM yyyy') : ''}</span>
-                    <span>{counted}/{c.total_lines || 0} counted</span>
-                    {c.assigned_to_name && <span>· {c.assigned_to_name}</span>}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono font-semibold text-sm">{c.reference || c.id.slice(0, 8)}</span>
+                      <Badge className={`text-[10px] ${STATUS_STYLES[c.status] || 'bg-gray-100 text-gray-600'}`}>
+                        {COUNT_STATUS[c.status] || c.status}
+                      </Badge>
+                      <span className="text-[10px] text-muted-foreground uppercase">{c.count_type}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
+                      <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {c.location_name || '—'}</span>
+                      <span>{c.stocktake_date ? format(new Date(c.stocktake_date), 'dd MMM yyyy') : ''}</span>
+                      <span>{counted}/{c.total_lines || 0} counted</span>
+                      {c.assigned_to_name && <span>· {c.assigned_to_name}</span>}
+                    </div>
                   </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-              </button>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                </button>
+              </div>
             );
           })}
         </div>

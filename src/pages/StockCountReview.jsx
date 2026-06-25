@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
@@ -7,6 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import {
   ArrowLeft, Loader2, MapPin, CheckCircle2, Ban, ClipboardCheck, AlertTriangle, RefreshCw, Lock, Pencil, Eye,
 } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { formatZAR } from '@/lib/utils';
@@ -16,7 +20,7 @@ import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import StockCountVarianceTable from '@/components/stock-count/StockCountVarianceTable';
 import LockedCountReport from '@/components/stock-count/LockedCountReport';
 import WebCountEntrySheet from '@/components/stock-count/WebCountEntrySheet';
-import { buildVarianceRows, buildProgressRows, postStockCount, cancelStockCount, requestRecount, RECOUNT_STATUSES, COUNT_STATUS } from '@/lib/stockCount';
+import { buildVarianceRows, buildProgressRows, postStockCount, cancelStockCount, requestRecount, syncCountLines, FLOOR_OPEN_STATUSES, RECOUNT_STATUSES, COUNT_STATUS } from '@/lib/stockCount';
 
 const STATUS_STYLES = {
   open: 'bg-blue-100 text-blue-700',
@@ -55,6 +59,24 @@ export default function StockCountReview() {
 
   const locked = header?.status === 'completed';
   const live = header && !['completed', 'cancelled'].includes(header.status);
+
+  // Top up this count once with any in-scope meals that were missing (zero-stock
+  // meals weren't seeded on older counts). Runs only while still being captured.
+  const syncedRef = useRef(false);
+  useEffect(() => {
+    if (syncedRef.current || !header) return;
+    if (!FLOOR_OPEN_STATUSES.includes(header.status)) return;
+    syncedRef.current = true;
+    syncCountLines(id)
+      .then((added) => {
+        if (added > 0) {
+          queryClient.invalidateQueries({ queryKey: ['stock-count', id] });
+          queryClient.invalidateQueries({ queryKey: ['stock-count-lines', id] });
+          toast.success(`Added ${added} missing item${added > 1 ? 's' : ''} to this count`);
+        }
+      })
+      .catch(() => {});
+  }, [header, id, queryClient]);
 
   const { data: lines = [], isLoading: loadingLines } = useQuery({
     queryKey: ['stock-count-lines', id],
@@ -160,6 +182,7 @@ export default function StockCountReview() {
       queryClient.invalidateQueries({ queryKey: ['stock-count', id] });
       queryClient.invalidateQueries({ queryKey: ['stock-counts'] });
       toast.success('Count cancelled');
+      navigate('/stock/stock-take');
     } catch (err) {
       toast.error('Failed: ' + (err.message || 'Unknown error'));
     }
@@ -188,9 +211,28 @@ export default function StockCountReview() {
 
         <div className="ml-auto flex items-center gap-2">
           {!isLocked && header.status !== 'cancelled' && canPost && (
-            <Button variant="outline" size="sm" onClick={handleCancel} className="gap-1.5 text-destructive border-destructive/40 hover:bg-destructive/10">
-              <Ban className="w-4 h-4" /> Cancel
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 text-destructive border-destructive/40 hover:bg-destructive/10">
+                  <Ban className="w-4 h-4" /> Cancel
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Cancel this stock count?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {header.reference || 'This count'} will be cancelled and the stock freeze on its items released.
+                    Counts already entered are discarded and nothing is posted to stock. This can't be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep counting</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleCancel} className="bg-destructive hover:bg-destructive/90">
+                    Cancel count
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
           {isWebEnterable && !entryMode && (
             <Button variant="outline" size="sm" onClick={() => setEntryMode(true)} className="gap-1.5">
