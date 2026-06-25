@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, Loader2, Plus } from 'lucide-react';
+import { X, Loader2, Plus, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import UomSelect from '@/components/shared/UomSelect';
 import { effectiveUnitCost, formatZAR } from '@/lib/utils';
@@ -16,7 +16,7 @@ const ITEM_TYPES = ['stock', 'non_stock', 'expense', 'service'];
  * Creates a new Product AND SupplierProduct in one go from an unmatched invoice line.
  * Pre-fills fields from the Xero line data.
  */
-export default function CreateProductFromLineModal({ line, invoice, onCreated, onCancel }) {
+export default function CreateProductFromLineModal({ line, invoice, invoicePdfUrl, onCreated, onCancel }) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     // Product fields
@@ -96,8 +96,17 @@ export default function CreateProductFromLineModal({ line, invoice, onCreated, o
             <h3 className="text-lg font-bold flex items-center gap-2">
               <Plus className="w-5 h-5 text-primary" /> Create Product
             </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              From: {line.xero_description?.substring(0, 50)}
+            <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
+              <span>From: {line.xero_description?.substring(0, 50)}</span>
+              {invoice?.invoice_number && (
+                invoicePdfUrl ? (
+                  <a href={invoicePdfUrl} target="_blank" rel="noopener noreferrer"
+                    className="text-primary hover:underline inline-flex items-center gap-1 font-mono"
+                    title="Open the supplier invoice PDF">
+                    {invoice.invoice_number} <ExternalLink className="w-3 h-3" />
+                  </a>
+                ) : <span className="font-mono">{invoice.invoice_number}</span>
+              )}
             </p>
           </div>
           <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-5 h-5" /></Button>

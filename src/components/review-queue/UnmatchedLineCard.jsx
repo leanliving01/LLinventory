@@ -1,7 +1,7 @@
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Link2, Plus, Ban, Truck, FileText, EyeOff, Sparkles } from 'lucide-react';
+import { Link2, Plus, Ban, Truck, FileText, EyeOff, Sparkles, ExternalLink } from 'lucide-react';
 import { formatZAR, effectiveUnitCost } from '@/lib/utils';
 
 /**
@@ -9,9 +9,10 @@ import { formatZAR, effectiveUnitCost } from '@/lib/utils';
  * When the same SKU appears on several invoices it is collapsed into a single
  * card; matching / non-stock / create resolves every line in the group at once.
  */
-export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], onOpenMatch, onCreateProduct, onMarkNonStock, onIgnore }) {
+export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], pdfByInvoice = {}, onOpenMatch, onCreateProduct, onMarkNonStock, onIgnore }) {
   const line = lineGroup.representativeLine;
   const invoice = lineGroup.representativeInvoice;
+  const invoicePdfUrl = invoice?.id ? pdfByInvoice[invoice.id] : null;
   const count = lineGroup.lines.length;
   const totalQty = lineGroup.lines.reduce((s, l) => s + (l.line.qty || 0), 0);
   // Price PER UNIT (not the line total, which is qty × unit price). effectiveUnitCost
@@ -41,6 +42,15 @@ export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], onO
               <Badge className="text-[10px] bg-amber-100 text-amber-700 hover:bg-amber-100">
                 {count} invoices
               </Badge>
+            ) : invoicePdfUrl ? (
+              <a
+                href={invoicePdfUrl} target="_blank" rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="text-xs font-mono text-primary hover:underline inline-flex items-center gap-1"
+                title="Open the supplier invoice PDF"
+              >
+                {invoice?.invoice_number} <ExternalLink className="w-3 h-3" />
+              </a>
             ) : (
               <span className="text-xs font-mono text-muted-foreground">{invoice?.invoice_number}</span>
             )}
@@ -50,7 +60,21 @@ export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], onO
           </div>
           {count > 1 && (
             <p className="text-[11px] text-muted-foreground mt-1">
-              On: {lineGroup.lines.map(l => l.invoice?.invoice_number || '—').join(', ')}
+              On: {lineGroup.lines.map((l, i) => {
+                const url = l.invoice?.id ? pdfByInvoice[l.invoice.id] : null;
+                const num = l.invoice?.invoice_number || '—';
+                return (
+                  <React.Fragment key={l.line?.id || i}>
+                    {i > 0 && ', '}
+                    {url ? (
+                      <a href={url} target="_blank" rel="noopener noreferrer"
+                        className="text-primary hover:underline inline-flex items-center gap-0.5">
+                        {num}<ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    ) : num}
+                  </React.Fragment>
+                );
+              })}
             </p>
           )}
         </div>

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { X, Loader2, Search, Link2, ArrowLeft, Check, Truck, FileText, Sparkles } from 'lucide-react';
+import { X, Loader2, Search, Link2, ArrowLeft, Check, Truck, FileText, Sparkles, ExternalLink } from 'lucide-react';
 import { formatZAR, effectiveUnitCost } from '@/lib/utils';
 import UomSelect from '@/components/shared/UomSelect';
 import SupplierEvidencePanel from '@/components/review-queue/SupplierEvidencePanel';
@@ -15,7 +15,7 @@ import { toast } from 'sonner';
  * the same fields as the Products → Suppliers "Purchasing Units" editor,
  * pre-filled from the Xero line.
  */
-export default function MatchToExistingModal({ lineGroup, invoice, products = [], possibleMatches = [], onMatch, onCancel }) {
+export default function MatchToExistingModal({ lineGroup, invoice, products = [], possibleMatches = [], invoicePdfUrl, onMatch, onCancel }) {
   const line = lineGroup.representativeLine;
   const invoiceCount = lineGroup.lines.length;
   const suggestion = possibleMatches[0];
@@ -138,6 +138,15 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
             <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
               <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> {invoice?.supplier_name}</span>
               {line.xero_item_code && <span className="font-mono">SKU {line.xero_item_code}</span>}
+              {invoice?.invoice_number && (
+                invoicePdfUrl ? (
+                  <a href={invoicePdfUrl} target="_blank" rel="noopener noreferrer"
+                    className="text-primary hover:underline inline-flex items-center gap-1 font-mono"
+                    title="Open the supplier invoice PDF">
+                    {invoice.invoice_number} <ExternalLink className="w-3 h-3" />
+                  </a>
+                ) : <span className="font-mono">{invoice.invoice_number}</span>
+              )}
               {invoiceCount > 1 && (
                 <span className="text-amber-600 font-medium">on {invoiceCount} invoices</span>
               )}

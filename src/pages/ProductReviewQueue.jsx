@@ -63,6 +63,20 @@ export default function ProductReviewQueue() {
     queryFn: () => base44.entities.PurchaseUnitProposal.filter({ status: 'pending' }, '-confidence', 300),
   });
 
+  // Stored supplier-invoice PDFs (Xero + native scans) so each card/modal can link
+  // straight to the original invoice document for cross-checking.
+  const { data: attachments = [] } = useQuery({
+    queryKey: ['attachments-for-queue'],
+    queryFn: () => base44.entities.PurchaseAttachment.list('-created_date', 3000),
+  });
+  const pdfByInvoice = useMemo(() => {
+    const m = {};
+    for (const a of attachments) {
+      if (a.invoice_id && a.file_url && !m[a.invoice_id]) m[a.invoice_id] = a.file_url;
+    }
+    return m;
+  }, [attachments]);
+
   // Full product catalogue — "Match to existing" searches this, then links it to the supplier.
   const { data: products = [] } = useQuery({
     queryKey: ['products-for-queue'],
@@ -500,6 +514,7 @@ export default function ProductReviewQueue() {
                       key={lineGroup.key}
                       lineGroup={lineGroup}
                       possibleMatches={matchesByGroup[lineGroup.key] || []}
+                      pdfByInvoice={pdfByInvoice}
                       onOpenMatch={setMatchGroup}
                       onCreateProduct={setCreateGroup}
                       onMarkNonStock={handleMarkNonStock}
@@ -527,6 +542,7 @@ export default function ProductReviewQueue() {
         <CreateProductFromLineModal
           line={createGroup.representativeLine}
           invoice={createGroup.representativeInvoice}
+          invoicePdfUrl={pdfByInvoice[createGroup.representativeInvoice?.id]}
           onCreated={handleProductCreated}
           onCancel={() => setCreateGroup(null)}
         />
@@ -538,6 +554,7 @@ export default function ProductReviewQueue() {
           invoice={matchGroup.representativeInvoice}
           products={products}
           possibleMatches={matchesByGroup[matchGroup.key] || []}
+          invoicePdfUrl={pdfByInvoice[matchGroup.representativeInvoice?.id]}
           onMatch={handleMatch}
           onCancel={() => setMatchGroup(null)}
         />
