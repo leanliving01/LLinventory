@@ -52,7 +52,8 @@ export default function CommittedOrdersModal({ sku, productName, committedTotal,
       const { data: orders, error: ordErr } = await supabase
         .from('sales_orders')
         .select('id, order_number, internal_order_number, shopify_order_id, order_source, customer_name, order_date, status')
-        .eq('lifecycle_state', 'paid_unfulfilled');
+        .eq('lifecycle_state', 'paid_unfulfilled')
+        .is('closed_at', null); // archived (closed) orders no longer commit stock
       if (ordErr) throw ordErr;
 
       const orderById = new Map((orders || []).map((o) => [o.id, o]));

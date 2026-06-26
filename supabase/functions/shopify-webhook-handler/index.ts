@@ -4,6 +4,7 @@ import { getSupabase, corsHeaders, json } from '../_shared/shopify.ts';
 import { upsertDraftReturnFromRefund, upsertDraftReturnFromReturn } from '../_shared/returns.ts';
 import {
   loadClassificationRules, classifyLineItem, deriveOrderFinancialLines,
+  refundCancelledQtyByLineId, effectiveLineQty,
 } from '../_shared/order-classification.ts';
 import { loadPackageSkus, isPackageSku } from '../_shared/packaging.ts';
 
@@ -211,6 +212,9 @@ Deno.serve(async (req) => {
     order_source: 'shopify',
     lifecycle_state: lifecycleState,
     cancelled_at: cancelledAt,
+    // Shopify "Archive" sets closed_at; archived orders must stop reserving stock
+    // (recalc_committed_stock excludes orders with closed_at set).
+    closed_at: (o.closed_at as string) || null,
     payment_status: mapSalesPaymentStatus(financialStatus),
     fulfillment_status: mapSalesFulfilmentStatus(fulfillmentStatus),
     total_amount: parseFloat((o.total_price as string) || '0') || 0,
@@ -287,6 +291,9 @@ Deno.serve(async (req) => {
       updated_date: now,
     }));
 
+    // Units removed via a restock_type='cancel' refund (never shipped).
+    const cancelledByLineId = refundCancelledQtyByLineId(o);
+
     // Only real product lines deduct stock; everything else → financial lines.
     const salesLines: Array<Record<string, unknown>> = [];
     for (const l of lineItems) {
@@ -297,7 +304,10 @@ Deno.serve(async (req) => {
       if (category === 'inventory_product') {
         const lineType = detectLineType((l.title as string) || '');
         const skuKey = (l.sku as string) || '';
-        newLines.set(skuKey, (newLines.get(skuKey) || 0) + ((l.quantity as number) || 0));
+        // Net out cancel-refunded units; a line refunded to zero is kept for audit
+        // but marked 'cancelled' so it no longer commits or deducts stock.
+        const netQty = effectiveLineQty(l, cancelledByLineId);
+        newLines.set(skuKey, (newLines.get(skuKey) || 0) + netQty);
         salesLines.push({
           id: crypto.randomUUID(),
           sales_order_id: ourSalesId,
@@ -306,16 +316,16 @@ Deno.serve(async (req) => {
           sku: (l.sku as string) || '',
           name: (l.title as string) || 'Untitled',
           variant_title: (l.variant_title as string) || null,
-          qty: (l.quantity as number) || 0,
+          qty: netQty,
           unit_price: unitPrice,
-          line_total: lineTotal,
+          line_total: unitPrice * netQty,
           // Data-driven: any SKU with an active pack_boms row IS a package,
           // regardless of title; fall back to the title heuristic otherwise.
           is_package_parent: isPackageSku(skuKey, packageSkus) || lineType !== 'standalone',
           is_package_component: false,
           parent_line_id: null,
           line_type: lineType,
-          status: 'active',
+          status: netQty > 0 ? 'active' : 'cancelled',
           source_platform: 'shopify',
           last_synced_at: now,
           raw_payload: l,
@@ -392,12 +402,12 @@ Deno.serve(async (req) => {
     if (deductErr) console.error('deduct_fulfilled_stock error:', deductErr.message);
   }
 
-  // Real-time committed stock: recalculate immediately when an order enters or
-  // leaves paid_unfulfilled (the only lifecycle state that contributes to qty_committed).
-  // This makes qty_committed / qty_available accurate within seconds instead of
-  // waiting up to 15 min for the cron.
-  if (lifecycleState !== priorLifecycle &&
-      (lifecycleState === 'paid_unfulfilled' || priorLifecycle === 'paid_unfulfilled')) {
+  // Real-time committed stock: recalculate whenever an order is, or was, in
+  // paid_unfulfilled (the only state that contributes to qty_committed). We fire on
+  // edits too — not just lifecycle transitions — because a refund-cancel or an
+  // archive (closed_at) can change committed while the order STAYS paid_unfulfilled.
+  // Keeps qty_committed / qty_available accurate within seconds vs the 15-min cron.
+  if (lifecycleState === 'paid_unfulfilled' || priorLifecycle === 'paid_unfulfilled') {
     const { error: recalcErr } = await supabase.rpc('recalc_committed_stock');
     if (recalcErr) console.error('[webhook] recalc_committed_stock error:', recalcErr.message);
   }

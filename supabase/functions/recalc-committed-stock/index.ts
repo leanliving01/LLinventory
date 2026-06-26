@@ -15,7 +15,8 @@ Deno.serve(async (req) => {
   const { data: paidOrders, error: ordersErr } = await supabase
     .from('sales_orders')
     .select('id')
-    .eq('lifecycle_state', 'paid_unfulfilled');
+    .eq('lifecycle_state', 'paid_unfulfilled')
+    .is('closed_at', null); // archived (closed) orders stop reserving stock
 
   if (ordersErr) {
     return json({ status: 'error', error: ordersErr.message });

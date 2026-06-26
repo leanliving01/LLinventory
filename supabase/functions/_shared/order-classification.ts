@@ -91,6 +91,43 @@ export interface FinancialLineDraft {
   raw_payload: any;
 }
 
+// ----------------------------------------------------------------------------
+// Refund-cancel awareness.
+//
+// When a line item is removed from an order via a refund with restock_type
+// 'cancel' (the customer never received it — Shopify hands the inventory back),
+// Shopify KEEPS the line in `line_items` at its ORIGINAL `quantity` and only drops
+// `fulfillable_quantity` to 0. If we import the original quantity the order keeps
+// committing / would deduct meals the customer no longer ordered.
+//
+// We only net out 'cancel' refunds. A 'return' restock_type means the goods
+// shipped and came back — that is the Returns module's job, not an order-line
+// reduction. 'no_restock' is left intact (goods kept by the customer / written
+// off; still "ordered").
+//
+// Returns a map of shopify_line_item_id (string) → cancelled quantity.
+// deno-lint-ignore no-explicit-any
+export function refundCancelledQtyByLineId(o: any): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const rf of o?.refunds || []) {
+    for (const rli of rf?.refund_line_items || []) {
+      if (rli?.restock_type !== 'cancel') continue;
+      const id = rli?.line_item_id != null ? String(rli.line_item_id) : null;
+      if (!id) continue;
+      m.set(id, (m.get(id) || 0) + (Number(rli.quantity) || 0));
+    }
+  }
+  return m;
+}
+
+// Net quantity for a line after removing cancel-refunded units. Never negative.
+// deno-lint-ignore no-explicit-any
+export function effectiveLineQty(line: any, cancelledByLineId: Map<string, number>): number {
+  const ordered = Number(line?.quantity) || 0;
+  const cancelled = cancelledByLineId.get(String(line?.id)) || 0;
+  return Math.max(0, ordered - cancelled);
+}
+
 // Load active rules ordered so the lowest priority is evaluated first.
 export async function loadClassificationRules(supabase: SB): Promise<ClassificationRule[]> {
   const { data, error } = await supabase

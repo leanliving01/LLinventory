@@ -7,6 +7,7 @@ import { startSyncLog, finishSyncLog } from '../_shared/sync-log.ts';
 import { upsertDraftReturnFromRefund } from '../_shared/returns.ts';
 import {
   loadClassificationRules, classifyLineItem, deriveOrderFinancialLines,
+  refundCancelledQtyByLineId, effectiveLineQty,
   type ClassificationRule,
 } from '../_shared/order-classification.ts';
 import { loadPackageSkus, isPackageSku } from '../_shared/packaging.ts';
@@ -42,6 +43,7 @@ interface ShopifyOrder {
   // deno-lint-ignore no-explicit-any
   refunds?: any[];
   cancelled_at?: string | null;
+  closed_at?: string | null;
   fulfillments?: ShopifyFulfillment[];
 }
 
@@ -295,6 +297,10 @@ Deno.serve(async (req) => {
       order_date: o.created_at,
       lifecycle_state: lifecycleState,
       cancelled_at: o.cancelled_at || null,
+      // Shopify "Archive" sets closed_at. An archived order is done with — it must
+      // stop reserving stock even if it never reached fulfilled (recalc_committed_stock
+      // excludes orders with closed_at set).
+      closed_at: o.closed_at || null,
       payment_status: mapSalesPaymentStatus(o.financial_status),
       fulfillment_status: mapSalesFulfilmentStatus(o.fulfillment_status),
       total_amount: parseFloat(o.total_price || '0') || 0,
@@ -424,6 +430,8 @@ Deno.serve(async (req) => {
     const ourOrderId = orderIdMap.get(String(o.id));
     const ourSalesId = salesIdMap.get(String(o.id));
     const orderNumber = String(o.order_number || o.name || o.id);
+    // Units removed via a restock_type='cancel' refund (never shipped).
+    const cancelledByLineId = refundCancelledQtyByLineId(o);
 
     for (const l of (o.line_items || [])) {
       // Raw staging keeps EVERY line item (mapping/audit), product or not.
@@ -454,6 +462,9 @@ Deno.serve(async (req) => {
         // Data-driven first: any SKU with an active pack_boms row IS a package,
         // regardless of the title. Fall back to the title heuristic otherwise.
         const isPackage = isPackageSku(l.sku, packageSkus) || lineType !== 'standalone';
+        // Net out cancel-refunded units. A line refunded to zero is kept for audit
+        // but marked 'cancelled' so it no longer commits or deducts stock.
+        const netQty = effectiveLineQty(l, cancelledByLineId);
         allSalesLines.push({
           id: crypto.randomUUID(),
           sales_order_id: ourSalesId,
@@ -462,14 +473,14 @@ Deno.serve(async (req) => {
           sku: l.sku || '',
           name: l.title || 'Untitled',
           variant_title: l.variant_title || null,
-          qty: l.quantity || 0,
+          qty: netQty,
           unit_price: unitPrice,
-          line_total: lineTotal,
+          line_total: unitPrice * netQty,
           is_package_parent: isPackage,
           is_package_component: false,
           parent_line_id: null,
           line_type: lineType,
-          status: 'active',
+          status: netQty > 0 ? 'active' : 'cancelled',
           source_platform: 'shopify',
           last_synced_at: now,
           raw_payload: l,

@@ -211,8 +211,13 @@ export async function upsertDraftReturnFromRefund(supabase: SB, refund: any, fal
   const shopifyOrderId = String(refund?.order_id ?? fallbackOrderId ?? '');
   if (!shopifyOrderId) return { status: 'skipped_no_order' };
 
-  const refundLineItems: any[] = refund?.refund_line_items || [];
-  if (!refundLineItems.length) return { status: 'skipped_no_lines' }; // e.g. shipping-only refund
+  // restock_type 'cancel' = line removed from an unfulfilled order (never shipped).
+  // That is an order-line cancellation handled by the order sync (the line is netted
+  // out / marked cancelled so it stops committing) — NOT a physical return. Excluding
+  // it here prevents a phantom Draft Return for goods that never left the building.
+  const refundLineItems: any[] = (refund?.refund_line_items || [])
+    .filter((rli: any) => rli?.restock_type !== 'cancel');
+  if (!refundLineItems.length) return { status: 'skipped_no_lines' }; // shipping-only or cancel-only refund
 
   // Cross-signal de-dupe: skip if a native return already covers these line items.
   const coveredByReturn = await coveredLineItemIds(supabase, shopifyOrderId, 'return');
