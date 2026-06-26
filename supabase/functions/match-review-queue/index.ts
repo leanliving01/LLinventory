@@ -19,7 +19,11 @@ import { embedBatch, toVectorLiteral, chatJSON, hasOpenAI } from '../_shared/ope
 import { extractInvoiceData } from '../_shared/invoice-extract.ts';
 
 const FN_NAME = 'match-review-queue';
-const DEFAULT_BATCH = 40;      // unmatched lines per invocation
+const DEFAULT_BATCH = 5;       // unmatched lines per invocation — kept small so a
+                               // single call (which may scan uncached invoice PDFs)
+                               // always finishes well under the function/proxy time
+                               // limit and writes its proposals. The client loop /
+                               // self-chain drives through the whole queue.
 const SHORTLIST = 15;          // candidates from the embedding index
 const LLM_GROUP = 10;          // ambiguous items per LLM call
 // Accept an embedding match outright (skip the LLM) only when it's both strong
