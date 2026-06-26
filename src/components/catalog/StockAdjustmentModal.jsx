@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44, adjustStockOnHand } from '@/api/base44Client';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -57,6 +58,7 @@ export default function StockAdjustmentModal({ product, onClose }) {
     try {
       const loc = locations.find(l => l.id === locationId);
       const uom = product.stock_uom || 'pcs';
+      const delta = direction === 'in' ? numQty : -numQty;
 
       // Create append-only stock movement
       await base44.entities.StockMovement.create({
@@ -66,22 +68,31 @@ export default function StockAdjustmentModal({ product, onClose }) {
         qty: numQty,
         uom,
         reason,
-        ...(direction === 'in' ? { to_location_id: locationId } : { from_location_id: locationId }),
+        ref_type: 'manual',
+        ...(direction === 'in'
+          ? { to_location_id: locationId }
+          : { from_location_id: locationId }),
         notes: notes || `Manual adjustment from product page`,
       });
 
       // Atomically adjust StockOnHand
-      const delta = direction === 'in' ? numQty : -numQty;
       await adjustStockOnHand(product.id, locationId, delta);
 
       queryClient.invalidateQueries({ queryKey: ['product-stock', product.id] });
       queryClient.invalidateQueries({ queryKey: ['product-movements', product.id] });
+
+      toast.success(
+        `${direction === 'in' ? 'Added' : 'Removed'} ${numQty} ${uom}` +
+        `${loc ? ` ${direction === 'in' ? 'to' : 'from'} ${loc.name}` : ''} — stock updated`
+      );
     } catch (err) {
+      // Keep the modal open on failure so the user sees the error and can retry.
       toast.error('Save failed: ' + (err.message || 'Unknown error'));
-    } finally {
       setSaving(false);
+      return;
     }
 
+    setSaving(false);
     onClose();
   };
 
