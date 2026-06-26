@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 import RouteGuard from './RouteGuard';
 import CommandPalette from '@/components/shared/CommandPalette';
 import AiAssistant from '@/components/ai/AiAssistant';
+import NotificationBell from '@/components/notifications/NotificationBell';
 import { cn } from '@/lib/utils';
 
 export default function AppLayout() {
@@ -18,6 +19,10 @@ export default function AppLayout() {
           onToggle={() => setCollapsed(!collapsed)}
           onAiOpen={() => setAiOpen(true)}
         />
+      </div>
+      {/* Global inventory notification bell (also fires toasts for new alerts) */}
+      <div className="fixed top-3 right-5 z-40 print:hidden">
+        <NotificationBell />
       </div>
       <main className={cn(
         "transition-all duration-300 min-h-screen print:ml-0",

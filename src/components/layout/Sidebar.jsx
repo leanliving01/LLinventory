@@ -73,6 +73,7 @@ const PATH_PERMISSION_MAP = {
   '/purchasing/dashboard': 'purchasing_dashboard',
   '/purchasing/scorecard': 'supplier_scorecard',
   '/purchasing/pack-bom': 'recipes_edit',
+  '/inventory/dashboard': 'inventory_overview',
   '/stock/overview': 'inventory_overview',
   '/sales': 'sales_view',
   '/sales/operations': 'sales_view',
@@ -163,9 +164,10 @@ const navItems = [
       { label: 'Yield Review', path: '/production/yield-review', icon: Gauge },
     ]
   },
-  { 
+  {
     label: 'Inventory', icon: Warehouse,
     children: [
+      { label: 'Inventory Dashboard', path: '/inventory/dashboard', icon: Gauge },
       { label: 'Inventory Overview', path: '/stock/overview', icon: Package },
       { label: 'Stock Counts', path: '/stock/stock-take', icon: ClipboardCheck },
       { label: 'Stock Adjustments', path: '/stock/adjustments', icon: SlidersHorizontal },
