@@ -62,6 +62,29 @@ function parsePackParts(text: string): { packQty: number; packSize: number; pack
   return null;
 }
 
+// Map a messy invoice unit/description to a CLEAN Purchase UOM name that matches
+// a seeded unit (packaging name or measurement code), so the dropdown pre-selects.
+const PKG_KW: [string, string][] = [
+  ['carton', 'Carton'], ['case', 'Case'], ['box', 'Box'], ['bag', 'Bag'],
+  ['punnet', 'Punnet'], ['tray', 'Tray'], ['tub', 'Tub'], ['bucket', 'Tub'], ['bkt', 'Tub'],
+  ['bottle', 'Bottle'], ['bott', 'Bottle'], ['bunch', 'Bunch'], ['packet', 'Packet'],
+  ['pkt', 'Packet'], ['crate', 'Crate'], ['bale', 'Bale'], ['pocket', 'Pocket'], ['drum', 'Drum'],
+];
+function packagingName(text: string): string | null {
+  const t = (text || '').toLowerCase();
+  for (const [kw, name] of PKG_KW) if (t.includes(kw)) return name;
+  return null;
+}
+function normMeasure(u: string): string | null {
+  const k = (u || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (['kg', 'kgs', 'kilo', 'kilogram', 'perkg', 'pkg'].includes(k)) return 'kg';
+  if (['g', 'gr', 'gram', 'grams'].includes(k)) return 'g';
+  if (['l', 'lt', 'litre', 'liter'].includes(k)) return 'l';
+  if (k === 'ml') return 'ml';
+  if (['each', 'ea', 'pcs', 'pc', 'unit', 'units', 'piece', 'pieces'].includes(k)) return 'each';
+  return null;
+}
+
 // Conversion factor from parsed pack parts into the product's stock unit.
 function convFromParts(pk: { packQty: number; packSize: number; packUnit: string }, stockUom: string): number | null {
   const su = (stockUom || '').toLowerCase();
@@ -287,10 +310,13 @@ Return ONLY JSON: {"results":[{"line_id":string,"product_id":string|null,"confid
     const packSize = pk ? pk.packSize : null;
     const packSizeUom = pk ? pk.packUnit : null;
     const packQty = pk ? pk.packQty : null;
-    // Multi-pack → "Case"; single measured pack → the measurement unit; else the invoice unit.
+    // Clean Purchase UOM: prefer a packaging keyword (Case/Bag/Box…), else the
+    // parsed pack unit / normalised measurement, else 'Each'. Never the raw mess.
+    const uomText = `${unit} ${ev?.description || it.rep.xero_description || ''}`;
+    const pkgName = packagingName(uomText);
     const purchaseUom = pk
-      ? (pk.packQty > 1 ? 'Case' : pk.packUnit)
-      : (unit ? String(unit).toLowerCase() : 'each');
+      ? (pkgName || (pk.packQty > 1 ? 'Case' : pk.packUnit))
+      : (pkgName || normMeasure(unit) || 'Each');
 
     for (const lineId of it.lineIds) {
       proposalRows.push({

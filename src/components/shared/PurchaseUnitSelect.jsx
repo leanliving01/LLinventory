@@ -56,6 +56,12 @@ export default function PurchaseUnitSelect({ value, onValueChange, placeholder =
   const sorted = [...uoms].sort((a, b) =>
     (CAT_ORDER[a.category] ?? 9) - (CAT_ORDER[b.category] ?? 9) || (a.name || '').localeCompare(b.name || ''));
 
+  // Always render the current value even if it isn't an exact known code — so the
+  // field shows what's stored instead of going blank (e.g. a legacy "p/kg" or a
+  // casing difference like "box" vs "Box").
+  const exact = !value || sorted.some(u => u.code === value);
+  const options = exact ? sorted : [{ code: value, name: value }, ...sorted];
+
   if (showAdd) {
     return (
       <div className="border border-primary/30 rounded-lg p-3 space-y-2 bg-primary/5">
@@ -94,7 +100,7 @@ export default function PurchaseUnitSelect({ value, onValueChange, placeholder =
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
-          {sorted.map(u => (
+          {options.map(u => (
             <SelectItem key={u.code} value={u.code}>{u.name || u.code}</SelectItem>
           ))}
         </SelectContent>
