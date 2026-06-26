@@ -36,7 +36,7 @@ export default function PurchaseReport() {
     return {
       count: filtered.length,
       subtotal: confirmed.reduce((s, p) => s + (p.subtotal || 0), 0),
-      tax: confirmed.reduce((s, p) => s + (p.tax || 0), 0),
+      tax: confirmed.reduce((s, p) => s + (p.tax_amount || 0), 0),
       total: confirmed.reduce((s, p) => s + (p.total || 0), 0),
       paid: confirmed.filter(p => p.payment_status === 'paid').reduce((s, p) => s + (p.total || 0), 0),
     };
@@ -46,7 +46,7 @@ export default function PurchaseReport() {
     downloadCSV('purchase_report.csv', filtered.map(p => ({
       po_number: p.po_number, supplier: p.supplier_name, status: p.status,
       order_date: p.order_date, expected_date: p.expected_date || '',
-      subtotal: p.subtotal, tax: p.tax, total: p.total, payment: p.payment_status,
+      subtotal: p.subtotal, tax: p.tax_amount, total: p.total, payment: p.payment_status,
     })));
   };
 

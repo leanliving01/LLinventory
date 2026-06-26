@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { formatDurationShort, formatDurationLong } from '@/lib/taskDuration';
+import { formatDurationShort, formatDurationLong, formatDurationFromSeconds } from '@/lib/taskDuration';
 import DateRangeFilter from '@/components/reports/DateRangeFilter';
 import DispatchTrendChart from '@/components/reports/dispatch/DispatchTrendChart';
 import { perfColor } from '@/components/reports/dispatch/PackerPerformanceTable';
@@ -120,7 +120,7 @@ export default function EmployeeDetailView({ member, production, packing, packin
             <Tile label="Line Items" value={packing.items.toLocaleString()} />
             <Tile label="Meals" value={packing.meals.toLocaleString()} />
             <Tile label="Supplements" value={packing.supplements.toLocaleString()} />
-            <Tile label="Avg / Order" value={formatDurationShort(packing.avgSecPerOrder)} />
+            <Tile label="Avg / Order" value={formatDurationFromSeconds(packing.avgSecPerOrder)} />
             <Tile label="Items / Active Hr" value={packing.itemsPerHour} />
             <Tile label="Sec / Item" value={packing.secPerItem} />
           </div>
@@ -155,7 +155,7 @@ export default function EmployeeDetailView({ member, production, packing, packin
                       <td className="px-4 py-3 text-center">{Number(e.packed_items) || 0}</td>
                       <td className="px-4 py-3 text-center">{Number(e.packed_meals) || 0}</td>
                       <td className="px-4 py-3 text-center">{Number(e.packed_supplements) || 0}</td>
-                      <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationShort(Number(e.active_seconds) || 0)}</td>
+                      <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationFromSeconds(e.active_seconds)}</td>
                       <td className="px-4 py-3 text-center">{e.proof_url ? <a href={e.proof_url} target="_blank" rel="noreferrer" className="text-primary underline">view</a> : <span className="text-muted-foreground">—</span>}</td>
                     </tr>
                   ))}

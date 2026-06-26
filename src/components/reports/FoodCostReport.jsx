@@ -11,8 +11,11 @@ export default function FoodCostReport() {
   const [to, setTo] = useState(now);
 
   const { data: sales = [] } = useQuery({
-    queryKey: ['report-fc-sales'],
-    queryFn: () => base44.entities.SalesOrder.list('-order_date', 1000),
+    queryKey: ['report-fc-sales', startOfDay(from).toISOString(), to.toISOString()],
+    queryFn: () => base44.entities.SalesOrder.filter(
+      { order_date: { $gte: startOfDay(from).toISOString(), $lte: to.toISOString() } },
+      '-order_date', 5000
+    ),
   });
 
   // COGS = actual materials consumed in production (production_pick movements)
@@ -45,9 +48,14 @@ export default function FoodCostReport() {
   const data = useMemo(() => {
     const inRange = (d) => d && isWithinInterval(new Date(d), { start: startOfDay(from), end: to });
 
+    // Revenue must be VAT-EXCLUSIVE to compare against ex-VAT COGS, else Food Cost % is
+    // understated and margin overstated by the VAT fraction. Use subtotal_price (ex-VAT),
+    // not total_amount (incl VAT). Exclude voided orders by status OR lifecycle_state.
     const revenue = sales
-      .filter(s => inRange(s.order_date) && !['cancelled', 'refunded'].includes(s.status))
-      .reduce((sum, s) => sum + (s.total_amount || 0), 0);
+      .filter(s => inRange(s.order_date)
+        && !['cancelled', 'refunded'].includes(s.status)
+        && !['cancelled', 'refunded'].includes(s.lifecycle_state))
+      .reduce((sum, s) => sum + (s.subtotal_price || 0), 0);
 
     // True COGS: cost of raw materials actually consumed (pulled into production)
     const materialsCost = pickMovements
@@ -98,7 +106,7 @@ export default function FoodCostReport() {
       <ReportDateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} onExportCSV={handleExport} onPrint={() => window.print()} />
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <MetricCard label="Revenue" value={`R ${Math.round(data.revenue).toLocaleString()}`} color="text-foreground" />
+        <MetricCard label="Revenue (ex VAT)" value={`R ${Math.round(data.revenue).toLocaleString()}`} color="text-foreground" />
         <MetricCard label="Materials Consumed" value={`R ${Math.round(data.materialsCost).toLocaleString()}`} color="text-blue-700" bg="bg-blue-50 border-blue-200" />
         <MetricCard label="Wastage" value={`R ${Math.round(data.wasteValue).toLocaleString()}`} color="text-red-700" bg="bg-red-50 border-red-200" />
         <MetricCard label="COGS" value={`R ${Math.round(data.cogs).toLocaleString()}`} color="text-foreground" />

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Download, Printer, Search } from 'lucide-react';
 import { downloadCSV } from '@/lib/csvExport';
+import { buildFifoCostMap, fifoUnitCost } from '@/lib/fifoValuation';
 
 export default function InventoryReport() {
   const [search, setSearch] = useState('');
@@ -19,8 +20,14 @@ export default function InventoryReport() {
     queryKey: ['report-soh'],
     queryFn: () => base44.entities.StockOnHand.list('-updated_date', 2000),
   });
+  // FIFO layers are the authoritative cost basis (cost_avg is a legacy fallback).
+  const { data: layers = [] } = useQuery({
+    queryKey: ['report-inventory-layers'],
+    queryFn: () => base44.entities.CostLayer.filter({ is_depleted: false }, 'received_date', 20000),
+  });
 
   const rows = useMemo(() => {
+    const fifoMap = buildFifoCostMap(layers);
     const stockByProduct = {};
     stock.forEach(s => {
       if (!stockByProduct[s.product_id]) stockByProduct[s.product_id] = { on_hand: 0, committed: 0, locations: [] };
@@ -34,13 +41,14 @@ export default function InventoryReport() {
       const available = s.on_hand - s.committed;
       const reorder = p.min_before_reorder || 0;
       const status = reorder > 0 && available <= 0 ? 'out' : reorder > 0 && available < reorder ? 'low' : 'ok';
+      const unitCost = fifoUnitCost(fifoMap, p.id, p.cost_avg || 0);
       return {
         sku: p.sku, name: p.name, type: p.type, uom: p.stock_uom,
         on_hand: Math.round(s.on_hand * 100) / 100,
         committed: Math.round(s.committed * 100) / 100,
         available: Math.round(available * 100) / 100,
         reorder_point: reorder,
-        value: Math.round(s.on_hand * (p.cost_avg || 0) * 100) / 100,
+        value: Math.round(s.on_hand * unitCost * 100) / 100,
         status,
         locations: [...new Set(s.locations)].join(', '),
       };
@@ -52,7 +60,7 @@ export default function InventoryReport() {
       const order = { out: 0, low: 1, ok: 2 };
       return (order[a.status] ?? 2) - (order[b.status] ?? 2) || a.name.localeCompare(b.name);
     });
-  }, [products, stock, search]);
+  }, [products, stock, layers, search]);
 
   const totalValue = rows.reduce((s, r) => s + r.value, 0);
   const lowCount = rows.filter(r => r.status === 'low' || r.status === 'out').length;

@@ -6,8 +6,16 @@ import { downloadCSV } from '@/lib/csvExport';
 import { formatZAR } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Download, Printer } from 'lucide-react';
+import { buildFifoCostMap, fifoUnitCost } from '@/lib/fifoValuation';
 
 const NO_MOVEMENT_DAYS = 30;
+
+// "Dead" = no DEMAND in N days. Only outbound/consumption reasons prove demand —
+// receipts/yields/transfers prove supply, not movement off the shelf.
+const OUTBOUND_REASONS = new Set([
+  'sale_fulfillment', 'production_consume', 'production_pick',
+  'wastage_usable', 'wastage_unusable', 'write_off', 'supplier_return', 'packing_material',
+]);
 
 export default function DeadStockReport() {
   const { data: soh = [] } = useQuery({
@@ -18,19 +26,27 @@ export default function DeadStockReport() {
     queryKey: ['active-products'],
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
   });
+  // Only fetch outbound/demand movements so the window isn't filled with receipts/yields.
   const { data: movements = [] } = useQuery({
     queryKey: ['report-dead-movements'],
-    queryFn: () => base44.entities.StockMovement.list('-created_date', 5000),
+    queryFn: () => base44.entities.StockMovement.filter({ reason: [...OUTBOUND_REASONS] }, '-created_date', 10000),
+  });
+  // FIFO layers are the authoritative cost basis (cost_avg is a legacy fallback).
+  const { data: layers = [] } = useQuery({
+    queryKey: ['report-dead-layers'],
+    queryFn: () => base44.entities.CostLayer.filter({ is_depleted: false }, 'received_date', 20000),
   });
 
   const rows = useMemo(() => {
     const today = new Date();
     const productMap = Object.fromEntries(products.map(p => [p.id, p]));
+    const fifoMap = buildFifoCostMap(layers);
 
-    // Last movement date per product
+    // Last OUTBOUND (demand) movement date per product.
     const lastMovement = {};
     for (const m of movements) {
-      const d = m.created_date || m.movement_date;
+      if (!OUTBOUND_REASONS.has(m.reason)) continue;
+      const d = m.created_date;
       if (!d) continue;
       if (!lastMovement[m.product_id] || d > lastMovement[m.product_id]) {
         lastMovement[m.product_id] = d;
@@ -45,7 +61,7 @@ export default function DeadStockReport() {
     }
 
     return Object.entries(byProduct)
-      .filter(([pid, qty]) => qty > 0)
+      .filter(([, qty]) => qty > 0)
       .map(([pid, qty]) => {
         const p = productMap[pid];
         const lastDate = lastMovement[pid];
@@ -54,18 +70,18 @@ export default function DeadStockReport() {
           product_id: pid,
           name: p?.name || pid,
           sku: p?.sku || '',
-          type: p?.product_type || '',
+          type: p?.type || '',
           qty,
           uom: p?.stock_uom || 'pcs',
-          cost_avg: p?.cost_avg || 0,
-          value: qty * (p?.cost_avg || 0),
+          cost_avg: fifoUnitCost(fifoMap, pid, p?.cost_avg || 0),
+          value: qty * fifoUnitCost(fifoMap, pid, p?.cost_avg || 0),
           daysIdle,
           lastMovement: lastDate ? lastDate.slice(0, 10) : 'Never',
         };
       })
       .filter(r => r.daysIdle >= NO_MOVEMENT_DAYS)
       .sort((a, b) => b.daysIdle - a.daysIdle);
-  }, [soh, products, movements]);
+  }, [soh, products, movements, layers]);
 
   const totalValue = rows.reduce((s, r) => s + r.value, 0);
 

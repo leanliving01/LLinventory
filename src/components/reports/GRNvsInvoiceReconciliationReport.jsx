@@ -7,7 +7,10 @@ import { downloadCSV } from '@/lib/csvExport';
 import { formatZAR } from '@/lib/utils';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 
-const VARIANCE_THRESHOLD = 5;
+// Flag a PO when GRN vs invoice differ by more than this fraction (with a small
+// absolute floor so tiny rounding diffs on large POs aren't flagged).
+const VARIANCE_PCT = 0.02;       // 2%
+const VARIANCE_ABS_FLOOR = 5;    // R5
 
 export default function GRNvsInvoiceReconciliationReport() {
   const now = new Date();
@@ -32,11 +35,17 @@ export default function GRNvsInvoiceReconciliationReport() {
     return inRange.map(po => {
       const poGrns = grns.filter(g => g.purchase_order_id === po.id);
       const poInvs = invoices.filter(i => i.purchase_order_id === po.id && !i.is_credit_note);
+      // Compare like-for-like: GRN total_received_value is VAT-EXCLUSIVE, so use the
+      // invoice's ex-VAT subtotal (NOT total, which includes VAT) or every PO flags.
       const grnTotal = poGrns.reduce((s, g) => s + (g.total_received_value || 0), 0);
-      const invTotal = poInvs.reduce((s, i) => s + (i.total || 0), 0);
+      const invTotal = poInvs.reduce((s, i) => s + (i.subtotal || 0), 0);
       const variance = Math.abs(grnTotal - invTotal);
-      return { ...po, grnTotal, invTotal, variance, flagged: variance > VARIANCE_THRESHOLD };
-    });
+      const tolerance = Math.max(VARIANCE_ABS_FLOOR, Math.max(grnTotal, invTotal) * VARIANCE_PCT);
+      const hasActivity = poGrns.length > 0 || poInvs.length > 0;
+      return { ...po, grnTotal, invTotal, variance, hasActivity, flagged: hasActivity && variance > tolerance };
+    })
+    // Only show POs that actually have a GRN or invoice — empty/draft POs are not actionable here.
+    .filter(r => r.hasActivity);
   }, [pos, grns, invoices, from, to]);
 
   const flaggedCount = rows.filter(r => r.flagged).length;
@@ -52,7 +61,7 @@ export default function GRNvsInvoiceReconciliationReport() {
       {flaggedCount > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-sm text-red-700 flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          {flaggedCount} PO{flaggedCount !== 1 ? 's' : ''} with variance &gt; R{VARIANCE_THRESHOLD}
+          {flaggedCount} PO{flaggedCount !== 1 ? 's' : ''} with GRN-vs-invoice variance &gt; {(VARIANCE_PCT * 100).toFixed(0)}% (ex-VAT)
         </div>
       )}
       <div className="bg-card rounded-xl border border-border overflow-hidden">
@@ -84,7 +93,7 @@ export default function GRNvsInvoiceReconciliationReport() {
             ))}
           </tbody>
         </table>
-        {rows.length === 0 && <p className="px-4 py-6 text-sm text-muted-foreground text-center">No POs in this period</p>}
+        {rows.length === 0 && <p className="px-4 py-6 text-sm text-muted-foreground text-center">No POs with GRN or invoice activity in this period</p>}
       </div>
     </div>
   );

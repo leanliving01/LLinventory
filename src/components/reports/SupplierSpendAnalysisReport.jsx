@@ -12,32 +12,43 @@ export default function SupplierSpendAnalysisReport() {
   const [to, setTo] = useState(now);
 
   const { data: grns = [] } = useQuery({
-    queryKey: ['report-grns'],
-    queryFn: () => base44.entities.GoodsReceivedNote.filter({ status: 'confirmed' }, '-received_date', 2000),
+    queryKey: ['report-grns', startOfDay(from).toISOString(), to.toISOString()],
+    queryFn: () => base44.entities.GoodsReceivedNote.filter(
+      { status: 'confirmed', received_date: { $gte: startOfDay(from).toISOString(), $lte: to.toISOString() } },
+      '-received_date', 5000
+    ),
   });
 
+  const inRange = useMemo(() =>
+    grns.filter(g => g.received_date && isWithinInterval(new Date(g.received_date), { start: startOfDay(from), end: to })),
+    [grns, from, to]
+  );
+
+  // Scope GRN lines to the in-range GRNs so spend isn't understated by a global newest-N cap.
+  const grnIdList = useMemo(() => inRange.map(g => g.id), [inRange]);
   const { data: grnLines = [] } = useQuery({
-    queryKey: ['report-grn-lines'],
-    queryFn: () => base44.entities.GRNLine.list('-created_date', 5000),
+    queryKey: ['report-grn-lines', grnIdList],
+    queryFn: () => grnIdList.length
+      ? base44.entities.GRNLine.filter({ grn_id: grnIdList }, '-created_date', 20000)
+      : Promise.resolve([]),
+    enabled: grnIdList.length > 0,
   });
 
   const rows = useMemo(() => {
-    const inRange = grns.filter(g => g.received_date && isWithinInterval(new Date(g.received_date), { start: startOfDay(from), end: to }));
-    const grnIds = new Set(inRange.map(g => g.id));
     const bySupplier = {};
     for (const g of inRange) {
-      if (!bySupplier[g.supplier_id]) bySupplier[g.supplier_id] = { supplier_name: g.supplier_name, total: 0, grn_count: 0 };
+      if (!bySupplier[g.supplier_id]) bySupplier[g.supplier_id] = { supplier_id: g.supplier_id, supplier_name: g.supplier_name, total: 0, grn_count: 0 };
       bySupplier[g.supplier_id].grn_count++;
     }
+    const grnById = Object.fromEntries(inRange.map(g => [g.id, g]));
     for (const line of grnLines) {
-      if (!grnIds.has(line.grn_id)) continue;
-      const grn = inRange.find(g => g.id === line.grn_id);
+      const grn = grnById[line.grn_id];
       if (!grn) continue;
-      if (!bySupplier[grn.supplier_id]) bySupplier[grn.supplier_id] = { supplier_name: grn.supplier_name, total: 0, grn_count: 0 };
+      if (!bySupplier[grn.supplier_id]) bySupplier[grn.supplier_id] = { supplier_id: grn.supplier_id, supplier_name: grn.supplier_name, total: 0, grn_count: 0 };
       bySupplier[grn.supplier_id].total += line.line_total || 0;
     }
     return Object.values(bySupplier).sort((a, b) => b.total - a.total);
-  }, [grns, grnLines, from, to]);
+  }, [inRange, grnLines]);
 
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
 
@@ -51,7 +62,7 @@ export default function SupplierSpendAnalysisReport() {
           <span>Supplier</span><span className="text-right">Spend</span>
         </div>
         {rows.map(r => (
-          <div key={r.supplier_name} className="px-4 py-2.5 flex justify-between items-center border-b border-border last:border-0 text-sm">
+          <div key={r.supplier_id || r.supplier_name} className="px-4 py-2.5 flex justify-between items-center border-b border-border last:border-0 text-sm">
             <div>
               <p className="font-medium">{r.supplier_name}</p>
               <p className="text-xs text-muted-foreground">{r.grn_count} receipt{r.grn_count !== 1 ? 's' : ''}</p>

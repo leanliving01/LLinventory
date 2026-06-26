@@ -4,7 +4,6 @@ import { base44 } from '@/api/base44Client';
 import { subDays, isWithinInterval, startOfDay } from 'date-fns';
 import ReportDateFilter from './ReportDateFilter';
 import { downloadCSV } from '@/lib/csvExport';
-import { formatZAR } from '@/lib/utils';
 
 export default function YieldEfficiencyReport() {
   const now = new Date();
@@ -15,17 +14,22 @@ export default function YieldEfficiencyReport() {
     queryKey: ['report-production-runs'],
     queryFn: () => base44.entities.ProductionRun.list('-run_date', 500),
   });
+  // Yield = planned vs actual finished-meal output per run. The authoritative source is
+  // production_run_lines (run_id FK, planned_qty, actual_qty) — NOT portioning_run_lines,
+  // which key off portioning_run_id (not production runs) and have no planned_qty column.
   const { data: runLines = [] } = useQuery({
-    queryKey: ['report-portioning-lines'],
-    queryFn: () => base44.entities.PortioningRunLine.list('-created_date', 5000),
+    queryKey: ['report-production-run-lines'],
+    queryFn: () => base44.entities.ProductionRunLine.list('-created_date', 5000),
   });
 
   const rows = useMemo(() => {
-    const inRange = runs.filter(r => r.run_date && isWithinInterval(new Date(r.run_date), { start: startOfDay(from), end: to }));
+    // Only completed runs have meaningful actual_qty — in-progress/draft runs would
+    // report artificially low yield.
+    const inRange = runs.filter(r => r.run_date && r.status === 'completed' && isWithinInterval(new Date(r.run_date), { start: startOfDay(from), end: to }));
     return inRange.map(run => {
-      const lines = runLines.filter(l => l.production_run_id === run.id || l.run_id === run.id);
+      const lines = runLines.filter(l => l.run_id === run.id);
       const plannedTotal = lines.reduce((s, l) => s + (l.planned_qty || 0), 0);
-      const actualTotal = lines.reduce((s, l) => s + (l.actual_qty || l.meals_portioned || 0), 0);
+      const actualTotal = lines.reduce((s, l) => s + (l.actual_qty || 0), 0);
       const variance = actualTotal - plannedTotal;
       const pct = plannedTotal > 0 ? (actualTotal / plannedTotal * 100).toFixed(1) : '—';
       return { run, plannedTotal, actualTotal, variance, pct };

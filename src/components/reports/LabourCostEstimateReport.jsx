@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { subDays, isWithinInterval, startOfDay } from 'date-fns';
@@ -6,6 +6,7 @@ import ReportDateFilter from './ReportDateFilter';
 import { downloadCSV } from '@/lib/csvExport';
 import { formatZAR } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
+import { getTaskActiveDuration } from '@/lib/taskDuration';
 
 const DEFAULT_LABOUR_RATE = 180; // R/hour
 
@@ -19,22 +20,57 @@ export default function LabourCostEstimateReport() {
     queryKey: ['report-production-runs'],
     queryFn: () => base44.entities.ProductionRun.list('-run_date', 500),
   });
+  // Labour hours aren't stored on production_runs — derive them from actual task
+  // active-durations (started_at→finished_at minus paused intervals from the logs).
+  const { data: tasks = [] } = useQuery({
+    queryKey: ['report-labour-tasks'],
+    queryFn: () => base44.entities.ProductionTask.list('-created_date', 5000),
+  });
+  const { data: taskLogs = [] } = useQuery({
+    queryKey: ['report-labour-task-logs'],
+    queryFn: () => base44.entities.ProductionTaskLog.list('-timestamp', 10000),
+  });
   const { data: settings = [] } = useQuery({
     queryKey: ['settings-labour'],
     queryFn: () => base44.entities.Setting.filter({ group: 'production', key: 'labour_rate_per_hour' }),
-    onSuccess: (data) => { if (data[0]?.value) setLabourRate(Number(data[0].value)); },
   });
 
+  // TanStack Query v5 removed useQuery onSuccess — sync the configured rate via effect.
+  useEffect(() => {
+    const v = settings[0]?.value;
+    if (v != null && v !== '' && !Number.isNaN(Number(v))) setLabourRate(Number(v));
+  }, [settings]);
+
   const rows = useMemo(() => {
+    // Group task active-duration (ms) by run_id.
+    const logsByTask = {};
+    for (const lg of taskLogs) {
+      (logsByTask[lg.task_id] ||= []).push(lg);
+    }
+    // assigned_members is a JSON-encoded array; a task worked by N people costs N× the
+    // wall-clock active duration in labour (person-hours). Fall back to 1.
+    const memberCount = (t) => {
+      try {
+        const arr = t.assigned_members ? JSON.parse(t.assigned_members) : null;
+        if (Array.isArray(arr) && arr.length > 0) return arr.length;
+      } catch { /* not JSON — fall through */ }
+      return 1;
+    };
+    const hoursByRun = {};
+    for (const t of tasks) {
+      const ms = getTaskActiveDuration(t, logsByTask[t.id] || []) * memberCount(t);
+      if (ms > 0) hoursByRun[t.run_id] = (hoursByRun[t.run_id] || 0) + ms;
+    }
+
     const inRange = runs.filter(r => r.run_date && isWithinInterval(new Date(r.run_date), { start: startOfDay(from), end: to }) && r.status === 'completed');
     return inRange.map(run => {
-      const totalMeals = run.total_meals_portioned || run.total_portioned || 0;
-      const labourHours = run.labour_hours || run.total_labour_hours || 0;
+      const totalMeals = run.total_units || 0;
+      const labourHours = (hoursByRun[run.id] || 0) / 3_600_000; // ms → hours
       const labourCost = labourHours * labourRate;
       const costPerMeal = totalMeals > 0 ? labourCost / totalMeals : 0;
       return { run, totalMeals, labourHours, labourCost, costPerMeal };
     });
-  }, [runs, from, to, labourRate]);
+  }, [runs, tasks, taskLogs, from, to, labourRate]);
 
   const totals = useMemo(() => ({
     meals: rows.reduce((s, r) => s + r.totalMeals, 0),
@@ -91,7 +127,7 @@ export default function LabourCostEstimateReport() {
             ))}
           </tbody>
         </table>
-        {rows.length === 0 && <p className="px-4 py-6 text-sm text-muted-foreground text-center">No completed runs with labour data in this period. Ensure runs have labour_hours recorded.</p>}
+        {rows.length === 0 && <p className="px-4 py-6 text-sm text-muted-foreground text-center">No completed production runs in this period. Labour hours are derived from recorded task start/finish times.</p>}
       </div>
     </div>
   );

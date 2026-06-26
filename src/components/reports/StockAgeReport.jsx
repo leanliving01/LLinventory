@@ -7,14 +7,23 @@ import { formatZAR } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Download, Printer, AlertTriangle } from 'lucide-react';
 
-// Age thresholds by product type (days before flagging)
+// Age thresholds by product type (days before flagging).
+// Keyed by the real products.type enum (lowercase snake_case).
 const AGE_THRESHOLDS = {
-  'Finished Meal': 14,
-  'default': 60,
+  finished_meal: 14,
+  wip_bulk: 14,
+  sauce: 21,
+  default: 60,
+};
+
+const TYPE_LABELS = {
+  raw: 'Raw', packaging: 'Packaging', wip_bulk: 'WIP Bulk', finished_meal: 'Finished Meal',
+  supplement: 'Supplement', package: 'Package', sauce: 'Sauce', solo_serve: 'Solo Serve',
+  bundle: 'Bundle', service: 'Service',
 };
 
 function getThreshold(type) {
-  return AGE_THRESHOLDS[type] || AGE_THRESHOLDS.default;
+  return AGE_THRESHOLDS[type] ?? AGE_THRESHOLDS.default;
 }
 
 export default function StockAgeReport() {
@@ -35,12 +44,12 @@ export default function StockAgeReport() {
       .map(l => {
         const p = productMap[l.product_id];
         const age = differenceInCalendarDays(today, new Date(l.received_date));
-        const threshold = getThreshold(p?.product_type);
+        const threshold = getThreshold(p?.type);
         return {
           product_id: l.product_id,
           name: p?.name || l.product_id,
           sku: p?.sku || '',
-          type: p?.product_type || '',
+          type: p?.type ? (TYPE_LABELS[p.type] || p.type.replace(/_/g, ' ')) : '',
           qty: l.qty_remaining,
           uom: p?.stock_uom || 'pcs',
           cost: l.cost_per_stock_uom || 0,

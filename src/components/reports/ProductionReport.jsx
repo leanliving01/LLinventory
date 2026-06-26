@@ -43,7 +43,7 @@ export default function ProductionReport() {
   const handleExport = () => {
     downloadCSV('production_report.csv', filtered.map(r => ({
       run_number: r.run_number, date: r.run_date, status: r.status,
-      meals: r.total_lines, units: r.total_units,
+      meal_lines: r.total_lines, units: r.total_units,
       started: r.started_at || '', completed: r.completed_at || '',
     })));
   };
@@ -55,7 +55,7 @@ export default function ProductionReport() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <SumCard label="Runs" value={totals.count} />
         <SumCard label="Completed" value={totals.completed} />
-        <SumCard label="Total Meals" value={totals.lines} />
+        <SumCard label="Meal Lines" value={totals.lines} />
         <SumCard label="Total Units" value={totals.units.toLocaleString()} accent />
       </div>
 
@@ -69,7 +69,7 @@ export default function ProductionReport() {
                 <p className="text-sm font-medium">{run.run_number || '—'}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {run.run_date ? format(new Date(run.run_date), 'dd MMM yyyy') : '—'}
-                  {' · '}{run.total_units || 0} units · {run.total_lines || 0} meals
+                  {' · '}{run.total_units || 0} units · {run.total_lines || 0} meal lines
                 </p>
               </Link>
               <div className="flex items-center gap-2">

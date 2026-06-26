@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { formatDurationShort } from '@/lib/taskDuration';
+import { formatDurationFromSeconds } from '@/lib/taskDuration';
 import DateRangeFilter from '@/components/reports/DateRangeFilter';
 import DispatchTrendChart from './DispatchTrendChart';
 import { perfColor } from './PackerPerformanceTable';
@@ -14,7 +14,7 @@ export default function PackerDetailView({ row, events = [], benchmarkTUh, dateR
     { label: 'Line Items', value: row.items.toLocaleString() },
     { label: 'Meals', value: row.meals.toLocaleString() },
     { label: 'Supplements', value: row.supplements.toLocaleString() },
-    { label: 'Avg / Order', value: formatDurationShort(row.avgSecPerOrder) },
+    { label: 'Avg / Order', value: formatDurationFromSeconds(row.avgSecPerOrder) },
     { label: 'Items / Active Hr', value: row.itemsPerHour },
     { label: 'Sec / Item', value: row.secPerItem },
   ];
@@ -85,7 +85,7 @@ export default function PackerDetailView({ row, events = [], benchmarkTUh, dateR
                   <td className="px-4 py-3 text-center">{Number(e.packed_items) || 0}</td>
                   <td className="px-4 py-3 text-center">{Number(e.packed_meals) || 0}</td>
                   <td className="px-4 py-3 text-center">{Number(e.packed_supplements) || 0}</td>
-                  <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationShort(Number(e.active_seconds) || 0)}</td>
+                  <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationFromSeconds(e.active_seconds)}</td>
                   <td className="px-4 py-3 text-center">{e.proof_url ? <a href={e.proof_url} target="_blank" rel="noreferrer" className="text-primary underline">view</a> : <span className="text-muted-foreground">—</span>}</td>
                 </tr>
               ))}

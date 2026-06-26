@@ -5,6 +5,15 @@ import { downloadCSV } from '@/lib/csvExport';
 import { formatZAR } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Download, Printer } from 'lucide-react';
+import { buildFifoCostMap, fifoUnitCost } from '@/lib/fifoValuation';
+
+// products.type is a lowercase snake_case enum — map to readable labels for display.
+const TYPE_LABELS = {
+  raw: 'Raw', packaging: 'Packaging', wip_bulk: 'WIP Bulk', finished_meal: 'Finished Meal',
+  supplement: 'Supplement', package: 'Package', sauce: 'Sauce', solo_serve: 'Solo Serve',
+  bundle: 'Bundle', service: 'Service',
+};
+const typeLabel = (t) => TYPE_LABELS[t] || (t ? t.replace(/_/g, ' ') : 'Other');
 
 export default function StockValuationReport() {
   const { data: soh = [] } = useQuery({
@@ -15,9 +24,15 @@ export default function StockValuationReport() {
     queryKey: ['active-products'],
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
   });
+  // FIFO layers are the authoritative cost basis (cost_avg is a legacy fallback).
+  const { data: layers = [] } = useQuery({
+    queryKey: ['report-valuation-layers'],
+    queryFn: () => base44.entities.CostLayer.filter({ is_depleted: false }, 'received_date', 20000),
+  });
 
   const rows = useMemo(() => {
     const productMap = Object.fromEntries(products.map(p => [p.id, p]));
+    const fifoMap = buildFifoCostMap(layers);
     const byProduct = {};
     for (const s of soh) {
       if (!byProduct[s.product_id]) byProduct[s.product_id] = { qty: 0, product: productMap[s.product_id] };
@@ -25,17 +40,20 @@ export default function StockValuationReport() {
     }
     return Object.values(byProduct)
       .filter(r => r.qty > 0 && r.product)
-      .map(r => ({
-        name: r.product.name,
-        sku: r.product.sku,
-        type: r.product.product_type || 'Other',
-        qty: r.qty,
-        uom: r.product.stock_uom || 'pcs',
-        cost_avg: r.product.cost_avg || 0,
-        value: r.qty * (r.product.cost_avg || 0),
-      }))
+      .map(r => {
+        const unitCost = fifoUnitCost(fifoMap, r.product.id, r.product.cost_avg || 0);
+        return {
+          name: r.product.name,
+          sku: r.product.sku,
+          type: typeLabel(r.product.type),
+          qty: r.qty,
+          uom: r.product.stock_uom || 'pcs',
+          cost_avg: unitCost,
+          value: r.qty * unitCost,
+        };
+      })
       .sort((a, b) => b.value - a.value);
-  }, [soh, products]);
+  }, [soh, products, layers]);
 
   const byType = useMemo(() => {
     const groups = {};
@@ -79,7 +97,7 @@ export default function StockValuationReport() {
               <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
               <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-20">Type</th>
               <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-24">Qty</th>
-              <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-24">Cost Avg</th>
+              <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-24">Unit Cost (FIFO)</th>
               <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-28">Value</th>
             </tr>
           </thead>

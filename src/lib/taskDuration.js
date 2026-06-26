@@ -38,6 +38,13 @@ export function formatDurationShort(ms) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+// Dispatch/packing metrics are stored in SECONDS (packing_event_logs.active_seconds),
+// whereas production task durations are milliseconds. Use this for any value that is
+// already in seconds so it isn't divided by 60000 as if it were ms.
+export function formatDurationFromSeconds(sec) {
+  return formatDurationShort((Number(sec) || 0) * 1000);
+}
+
 export function formatDurationLong(ms) {
   if (!ms || ms <= 0) return '—';
   const totalSec = Math.floor(ms / 1000);

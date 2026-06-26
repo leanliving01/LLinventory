@@ -12,8 +12,11 @@ export default function WastageReport() {
   const [to, setTo] = useState(now);
 
   const { data: logs = [] } = useQuery({
-    queryKey: ['report-wastage-logs'],
-    queryFn: () => base44.entities.WastageLog.list('-wastage_date', 200),
+    queryKey: ['report-wastage-logs', format(startOfDay(from), 'yyyy-MM-dd'), format(to, 'yyyy-MM-dd')],
+    queryFn: () => base44.entities.WastageLog.filter(
+      { wastage_date: { $gte: format(startOfDay(from), 'yyyy-MM-dd'), $lte: format(to, 'yyyy-MM-dd') } },
+      '-wastage_date', 2000
+    ),
   });
 
   const { data: lines = [] } = useQuery({

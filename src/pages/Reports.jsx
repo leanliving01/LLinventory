@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ShoppingCart, DollarSign, Package, Factory, Trash2, Calculator, ScrollText, ClipboardCheck, TrendingUp, BarChart2, Layers } from 'lucide-react';
+import { ShoppingCart, DollarSign, Package, Factory, Trash2, Calculator, ScrollText, ClipboardCheck } from 'lucide-react';
 import HelpDrawer from '@/components/help/HelpDrawer';
 
 import PurchaseReport from '@/components/reports/PurchaseReport';
 import SalesReport from '@/components/reports/SalesReport';
+import ReturnsReport from '@/components/reports/ReturnsReport';
+import ResendsReport from '@/components/reports/ResendsReport';
 import InventoryReport from '@/components/reports/InventoryReport';
 import ProductionReport from '@/components/reports/ProductionReport';
 import WastageReport from '@/components/reports/WastageReport';
+import ProductionWastageReport from '@/components/reports/ProductionWastageReport';
+import StockWriteOffReport from '@/components/reports/StockWriteOffReport';
 import FoodCostReport from '@/components/reports/FoodCostReport';
 import AuditTrailReport from '@/components/reports/AuditTrailReport';
 import QualityCheckReport from '@/components/reports/QualityCheckReport';
@@ -57,6 +61,18 @@ const PRODUCTION_SUBTABS = [
   { id: 'labour', label: 'Labour Cost' },
 ];
 
+const SALES_SUBTABS = [
+  { id: 'summary', label: 'Sales' },
+  { id: 'returns', label: 'Returns & Refunds' },
+  { id: 'resends', label: 'Re-sends' },
+];
+
+const WASTAGE_SUBTABS = [
+  { id: 'summary', label: 'Wastage Logs' },
+  { id: 'production', label: 'Production Wastage' },
+  { id: 'writeoffs', label: 'Stock Write-Offs' },
+];
+
 function SubTabs({ tabs, active, onChange }) {
   return (
     <div className="flex gap-1 border-b border-border mb-4 overflow-x-auto">
@@ -72,8 +88,10 @@ function SubTabs({ tabs, active, onChange }) {
 
 export default function Reports() {
   const [purchasingTab, setPurchasingTab] = useState('summary');
+  const [salesTab, setSalesTab] = useState('summary');
   const [inventoryTab, setInventoryTab] = useState('summary');
   const [productionTab, setProductionTab] = useState('summary');
+  const [wastageTab, setWastageTab] = useState('summary');
 
   return (
     <div className="space-y-5">
@@ -107,7 +125,12 @@ export default function Reports() {
           {purchasingTab === 'reconciliation' && <GRNvsInvoiceReconciliationReport />}
         </TabsContent>
 
-        <TabsContent value="sales"><SalesReport /></TabsContent>
+        <TabsContent value="sales">
+          <SubTabs tabs={SALES_SUBTABS} active={salesTab} onChange={setSalesTab} />
+          {salesTab === 'summary' && <SalesReport />}
+          {salesTab === 'returns' && <ReturnsReport />}
+          {salesTab === 'resends' && <ResendsReport />}
+        </TabsContent>
 
         <TabsContent value="inventory">
           <SubTabs tabs={INVENTORY_SUBTABS} active={inventoryTab} onChange={setInventoryTab} />
@@ -126,7 +149,12 @@ export default function Reports() {
         </TabsContent>
 
         <TabsContent value="qc"><QualityCheckReport /></TabsContent>
-        <TabsContent value="wastage"><WastageReport /></TabsContent>
+        <TabsContent value="wastage">
+          <SubTabs tabs={WASTAGE_SUBTABS} active={wastageTab} onChange={setWastageTab} />
+          {wastageTab === 'summary' && <WastageReport />}
+          {wastageTab === 'production' && <ProductionWastageReport />}
+          {wastageTab === 'writeoffs' && <StockWriteOffReport />}
+        </TabsContent>
         <TabsContent value="food-cost"><FoodCostReport /></TabsContent>
         <TabsContent value="audit"><AuditTrailReport /></TabsContent>
       </Tabs>

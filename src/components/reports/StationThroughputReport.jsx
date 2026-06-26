@@ -17,15 +17,16 @@ export default function StationThroughputReport() {
 
   const rows = useMemo(() => {
     const inRange = tasks.filter(t =>
-      t.status === 'completed' &&
-      t.started_at && t.completed_at &&
-      isWithinInterval(new Date(t.created_date || t.started_at), { start: startOfDay(from), end: to })
+      t.status === 'done' &&
+      t.started_at && t.finished_at &&
+      // Bucket by completion date so a task counts in the period it was actually finished.
+      isWithinInterval(new Date(t.finished_at), { start: startOfDay(from), end: to })
     );
     const byStation = {};
     for (const t of inRange) {
       const station = t.station || 'Unknown';
       if (!byStation[station]) byStation[station] = { count: 0, totalMinutes: 0 };
-      const mins = differenceInMinutes(new Date(t.completed_at), new Date(t.started_at));
+      const mins = differenceInMinutes(new Date(t.finished_at), new Date(t.started_at));
       if (mins > 0) {
         byStation[station].count++;
         byStation[station].totalMinutes += mins;

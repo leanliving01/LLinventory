@@ -1,6 +1,6 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { formatDurationShort } from '@/lib/taskDuration';
+import { formatDurationFromSeconds } from '@/lib/taskDuration';
 
 export function perfColor(p) {
   if (p == null) return 'text-muted-foreground';
@@ -48,7 +48,7 @@ export default function PackerPerformanceTable({ rows = [], onSelect }) {
                     )}
                   </td>
                   <td className="px-4 py-3 text-center">{r.supplements.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationShort(r.avgSecPerOrder)}</td>
+                  <td className="px-4 py-3 text-center font-mono text-xs">{formatDurationFromSeconds(r.avgSecPerOrder)}</td>
                   <td className="px-4 py-3 text-center font-mono text-xs">{r.itemsPerHour}</td>
                   <td className="px-4 py-3 text-center">
                     {r.insufficient ? (

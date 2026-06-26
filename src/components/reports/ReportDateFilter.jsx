@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Calendar, Printer, Download } from 'lucide-react';
-import { format, subDays, startOfMonth } from 'date-fns';
+import { format, subDays, startOfMonth, startOfDay, endOfDay, isValid } from 'date-fns';
 
 const PRESETS = [
   { label: '7d', key: '7d' },
@@ -42,9 +42,16 @@ export default function ReportDateFilter({ from, to, onChange, onExportCSV, onPr
       </div>
       {showCustom && (
         <div className="flex items-center gap-1.5">
-          <Input type="date" value={format(from, 'yyyy-MM-dd')} onChange={e => onChange(new Date(e.target.value), to)} className="h-8 w-36 text-xs" />
+          <Input type="date" value={format(from, 'yyyy-MM-dd')} onChange={e => {
+            const d = new Date(e.target.value);
+            if (isValid(d)) onChange(startOfDay(d), to);
+          }} className="h-8 w-36 text-xs" />
           <span className="text-xs text-muted-foreground">to</span>
-          <Input type="date" value={format(to, 'yyyy-MM-dd')} onChange={e => onChange(from, new Date(e.target.value))} className="h-8 w-36 text-xs" />
+          {/* Normalize the end date to end-of-day so the final day's data isn't truncated to 00:00. */}
+          <Input type="date" value={format(to, 'yyyy-MM-dd')} onChange={e => {
+            const d = new Date(e.target.value);
+            if (isValid(d)) onChange(from, endOfDay(d));
+          }} className="h-8 w-36 text-xs" />
         </div>
       )}
       <span className="text-[10px] text-muted-foreground">

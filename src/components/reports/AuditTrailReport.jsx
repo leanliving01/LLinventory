@@ -27,9 +27,14 @@ export default function AuditTrailReport() {
   const [actionFilter, setActionFilter] = useState('all');
   const [search, setSearch] = useState('');
 
+  // Push the date range into the query so the trail isn't limited to the newest 500
+  // rows globally — otherwise older entries inside the selected range are unreachable.
   const { data: auditLogs = [] } = useQuery({
-    queryKey: ['report-audit'],
-    queryFn: () => base44.entities.AuditLog.list('-created_date', 500),
+    queryKey: ['report-audit', startOfDay(from).toISOString(), to.toISOString()],
+    queryFn: () => base44.entities.AuditLog.filter(
+      { created_date: { $gte: startOfDay(from).toISOString(), $lte: to.toISOString() } },
+      '-created_date', 5000
+    ),
   });
 
   const filtered = useMemo(() =>

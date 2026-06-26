@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Users, Package, ScanLine, Utensils, Pill, Clock } from 'lucide-react';
-import { formatDurationShort } from '@/lib/taskDuration';
+import { formatDurationFromSeconds } from '@/lib/taskDuration';
 
 export default function DispatchStatCards({ events = [], members = [], kpi }) {
   const stats = useMemo(() => {
@@ -13,7 +13,7 @@ export default function DispatchStatCards({ events = [], members = [], kpi }) {
       { label: 'Line Items Packed', value: sum('packed_items').toLocaleString(), icon: ScanLine, color: 'text-purple-600 bg-purple-50' },
       { label: 'Meals Packed', value: sum('packed_meals').toLocaleString(), icon: Utensils, color: 'text-green-600 bg-green-50' },
       { label: 'Supplements Packed', value: sum('packed_supplements').toLocaleString(), icon: Pill, color: 'text-amber-600 bg-amber-50' },
-      { label: 'Avg Time / Order', value: ordersCount > 0 ? formatDurationShort(totalSec / ordersCount) : '—', icon: Clock, color: 'text-rose-600 bg-rose-50' },
+      { label: 'Avg Time / Order', value: ordersCount > 0 ? formatDurationFromSeconds(totalSec / ordersCount) : '—', icon: Clock, color: 'text-rose-600 bg-rose-50' },
     ];
   }, [events, members, kpi]);
 

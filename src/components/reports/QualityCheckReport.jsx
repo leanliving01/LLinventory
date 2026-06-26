@@ -91,12 +91,15 @@ export default function QualityCheckReport() {
 
   // Totals
   const totals = useMemo(() => {
-    return grouped.reduce((acc, g) => ({
+    const t = grouped.reduce((acc, g) => ({
       approved: acc.approved + g.approved.length,
       declined: acc.declined + g.declined.length,
       woKg: acc.woKg + g.totalWoKg,
       woValue: acc.woValue + g.totalWoValue,
     }), { approved: 0, declined: 0, woKg: 0, woValue: 0 });
+    const checked = t.approved + t.declined;
+    t.passRate = checked > 0 ? (t.approved / checked) * 100 : null;
+    return t;
   }, [grouped]);
 
   const isLoading = loadingSessions || loadingChecks;
@@ -120,9 +123,15 @@ export default function QualityCheckReport() {
       </div>
 
       {/* Summary KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <div className="bg-card border border-border rounded-xl px-4 py-3">
-          <p className="text-[10px] text-muted-foreground uppercase font-semibold">QC Sessions</p>
+          <p className="text-[10px] text-muted-foreground uppercase font-semibold">Pass Rate</p>
+          <p className={`text-2xl font-bold ${totals.passRate == null ? 'text-muted-foreground' : totals.passRate >= 95 ? 'text-green-600' : 'text-amber-600'}`}>
+            {totals.passRate == null ? '—' : `${totals.passRate.toFixed(1)}%`}
+          </p>
+        </div>
+        <div className="bg-card border border-border rounded-xl px-4 py-3">
+          <p className="text-[10px] text-muted-foreground uppercase font-semibold">QC Days</p>
           <p className="text-2xl font-bold">{grouped.length}</p>
         </div>
         <div className="bg-card border border-border rounded-xl px-4 py-3">
