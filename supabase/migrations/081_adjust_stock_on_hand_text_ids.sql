@@ -2,18 +2,23 @@
 -- 081_adjust_stock_on_hand_text_ids
 -- FIX: manual "Adjust Stock" failed for legacy products with non-UUID ids.
 --
--- adjust_stock_on_hand() declared its id params as `uuid`, but every id column
--- in this system is `text` (products.id, stock_on_hand.product_id /
--- location_id are all text — many legacy Base44 rows use 24-char hex ObjectIds
--- like "69ea6f6c6f57e3ad408e301c" that are NOT valid UUIDs). Calling the RPC
--- for such a product raised:
---   invalid input syntax for type uuid: "69ea6f6c6f57e3ad408e301c"
--- UUID-format products happened to work; legacy ones never could.
+-- Two problems in adjust_stock_on_hand():
+--   1. Its id params were declared `uuid`, but every id column here is `text`
+--      (products.id, stock_on_hand.product_id / location_id). Legacy Base44
+--      rows use 24-char hex ObjectIds like "69ea6f6c6f57e3ad408e301c" that are
+--      NOT valid UUIDs, so the RPC raised:
+--        invalid input syntax for type uuid: "69ea6f6c6f57e3ad408e301c"
+--   2. It referenced a `cost_avg` column that does not exist on stock_on_hand
+--      (stock_on_hand carries no cost column — cost lives on products /
+--      cost_layers), raising:
+--        column "cost_avg" does not exist
 --
--- This re-creates the function with `text` id params. The body is otherwise
--- unchanged (same weighted-average cost_avg logic, same RETURNS stock_on_hand),
--- so GRN / picks / transfers / stock-take / write-offs / returns keep behaving
--- exactly as before — they just no longer depend on ids being UUIDs.
+-- This recreates the function with `text` id params and no cost_avg reference.
+-- The p_new_cost_avg argument is kept (callers such as GRN/Receiving still pass
+-- it) but ignored, since stock_on_hand stores no cost. qty + availability are
+-- updated exactly as the deduct_fulfilled_stock path does (033). All other
+-- callers (GRN / picks / transfers / stock-take / write-offs / returns) keep
+-- working — they only ever used the returned qty fields.
 --
 -- ⚠️  Run in the Supabase SQL Editor before/with the deploy.
 -- ============================================================================
@@ -25,7 +30,7 @@ CREATE OR REPLACE FUNCTION adjust_stock_on_hand(
   p_product_id  text,
   p_location_id text,
   p_delta       numeric,
-  p_new_cost_avg numeric DEFAULT NULL
+  p_new_cost_avg numeric DEFAULT NULL  -- accepted for caller compatibility; ignored (no cost column on stock_on_hand)
 )
 RETURNS stock_on_hand
 LANGUAGE plpgsql
@@ -37,12 +42,6 @@ BEGIN
   SET
     qty_on_hand   = GREATEST(0, qty_on_hand + p_delta),
     qty_available = GREATEST(0, (qty_on_hand + p_delta) - COALESCE(qty_committed, 0)),
-    cost_avg      = CASE
-                      WHEN p_new_cost_avg IS NOT NULL AND p_delta > 0 AND (qty_on_hand + p_delta) > 0
-                        THEN (qty_on_hand * COALESCE(cost_avg, 0) + p_delta * p_new_cost_avg)
-                             / (qty_on_hand + p_delta)
-                      ELSE cost_avg
-                    END,
     updated_date  = now()
   WHERE product_id = p_product_id
     AND location_id = p_location_id
@@ -52,11 +51,11 @@ BEGIN
     INSERT INTO stock_on_hand (
       id, product_id, location_id,
       qty_on_hand, qty_committed, qty_available,
-      cost_avg, created_date, updated_date
+      created_date, updated_date
     ) VALUES (
       gen_random_uuid()::text, p_product_id, p_location_id,
       GREATEST(0, p_delta), 0, GREATEST(0, p_delta),
-      p_new_cost_avg, now(), now()
+      now(), now()
     )
     RETURNING * INTO v_row;
   END IF;
