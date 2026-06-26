@@ -57,7 +57,7 @@ export default function ParPackageSummaryCard({ pkg, stats, selected, onClick })
             {fullLabel}
           </span>
         </div>
-        <p className="text-[10px] text-muted-foreground mt-0.5 pl-4">{totalMeals} meals</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5 pl-4">{totalMeals} {pkg.category === 'finished_meal' ? 'meals' : 'items'}</p>
       </div>
 
       {/* Donut ring — share of par-set meals currently at or above par */}

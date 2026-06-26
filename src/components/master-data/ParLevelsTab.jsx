@@ -3,52 +3,53 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, X, AlertTriangle, Save, Check, Loader2, AlertCircle } from 'lucide-react';
+import { Search, X, AlertTriangle, Save, Check, Loader2, AlertCircle, CheckSquare, ListChecks } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { groupMealsByPackage } from '@/lib/productionGrouping';
+import { groupProductsForPar, categoriesFromGroups } from '@/lib/parGrouping';
 import { useSubcategories } from '@/lib/useSubcategories';
 import { useAutoSave } from '@/lib/useAutoSave';
 import ParPackageSummaryCard from './ParPackageSummaryCard';
 import ParPackageDetailTable, { effectivePar } from './ParPackageDetailTable';
 
 /**
- * Current Par Levels — the par-setting twin of Production Planning.
- *
- * Built on the SAME data-driven model as src/pages/ProductionPlanning.jsx:
- * finished_meal products grouped by their resolved Subcategory via
- * groupMealsByPackage(). That means Winter Warmer Range (and every future
- * meal/package) shows up automatically — no hard-coded package list. Edits are
- * written straight to products.par_level (the single source of truth Production
- * reads) and auto-saved as you type.
+ * Current Par Levels — set the minimum stock threshold for EVERY product, not
+ * just finished meals. Products group by Category (Finished Meal, Supplement,
+ * Raw Material, Packaging, …) → Subcategory/package, mirroring the catalog's
+ * classification (resolveSubcategory). Edits write straight to products.par_level
+ * (the single source of truth Production Planning reads) and auto-save as you
+ * type. Rows can be multi-selected to set a par level across many products at
+ * once — pick a category, "select all", type a value, Apply.
  */
 export default function ParLevelsTab() {
   const queryClient = useQueryClient();
   const { rows: subcatRows } = useSubcategories();
 
   const [search, setSearch] = useState('');
-  const [selectedPackage, setSelectedPackage] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState(null); // product.type or null = all
+  const [selectedPackage, setSelectedPackage] = useState(null);   // group code or null
   const [belowParOnly, setBelowParOnly] = useState(false);
   const [parEdits, setParEdits] = useState({}); // productId → string (in-progress edit)
+  const [selectedIds, setSelectedIds] = useState(() => new Set()); // bulk selection
+  const [bulkValue, setBulkValue] = useState('');
 
-  // ── Data (shares cache keys with Production Planning so edits stay in sync) ──
-  const { data: finishedMeals = [], isLoading } = useQuery({
-    queryKey: ['finished-meals'],
-    queryFn: () => base44.entities.Product.filter({ type: 'finished_meal', status: 'active' }, '-sku', 500),
+  // ── Data (all active products — every category gets a par row) ──────────────
+  const { data: products = [], isLoading } = useQuery({
+    queryKey: ['par-products'],
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, '-sku', 3000),
     refetchOnWindowFocus: true,
   });
 
   const { data: stockRecords = [] } = useQuery({
     queryKey: ['stock-on-hand'],
-    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 1000),
+    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 5000),
     refetchOnWindowFocus: true,
   });
 
-  // Live updates — reflect new/changed products, stock and subcategories without a
-  // manual refresh (mirrors ProductionPlanning). refetchOnWindowFocus is the fallback.
+  // Live updates — reflect new/changed products, stock and subcategories.
   useEffect(() => {
     const invalidate = (key) => () => queryClient.invalidateQueries({ queryKey: [key] });
     const unsubs = [
-      base44.entities.Product.subscribe(invalidate('finished-meals')),
+      base44.entities.Product.subscribe(invalidate('par-products')),
       base44.entities.StockOnHand.subscribe(invalidate('stock-on-hand')),
       base44.entities.ProductSubcategory.subscribe(invalidate('product-subcategories')),
     ];
@@ -69,22 +70,26 @@ export default function ParLevelsTab() {
 
   const productById = useMemo(() => {
     const m = {};
-    finishedMeals.forEach(p => { m[p.id] = p; });
+    products.forEach(p => { m[p.id] = p; });
     return m;
-  }, [finishedMeals]);
+  }, [products]);
 
-  // ── Package grouping (data-driven by Subcategory — incl. Winter Warmer) ──────
-  const packages = useMemo(
-    () => groupMealsByPackage(finishedMeals, subcatRows),
-    [finishedMeals, subcatRows]
+  // ── Grouping (Category → Subcategory, data-driven) ──────────────────────────
+  const groups = useMemo(
+    () => groupProductsForPar(products, subcatRows),
+    [products, subcatRows]
   );
+  const categories = useMemo(() => categoriesFromGroups(groups), [groups]);
 
-  // Per-package stats for the summary cards
-  const packageStats = useMemo(() => {
+  // Reset the subcategory drill-down whenever the category filter changes.
+  useEffect(() => { setSelectedPackage(null); }, [selectedCategory]);
+
+  // Per-group stats for the summary cards (over the full group, unfiltered).
+  const groupStats = useMemo(() => {
     const stats = {};
-    packages.forEach(pkg => {
+    groups.forEach(g => {
       let parSet = 0, belowPar = 0, atPar = 0, parSum = 0;
-      pkg.meals.forEach(({ product }) => {
+      g.meals.forEach(({ product }) => {
         const soh = stockMap[product.id]?.qty_on_hand || 0;
         const com = stockMap[product.id]?.qty_committed || 0;
         const available = soh - com;
@@ -95,8 +100,8 @@ export default function ParLevelsTab() {
           if (available < par) belowPar++; else atPar++;
         }
       });
-      stats[pkg.code] = {
-        totalMeals: pkg.meals.length,
+      stats[g.code] = {
+        totalMeals: g.meals.length,
         parSet,
         belowPar,
         onParPct: parSet > 0 ? (atPar / parSet) * 100 : 100,
@@ -104,31 +109,65 @@ export default function ParLevelsTab() {
       };
     });
     return stats;
-  }, [packages, stockMap, parEdits]);
+  }, [groups, stockMap, parEdits]);
 
-  // Global totals for the summary strip
-  const { belowParCount, parSetCount, mealCount } = useMemo(() => {
-    let below = 0, set = 0, meals = 0;
-    packages.forEach(pkg => {
-      pkg.meals.forEach(({ product }) => {
-        meals++;
-        const soh = stockMap[product.id]?.qty_on_hand || 0;
-        const com = stockMap[product.id]?.qty_committed || 0;
-        const available = soh - com;
-        const par = effectivePar(product, parEdits);
-        if (par > 0) {
-          set++;
-          if (available < par) below++;
-        }
-      });
-    });
-    return { belowParCount: below, parSetCount: set, mealCount: meals };
-  }, [packages, stockMap, parEdits]);
+  // Global totals for the summary strip.
+  const { belowParCount, parSetCount, productCount } = useMemo(() => {
+    let below = 0, set = 0, count = 0;
+    groups.forEach(g => g.meals.forEach(({ product }) => {
+      count++;
+      const soh = stockMap[product.id]?.qty_on_hand || 0;
+      const com = stockMap[product.id]?.qty_committed || 0;
+      const available = soh - com;
+      const par = effectivePar(product, parEdits);
+      if (par > 0) { set++; if (available < par) below++; }
+    }));
+    return { belowParCount: below, parSetCount: set, productCount: count };
+  }, [groups, stockMap, parEdits]);
+
+  // ── Filtering → the groups actually shown ───────────────────────────────────
+  const displayGroups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return groups
+      .filter(g => !selectedCategory || g.category === selectedCategory)
+      .filter(g => !selectedPackage || g.code === selectedPackage)
+      .map(g => {
+        const groupMatch = q && (
+          g.fullLabel.toLowerCase().includes(q) || g.categoryLabel.toLowerCase().includes(q)
+        );
+        const meals = g.meals.filter(({ baseName, product }) => {
+          if (q && !groupMatch
+            && !baseName.toLowerCase().includes(q)
+            && !(product.name || '').toLowerCase().includes(q)
+            && !(product.sku || '').toLowerCase().includes(q)) return false;
+          if (belowParOnly) {
+            const soh = stockMap[product.id]?.qty_on_hand || 0;
+            const com = stockMap[product.id]?.qty_committed || 0;
+            const par = effectivePar(product, parEdits);
+            if (par === 0 || (soh - com) >= par) return false;
+          }
+          return true;
+        });
+        return { ...g, meals };
+      })
+      .filter(g => g.meals.length > 0);
+  }, [groups, selectedCategory, selectedPackage, search, belowParOnly, stockMap, parEdits]);
+
+  const visibleIds = useMemo(
+    () => displayGroups.flatMap(g => g.meals.map(m => m.product.id)),
+    [displayGroups]
+  );
+
+  // Cards for the selected category's subcategories (hidden in the "All" view).
+  const categoryGroups = useMemo(
+    () => (selectedCategory ? groups.filter(g => g.category === selectedCategory) : []),
+    [groups, selectedCategory]
+  );
 
   // ── Auto-save ────────────────────────────────────────────────────────────────
-  // Debounced background save: writes only the par values that differ from what's
-  // stored, straight to products.par_level. Blank edits ('') are skipped (treated
-  // as "unchanged"), so clearing a box never wipes a par to zero — type 0 for that.
+  // Debounced background save: writes only par values that differ from what's
+  // stored, straight to products.par_level. Blank edits ('') are skipped, so
+  // clearing a box never wipes a par to zero — type 0 for that.
   const autoSave = useAutoSave(async () => {
     const dirty = Object.entries(parEdits).filter(([id, v]) => {
       if (v === '' || v === undefined) return false;
@@ -140,7 +179,7 @@ export default function ParLevelsTab() {
     for (const [id, v] of dirty) {
       await base44.entities.Product.update(id, { par_level: Number(v) });
     }
-    queryClient.invalidateQueries({ queryKey: ['finished-meals'] });
+    queryClient.invalidateQueries({ queryKey: ['par-products'] });
   });
 
   const handleParChange = (productId, value) => {
@@ -154,9 +193,51 @@ export default function ParLevelsTab() {
     autoSave.trigger();
   }, [parEdits]);
 
+  // ── Selection ────────────────────────────────────────────────────────────────
+  const toggleOne = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const toggleMany = (ids, checked) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      ids.forEach(id => { checked ? next.add(id) : next.delete(id); });
+      return next;
+    });
+  };
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+  const selectAllVisible = () => toggleMany(visibleIds, !allVisibleSelected);
+  const clearSelection = () => setSelectedIds(new Set());
+
+  // Apply the bulk value to every selected product (feeds the same auto-save).
+  const applyBulk = () => {
+    const n = Number(bulkValue);
+    if (bulkValue === '' || Number.isNaN(n) || n < 0) return;
+    setParEdits(prev => {
+      const next = { ...prev };
+      selectedIds.forEach(id => { next[id] = String(n); });
+      return next;
+    });
+    setBulkValue('');
+  };
+
+  // Drop selections that scroll out of view when filters change (keeps the
+  // "N selected" count honest about what Apply will touch).
+  useEffect(() => {
+    setSelectedIds(prev => {
+      if (prev.size === 0) return prev;
+      const visible = new Set(visibleIds);
+      const next = new Set([...prev].filter(id => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleIds]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   if (isLoading) {
-    return <div className="text-center py-12 text-sm text-muted-foreground">Loading meals…</div>;
+    return <div className="text-center py-12 text-sm text-muted-foreground">Loading products…</div>;
   }
 
   return (
@@ -170,17 +251,17 @@ export default function ParLevelsTab() {
         <div className="w-px h-8 bg-border" />
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Par Set</p>
-          <p className="text-lg font-bold text-foreground">{parSetCount}<span className="text-sm text-muted-foreground font-medium">/{mealCount}</span></p>
+          <p className="text-lg font-bold text-foreground">{parSetCount}<span className="text-sm text-muted-foreground font-medium">/{productCount}</span></p>
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Meals</p>
-          <p className="text-lg font-bold text-foreground">{mealCount}</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Products</p>
+          <p className="text-lg font-bold text-foreground">{productCount}</p>
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Packages</p>
-          <p className="text-lg font-bold text-foreground">{packages.length}</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Categories</p>
+          <p className="text-lg font-bold text-foreground">{categories.length}</p>
         </div>
 
         <div className="ml-auto">
@@ -188,12 +269,29 @@ export default function ParLevelsTab() {
         </div>
       </div>
 
+      {/* Category nav chips */}
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+        <CategoryChip
+          label="All Products"
+          active={selectedCategory === null}
+          onClick={() => setSelectedCategory(null)}
+        />
+        {categories.map(c => (
+          <CategoryChip
+            key={c.category}
+            label={c.label}
+            active={selectedCategory === c.category}
+            onClick={() => setSelectedCategory(prev => prev === c.category ? null : c.category)}
+          />
+        ))}
+      </div>
+
       {/* Search + filters */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search meals, packages..."
+            placeholder="Search products, SKUs, categories…"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="pl-9"
@@ -213,57 +311,99 @@ export default function ParLevelsTab() {
           <AlertTriangle className="w-3.5 h-3.5" />
           Below Par Only
         </Button>
-      </div>
-
-      {/* Package summary cards */}
-      <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
-        {/* "All Packages" chip */}
-        <button
-          onClick={() => setSelectedPackage(null)}
-          className={cn(
-            'flex flex-col justify-center items-center gap-1 px-5 py-3 rounded-xl border text-sm font-semibold shrink-0 transition-all',
-            selectedPackage === null
-              ? 'border-primary border-2 bg-primary/5 text-primary shadow-md'
-              : 'border-border bg-card text-muted-foreground hover:border-primary/40'
-          )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={selectAllVisible}
+          disabled={visibleIds.length === 0}
+          className="gap-1.5 h-9"
         >
-          <span>All Packages</span>
-          <span className="text-[10px] font-normal text-muted-foreground">{packages.length} types</span>
-        </button>
-
-        {packages.map(pkg => (
-          <ParPackageSummaryCard
-            key={pkg.code}
-            pkg={pkg}
-            stats={packageStats[pkg.code] || { totalMeals: 0, parSet: 0, belowPar: 0, onParPct: 100, avgPar: 0 }}
-            selected={selectedPackage === pkg.code}
-            onClick={() => setSelectedPackage(prev => prev === pkg.code ? null : pkg.code)}
-          />
-        ))}
+          <ListChecks className="w-3.5 h-3.5" />
+          {allVisibleSelected ? 'Clear selection' : `Select all in view (${visibleIds.length})`}
+        </Button>
       </div>
 
-      {/* Package detail sections */}
+      {/* Subcategory summary cards (only when a category is selected) */}
+      {categoryGroups.length > 0 && (
+        <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
+          {categoryGroups.map(g => (
+            <ParPackageSummaryCard
+              key={g.code}
+              pkg={g}
+              stats={groupStats[g.code] || { totalMeals: 0, parSet: 0, belowPar: 0, onParPct: 100, avgPar: 0 }}
+              selected={selectedPackage === g.code}
+              onClick={() => setSelectedPackage(prev => prev === g.code ? null : g.code)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Bulk-edit action bar */}
+      {selectedIds.size > 0 && (
+        <div className="sticky top-2 z-20 flex items-center gap-3 bg-primary/10 border border-primary/30 rounded-xl px-4 py-2.5 backdrop-blur-sm flex-wrap shadow-sm">
+          <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            <CheckSquare className="w-4 h-4 text-primary" />
+            {selectedIds.size} selected
+          </span>
+          <div className="w-px h-6 bg-primary/20" />
+          <label className="text-xs text-muted-foreground font-medium">Set par level to</label>
+          <Input
+            type="number"
+            min="0"
+            placeholder="e.g. 75"
+            value={bulkValue}
+            onChange={e => setBulkValue(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') applyBulk(); }}
+            className="w-28 h-8"
+          />
+          <Button size="sm" onClick={applyBulk} disabled={bulkValue === ''} className="h-8 gap-1.5">
+            <Check className="w-3.5 h-3.5" /> Apply to {selectedIds.size}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={clearSelection} className="h-8 gap-1 ml-auto">
+            <X className="w-3.5 h-3.5" /> Clear
+          </Button>
+        </div>
+      )}
+
+      {/* Detail sections */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-foreground">Package Details</h2>
-          <p className="text-xs text-muted-foreground">Set the par level for each meal — saves automatically</p>
+          <h2 className="text-sm font-semibold text-foreground">Par Levels</h2>
+          <p className="text-xs text-muted-foreground">Set the par level per product — saves automatically. Tick rows to set many at once.</p>
         </div>
         <ParPackageDetailTable
-          packages={packages}
-          selectedPackage={selectedPackage}
+          packages={displayGroups}
           stockMap={stockMap}
           parEdits={parEdits}
           onParChange={handleParChange}
-          search={search}
-          belowParOnly={belowParOnly}
+          selectedIds={selectedIds}
+          onToggleOne={toggleOne}
+          onToggleMany={toggleMany}
+          expandAll={!!search || belowParOnly || !!selectedPackage || displayGroups.length <= 3}
         />
       </div>
     </div>
   );
 }
 
-// Small inline indicator for the debounced auto-save state
-// (mirrors WebCountEntrySheet's helper so the two screens feel the same).
+// Category nav chip
+function CategoryChip({ label, active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'px-4 py-2 rounded-lg border text-xs font-semibold shrink-0 transition-all whitespace-nowrap',
+        active
+          ? 'border-primary border-2 bg-primary/5 text-primary shadow-sm'
+          : 'border-border bg-card text-muted-foreground hover:border-primary/40'
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+// Small inline indicator for the debounced auto-save state.
 function AutoSaveStatus({ status }) {
   if (status === 'idle') return null;
   const map = {

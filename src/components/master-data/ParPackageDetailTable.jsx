@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { ChevronDown, ChevronRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -35,30 +35,43 @@ function StatusBar({ pct }) {
   );
 }
 
-function PackageSection({ pkg, stockMap, parEdits, onParChange, search, belowParOnly, defaultExpanded }) {
+// A native checkbox that supports the indeterminate (partial) state via ref.
+function TriCheckbox({ checked, indeterminate, onChange, className, ariaLabel }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = !checked && !!indeterminate;
+  }, [checked, indeterminate]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      aria-label={ariaLabel}
+      checked={checked}
+      onChange={e => onChange(e.target.checked)}
+      onClick={e => e.stopPropagation()}
+      className={cn('accent-primary w-4 h-4 shrink-0 cursor-pointer', className)}
+    />
+  );
+}
+
+function PackageSection({
+  pkg, stockMap, parEdits, onParChange,
+  selectedIds, onToggleOne, onToggleMany,
+  defaultExpanded,
+}) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? true);
-  const { fullLabel, label, color, meals } = pkg;
+  const { fullLabel, categoryLabel, category, color, meals } = pkg;
   const dotColor = color || '#6b7280';
+  const noun = category === 'finished_meal' ? 'meals' : 'items';
 
   useEffect(() => { setExpanded(defaultExpanded ?? true); }, [defaultExpanded]);
 
-  const packageMatch = search && (
-    fullLabel.toLowerCase().includes(search.toLowerCase()) ||
-    label.toLowerCase().includes(search.toLowerCase())
-  );
+  if (meals.length === 0) return null;
 
-  const filtered = meals.filter(({ baseName, product }) => {
-    if (search && !packageMatch && !baseName.toLowerCase().includes(search.toLowerCase())) return false;
-    if (belowParOnly) {
-      const soh = stockMap[product.id]?.qty_on_hand || 0;
-      const committed = stockMap[product.id]?.qty_committed || 0;
-      const par = effectivePar(product, parEdits);
-      if (par === 0 || (soh - committed) >= par) return false;
-    }
-    return true;
-  });
-
-  if (filtered.length === 0) return null;
+  const ids = meals.map(({ product }) => product.id);
+  const selectedCount = ids.filter(id => selectedIds.has(id)).length;
+  const allSelected = selectedCount === ids.length && ids.length > 0;
+  const someSelected = selectedCount > 0 && !allSelected;
 
   const sectionBelowPar = meals.filter(({ product }) => {
     const soh = stockMap[product.id]?.qty_on_hand || 0;
@@ -69,33 +82,52 @@ function PackageSection({ pkg, stockMap, parEdits, onParChange, search, belowPar
 
   return (
     <div className="border border-border rounded-xl overflow-hidden">
-      {/* Section header — acts as collapse toggle */}
-      <button
-        onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center gap-3 px-5 py-3 text-left border-b border-border"
+      {/* Section header — collapse toggle + select-all */}
+      <div
+        className="w-full flex items-center gap-3 px-5 py-3 border-b border-border"
         style={{ backgroundColor: hexToRgba(dotColor, 0.12) }}
       >
-        {expanded
-          ? <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
-          : <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />}
-        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
-        <span className="text-xs font-bold uppercase tracking-wide text-foreground">{fullLabel}</span>
-        <span className="text-xs text-muted-foreground">{meals.length} meals</span>
-        {sectionBelowPar > 0 && (
-          <span className="ml-2 flex items-center gap-1 text-[11px] text-red-500 font-medium">
-            <AlertTriangle className="w-3 h-3" />
-            {sectionBelowPar} below par
-          </span>
-        )}
-      </button>
+        <TriCheckbox
+          checked={allSelected}
+          indeterminate={someSelected}
+          onChange={(c) => onToggleMany(ids, c)}
+          ariaLabel={`Select all ${fullLabel}`}
+        />
+        <button onClick={() => setExpanded(e => !e)} className="flex items-center gap-3 text-left flex-1 min-w-0">
+          {expanded
+            ? <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
+            : <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />}
+          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
+          <span className="text-xs font-bold uppercase tracking-wide text-foreground truncate">{fullLabel}</span>
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider shrink-0 hidden sm:inline">{categoryLabel}</span>
+          <span className="text-xs text-muted-foreground shrink-0">{meals.length} {noun}</span>
+          {selectedCount > 0 && (
+            <span className="text-[11px] text-primary font-semibold shrink-0">{selectedCount} selected</span>
+          )}
+          {sectionBelowPar > 0 && (
+            <span className="ml-1 flex items-center gap-1 text-[11px] text-red-500 font-medium shrink-0">
+              <AlertTriangle className="w-3 h-3" />
+              {sectionBelowPar} below par
+            </span>
+          )}
+        </button>
+      </div>
 
       {expanded && (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-muted/30 border-b border-border">
-                <th className="text-left px-4 py-2 text-[10px] text-muted-foreground uppercase font-semibold tracking-wide sticky left-0 bg-muted/30 min-w-[220px]">
-                  Meal
+                <th className="w-10 px-3 py-2 sticky left-0 bg-muted/30">
+                  <TriCheckbox
+                    checked={allSelected}
+                    indeterminate={someSelected}
+                    onChange={(c) => onToggleMany(ids, c)}
+                    ariaLabel={`Select all ${fullLabel}`}
+                  />
+                </th>
+                <th className="text-left px-4 py-2 text-[10px] text-muted-foreground uppercase font-semibold tracking-wide sticky left-10 bg-muted/30 min-w-[220px]">
+                  Product
                 </th>
                 <th className="text-right px-3 py-2 text-[10px] text-muted-foreground uppercase font-semibold tracking-wide">SOH</th>
                 <th className="text-right px-3 py-2 text-[10px] text-muted-foreground uppercase font-semibold tracking-wide">Committed</th>
@@ -105,7 +137,7 @@ function PackageSection({ pkg, stockMap, parEdits, onParChange, search, belowPar
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.map(({ baseName, product }) => {
+              {meals.map(({ baseName, product }) => {
                 const soh = stockMap[product.id]?.qty_on_hand || 0;
                 const committed = stockMap[product.id]?.qty_committed || 0;
                 const available = soh - committed;
@@ -113,17 +145,28 @@ function PackageSection({ pkg, stockMap, parEdits, onParChange, search, belowPar
                 const isBelowPar = par > 0 && available < par;
                 const pct = par > 0 ? (available / par) * 100 : 100;
                 const inputValue = parEdits[product.id] ?? (product.par_level || '');
+                const isSelected = selectedIds.has(product.id);
 
                 return (
                   <tr
                     key={product.id}
                     className={cn(
                       'hover:bg-muted/20 transition-colors',
-                      isBelowPar && 'bg-red-50/40 dark:bg-red-950/10'
+                      isSelected && 'bg-primary/5',
+                      !isSelected && isBelowPar && 'bg-red-50/40 dark:bg-red-950/10'
                     )}
                   >
-                    {/* Meal name */}
-                    <td className="px-4 py-2.5 sticky left-0 bg-card">
+                    {/* Row select */}
+                    <td className="w-10 px-3 py-2.5 sticky left-0 bg-card">
+                      <TriCheckbox
+                        checked={isSelected}
+                        onChange={() => onToggleOne(product.id)}
+                        ariaLabel={`Select ${baseName}`}
+                      />
+                    </td>
+
+                    {/* Product name */}
+                    <td className="px-4 py-2.5 sticky left-10 bg-card">
                       <div className="flex items-center gap-2">
                         {par === 0
                           ? <span className="w-3.5 h-3.5 shrink-0" />
@@ -131,6 +174,9 @@ function PackageSection({ pkg, stockMap, parEdits, onParChange, search, belowPar
                             ? <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
                             : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
                         <span className="text-sm font-medium text-foreground">{baseName}</span>
+                        {product.sku && (
+                          <span className="text-[10px] font-mono text-muted-foreground shrink-0">{product.sku}</span>
+                        )}
                       </div>
                     </td>
 
@@ -181,65 +227,47 @@ function PackageSection({ pkg, stockMap, parEdits, onParChange, search, belowPar
 }
 
 /**
- * Renders all packages as collapsible sections, each with a meal-level par table.
- * Mirrors src/components/production/PackageDetailTable.jsx but the editable cell
- * is the persisted par level (products.par_level).
+ * Renders pre-filtered (category, subcategory) groups as collapsible sections,
+ * each with a per-product par table and multi-select checkboxes. Filtering is
+ * done by the parent (ParLevelsTab) so this stays a dumb renderer.
  *
  * Props:
- *   packages        – from groupMealsByPackage()
- *   selectedPackage – code string or null (null = all)
- *   stockMap        – { productId: { qty_on_hand, qty_committed } }
- *   parEdits        – { productId: string } in-progress edits
- *   onParChange     – (productId, value) => void
- *   search          – string
- *   belowParOnly    – boolean
+ *   packages     – filtered groups from groupProductsForPar()
+ *   stockMap     – { productId: { qty_on_hand, qty_committed } }
+ *   parEdits     – { productId: string } in-progress edits
+ *   onParChange  – (productId, value) => void
+ *   selectedIds  – Set<string>
+ *   onToggleOne  – (productId) => void
+ *   onToggleMany – (ids[], checked) => void
+ *   expandAll    – boolean (expand every section, e.g. when search/filter active)
  */
 export default function ParPackageDetailTable({
   packages,
-  selectedPackage,
   stockMap,
   parEdits,
   onParChange,
-  search,
-  belowParOnly,
+  selectedIds,
+  onToggleOne,
+  onToggleMany,
+  expandAll,
 }) {
-  const visible = selectedPackage
-    ? packages.filter(p => p.code === selectedPackage)
-    : packages;
-
-  const anyVisible = visible.some(pkg => {
-    const packageMatch = search && (
-      pkg.fullLabel.toLowerCase().includes(search.toLowerCase()) ||
-      pkg.label.toLowerCase().includes(search.toLowerCase())
-    );
-    return pkg.meals.some(({ baseName, product }) => {
-      if (search && !packageMatch && !baseName.toLowerCase().includes(search.toLowerCase())) return false;
-      if (belowParOnly) {
-        const soh = stockMap[product.id]?.qty_on_hand || 0;
-        const committed = stockMap[product.id]?.qty_committed || 0;
-        const par = effectivePar(product, parEdits);
-        if (par === 0 || (soh - committed) >= par) return false;
-      }
-      return true;
-    });
-  });
-
-  if (!anyVisible) return (
-    <div className="text-center py-12 text-sm text-muted-foreground">No meals match the current filters.</div>
+  if (!packages || packages.length === 0) return (
+    <div className="text-center py-12 text-sm text-muted-foreground">No products match the current filters.</div>
   );
 
   return (
     <div className="space-y-3">
-      {visible.map(pkg => (
+      {packages.map(pkg => (
         <PackageSection
           key={pkg.code}
           pkg={pkg}
           stockMap={stockMap}
           parEdits={parEdits}
           onParChange={onParChange}
-          search={search}
-          belowParOnly={belowParOnly}
-          defaultExpanded={!!selectedPackage || visible.length <= 2}
+          selectedIds={selectedIds}
+          onToggleOne={onToggleOne}
+          onToggleMany={onToggleMany}
+          defaultExpanded={expandAll || packages.length <= 3}
         />
       ))}
     </div>
