@@ -36,6 +36,15 @@ const CATEGORY_HEX = {
   service:       '#475569', // slate
 };
 
+// Categories that are NOT par-tracked inventory and so never appear on the Par
+// Levels screen:
+//   • wip_bulk (Bulk Cooked) — work-in-progress, used next day or wasted to QC;
+//     we don't hold it as stock.
+//   • package — we don't stock built packages; coverage is tracked through the
+//     individual finished meals that make them up.
+// Solo Serve, Sauce, Supplements, Raw, Packaging and Finished Meals stay.
+export const PAR_EXCLUDED_CATEGORIES = ['wip_bulk', 'package'];
+
 function slugify(name) {
   return (name || '')
     .toLowerCase()
@@ -62,6 +71,7 @@ export function groupProductsForPar(products = [], subcatRows = []) {
   for (const product of products) {
     if (product.status && product.status !== 'active') continue;
     const category = product.type || 'other';
+    if (PAR_EXCLUDED_CATEGORIES.includes(category)) continue;
     const subcat = resolveSubcategory(product) || 'Other';
     const code = `${slugify(category)}__${slugify(subcat)}`;
     if (!buckets[code]) {
