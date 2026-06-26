@@ -13,11 +13,13 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import UomSelect from '@/components/shared/UomSelect';
+import PurchasingUnitFields from '@/components/shared/PurchasingUnitFields';
 
 const EMPTY_ROW = {
-  purchase_uom_label: '',
-  purchase_uom: 'kg',
+  purchase_uom: '',
+  pack_size: '',
+  pack_size_uom: '',
+  pack_qty: '1',
   supplier_id: '',
   conversion_factor: '',
   yield_factor: '1',
@@ -35,20 +37,6 @@ function UomForm({ row, onChange, activeSuppliers, stockUom, onSave, onCancel, s
 
   return (
     <div className="border border-dashed border-primary/40 rounded-lg p-4 space-y-3 bg-primary/5">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label className="text-xs">Purchase Unit Label *</Label>
-          <Input
-            placeholder="e.g. 25kg Bag, Case of 6, 25L Drum"
-            value={row.purchase_uom_label}
-            onChange={e => onChange('purchase_uom_label', e.target.value)}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Purchase UoM *</Label>
-          <UomSelect value={row.purchase_uom || 'kg'} onValueChange={v => onChange('purchase_uom', v)} placeholder="Select UoM" />
-        </div>
-      </div>
       <div className="space-y-1">
         <Label className="text-xs">Supplier *</Label>
         <SearchableSelect
@@ -65,16 +53,11 @@ function UomForm({ row, onChange, activeSuppliers, stockUom, onSave, onCancel, s
           <p className="text-[10px] text-amber-600">No active suppliers yet — add a supplier first.</p>
         )}
       </div>
+
+      {/* Purchase UOM + pack size → auto conversion */}
+      <PurchasingUnitFields form={row} set={onChange} stockUom={stockUom} />
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label className="text-xs">Conversion Factor * (1 purchase unit = X {stockUom || 'stock units'})</Label>
-          <Input
-            type="number"
-            placeholder={`e.g. 25 (if 1 bag = 25 ${stockUom || 'units'})`}
-            value={row.conversion_factor}
-            onChange={e => onChange('conversion_factor', e.target.value)}
-          />
-        </div>
         <div className="space-y-1">
           <Label className="text-xs">Yield Factor (default 1.0)</Label>
           <Input
@@ -85,8 +68,6 @@ function UomForm({ row, onChange, activeSuppliers, stockUom, onSave, onCancel, s
             onChange={e => onChange('yield_factor', e.target.value)}
           />
         </div>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Nominal Cost (excl VAT) *</Label>
           <Input
@@ -179,12 +160,20 @@ export default function ProductPurchaseUomEditor({ productId, product, stockUom 
     const cf = parseFloat(row.conversion_factor) || 1;
     const yf = parseFloat(row.yield_factor) || 1;
     const nc = parseFloat(row.nominal_cost) || 0;
+    const ps = row.pack_size !== '' && row.pack_size != null ? parseFloat(row.pack_size) : null;
+    const pq = row.pack_qty !== '' && row.pack_qty != null ? parseFloat(row.pack_qty) : 1;
     return {
       product_id: productId,
       supplier_id: row.supplier_id || null,
-      purchase_uom_label: row.purchase_uom_label,
-      purchase_uom_name: row.purchase_uom_label,  // sync
       purchase_uom: row.purchase_uom,
+      // Mirror the clean Purchase UOM into the legacy label/name so PO/table
+      // displays that still read them show the clean name (no more free text).
+      purchase_uom_label: row.purchase_uom,
+      purchase_uom_name: row.purchase_uom,
+      pack_size: ps,
+      pack_size_uom: row.pack_size_uom || null,
+      pack_qty: pq,
+      conversion_uom: stockUom || null,
       conversion_factor: cf,
       yield_factor: yf,
       effective_internal_qty: cf * yf,
@@ -197,8 +186,8 @@ export default function ProductPurchaseUomEditor({ productId, product, stockUom 
   };
 
   const handleAdd = async () => {
-    if (!newRow.purchase_uom_label.trim() || !newRow.conversion_factor || !newRow.nominal_cost) {
-      toast.error('Label, conversion factor, and nominal cost are required');
+    if (!newRow.purchase_uom || !newRow.conversion_factor || !newRow.nominal_cost) {
+      toast.error('Purchase UOM, conversion, and nominal cost are required');
       return;
     }
     setSaving(true);
@@ -231,8 +220,10 @@ export default function ProductPurchaseUomEditor({ productId, product, stockUom 
   const startEdit = (sp) => {
     setEditingId(sp.id);
     setEditRow({
-      purchase_uom_label: sp.purchase_uom_label || sp.purchase_uom_name || '',
-      purchase_uom: sp.purchase_uom || 'kg',
+      purchase_uom: sp.purchase_uom || sp.purchase_uom_label || sp.purchase_uom_name || '',
+      pack_size: sp.pack_size != null ? String(sp.pack_size) : '',
+      pack_size_uom: sp.pack_size_uom || '',
+      pack_qty: sp.pack_qty != null ? String(sp.pack_qty) : '1',
       supplier_id: sp.supplier_id || '',
       conversion_factor: String(sp.conversion_factor || sp.purchase_to_stock_factor || ''),
       yield_factor: String(sp.yield_factor ?? 1),
@@ -245,8 +236,8 @@ export default function ProductPurchaseUomEditor({ productId, product, stockUom 
   };
 
   const handleSaveEdit = async () => {
-    if (!editRow.purchase_uom_label.trim() || !editRow.conversion_factor || !editRow.nominal_cost) {
-      toast.error('Label, conversion factor, and nominal cost are required');
+    if (!editRow.purchase_uom || !editRow.conversion_factor || !editRow.nominal_cost) {
+      toast.error('Purchase UOM, conversion, and nominal cost are required');
       return;
     }
     setSaving(true);
@@ -355,7 +346,14 @@ export default function ProductPurchaseUomEditor({ productId, product, stockUom 
                         >
                           <Star className="w-3.5 h-3.5" fill={sp.is_default_supplier ? 'currentColor' : 'none'} />
                         </button>
-                        {sp.purchase_uom_label || sp.purchase_uom_name}
+                        <span>
+                          {sp.purchase_uom || sp.purchase_uom_label || sp.purchase_uom_name}
+                          {sp.pack_size != null && sp.pack_size_uom && (
+                            <span className="text-muted-foreground font-normal text-xs ml-1">
+                              ({sp.pack_qty > 1 ? `${sp.pack_qty} × ` : ''}{sp.pack_size} {sp.pack_size_uom})
+                            </span>
+                          )}
+                        </span>
                       </div>
                     </td>
                     <td className="px-3 py-2.5 text-muted-foreground text-xs">{sp.supplier_name || '—'}</td>

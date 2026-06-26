@@ -34,32 +34,43 @@ const CLEAR_GAP = 0.07;
 const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const tok = (s: string) => (s || '').toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length > 2);
 
-// ── pack -> conversion (1 purchase unit = X stock units) ────────────────────
+// ── pack parsing → pack size/qty + conversion (1 purchase unit = X stock) ────
 const MASS: Record<string, number> = { kg: 1000, kgs: 1000, g: 1, gr: 1, gram: 1, grams: 1, kilo: 1000, kilogram: 1000 };
 const VOL: Record<string, number> = { l: 1000, lt: 1000, litre: 1000, liter: 1000, ml: 1 };
-function packToConversion(text: string, stockUom: string): number | null {
-  if (!text || !stockUom) return null;
+
+function normPackUnit(u: string): string {
+  const k = u.toLowerCase();
+  if (['kg', 'kgs', 'kilo', 'kilogram'].includes(k)) return 'kg';
+  if (['g', 'gr', 'gram', 'grams'].includes(k)) return 'g';
+  if (['l', 'lt', 'litre', 'liter'].includes(k)) return 'l';
+  return k; // ml
+}
+
+// Parse "10 × 2kg" / "case of 6 × 500g" / "25kg" / "per kg" into pack components.
+function parsePackParts(text: string): { packQty: number; packSize: number; packUnit: string } | null {
+  if (!text) return null;
   const t = String(text).toLowerCase();
-  let qty: number | null = null, unit: string | null = null;
-  // "10 × 2kg" / "case of 6 × 500g"
-  let m = t.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(kg|kgs|g|gr|gram|grams|ml|l|lt|litre|liter)\b/)
-       || t.match(/(?:case|bale|bag|box|carton|pack|crate)\s*of\s*(\d+)\D*?(\d+(?:\.\d+)?)\s*(kg|kgs|g|gr|gram|grams|ml|l|lt|litre|liter)\b/);
-  if (m) { qty = parseFloat(m[1]) * parseFloat(m[2]); unit = m[3]; }
-  // "25kg" / "800g" / "5L"
-  if (qty == null) { m = t.match(/(\d+(?:\.\d+)?)\s*(kg|kgs|g|gr|gram|grams|ml|l|lt|litre|liter)\b/); if (m) { qty = parseFloat(m[1]); unit = m[2]; } }
-  // "per kg" / "p/kg" / a lone unit token ("kg", "L") → priced per 1 of that unit.
-  if (qty == null) {
-    m = t.match(/\b(?:per|p)\s*[/.]?\s*(kg|kgs|kilo|kilogram|g|gram|grams|l|lt|litre|liter|ml)\b/)
-     || t.match(/(?:^|\s)(kg|kgs|kilo|kilogram|g|gram|grams|l|lt|litre|liter|ml)(?:\s|$)/);
-    if (m) { qty = 1; unit = m[1]; }
-  }
-  if (qty == null || !unit) return null;
-  // normalise kilo/kilogram aliases into the MASS table keys
-  if (unit === 'kilo' || unit === 'kilogram') unit = 'kg';
-  const su = stockUom.toLowerCase();
-  if (unit in MASS) { const g = qty * MASS[unit]; if (su === 'g') return g; if (su === 'kg') return g / 1000; }
-  if (unit in VOL) { const ml = qty * VOL[unit]; if (su === 'ml') return ml; if (su === 'l') return ml / 1000; }
+  const U = '(kg|kgs|g|gr|gram|grams|ml|l|lt|litre|liter)';
+  let m = t.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*[x×]\\s*(\\d+(?:\\.\\d+)?)\\s*${U}\\b`))
+       || t.match(new RegExp(`(?:case|bale|bag|box|carton|pack|crate)\\s*of\\s*(\\d+)\\D*?(\\d+(?:\\.\\d+)?)\\s*${U}\\b`));
+  if (m) return { packQty: parseFloat(m[1]), packSize: parseFloat(m[2]), packUnit: normPackUnit(m[3]) };
+  m = t.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*${U}\\b`));
+  if (m) return { packQty: 1, packSize: parseFloat(m[1]), packUnit: normPackUnit(m[2]) };
+  m = t.match(/\b(?:per|p)\s*[/.]?\s*(kg|kgs|kilo|kilogram|g|gram|grams|l|lt|litre|liter|ml)\b/)
+   || t.match(/(?:^|\s)(kg|kgs|kilo|kilogram|g|gram|grams|l|lt|litre|liter|ml)(?:\s|$)/);
+  if (m) return { packQty: 1, packSize: 1, packUnit: normPackUnit(m[1]) };
   return null;
+}
+
+// Conversion factor from parsed pack parts into the product's stock unit.
+function convFromParts(pk: { packQty: number; packSize: number; packUnit: string }, stockUom: string): number | null {
+  const su = (stockUom || '').toLowerCase();
+  const unit = pk.packUnit;
+  let per: number | null = null;
+  if (unit in MASS) { const g = pk.packSize * MASS[unit]; if (su === 'g') per = g; else if (su === 'kg') per = g / 1000; }
+  else if (unit in VOL) { const ml = pk.packSize * VOL[unit]; if (su === 'ml') per = ml; else if (su === 'l') per = ml / 1000; }
+  if (per == null) return null;
+  return Math.round(per * pk.packQty * 10000) / 10000;
 }
 
 // Read (and cache) the extracted line items for an invoice.
@@ -267,9 +278,19 @@ Return ONLY JSON: {"results":[{"line_id":string,"product_id":string|null,"confid
     const unit = ev?.unit || it.rep.unit || '';
     const unitPrice = ev?.unit_price != null ? ev.unit_price
       : (ev?.qty ? (ev.line_total / ev.qty) : (it.rep.unit_cost ?? null));
-    const conversion = d.stockUom ? packToConversion(`${unit} ${ev?.description || it.rep.xero_description || ''}`, d.stockUom) : null;
     const supplierSku = ev?.item_code || it.rep.xero_item_code || '';
     const supplierDesc = ev?.description || it.rep.xero_description || '';
+
+    // Derive pack (size + qty + unit) and a clean Purchase UOM name.
+    const pk = parsePackParts(`${unit} ${ev?.description || it.rep.xero_description || ''}`);
+    const conversion = pk && d.stockUom ? convFromParts(pk, d.stockUom) : null;
+    const packSize = pk ? pk.packSize : null;
+    const packSizeUom = pk ? pk.packUnit : null;
+    const packQty = pk ? pk.packQty : null;
+    // Multi-pack → "Case"; single measured pack → the measurement unit; else the invoice unit.
+    const purchaseUom = pk
+      ? (pk.packQty > 1 ? 'Case' : pk.packUnit)
+      : (unit ? String(unit).toLowerCase() : 'each');
 
     for (const lineId of it.lineIds) {
       proposalRows.push({
@@ -279,8 +300,9 @@ Return ONLY JSON: {"results":[{"line_id":string,"product_id":string|null,"confid
         proposed_product_id: d.productId, proposed_product_name: d.productName,
         proposed_product_sku: d.productSku, proposed_stock_uom: d.stockUom,
         confidence: d.confidence, match_method: d.method, reasoning: d.reasoning,
-        purchase_uom: unit ? String(unit).toLowerCase() : 'each',
-        purchase_uom_label: supplierDesc || unit || '',
+        purchase_uom: purchaseUom,
+        purchase_uom_label: purchaseUom,
+        pack_size: packSize, pack_size_uom: packSizeUom, pack_qty: packQty,
         conversion_factor: conversion, yield_factor: 1,
         nominal_cost: unitPrice != null ? unitPrice : null,
         status: 'pending', updated_date: now,

@@ -4,9 +4,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { X, Loader2, Search, Link2, ArrowLeft, Check, Truck, FileText, Sparkles, ExternalLink } from 'lucide-react';
 import { formatZAR, effectiveUnitCost } from '@/lib/utils';
-import UomSelect from '@/components/shared/UomSelect';
+import PurchasingUnitFields from '@/components/shared/PurchasingUnitFields';
 import SupplierEvidencePanel from '@/components/review-queue/SupplierEvidencePanel';
 import { analyzeInvoiceLine, EVIDENCE_REASONS } from '@/lib/invoiceEvidence';
+import { parsePack } from '@/lib/purchasingUnit';
 import { toast } from 'sonner';
 
 /**
@@ -39,10 +40,12 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
   const [evidence, setEvidence] = useState(null);
   const [evError, setEvError] = useState(null);
   const [form, setForm] = useState({
-    purchase_uom_label: proposal?.purchase_uom_label || suggestedSp?.purchase_uom_label || line.xero_description || '',
     // Default the purchase UoM to whatever the invoice used (if any) so it isn't
     // silently 'each'; fall back to the existing link, then 'each'.
     purchase_uom: proposal?.purchase_uom || suggestedSp?.purchase_uom || (line.unit ? String(line.unit).toLowerCase() : 'each'),
+    pack_size: proposal?.pack_size != null ? String(proposal.pack_size) : (suggestedSp?.pack_size != null ? String(suggestedSp.pack_size) : ''),
+    pack_size_uom: proposal?.pack_size_uom || suggestedSp?.pack_size_uom || '',
+    pack_qty: proposal?.pack_qty != null ? String(proposal.pack_qty) : (suggestedSp?.pack_qty != null ? String(suggestedSp.pack_qty) : '1'),
     conversion_factor: proposal?.conversion_factor != null ? String(proposal.conversion_factor)
       : suggestedSp?.conversion_factor != null ? String(suggestedSp.conversion_factor) : '',
     yield_factor: proposal?.yield_factor != null ? String(proposal.yield_factor)
@@ -87,15 +90,20 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
       }
       const ev = result.evidence;
       setEvidence(ev);
+      // Derive the pack (size + qty + unit) from the supplier's UoM/description.
+      const pk = parsePack(`${ev.uom || ''} ${ev.description || ''}`);
       // Only fill empty fields on auto-run; a manual "Re-analyze" overwrites.
+      const pick = (prev, next) => (silent ? (prev || next) : (next || prev));
       setForm(prev => ({
         ...prev,
-        supplier_sku: silent ? (prev.supplier_sku || ev.sku) : (ev.sku || prev.supplier_sku),
-        supplier_description: silent ? (prev.supplier_description || ev.description) : (ev.description || prev.supplier_description),
-        purchase_uom_label: silent ? (prev.purchase_uom_label || ev.uom || ev.description) : (ev.uom || ev.description || prev.purchase_uom_label),
+        supplier_sku: pick(prev.supplier_sku, ev.sku),
+        supplier_description: pick(prev.supplier_description, ev.description),
         purchase_uom: silent && prev.purchase_uom && prev.purchase_uom !== 'each'
           ? prev.purchase_uom
           : (ev.uom ? String(ev.uom).toLowerCase() : prev.purchase_uom),
+        pack_size: pk ? (silent ? (prev.pack_size || String(pk.packSize)) : String(pk.packSize)) : prev.pack_size,
+        pack_size_uom: pk ? (silent ? (prev.pack_size_uom || pk.packSizeUom) : pk.packSizeUom) : prev.pack_size_uom,
+        pack_qty: pk ? (silent ? (prev.pack_qty || String(pk.packQty)) : String(pk.packQty)) : prev.pack_qty,
         conversion_factor: ev.conversion != null && (!silent || !prev.conversion_factor) ? String(ev.conversion) : prev.conversion_factor,
         nominal_cost: ev.unitPrice != null && (!silent || !prev.nominal_cost) ? String(ev.unitPrice) : prev.nominal_cost,
       }));
@@ -119,7 +127,7 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
   }, [picked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async () => {
-    if (!form.purchase_uom_label.trim() || !form.conversion_factor || form.nominal_cost === '') {
+    if (!form.purchase_uom || !form.conversion_factor || form.nominal_cost === '') {
       // surface via the parent's toast pattern by throwing through onMatch guard
       return;
     }
@@ -131,7 +139,7 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
     }
   };
 
-  const formInvalid = !form.purchase_uom_label.trim() || !form.conversion_factor || form.nominal_cost === '';
+  const formInvalid = !form.purchase_uom || !form.conversion_factor || form.nominal_cost === '';
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
@@ -266,43 +274,8 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
                 </p>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Purchase Unit Label *</Label>
-                  <Input
-                    placeholder="e.g. 25kg Bag, Case of 6"
-                    value={form.purchase_uom_label}
-                    onChange={e => set('purchase_uom_label', e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Purchase UoM *</Label>
-                  <UomSelect value={form.purchase_uom} onValueChange={v => set('purchase_uom', v)} placeholder="Select unit" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Conversion Factor * (1 {form.purchase_uom} = X {stockUom})</Label>
-                  <Input
-                    type="number"
-                    step="any"
-                    placeholder={`e.g. 25 (1 ${form.purchase_uom} = 25 ${stockUom})`}
-                    value={form.conversion_factor}
-                    onChange={e => set('conversion_factor', e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Yield Factor (default 1.0)</Label>
-                  <Input
-                    type="number"
-                    step="0.001"
-                    placeholder="e.g. 0.95 for 5% waste"
-                    value={form.yield_factor}
-                    onChange={e => set('yield_factor', e.target.value)}
-                  />
-                </div>
-              </div>
+              {/* Purchase UOM + pack size → auto conversion */}
+              <PurchasingUnitFields form={form} set={set} stockUom={stockUom} />
 
               <div className="space-y-1">
                 <Label className="text-xs">Nominal Cost (excl VAT) *</Label>

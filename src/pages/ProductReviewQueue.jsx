@@ -345,6 +345,8 @@ export default function ProductReviewQueue() {
       const cf = parseFloat(form.conversion_factor) || 1;
       const yf = parseFloat(form.yield_factor) || 1;
       const nc = parseFloat(form.nominal_cost) || 0;
+      const ps = form.pack_size !== '' && form.pack_size != null ? parseFloat(form.pack_size) : null;
+      const pq = form.pack_qty !== '' && form.pack_qty != null ? parseFloat(form.pack_qty) : 1;
 
       // Upsert the supplier_products link (UNIQUE on product_id + supplier_id).
       const existing = await base44.entities.SupplierProduct.filter({ supplier_id: inv.supplier_id, product_id: product.id });
@@ -366,8 +368,13 @@ export default function ProductReviewQueue() {
         supplier_description: (form.supplier_description || '').trim(),
         xero_item_code: lineGroup.representativeLine.xero_item_code || null,
         purchase_uom: form.purchase_uom || 'each',
-        purchase_uom_label: (form.purchase_uom_label || '').trim(),
-        purchase_uom_name: (form.purchase_uom_label || '').trim(),
+        // Mirror the clean Purchase UOM into legacy label/name for PO/table displays.
+        purchase_uom_label: form.purchase_uom || 'each',
+        purchase_uom_name: form.purchase_uom || 'each',
+        pack_size: ps,
+        pack_size_uom: form.pack_size_uom || null,
+        pack_qty: pq,
+        conversion_uom: picked.stock_uom || null,
         conversion_factor: cf,
         yield_factor: yf,
         effective_internal_qty: Math.round(cf * yf * 1000) / 1000,
@@ -446,8 +453,10 @@ export default function ProductReviewQueue() {
         stock_uom: proposal.proposed_stock_uom,
       };
       const form = {
-        purchase_uom_label: proposal.purchase_uom_label || proposal.supplier_description || '',
         purchase_uom: proposal.purchase_uom || 'each',
+        pack_size: proposal.pack_size != null ? String(proposal.pack_size) : '',
+        pack_size_uom: proposal.pack_size_uom || '',
+        pack_qty: proposal.pack_qty != null ? String(proposal.pack_qty) : '1',
         conversion_factor: proposal.conversion_factor != null ? String(proposal.conversion_factor) : '1',
         yield_factor: proposal.yield_factor != null ? String(proposal.yield_factor) : '1',
         nominal_cost: proposal.nominal_cost != null ? String(proposal.nominal_cost) : '0',

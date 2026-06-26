@@ -7,7 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { X, Loader2, Plus, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import UomSelect from '@/components/shared/UomSelect';
+import PurchasingUnitFields from '@/components/shared/PurchasingUnitFields';
 import { effectiveUnitCost, formatZAR } from '@/lib/utils';
+import { parsePack } from '@/lib/purchasingUnit';
 
 const PRODUCT_TYPES = ['raw', 'packaging', 'supplement', 'service'];
 const ITEM_TYPES = ['stock', 'non_stock', 'expense', 'service'];
@@ -29,6 +31,13 @@ export default function CreateProductFromLineModal({ line, invoice, invoicePdfUr
     // SupplierProduct fields — default the purchase unit to whatever the invoice
     // used (kg/head/bunch/case…) so a per-head item isn't silently created as kg.
     purchase_uom: (line.unit || 'kg').toLowerCase(),
+    // Pack size parsed from the invoice description where possible.
+    ...(() => {
+      const pk = parsePack(`${line.unit || ''} ${line.xero_description || ''}`);
+      return pk
+        ? { pack_size: String(pk.packSize), pack_size_uom: pk.packSizeUom, pack_qty: String(pk.packQty) }
+        : { pack_size: '', pack_size_uom: '', pack_qty: '1' };
+    })(),
     conversion_factor: 1,
     yield_factor: 1,
     xero_item_code: line.xero_item_code || '',
@@ -68,7 +77,12 @@ export default function CreateProductFromLineModal({ line, invoice, invoicePdfUr
         supplier_sku: form.xero_item_code || '',   // the supplier's item code IS the supplier SKU
         supplier_description: line.xero_description || '',
         purchase_uom: form.purchase_uom,
+        purchase_uom_label: form.purchase_uom,
+        purchase_uom_name: form.purchase_uom,
         purchase_uom_qty: 1,
+        pack_size: form.pack_size !== '' && form.pack_size != null ? parseFloat(form.pack_size) : null,
+        pack_size_uom: form.pack_size_uom || null,
+        pack_qty: form.pack_qty !== '' && form.pack_qty != null ? parseFloat(form.pack_qty) : 1,
         conversion_uom: form.stock_uom,
         conversion_factor: cf,
         yield_factor: yf,
@@ -162,16 +176,8 @@ export default function CreateProductFromLineModal({ line, invoice, invoicePdfUr
                 (1 {form.purchase_uom || line.unit} = how many {form.stock_uom}).
               </p>
             )}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Purchase UoM</label>
-                <UomSelect value={form.purchase_uom} onValueChange={v => set('purchase_uom', v)} placeholder="Select unit" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Conversion Factor</label>
-                <Input type="number" step="0.01" value={form.conversion_factor} onChange={e => set('conversion_factor', e.target.value)} />
-              </div>
-            </div>
+            {/* Purchase UOM + pack size → auto conversion */}
+            <PurchasingUnitFields form={form} set={set} stockUom={form.stock_uom} />
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Yield Factor</label>
