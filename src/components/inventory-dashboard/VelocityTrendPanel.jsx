@@ -3,21 +3,21 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/api/supabaseClient';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { TrendingUp, TrendingDown, Minus, Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { typeInGroup } from '@/lib/inventoryCategories';
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts';
 
-async function fetchTrends(window) {
-  const { data, error } = await supabase.rpc('inventory_trends', { p_window: window });
+async function fetchTrends() {
+  const { data, error } = await supabase.rpc('inventory_trends');
   if (error) { console.error('[inventory_trends]', error.message); return []; }
   return data || [];
 }
 
 async function fetchWeekly(sku) {
-  const { data, error } = await supabase.rpc('product_sales_weekly', { p_sku: sku, p_weeks: 12 });
+  const { data, error } = await supabase.rpc('product_sales_weekly', { p_sku: sku, p_weeks: 13 });
   if (error) { console.error('[product_sales_weekly]', error.message); return []; }
   return data || [];
 }
@@ -37,32 +37,33 @@ function MomentumPill({ pct }) {
 
 /**
  * Sales velocity / trend intelligence.
- * Left: movers table (momentum + days-of-cover + "bump par" suggestion, one-click apply).
- * Right: 12-week unit chart for the selected mover.
+ * Left: movers table — this week vs 90-day baseline, days-of-cover, and a
+ *       "bump par" suggestion (one-click apply, writes products.par_level).
+ * Right: 13-week unit area chart for the selected mover, with the 90-day
+ *        average as a reference line so the trend reads at a glance.
  */
-export default function VelocityTrendPanel({ typeFilter = 'all' }) {
+export default function VelocityTrendPanel({ types = null }) {
   const queryClient = useQueryClient();
   const [selectedSku, setSelectedSku] = useState(null);
   const [applyingId, setApplyingId] = useState(null);
 
   const { data: trends = [], isLoading } = useQuery({
-    queryKey: ['inventory-trends', 7],
-    queryFn: () => fetchTrends(7),
+    queryKey: ['inventory-trends'],
+    queryFn: fetchTrends,
     staleTime: 60000,
   });
 
   const rows = useMemo(() => {
-    const list = trends.filter((t) => typeFilter === 'all' || t.type === typeFilter);
-    // Surface the strongest movers first: trending up, then biggest sellers.
+    const list = trends.filter((t) => typeInGroup(t.type, types));
     return [...list].sort((a, b) => {
-      const ma = a.momentum_pct ?? -1;
-      const mb = b.momentum_pct ?? -1;
+      const ma = a.momentum_pct ?? -999;
+      const mb = b.momentum_pct ?? -999;
       if (mb !== ma) return mb - ma;
-      return (b.units_current || 0) - (a.units_current || 0);
+      return (b.units_week || 0) - (a.units_week || 0);
     });
-  }, [trends, typeFilter]);
+  }, [trends, types]);
 
-  const activeSku = selectedSku || rows[0]?.sku || null;
+  const activeSku = selectedSku && rows.some((r) => r.sku === selectedSku) ? selectedSku : rows[0]?.sku || null;
   const activeRow = rows.find((r) => r.sku === activeSku);
 
   const { data: weekly = [] } = useQuery({
@@ -82,7 +83,7 @@ export default function VelocityTrendPanel({ typeFilter = 'all' }) {
     try {
       await base44.entities.Product.update(row.product_id, { par_level: Number(row.suggested_par) || 0 });
       queryClient.invalidateQueries({ queryKey: ['products-reorder'] });
-      queryClient.invalidateQueries({ queryKey: ['inventory-trends', 7] });
+      queryClient.invalidateQueries({ queryKey: ['inventory-trends'] });
       toast.success(`Par for ${row.name} set to ${row.suggested_par}`);
     } catch (err) {
       toast.error('Failed to set par: ' + (err.message || 'Unknown error'));
@@ -97,19 +98,20 @@ export default function VelocityTrendPanel({ typeFilter = 'all' }) {
       <div className="lg:col-span-3 bg-card border border-border rounded-lg shadow-sm overflow-hidden">
         <div className="px-5 pt-5 pb-3">
           <h3 className="text-sm font-semibold text-foreground">What's Moving</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">This week vs last week · suggested par bump when demand outpaces cover</p>
+          <p className="text-xs text-muted-foreground mt-0.5">This week vs 90-day average · suggested par bump when demand outpaces cover</p>
         </div>
         {isLoading ? (
           <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
         ) : rows.length === 0 ? (
-          <div className="py-10 text-center text-sm text-muted-foreground">No sales activity in the window.</div>
+          <div className="py-10 text-center text-sm text-muted-foreground">No sales activity yet.</div>
         ) : (
-          <div className="max-h-[420px] overflow-y-auto">
+          <div className="max-h-[440px] overflow-y-auto">
             <table className="w-full">
               <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                 <tr className="border-y border-border">
                   <th className="text-left px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">Product</th>
-                  <th className="text-right px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">Wk</th>
+                  <th className="text-right px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">This wk</th>
+                  <th className="text-right px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">90d avg</th>
                   <th className="text-right px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">Trend</th>
                   <th className="text-right px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">Cover</th>
                   <th className="text-right px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">Par</th>
@@ -130,7 +132,8 @@ export default function VelocityTrendPanel({ typeFilter = 'all' }) {
                         <p className="text-sm font-medium leading-tight">{r.name}</p>
                         <p className="text-[10px] font-mono text-muted-foreground">{r.sku}</p>
                       </td>
-                      <td className="px-3 py-2 text-right text-sm font-medium tabular-nums">{r.units_current}</td>
+                      <td className="px-3 py-2 text-right text-sm font-semibold tabular-nums">{r.units_week}</td>
+                      <td className="px-3 py-2 text-right text-sm text-muted-foreground tabular-nums">{r.weekly_baseline}</td>
                       <td className="px-3 py-2 text-right"><MomentumPill pct={r.momentum_pct} /></td>
                       <td className="px-3 py-2 text-right text-sm tabular-nums">
                         {r.days_of_cover === null ? (
@@ -169,32 +172,51 @@ export default function VelocityTrendPanel({ typeFilter = 'all' }) {
       {/* Trend chart for selected product */}
       <div className="lg:col-span-2 bg-card border border-border rounded-lg shadow-sm overflow-hidden">
         <div className="px-5 pt-5 pb-3">
-          <h3 className="text-sm font-semibold text-foreground">{activeRow ? activeRow.name : '12-Week Sales'}</h3>
+          <h3 className="text-sm font-semibold text-foreground">{activeRow ? activeRow.name : '13-Week Sales'}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {activeRow ? `${activeRow.sku} · units sold per week` : 'Select a product'}
+            {activeRow ? `${activeRow.sku} · units/week · dashed = 90d avg` : 'Select a product'}
           </p>
         </div>
-        <div className="px-3 pb-5">
+        <div className="px-3 pb-4">
           {chartData.length === 0 ? (
-            <div className="h-[260px] flex items-center justify-center text-sm text-muted-foreground">No data</div>
+            <div className="h-[240px] flex items-center justify-center text-sm text-muted-foreground">No data</div>
           ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: -12 }}>
+                <defs>
+                  <linearGradient id="velGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                 <XAxis dataKey="week" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} allowDecimals={false} />
+                <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} allowDecimals={false} width={32} />
                 <Tooltip
                   contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid hsl(var(--border))', background: 'hsl(var(--card))' }}
                   labelStyle={{ color: 'hsl(var(--foreground))' }}
                 />
-                <Line type="monotone" dataKey="units" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 2 }} />
-              </LineChart>
+                {activeRow?.weekly_baseline > 0 && (
+                  <ReferenceLine y={Number(activeRow.weekly_baseline)} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" strokeOpacity={0.6} />
+                )}
+                <Area type="monotone" dataKey="units" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#velGrad)" dot={{ r: 2 }} />
+              </AreaChart>
             </ResponsiveContainer>
           )}
           {activeRow && (
-            <div className="flex items-center justify-between mt-3 px-2 text-xs">
-              <span className="text-muted-foreground">Weekly rate</span>
-              <span className="font-semibold tabular-nums">{activeRow.weekly_rate}/wk</span>
+            <div className="grid grid-cols-3 gap-2 mt-3 px-2 text-center">
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">This wk</p>
+                <p className="text-sm font-bold tabular-nums">{activeRow.units_week}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">90d avg/wk</p>
+                <p className="text-sm font-bold tabular-nums">{activeRow.weekly_baseline}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Trend</p>
+                <div className="flex justify-center"><MomentumPill pct={activeRow.momentum_pct} /></div>
+              </div>
             </div>
           )}
         </div>

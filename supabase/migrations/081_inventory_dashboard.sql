@@ -7,12 +7,13 @@
 --                                    so we can chart trends and days-of-cover
 --                                    over time (accumulates from first cron run).
 --   2. snapshot_inventory_daily() — idempotent upsert of "today's" snapshot.
---   3. inventory_trends()         — LIVE week-over-week momentum + suggested par
---                                    bump per product (works day one, no history
---                                    needed). This is the "protein water is going
+--   3. inventory_trends()         — THIS WEEK vs a 90-day baseline average per
+--                                    product → forecast-grade momentum + suggested
+--                                    par bump. This is the "protein water is going
 --                                    up → bump stock" engine.
 --   4. product_sales_weekly()     — weekly unit buckets for the per-product trend
---                                    chart (live, day one).
+--                                    chart. 4b. sales_weekly_by_type() — weekly
+--                                    buckets per category for the dashboard charts.
 --   5. inventory_alerts           — in-app notification feed (bell + toasts).
 --   6. generate_inventory_alerts()— writes low-stock / reorder / trending / low-
 --                                    cover alerts, de-duped, never for packages.
@@ -123,84 +124,108 @@ END;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 3. inventory_trends() — live week-over-week momentum + suggested par bump
---    p_window      = comparison window in days (default 7 = this week vs last)
---    p_cover_weeks = weeks of cover a suggested par should hold
---    p_safety      = safety buffer fraction
+-- 3. inventory_trends() — forecast-grade momentum + suggested par bump.
+--    Compares THIS WEEK (last 7d) against a stable p_baseline_days average
+--    (default 90d) so a single noisy week doesn't dominate. Also exposes the
+--    raw week-over-week swing (wow_pct) for context.
+--      weekly_baseline = baseline units / (baseline_days / 7)
+--      momentum_pct    = this-week vs weekly_baseline (the trend signal)
+--      weekly_rate     = forecast = GREATEST(baseline, this week)  (surge-aware)
+--      days_of_cover   = available / (weekly_rate / 7)
+--      suggested_par   = weekly_rate × cover_weeks × (1 + safety)
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION inventory_trends(
-  p_window      integer DEFAULT 7,
-  p_cover_weeks numeric DEFAULT 4,
-  p_safety      numeric DEFAULT 0.15
+  p_baseline_days integer DEFAULT 90,
+  p_cover_weeks   numeric DEFAULT 4,
+  p_safety        numeric DEFAULT 0.15
 )
 RETURNS TABLE (
-  product_id        text,
-  sku               text,
-  name              text,
-  type              text,
-  subcategory       text,
-  qty_available     numeric,
-  par_level         numeric,
-  units_current     numeric,
-  units_prior       numeric,
-  momentum_pct      numeric,
-  weekly_rate       numeric,
-  days_of_cover     numeric,
-  suggested_par     numeric
+  product_id      text,
+  sku             text,
+  name            text,
+  type            text,
+  subcategory     text,
+  qty_available   numeric,
+  par_level       numeric,
+  units_week      numeric,
+  units_prev_week numeric,
+  weekly_baseline numeric,
+  momentum_pct    numeric,
+  wow_pct         numeric,
+  weekly_rate     numeric,
+  days_of_cover   numeric,
+  suggested_par   numeric
 )
 LANGUAGE sql
 STABLE
 AS $$
-  WITH cur AS (
+  WITH wk AS (
     SELECT sol.sku, SUM(sol.qty) AS units
     FROM sales_order_lines sol
     JOIN sales_orders so ON so.id = sol.sales_order_id
-    WHERE sol.is_package_parent = false
-      AND sol.status = 'active'
-      AND so.order_date >= now() - make_interval(days => p_window)
+    WHERE sol.is_package_parent = false AND sol.status = 'active'
+      AND so.order_date >= now() - interval '7 days'
     GROUP BY sol.sku
   ),
-  prior AS (
+  prev AS (
     SELECT sol.sku, SUM(sol.qty) AS units
     FROM sales_order_lines sol
     JOIN sales_orders so ON so.id = sol.sales_order_id
-    WHERE sol.is_package_parent = false
-      AND sol.status = 'active'
-      AND so.order_date >= now() - make_interval(days => p_window * 2)
-      AND so.order_date <  now() - make_interval(days => p_window)
+    WHERE sol.is_package_parent = false AND sol.status = 'active'
+      AND so.order_date >= now() - interval '14 days'
+      AND so.order_date <  now() - interval '7 days'
+    GROUP BY sol.sku
+  ),
+  base AS (
+    SELECT sol.sku, SUM(sol.qty) AS units
+    FROM sales_order_lines sol
+    JOIN sales_orders so ON so.id = sol.sales_order_id
+    WHERE sol.is_package_parent = false AND sol.status = 'active'
+      AND so.order_date >= now() - make_interval(days => p_baseline_days)
     GROUP BY sol.sku
   ),
   soh AS (
     SELECT product_id, SUM(qty_available) AS available
     FROM stock_on_hand GROUP BY product_id
+  ),
+  joined AS (
+    SELECT
+      p.id, p.sku, p.name, p.type, p.subcategory,
+      COALESCE(soh.available, 0)                        AS available,
+      COALESCE(p.par_level, 0)                          AS par_level,
+      COALESCE(w.units, 0)                              AS units_week,
+      COALESCE(pv.units, 0)                             AS units_prev_week,
+      COALESCE(b.units, 0) / (p_baseline_days / 7.0)    AS weekly_baseline,
+      GREATEST(COALESCE(b.units, 0) / (p_baseline_days / 7.0), COALESCE(w.units, 0)) AS forecast_weekly
+    FROM products p
+    LEFT JOIN wk   w  ON w.sku  = p.sku
+    LEFT JOIN prev pv ON pv.sku = p.sku
+    LEFT JOIN base b  ON b.sku  = p.sku
+    LEFT JOIN soh     ON soh.product_id = p.id
+    WHERE COALESCE(p.status, 'active') = 'active'
+      AND p.type NOT IN ('package', 'bundle')   -- assembled on demand, no own stock
+      AND COALESCE(b.units, 0) + COALESCE(w.units, 0) > 0
   )
   SELECT
-    p.id,
-    p.sku,
-    p.name,
-    p.type,
-    p.subcategory,
-    COALESCE(soh.available, 0)                                        AS qty_available,
-    COALESCE(p.par_level, 0)                                          AS par_level,
-    COALESCE(c.units, 0)                                              AS units_current,
-    COALESCE(pr.units, 0)                                             AS units_prior,
-    CASE WHEN COALESCE(pr.units, 0) = 0 THEN NULL
-         ELSE ROUND((COALESCE(c.units, 0) - pr.units) / pr.units * 100, 0)
-    END                                                              AS momentum_pct,
-    ROUND(COALESCE(c.units, 0) / (p_window / 7.0), 1)                AS weekly_rate,
-    CASE WHEN COALESCE(c.units, 0) = 0 THEN NULL
-         ELSE ROUND(COALESCE(soh.available, 0)
-              / NULLIF(COALESCE(c.units, 0) / p_window, 0), 1)
-    END                                                              AS days_of_cover,
-    CEIL((COALESCE(c.units, 0) / (p_window / 7.0)) * p_cover_weeks * (1 + p_safety)) AS suggested_par
-  FROM products p
-  LEFT JOIN cur   c  ON c.sku  = p.sku
-  LEFT JOIN prior pr ON pr.sku = p.sku
-  LEFT JOIN soh      ON soh.product_id = p.id
-  WHERE COALESCE(p.status, 'active') = 'active'
-    AND p.type NOT IN ('package', 'bundle')   -- assembled on demand, no own stock
-    AND COALESCE(c.units, 0) + COALESCE(pr.units, 0) > 0
-  ORDER BY COALESCE(c.units, 0) DESC;
+    j.id, j.sku, j.name, j.type, j.subcategory,
+    j.available                              AS qty_available,
+    j.par_level,
+    j.units_week,
+    j.units_prev_week,
+    ROUND(j.weekly_baseline, 1)              AS weekly_baseline,
+    CASE WHEN j.weekly_baseline = 0 THEN NULL
+         ELSE ROUND((j.units_week - j.weekly_baseline) / j.weekly_baseline * 100, 0)
+    END                                      AS momentum_pct,
+    CASE WHEN j.units_prev_week = 0 THEN NULL
+         ELSE ROUND((j.units_week - j.units_prev_week) / j.units_prev_week * 100, 0)
+    END                                      AS wow_pct,
+    ROUND(j.forecast_weekly, 1)              AS weekly_rate,
+    CASE WHEN j.forecast_weekly <= 0 THEN NULL
+         ELSE ROUND(j.available / (j.forecast_weekly / 7.0), 1)
+    END                                      AS days_of_cover,
+    CEIL(j.forecast_weekly * p_cover_weeks * (1 + p_safety)) AS suggested_par
+  FROM joined j
+  ORDER BY j.units_week DESC;
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -236,6 +261,46 @@ AS $$
    AND sol.is_package_parent = false
    AND sol.status = 'active'
   GROUP BY w.week_start
+  ORDER BY w.week_start;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 4b. sales_weekly_by_type() — weekly unit buckets per product TYPE, for the
+--     dashboard's category trend chart + this-week category split.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION sales_weekly_by_type(
+  p_weeks integer DEFAULT 13
+)
+RETURNS TABLE (
+  week_start date,
+  type       text,
+  units      numeric
+)
+LANGUAGE sql
+STABLE
+AS $$
+  WITH weeks AS (
+    SELECT generate_series(
+             date_trunc('week', now())::date - make_interval(weeks => p_weeks - 1)::interval,
+             date_trunc('week', now())::date,
+             interval '1 week'
+           )::date AS week_start
+  )
+  SELECT
+    w.week_start,
+    p.type,
+    COALESCE(SUM(sol.qty), 0) AS units
+  FROM weeks w
+  LEFT JOIN sales_orders so
+    ON date_trunc('week', so.order_date)::date = w.week_start
+  LEFT JOIN sales_order_lines sol
+    ON sol.sales_order_id = so.id
+   AND sol.is_package_parent = false
+   AND sol.status = 'active'
+  LEFT JOIN products p ON p.sku = sol.sku
+  -- Keep one anchor row (type NULL, 0) for weeks with no sales so the chart's
+  -- week axis stays continuous; the frontend ignores NULL-type rows for lines.
+  GROUP BY w.week_start, p.type
   ORDER BY w.week_start;
 $$;
 
@@ -330,8 +395,9 @@ BEGIN
   GET DIAGNOSTICS n = ROW_COUNT; inserted := inserted + n;
 
   -- 6b. Velocity alerts (trending_up / low_cover) from inventory_trends()
+  --     Uses the 90-day baseline trend (momentum_pct = this week vs baseline).
   WITH t AS (
-    SELECT * FROM inventory_trends(7)
+    SELECT * FROM inventory_trends()
   ),
   candidates AS (
     SELECT product_id, sku, name,

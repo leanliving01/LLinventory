@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { ShoppingCart, ArrowRight, PackageX } from 'lucide-react';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
 import { buildReorderItems, SEVERITY_ORDER } from '@/lib/reorderSignals';
+import { typeInGroup } from '@/lib/inventoryCategories';
 
 const SEVERITY_BADGE = {
   critical: { label: 'OUT', cls: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' },
@@ -19,7 +20,7 @@ const SEVERITY_BADGE = {
  * Reuses the shared lib/reorderSignals.js logic so it always agrees with the
  * full Reorder Report. Select rows → Create PO (existing modal).
  */
-export default function ReorderSignalsPanel({ typeFilter = 'all', limit = 12 }) {
+export default function ReorderSignalsPanel({ types = null, limit = 12 }) {
   const queryClient = useQueryClient();
   const [selectedItems, setSelectedItems] = useState([]);
   const [showCreatePO, setShowCreatePO] = useState(false);
@@ -45,7 +46,7 @@ export default function ReorderSignalsPanel({ typeFilter = 'all', limit = 12 }) 
   const belowItems = useMemo(() => {
     const all = buildReorderItems({ products, stockRecords, suppliers, supplierProducts })
       .filter((p) => p.is_below)
-      .filter((p) => typeFilter === 'all' || p.type === typeFilter);
+      .filter((p) => typeInGroup(p.type, types));
     all.sort((a, b) => {
       const sa = SEVERITY_ORDER[a.severity] ?? 3;
       const sb = SEVERITY_ORDER[b.severity] ?? 3;
@@ -53,7 +54,7 @@ export default function ReorderSignalsPanel({ typeFilter = 'all', limit = 12 }) 
       return b.shortfall - a.shortfall;
     });
     return all;
-  }, [products, stockRecords, suppliers, supplierProducts, typeFilter]);
+  }, [products, stockRecords, suppliers, supplierProducts, types]);
 
   const shown = belowItems.slice(0, limit);
 
