@@ -134,6 +134,11 @@ $$;
 --      days_of_cover   = available / (weekly_rate / 7)
 --      suggested_par   = weekly_rate × cover_weeks × (1 + safety)
 -- ---------------------------------------------------------------------------
+-- Drop first: an earlier build of this migration defined inventory_trends with
+-- the same arg signature but a different return shape, and CREATE OR REPLACE
+-- cannot change a function's return type.
+DROP FUNCTION IF EXISTS inventory_trends(integer, numeric, numeric);
+
 CREATE OR REPLACE FUNCTION inventory_trends(
   p_baseline_days integer DEFAULT 90,
   p_cover_weeks   numeric DEFAULT 4,
