@@ -1,15 +1,22 @@
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Link2, Plus, Ban, Truck, FileText, EyeOff, Sparkles, ExternalLink } from 'lucide-react';
+import { Link2, Plus, Ban, Truck, FileText, EyeOff, Sparkles, ExternalLink, Check, Loader2, Pencil, HelpCircle } from 'lucide-react';
 import { formatZAR, effectiveUnitCost } from '@/lib/utils';
+
+// Confidence → colour for the AI proposal badge.
+function confTone(c) {
+  if (c >= 0.9) return 'bg-green-100 text-green-700';
+  if (c >= 0.75) return 'bg-amber-100 text-amber-700';
+  return 'bg-muted text-muted-foreground';
+}
 
 /**
  * One card per supplier+SKU group of unmatched invoice lines.
  * When the same SKU appears on several invoices it is collapsed into a single
  * card; matching / non-stock / create resolves every line in the group at once.
  */
-export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], pdfByInvoice = {}, onOpenMatch, onCreateProduct, onMarkNonStock, onIgnore }) {
+export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], proposal = null, approving = false, pdfByInvoice = {}, onOpenMatch, onCreateProduct, onMarkNonStock, onIgnore, onApprove, onReject }) {
   const line = lineGroup.representativeLine;
   const invoice = lineGroup.representativeInvoice;
   const invoicePdfUrl = invoice?.id ? pdfByInvoice[invoice.id] : null;
@@ -87,9 +94,56 @@ export default function UnmatchedLineCard({ lineGroup, possibleMatches = [], pdf
         </div>
       </div>
 
+      {/* AI proposal (from "Auto-fill"): a pre-filled product + purchasing unit
+          ready for one-click Approve. A proposal with no product means the AI
+          wasn't confident — link it manually. */}
+      {proposal && proposal.proposed_product_id ? (
+        <div className="px-4 py-2 border-t border-border bg-green-50/60 flex items-center gap-2 flex-wrap">
+          <Sparkles className="w-3.5 h-3.5 text-green-600 shrink-0" />
+          <span className="text-xs text-green-900">
+            AI match: <span className="font-medium">{proposal.proposed_product_name}</span>
+            {proposal.proposed_product_sku && <span className="font-mono text-green-700"> ({proposal.proposed_product_sku})</span>}
+            {proposal.conversion_factor != null && proposal.proposed_stock_uom && (
+              <span className="text-green-700"> · 1 {proposal.purchase_uom} = {proposal.conversion_factor} {proposal.proposed_stock_uom}</span>
+            )}
+            {proposal.nominal_cost != null && <span className="text-green-700"> · {formatZAR(proposal.nominal_cost)}</span>}
+          </span>
+          <Badge className={`text-[10px] ${confTone(proposal.confidence || 0)}`}>
+            {Math.round((proposal.confidence || 0) * 100)}% · {proposal.match_method}
+          </Badge>
+          <div className="flex items-center gap-1.5 ml-auto">
+            <Button variant="ghost" size="sm" onClick={() => onReject?.(lineGroup, proposal)} disabled={approving}
+              className="gap-1 text-xs h-7 text-muted-foreground" title="Dismiss this suggestion">
+              Reject
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => onOpenMatch(lineGroup)} disabled={approving}
+              className="gap-1 text-xs h-7" title="Review / edit before saving">
+              <Pencil className="w-3 h-3" /> Edit
+            </Button>
+            <Button size="sm" onClick={() => onApprove?.(lineGroup, proposal)} disabled={approving}
+              className="gap-1.5 text-xs h-7 bg-green-600 hover:bg-green-700">
+              {approving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Approve
+            </Button>
+          </div>
+        </div>
+      ) : proposal && proposal.match_method === 'none' ? (
+        <div className="px-4 py-2 border-t border-border bg-amber-50/60 flex items-center gap-2 flex-wrap">
+          <HelpCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+          <span className="text-xs text-amber-800">
+            AI couldn't confidently match this — <span className="font-medium">link it manually</span>.
+            {proposal.reasoning && <span className="text-amber-600"> {proposal.reasoning}</span>}
+          </span>
+          <Button variant="outline" size="sm" onClick={() => onOpenMatch(lineGroup)}
+            className="gap-1.5 text-xs h-7 ml-auto border-amber-300 text-amber-800 hover:bg-amber-100">
+            <Link2 className="w-3 h-3" /> Link
+          </Button>
+        </div>
+      ) : null}
+
       {/* Possible product to link this new item to (suggestion only — already-linked
-          items are auto-matched and never reach this queue). */}
-      {topMatch && (
+          items are auto-matched and never reach this queue). Hidden once an AI
+          proposal exists. */}
+      {!proposal && topMatch && (
         <div className="px-4 py-2 border-t border-border bg-amber-50/60 flex items-center gap-2 flex-wrap">
           <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
           <span className="text-xs text-amber-800">

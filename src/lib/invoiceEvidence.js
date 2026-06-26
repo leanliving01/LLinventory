@@ -47,21 +47,20 @@ const tok = s => (s || '').toLowerCase().split(/[^a-z0-9]+/).filter(t => t.lengt
 export async function analyzeInvoiceLine({ invoiceId, line, stockUom }) {
   if (!invoiceId) return { ok: false, reason: 'no-invoice' };
 
-  const atts = await base44.entities.PurchaseAttachment.filter({ invoice_id: invoiceId });
-  const att = (atts || []).find(a => a.file_url);
-  if (!att) return { ok: false, reason: 'no-pdf' };
+  // The PDF is scanned ONCE per invoice and cached server-side (extract-invoice),
+  // so opening a line is instant after the first read — no browser PDF download,
+  // no re-scanning the whole invoice for every line.
+  const res = await base44.functions.invoke('extract-invoice', { invoiceId });
+  const payload = res?.data || {};
+  if (payload.status !== 'ok') {
+    const err = payload.error || 'no-lines';
+    const reason = err === 'no-pdf' ? 'no-pdf'
+      : String(err).toUpperCase().includes('OPENAI') ? 'no-key'
+      : String(err);
+    return { ok: false, reason };
+  }
 
-  const resp = await fetch(att.file_url);
-  const bytes = new Uint8Array(await resp.arrayBuffer());
-  let bin = ''; for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  const fileBase64 = btoa(bin);
-
-  const res = await base44.functions.invoke('scan-invoice', { fileBase64, mimeType: att.mime_type || 'application/pdf' });
-  const payload = res?.data?.data || res?.data;
-  const err = res?.data?.error || payload?.error;
-  if (err) return { ok: false, reason: String(err).includes('OPENAI') ? 'no-key' : String(err) };
-
-  const exLines = payload?.lines || [];
+  const exLines = payload.lines || [];
   if (!exLines.length) return { ok: false, reason: 'no-lines' };
 
   // Find the line in the PDF that corresponds to this queue line.

@@ -15,11 +15,16 @@ import { toast } from 'sonner';
  * the same fields as the Products → Suppliers "Purchasing Units" editor,
  * pre-filled from the Xero line.
  */
-export default function MatchToExistingModal({ lineGroup, invoice, products = [], possibleMatches = [], invoicePdfUrl, onMatch, onCancel }) {
+export default function MatchToExistingModal({ lineGroup, invoice, products = [], possibleMatches = [], proposal = null, invoicePdfUrl, onMatch, onCancel }) {
   const line = lineGroup.representativeLine;
   const invoiceCount = lineGroup.lines.length;
   const suggestion = possibleMatches[0];
   const suggestedSp = suggestion?.supplierProduct;
+  // When opened from an AI proposal ("Edit"), start on the proposed product with
+  // its pre-filled purchasing unit instead of making the reviewer search again.
+  const proposedProduct = proposal?.proposed_product_id
+    ? { id: proposal.proposed_product_id, name: proposal.proposed_product_name, sku: proposal.proposed_product_sku, stock_uom: proposal.proposed_stock_uom }
+    : null;
   // True per-unit cost (repairs legacy rows that stored the line total).
   const lineUnitCost = effectiveUnitCost(line);
   const unitLabel = line.unit ? ` ${line.unit}` : '';
@@ -27,22 +32,24 @@ export default function MatchToExistingModal({ lineGroup, invoice, products = []
   const [search, setSearch] = useState('');
   // Pre-select the strongest possible-duplicate match so the reviewer can confirm
   // rather than search from scratch.
-  const [picked, setPicked] = useState(suggestion?.product || null);
+  const [picked, setPicked] = useState(proposedProduct || suggestion?.product || null);
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   // Supplier evidence pulled from the invoice PDF (UoM / desc / SKU / unit price).
   const [evidence, setEvidence] = useState(null);
   const [evError, setEvError] = useState(null);
   const [form, setForm] = useState({
-    purchase_uom_label: suggestedSp?.purchase_uom_label || line.xero_description || '',
+    purchase_uom_label: proposal?.purchase_uom_label || suggestedSp?.purchase_uom_label || line.xero_description || '',
     // Default the purchase UoM to whatever the invoice used (if any) so it isn't
     // silently 'each'; fall back to the existing link, then 'each'.
-    purchase_uom: suggestedSp?.purchase_uom || (line.unit ? String(line.unit).toLowerCase() : 'each'),
-    conversion_factor: suggestedSp?.conversion_factor != null ? String(suggestedSp.conversion_factor) : '',
-    yield_factor: suggestedSp?.yield_factor != null ? String(suggestedSp.yield_factor) : '1',
-    nominal_cost: lineUnitCost ? String(lineUnitCost) : '',
-    supplier_sku: line.xero_item_code || suggestedSp?.supplier_sku || '',
-    supplier_description: line.xero_description || suggestedSp?.supplier_description || '',
+    purchase_uom: proposal?.purchase_uom || suggestedSp?.purchase_uom || (line.unit ? String(line.unit).toLowerCase() : 'each'),
+    conversion_factor: proposal?.conversion_factor != null ? String(proposal.conversion_factor)
+      : suggestedSp?.conversion_factor != null ? String(suggestedSp.conversion_factor) : '',
+    yield_factor: proposal?.yield_factor != null ? String(proposal.yield_factor)
+      : suggestedSp?.yield_factor != null ? String(suggestedSp.yield_factor) : '1',
+    nominal_cost: proposal?.nominal_cost != null ? String(proposal.nominal_cost) : (lineUnitCost ? String(lineUnitCost) : ''),
+    supplier_sku: proposal?.supplier_sku || line.xero_item_code || suggestedSp?.supplier_sku || '',
+    supplier_description: proposal?.supplier_description || line.xero_description || suggestedSp?.supplier_description || '',
     is_default: false,
   });
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));

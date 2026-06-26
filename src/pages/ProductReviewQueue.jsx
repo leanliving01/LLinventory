@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { ClipboardList } from 'lucide-react';
+import { ClipboardList, Sparkles, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
@@ -34,6 +35,9 @@ export default function ProductReviewQueue() {
   const [tab, setTab] = useState('lines');                // 'lines' | 'units'
   const [createGroup, setCreateGroup] = useState(null);   // lineGroup → Create Product modal
   const [matchGroup, setMatchGroup] = useState(null);     // lineGroup → Match Existing modal
+  const [autoFilling, setAutoFilling] = useState(false);  // bulk AI pre-fill running
+  const [autoMsg, setAutoMsg] = useState('');             // bulk progress text
+  const [approvingKey, setApprovingKey] = useState(null); // group.key being approved
   const [productionOnly, setProductionOnly] = useState(true); // only show production-supplier lines
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -62,6 +66,18 @@ export default function ProductReviewQueue() {
     queryKey: ['purchase-unit-proposals'],
     queryFn: () => base44.entities.PurchaseUnitProposal.filter({ status: 'pending' }, '-confidence', 300),
   });
+
+  // AI pre-fill proposals (from "Auto-fill"): one per invoice line, keyed by line id.
+  const { data: rqProposals = [] } = useQuery({
+    queryKey: ['review-queue-proposals'],
+    queryFn: () => base44.entities.ReviewQueueProposal.filter({ status: 'pending' }, '-confidence', 5000),
+    refetchInterval: autoFilling ? 2500 : false,   // live-refresh while the bulk run streams in
+  });
+  const proposalByLine = useMemo(() => {
+    const m = {};
+    for (const p of rqProposals) m[p.invoice_line_id] = p;
+    return m;
+  }, [rqProposals]);
 
   // Stored supplier-invoice PDFs (Xero + native scans) so each card/modal can link
   // straight to the original invoice document for cross-checking.
@@ -379,6 +395,85 @@ export default function ProductReviewQueue() {
     }
   };
 
+  // ── Bulk AI pre-fill ──────────────────────────────────────────────────────
+  // Drives the workers from the client (sequential, noChain) so there are no
+  // double-processed batches: first ensure the catalogue is embedded, then match
+  // the queue in batches, streaming proposals into the cards as they land.
+  const runFn = async (name, body = {}) => {
+    const res = await base44.functions.invoke(name, { ...body, noChain: true });
+    return res?.data || {};
+  };
+  const handleAutoFill = async () => {
+    if (autoFilling) return;
+    setAutoFilling(true);
+    setAutoMsg('Embedding catalogue…');
+    try {
+      let guard = 0;
+      let r = await runFn('embed-products');
+      if (r.status === 'error') throw new Error(r.error || 'embedding failed');
+      while (r.status === 'running' && guard++ < 300) r = await runFn('embed-products');
+
+      setAutoMsg('Matching items…');
+      guard = 0;
+      r = await runFn('match-review-queue');
+      if (r.status === 'error') throw new Error(r.error || 'matching failed');
+      queryClient.invalidateQueries({ queryKey: ['review-queue-proposals'] });
+      while (r.status === 'running' && guard++ < 500) {
+        setAutoMsg(`Matching items… ${r.remaining ?? 0} left`);
+        r = await runFn('match-review-queue');
+        queryClient.invalidateQueries({ queryKey: ['review-queue-proposals'] });
+      }
+      toast.success('Pre-fill complete — review each proposal and Approve.');
+    } catch (e) {
+      toast.error(`Auto-fill failed: ${e.message}`);
+    } finally {
+      setAutoFilling(false);
+      setAutoMsg('');
+      queryClient.invalidateQueries({ queryKey: ['review-queue-proposals'] });
+    }
+  };
+
+  // Approve an AI proposal: apply it through the same path as a manual match,
+  // then mark the proposal(s) approved so the card drops out of the queue.
+  const handleApprove = async (lineGroup, proposal) => {
+    if (!proposal?.proposed_product_id) { toast.error('No product on this proposal — use Edit'); return; }
+    setApprovingKey(lineGroup.key);
+    try {
+      const product = {
+        id: proposal.proposed_product_id,
+        name: proposal.proposed_product_name,
+        sku: proposal.proposed_product_sku,
+        stock_uom: proposal.proposed_stock_uom,
+      };
+      const form = {
+        purchase_uom_label: proposal.purchase_uom_label || proposal.supplier_description || '',
+        purchase_uom: proposal.purchase_uom || 'each',
+        conversion_factor: proposal.conversion_factor != null ? String(proposal.conversion_factor) : '1',
+        yield_factor: proposal.yield_factor != null ? String(proposal.yield_factor) : '1',
+        nominal_cost: proposal.nominal_cost != null ? String(proposal.nominal_cost) : '0',
+        supplier_sku: proposal.supplier_sku || '',
+        supplier_description: proposal.supplier_description || '',
+        is_default: false,
+      };
+      await handleMatch(lineGroup, { product, form });
+      await Promise.all(lineGroup.lines.map(({ line }) =>
+        base44.entities.ReviewQueueProposal.update(line.id, { status: 'approved', approved_at: new Date().toISOString() }).catch(() => {})
+      ));
+      queryClient.invalidateQueries({ queryKey: ['review-queue-proposals'] });
+    } finally {
+      setApprovingKey(null);
+    }
+  };
+
+  // Dismiss a proposal (wrong match) — the line stays in the queue for manual linking.
+  const handleReject = async (lineGroup) => {
+    await Promise.all(lineGroup.lines.map(({ line }) =>
+      base44.entities.ReviewQueueProposal.update(line.id, { status: 'rejected' }).catch(() => {})
+    ));
+    queryClient.invalidateQueries({ queryKey: ['review-queue-proposals'] });
+    toast.success('Suggestion dismissed — link it manually.');
+  };
+
   const handleMarkNonStock = async (lineGroup) => {
     const invoiceIds = new Set();
     for (const { line } of lineGroup.lines) {
@@ -433,9 +528,20 @@ export default function ProductReviewQueue() {
             Link new supplier items (Xero + scanned PDFs) to products. Already-linked items are auto-matched and hidden.
           </p>
         </div>
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-right">
-          <p className="text-[10px] text-amber-600 uppercase font-semibold">Items to Link</p>
-          <p className="text-lg font-bold text-amber-700">{toLinkCount}</p>
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={handleAutoFill}
+            disabled={autoFilling || toLinkCount === 0}
+            className="gap-2 bg-primary"
+            title="Scan invoices once, then AI-match every item to a product and pre-fill its purchasing unit. Nothing is saved until you Approve."
+          >
+            {autoFilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {autoFilling ? (autoMsg || 'Auto-filling…') : `Auto-fill all (${toLinkCount})`}
+          </Button>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-right">
+            <p className="text-[10px] text-amber-600 uppercase font-semibold">Items to Link</p>
+            <p className="text-lg font-bold text-amber-700">{toLinkCount}</p>
+          </div>
         </div>
       </div>
 
@@ -515,11 +621,15 @@ export default function ProductReviewQueue() {
                       key={lineGroup.key}
                       lineGroup={lineGroup}
                       possibleMatches={matchesByGroup[lineGroup.key] || []}
+                      proposal={proposalByLine[lineGroup.representativeLine.id] || null}
+                      approving={approvingKey === lineGroup.key}
                       pdfByInvoice={pdfByInvoice}
                       onOpenMatch={setMatchGroup}
                       onCreateProduct={setCreateGroup}
                       onMarkNonStock={handleMarkNonStock}
                       onIgnore={handleIgnore}
+                      onApprove={handleApprove}
+                      onReject={handleReject}
                     />
                   ))}
                 </div>
@@ -555,6 +665,7 @@ export default function ProductReviewQueue() {
           invoice={matchGroup.representativeInvoice}
           products={products}
           possibleMatches={matchesByGroup[matchGroup.key] || []}
+          proposal={proposalByLine[matchGroup.representativeLine.id] || null}
           invoicePdfUrl={pdfByInvoice[matchGroup.representativeInvoice?.id]}
           onMatch={handleMatch}
           onCancel={() => setMatchGroup(null)}

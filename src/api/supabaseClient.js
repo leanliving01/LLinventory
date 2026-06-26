@@ -87,6 +87,7 @@ const ENTITY_TABLE_MAP = {
   PurchaseInvoiceLine:      'purchase_invoice_lines',
   PurchaseAttachment:       'purchase_attachments',
   PurchaseUnitProposal:     'purchase_unit_proposals',
+  ReviewQueueProposal:      'review_queue_proposals',
   SupplierShortage:         'supplier_shortages',
   SupplierReturn:           'supplier_returns',
   SupplierReturnLine:       'supplier_return_lines',

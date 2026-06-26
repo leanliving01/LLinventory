@@ -42,8 +42,16 @@ export function findExistingLink(line, supplierProducts = []) {
   return null;
 }
 
+// Light singular/plural stem so "lemons" ↔ "lemon", "boxes" ↔ "box" match. Keeps
+// short words intact; only trims common English plural endings.
+const stem = (t) => {
+  if (t.length > 4 && t.endsWith('ies')) return `${t.slice(0, -3)}y`;
+  if (t.length > 4 && (t.endsWith('ses') || t.endsWith('xes') || t.endsWith('zes'))) return t.slice(0, -2);
+  if (t.length > 3 && t.endsWith('s') && !t.endsWith('ss')) return t.slice(0, -1);
+  return t;
+};
 const tokenize = (s) =>
-  (s || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2);
+  (s || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2).map(stem);
 
 /** Jaccard-ish token overlap, 0..1. */
 function tokenOverlap(a, b) {
