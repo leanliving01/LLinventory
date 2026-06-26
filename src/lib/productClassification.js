@@ -186,6 +186,8 @@ export const SUBCATEGORIES_BY_CATEGORY = {
     "Women's Weight Loss Sleeves (WWL)",
     "Men's Lean Muscle Sleeves (MLM)",
     "Men's Weight Loss / BYO Sleeves (MWL)",
+    'Low Carb Packaging',
+    'Winter Warmer Packaging',
     'Other Packaging',
   ],
   finished_meal: [

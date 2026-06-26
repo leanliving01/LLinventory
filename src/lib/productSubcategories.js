@@ -19,9 +19,25 @@ const SLEEVE_LABELS = {
 
 export function getPackagingSubcategory(product) {
   const sku = (product.sku || '').toUpperCase();
+  const name = (product.name || '').toLowerCase();
+
+  // Goal-range sleeves — SKU like MWL1Sleeve / WLM12Sleeve (prefix + number).
   for (const prefix of SLEEVE_PREFIXES) {
-    if (sku.startsWith(prefix)) return SLEEVE_LABELS[prefix];
+    if (sku.startsWith(prefix) && /^\d/.test(sku.slice(prefix.length))) return SLEEVE_LABELS[prefix];
   }
+
+  // Winter Warmer packaging — the WWR front/back stickers + the soup pouch.
+  if (sku.startsWith('WWR') || sku === 'SPOUCH'
+      || name.includes('winter warmer') || name.includes('soup pouch')) {
+    return 'Winter Warmer Packaging';
+  }
+
+  // Low Carb packaging — the named meal sleeves (e.g. "CAEPL - Sleeve",
+  // "Zucchini Bolognaise - Sleeve") that aren't goal- or WWR-coded.
+  if (name.includes('sleeve') || sku.includes('SLEEVE')) {
+    return 'Low Carb Packaging';
+  }
+
   return 'Other Packaging';
 }
 
