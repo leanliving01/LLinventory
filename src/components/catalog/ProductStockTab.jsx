@@ -5,9 +5,11 @@ import { Warehouse, PenLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import StockAdjustmentModal from './StockAdjustmentModal';
 import ProductCountUomEditor from './ProductCountUomEditor';
+import CommittedOrdersModal from './CommittedOrdersModal';
 
 export default function ProductStockTab({ productId }) {
   const [showAdjust, setShowAdjust] = useState(false);
+  const [showCommitted, setShowCommitted] = useState(false);
 
   const { data: product } = useQuery({
     queryKey: ['product', productId],
@@ -37,7 +39,14 @@ export default function ProductStockTab({ productId }) {
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-4">
         <SummaryCard label="On Hand" value={totalOnHand} uom={uom} />
-        <SummaryCard label="Committed" value={totalCommitted} uom={uom} className="text-amber-600" />
+        <SummaryCard
+          label="Committed"
+          value={totalCommitted}
+          uom={uom}
+          className="text-amber-600"
+          onClick={product?.sku ? () => setShowCommitted(true) : undefined}
+          hint={product?.sku && totalCommitted > 0 ? 'View orders' : undefined}
+        />
         <SummaryCard label="Available" value={totalAvailable} uom={uom} className={totalAvailable < 0 ? 'text-red-600' : 'text-green-600'} />
       </div>
 
@@ -69,7 +78,19 @@ export default function ProductStockTab({ productId }) {
                 <tr key={s.id} className="hover:bg-muted/20">
                   <td className="px-4 py-2.5 font-medium">{s.location_name || 'Unknown'}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{s.qty_on_hand || 0} {s.uom}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums text-amber-600">{s.qty_committed || 0}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums text-amber-600">
+                    {(s.qty_committed || 0) > 0 && product?.sku ? (
+                      <button
+                        className="hover:underline font-medium"
+                        onClick={() => setShowCommitted(true)}
+                        title="View orders this is committed to"
+                      >
+                        {s.qty_committed}
+                      </button>
+                    ) : (
+                      s.qty_committed || 0
+                    )}
+                  </td>
                   <td className={`px-4 py-2.5 text-right tabular-nums font-medium ${(s.qty_available || 0) < 0 ? 'text-red-600' : 'text-green-600'}`}>
                     {s.qty_available || 0}
                   </td>
@@ -88,14 +109,33 @@ export default function ProductStockTab({ productId }) {
           onClose={() => setShowAdjust(false)}
         />
       )}
+
+      {showCommitted && product?.sku && (
+        <CommittedOrdersModal
+          sku={product.sku}
+          productName={product.name}
+          committedTotal={totalCommitted}
+          onClose={() => setShowCommitted(false)}
+        />
+      )}
     </div>
   );
 }
 
-function SummaryCard({ label, value, uom, className = '' }) {
+function SummaryCard({ label, value, uom, className = '', onClick, hint }) {
+  const clickable = typeof onClick === 'function';
   return (
-    <div className="bg-card border border-border rounded-xl px-4 py-3">
-      <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">{label}</p>
+    <div
+      className={`bg-card border border-border rounded-xl px-4 py-3 ${clickable ? 'cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors' : ''}`}
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+    >
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold flex items-center justify-between">
+        {label}
+        {clickable && hint && <span className="text-[9px] text-primary normal-case font-medium">{hint} →</span>}
+      </p>
       <p className={`text-lg font-bold tabular-nums ${className}`}>{value} <span className="text-xs font-normal text-muted-foreground">{uom}</span></p>
     </div>
   );
