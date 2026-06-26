@@ -125,18 +125,22 @@ $$;
 
 -- ---------------------------------------------------------------------------
 -- 3. inventory_trends() — forecast-grade momentum + suggested par bump.
---    Compares THIS WEEK (last 7d) against a stable p_baseline_days average
---    (default 90d) so a single noisy week doesn't dominate. Also exposes the
---    raw week-over-week swing (wow_pct) for context.
---      weekly_baseline = baseline units / (baseline_days / 7)
+--    Compares THIS WEEK (last 7d) against a baseline weekly average, where the
+--    baseline is normalised by ACTIVE SELLING WEEKS (not a fixed 90/7) so that
+--    recently-launched SKUs and company-wide empty weeks don't distort the
+--    signal. The baseline window also EXCLUDES the current week.
+--      weekly_baseline = baseline units / (# distinct weeks with sales)   [over the
+--                        90 days ENDING one week ago]
 --      momentum_pct    = this-week vs weekly_baseline (the trend signal)
---      weekly_rate     = forecast = GREATEST(baseline, this week)  (surge-aware)
+--      weekly_rate     = GREATEST(baseline, this week)  (surge-aware → cover/alerts)
 --      days_of_cover   = available / (weekly_rate / 7)
---      suggested_par   = weekly_rate × cover_weeks × (1 + safety)
+--      suggested_par   = smoothed rate (last 28d ÷ active weeks) × cover_weeks ×
+--                        (1 + safety) — spike-resistant, so one big week doesn't
+--                        balloon the par target.
+--    Week buckets use Africa/Johannesburg (SAST) so day/week boundaries align.
 -- ---------------------------------------------------------------------------
--- Drop first: an earlier build of this migration defined inventory_trends with
--- the same arg signature but a different return shape, and CREATE OR REPLACE
--- cannot change a function's return type.
+-- Drop first: an earlier build defined inventory_trends with the same arg
+-- signature but a different return shape; CREATE OR REPLACE can't change that.
 DROP FUNCTION IF EXISTS inventory_trends(integer, numeric, numeric);
 
 CREATE OR REPLACE FUNCTION inventory_trends(
@@ -164,7 +168,7 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 AS $$
-  WITH wk AS (
+  WITH wk AS (   -- this week = trailing 7 complete days
     SELECT sol.sku, SUM(sol.qty) AS units
     FROM sales_order_lines sol
     JOIN sales_orders so ON so.id = sol.sales_order_id
@@ -172,7 +176,7 @@ AS $$
       AND so.order_date >= now() - interval '7 days'
     GROUP BY sol.sku
   ),
-  prev AS (
+  prev AS (      -- the week before, for raw week-over-week context
     SELECT sol.sku, SUM(sol.qty) AS units
     FROM sales_order_lines sol
     JOIN sales_orders so ON so.id = sol.sales_order_id
@@ -181,12 +185,25 @@ AS $$
       AND so.order_date <  now() - interval '7 days'
     GROUP BY sol.sku
   ),
-  base AS (
-    SELECT sol.sku, SUM(sol.qty) AS units
+  base AS (      -- 90 days ENDING one week ago; weekly = total ÷ active selling weeks
+    SELECT sol.sku,
+           SUM(sol.qty) AS units,
+           COUNT(DISTINCT date_trunc('week', (so.order_date AT TIME ZONE 'Africa/Johannesburg'))) AS active_weeks
     FROM sales_order_lines sol
     JOIN sales_orders so ON so.id = sol.sales_order_id
     WHERE sol.is_package_parent = false AND sol.status = 'active'
-      AND so.order_date >= now() - make_interval(days => p_baseline_days)
+      AND so.order_date >= now() - make_interval(days => p_baseline_days + 7)
+      AND so.order_date <  now() - interval '7 days'
+    GROUP BY sol.sku
+  ),
+  smooth AS (    -- last 28 days ÷ active weeks → spike-resistant par-sizing rate
+    SELECT sol.sku,
+           SUM(sol.qty) AS units,
+           COUNT(DISTINCT date_trunc('week', (so.order_date AT TIME ZONE 'Africa/Johannesburg'))) AS active_weeks
+    FROM sales_order_lines sol
+    JOIN sales_orders so ON so.id = sol.sales_order_id
+    WHERE sol.is_package_parent = false AND sol.status = 'active'
+      AND so.order_date >= now() - interval '28 days'
     GROUP BY sol.sku
   ),
   soh AS (
@@ -196,20 +213,21 @@ AS $$
   joined AS (
     SELECT
       p.id, p.sku, p.name, p.type, p.subcategory,
-      COALESCE(soh.available, 0)                        AS available,
-      COALESCE(p.par_level, 0)                          AS par_level,
-      COALESCE(w.units, 0)                              AS units_week,
-      COALESCE(pv.units, 0)                             AS units_prev_week,
-      COALESCE(b.units, 0) / (p_baseline_days / 7.0)    AS weekly_baseline,
-      GREATEST(COALESCE(b.units, 0) / (p_baseline_days / 7.0), COALESCE(w.units, 0)) AS forecast_weekly
+      COALESCE(soh.available, 0)                                          AS available,
+      COALESCE(p.par_level, 0)                                            AS par_level,
+      COALESCE(w.units, 0)                                                AS units_week,
+      COALESCE(pv.units, 0)                                               AS units_prev_week,
+      COALESCE(b.units, 0) / GREATEST(COALESCE(b.active_weeks, 0), 1)     AS weekly_baseline,
+      COALESCE(s.units, 0) / GREATEST(COALESCE(s.active_weeks, 0), 1)     AS smoothed_weekly
     FROM products p
-    LEFT JOIN wk   w  ON w.sku  = p.sku
-    LEFT JOIN prev pv ON pv.sku = p.sku
-    LEFT JOIN base b  ON b.sku  = p.sku
-    LEFT JOIN soh     ON soh.product_id = p.id
+    LEFT JOIN wk     w  ON w.sku  = p.sku
+    LEFT JOIN prev   pv ON pv.sku = p.sku
+    LEFT JOIN base   b  ON b.sku  = p.sku
+    LEFT JOIN smooth s  ON s.sku  = p.sku
+    LEFT JOIN soh       ON soh.product_id = p.id
     WHERE COALESCE(p.status, 'active') = 'active'
       AND p.type NOT IN ('package', 'bundle')   -- assembled on demand, no own stock
-      AND COALESCE(b.units, 0) + COALESCE(w.units, 0) > 0
+      AND COALESCE(b.units, 0) + COALESCE(w.units, 0) + COALESCE(s.units, 0) > 0
   )
   SELECT
     j.id, j.sku, j.name, j.type, j.subcategory,
@@ -224,11 +242,11 @@ AS $$
     CASE WHEN j.units_prev_week = 0 THEN NULL
          ELSE ROUND((j.units_week - j.units_prev_week) / j.units_prev_week * 100, 0)
     END                                      AS wow_pct,
-    ROUND(j.forecast_weekly, 1)              AS weekly_rate,
-    CASE WHEN j.forecast_weekly <= 0 THEN NULL
-         ELSE ROUND(j.available / (j.forecast_weekly / 7.0), 1)
+    ROUND(GREATEST(j.weekly_baseline, j.units_week), 1)  AS weekly_rate,   -- surge → cover/alerts
+    CASE WHEN GREATEST(j.weekly_baseline, j.units_week) <= 0 THEN NULL
+         ELSE ROUND(j.available / (GREATEST(j.weekly_baseline, j.units_week) / 7.0), 1)
     END                                      AS days_of_cover,
-    CEIL(j.forecast_weekly * p_cover_weeks * (1 + p_safety)) AS suggested_par
+    CEIL(j.smoothed_weekly * p_cover_weeks * (1 + p_safety)) AS suggested_par   -- smoothed → par
   FROM joined j
   ORDER BY j.units_week DESC;
 $$;
@@ -249,8 +267,8 @@ STABLE
 AS $$
   WITH weeks AS (
     SELECT generate_series(
-             date_trunc('week', now())::date - make_interval(weeks => p_weeks - 1)::interval,
-             date_trunc('week', now())::date,
+             date_trunc('week', (now() AT TIME ZONE 'Africa/Johannesburg'))::date - make_interval(weeks => p_weeks - 1)::interval,
+             date_trunc('week', (now() AT TIME ZONE 'Africa/Johannesburg'))::date,
              interval '1 week'
            )::date AS week_start
   )
@@ -259,7 +277,7 @@ AS $$
     COALESCE(SUM(sol.qty), 0) AS units
   FROM weeks w
   LEFT JOIN sales_orders so
-    ON date_trunc('week', so.order_date)::date = w.week_start
+    ON date_trunc('week', (so.order_date AT TIME ZONE 'Africa/Johannesburg'))::date = w.week_start
   LEFT JOIN sales_order_lines sol
     ON sol.sales_order_id = so.id
    AND sol.sku = p_sku
@@ -286,8 +304,8 @@ STABLE
 AS $$
   WITH weeks AS (
     SELECT generate_series(
-             date_trunc('week', now())::date - make_interval(weeks => p_weeks - 1)::interval,
-             date_trunc('week', now())::date,
+             date_trunc('week', (now() AT TIME ZONE 'Africa/Johannesburg'))::date - make_interval(weeks => p_weeks - 1)::interval,
+             date_trunc('week', (now() AT TIME ZONE 'Africa/Johannesburg'))::date,
              interval '1 week'
            )::date AS week_start
   )
@@ -297,7 +315,7 @@ AS $$
     COALESCE(SUM(sol.qty), 0) AS units
   FROM weeks w
   LEFT JOIN sales_orders so
-    ON date_trunc('week', so.order_date)::date = w.week_start
+    ON date_trunc('week', (so.order_date AT TIME ZONE 'Africa/Johannesburg'))::date = w.week_start
   LEFT JOIN sales_order_lines sol
     ON sol.sales_order_id = so.id
    AND sol.is_package_parent = false

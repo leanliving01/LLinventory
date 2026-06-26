@@ -73,7 +73,9 @@ export default function VelocityTrendPanel({ types = null }) {
     staleTime: 60000,
   });
 
-  const chartData = weekly.map((w) => ({
+  // Drop the final bucket (current calendar week, still in progress) so the
+  // chart shows complete weeks only and doesn't fake a dip.
+  const chartData = (weekly.length > 1 ? weekly.slice(0, -1) : weekly).map((w) => ({
     week: new Date(w.week_start).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' }),
     units: Number(w.units) || 0,
   }));
@@ -111,7 +113,7 @@ export default function VelocityTrendPanel({ types = null }) {
                 <tr className="border-y border-border">
                   <th className="text-left px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">Product</th>
                   <th className="text-right px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">This wk</th>
-                  <th className="text-right px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">90d avg</th>
+                  <th className="text-right px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase" title="Average weekly sales over active selling weeks (last 90 days, excluding this week)">Avg/wk</th>
                   <th className="text-right px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">Trend</th>
                   <th className="text-right px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">Cover</th>
                   <th className="text-right px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase">Par</th>
@@ -174,7 +176,7 @@ export default function VelocityTrendPanel({ types = null }) {
         <div className="px-5 pt-5 pb-3">
           <h3 className="text-sm font-semibold text-foreground">{activeRow ? activeRow.name : '13-Week Sales'}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {activeRow ? `${activeRow.sku} · units/week · dashed = 90d avg` : 'Select a product'}
+            {activeRow ? `${activeRow.sku} · complete weeks · dashed = avg/wk` : 'Select a product'}
           </p>
         </div>
         <div className="px-3 pb-4">
@@ -210,7 +212,7 @@ export default function VelocityTrendPanel({ types = null }) {
                 <p className="text-sm font-bold tabular-nums">{activeRow.units_week}</p>
               </div>
               <div>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">90d avg/wk</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Avg/wk</p>
                 <p className="text-sm font-bold tabular-nums">{activeRow.weekly_baseline}</p>
               </div>
               <div>

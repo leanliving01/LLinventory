@@ -25,7 +25,10 @@ export default function SalesTrendChart({ group }) {
     // Ensure every week present in the data (incl. NULL-type anchors) is on the axis.
     for (const r of rows) if (!byWeek.has(r.week_start)) byWeek.set(r.week_start, 0);
 
-    const sorted = [...byWeek.entries()].sort((a, b) => new Date(a[0]) - new Date(b[0]));
+    const sortedAll = [...byWeek.entries()].sort((a, b) => new Date(a[0]) - new Date(b[0]));
+    // The final bucket is the CURRENT calendar week (still in progress) — drop it
+    // so a partial week doesn't read as a dip and skew the "vs average" headline.
+    const sorted = sortedAll.length > 1 ? sortedAll.slice(0, -1) : sortedAll;
     const data = sorted.map(([wk, units]) => ({
       week: new Date(wk).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' }),
       units,
@@ -44,7 +47,7 @@ export default function SalesTrendChart({ group }) {
       <div className="flex items-start justify-between px-5 pt-5 pb-2">
         <div>
           <h3 className="text-sm font-semibold text-foreground">{group?.label || 'All Inventory'} — Weekly Sales</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Units sold per week · last 13 weeks</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Units sold per complete week · current week in progress excluded</p>
         </div>
         <div className="text-right">
           <p className="text-2xl font-bold tabular-nums leading-none">{Math.round(thisWeek)}</p>

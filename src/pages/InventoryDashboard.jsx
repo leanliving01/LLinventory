@@ -13,6 +13,7 @@ import TrendingMovers from '@/components/inventory-dashboard/TrendingMovers';
 import ReorderSignalsPanel from '@/components/inventory-dashboard/ReorderSignalsPanel';
 import VelocityTrendPanel from '@/components/inventory-dashboard/VelocityTrendPanel';
 import WatchlistPanel from '@/components/inventory-dashboard/WatchlistPanel';
+import PackagingDemandPanel from '@/components/inventory-dashboard/PackagingDemandPanel';
 
 const TABS = [ALL_GROUP, ...CATEGORY_GROUPS];
 
@@ -29,6 +30,9 @@ export default function InventoryDashboard() {
 
   const group = getGroup(groupKey);
   const types = group.types; // null = all
+  // Packaging is dependent-demand (never sold directly) — its trend/velocity is
+  // derived from meal BOMs, so swap the sales-velocity panels for the BOM view.
+  const isPackaging = groupKey === 'packaging';
 
   const refresh = async () => {
     setRefreshing(true);
@@ -94,8 +98,8 @@ export default function InventoryDashboard() {
         </div>
       </div>
 
-      {/* Trending up / cooling down */}
-      <TrendingMovers types={types} />
+      {/* Trending up / cooling down — sales-driven categories only */}
+      {!isPackaging && <TrendingMovers types={types} />}
 
       {/* Reorder + Watchlist */}
       <div className="grid gap-4 lg:grid-cols-3">
@@ -107,8 +111,8 @@ export default function InventoryDashboard() {
         </div>
       </div>
 
-      {/* Velocity / trend intelligence */}
-      <VelocityTrendPanel types={types} />
+      {/* Velocity (sales-driven) OR packaging BOM-derived demand */}
+      {isPackaging ? <PackagingDemandPanel /> : <VelocityTrendPanel types={types} />}
     </div>
   );
 }
