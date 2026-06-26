@@ -374,7 +374,7 @@ export default function ProductReviewQueue() {
         pack_size: ps,
         pack_size_uom: form.pack_size_uom || null,
         pack_qty: pq,
-        conversion_uom: picked.stock_uom || null,
+        conversion_uom: product.stock_uom || null,
         conversion_factor: cf,
         yield_factor: yf,
         effective_internal_qty: Math.round(cf * yf * 1000) / 1000,
