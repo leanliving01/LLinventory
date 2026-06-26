@@ -1,12 +1,26 @@
--- Atomic stock-on-hand adjustment.
--- Replaces all client-side read-modify-write SOH mutations.
--- Positive delta = add stock (GRN, production output, manual adjustment)
--- Negative delta = remove stock (pick, write-off, return)
--- p_new_cost_avg: only supply when adding stock — used for weighted-average cost update.
+-- ============================================================================
+-- 081_adjust_stock_on_hand_text_ids
+-- FIX: manual "Adjust Stock" failed for legacy products with non-UUID ids.
+--
+-- adjust_stock_on_hand() declared its id params as `uuid`, but every id column
+-- in this system is `text` (products.id, stock_on_hand.product_id /
+-- location_id are all text — many legacy Base44 rows use 24-char hex ObjectIds
+-- like "69ea6f6c6f57e3ad408e301c" that are NOT valid UUIDs). Calling the RPC
+-- for such a product raised:
+--   invalid input syntax for type uuid: "69ea6f6c6f57e3ad408e301c"
+-- UUID-format products happened to work; legacy ones never could.
+--
+-- This re-creates the function with `text` id params. The body is otherwise
+-- unchanged (same weighted-average cost_avg logic, same RETURNS stock_on_hand),
+-- so GRN / picks / transfers / stock-take / write-offs / returns keep behaving
+-- exactly as before — they just no longer depend on ids being UUIDs.
+--
+-- ⚠️  Run in the Supabase SQL Editor before/with the deploy.
+-- ============================================================================
 
--- NOTE: id params are text — products.id / stock_on_hand.product_id /
--- location_id are all text columns (legacy Base44 rows use non-UUID hex ids).
--- See migration 081_adjust_stock_on_hand_text_ids.sql.
+-- Drop the old uuid-typed signature so PostgREST can't pick the wrong overload.
+DROP FUNCTION IF EXISTS adjust_stock_on_hand(uuid, uuid, numeric, numeric);
+
 CREATE OR REPLACE FUNCTION adjust_stock_on_hand(
   p_product_id  text,
   p_location_id text,
