@@ -76,6 +76,7 @@ const PATH_PERMISSION_MAP = {
   '/inventory/dashboard': 'inventory_overview',
   '/stock/overview': 'inventory_overview',
   '/sales': 'sales_view',
+  '/sales/profitability': 'sales_view',
   '/sales/operations': 'sales_view',
   '/sales/returns': 'sales_view',
   '/sales/refunds': 'sales_view',
@@ -146,6 +147,7 @@ const navItems = [
     label: 'Sales & Returns', icon: ShoppingCart,
     children: [
       { label: 'Orders', path: '/sales', icon: ShoppingCart },
+      { label: 'Profitability', path: '/sales/profitability', icon: TrendingUp },
       { label: 'Operations', path: '/sales/operations', icon: LayoutDashboard },
       { label: 'Returns', path: '/sales/returns', icon: RotateCcw },
       { label: 'Refunds', path: '/sales/refunds', icon: DollarSign },

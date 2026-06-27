@@ -249,3 +249,28 @@ body.barcode-scanning-active .barcode-scanning-ui * {
     break-inside: avoid;
   }
 }
+
+/* ── Order Profitability — meal-box "fill" gauge animations ── */
+@keyframes profit-wave {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-120px); }
+}
+@keyframes profit-rise {
+  0%   { transform: translateY(0) scale(1); opacity: 0; }
+  15%  { opacity: 0.9; }
+  100% { transform: translateY(-46px) scale(0.4); opacity: 0; }
+}
+@keyframes profit-overflow {
+  0%, 100% { transform: translateY(0); opacity: 0.85; }
+  50%      { transform: translateY(3px); opacity: 1; }
+}
+.profit-wave   { animation: profit-wave 3.2s linear infinite; }
+.profit-wave-2 { animation: profit-wave 4.6s linear infinite reverse; }
+.profit-bubble { animation: profit-rise 2.8s ease-in infinite; }
+.profit-overflow-glow { animation: profit-overflow 2.2s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .profit-wave, .profit-wave-2, .profit-bubble, .profit-overflow-glow {
+    animation: none !important;
+  }
+}
