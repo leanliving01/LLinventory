@@ -68,6 +68,8 @@ export function summariseOrders(orders = []) {
   const netProfit = orders.reduce((s, o) => s + num(o.net_profit), 0);
   const shipping = orders.reduce((s, o) => s + num(o.shipping_charged), 0);
   const discounts = orders.reduce((s, o) => s + num(o.discounts), 0);
+  const vouchers = orders.reduce((s, o) => s + num(o.voucher_store_credit), 0);
+  const addedCosts = orders.reduce((s, o) => s + num(o.added_costs), 0);
   const refunds = orders.reduce((s, o) => s + num(o.refunds_financial) + num(o.refunds_returns), 0);
   const units = orders.reduce((s, o) => s + num(o.item_units), 0);
   return {
@@ -78,6 +80,8 @@ export function summariseOrders(orders = []) {
     netProfit,
     shipping,
     discounts,
+    vouchers,
+    addedCosts,
     refunds,
     units,
     avgProfit: n ? netProfit / n : 0,

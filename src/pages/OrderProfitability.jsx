@@ -11,6 +11,7 @@ import MealBoxGauge from '@/components/order-profitability/MealBoxGauge';
 import ProfitKpiRow from '@/components/order-profitability/ProfitKpiRow';
 import GroupProfitPanel from '@/components/order-profitability/GroupProfitPanel';
 import ProvinceProfitChart from '@/components/order-profitability/ProvinceProfitChart';
+import ProfitWaterfall from '@/components/order-profitability/ProfitWaterfall';
 import ProfitTrendChart from '@/components/order-profitability/ProfitTrendChart';
 import OrdersProfitTable from '@/components/order-profitability/OrdersProfitTable';
 
@@ -192,8 +193,11 @@ export default function OrderProfitability() {
       {/* KPIs */}
       <ProfitKpiRow summary={summary} />
 
-      {/* Profit trend */}
-      <ProfitTrendChart orders={fOrders} />
+      {/* Profit bridge + trend */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ProfitWaterfall summary={summary} />
+        <ProfitTrendChart orders={fOrders} />
+      </div>
 
       {/* Pack size + meal package */}
       <div className="grid gap-4 lg:grid-cols-2">
