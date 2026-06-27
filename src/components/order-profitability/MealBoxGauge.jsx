@@ -98,10 +98,12 @@ export default function MealBoxGauge({ margin = 0, size = 150, label, value, sho
         <path d="M20,32 H100 L93,112 Q93,116 89,116 H31 Q27,116 27,112 Z"
           fill="none" stroke="hsl(var(--border))" strokeWidth="1.6" />
 
-        {/* Margin % inside the box */}
+        {/* Margin % inside the box — text colour flips so it stays legible
+            whether it sits over liquid (white) or the empty backdrop (dark). */}
         {showPct && (
-          <text x="60" y="78" textAnchor="middle" fontWeight="800"
-            fontSize="20" fill="#fff" style={{ paintOrder: 'stroke', textShadow: '0 1px 3px rgba(0,0,0,.35)' }}>
+          <text x="60" y="78" textAnchor="middle" fontWeight="800" fontSize="20"
+            fill={surfaceY < 72 ? '#fff' : 'hsl(var(--foreground))'}
+            style={{ textShadow: surfaceY < 72 ? '0 1px 3px rgba(0,0,0,.35)' : 'none' }}>
             {Math.round(margin)}%
           </text>
         )}
