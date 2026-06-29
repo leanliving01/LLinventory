@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
+import { useUnsavedChanges, useGuardedNavigate } from '@/lib/navigationGuard';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44, supabase } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -21,7 +22,7 @@ import WorkflowAuditTimeline from '@/components/returns/WorkflowAuditTimeline';
 
 export default function SalesResendDetail() {
   const { resendId } = useParams();
-  const navigate = useNavigate();
+  const guardedNavigate = useGuardedNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const customRoles = useCustomRoles();
@@ -74,6 +75,21 @@ export default function SalesResendDetail() {
     });
   }, [rs]);
   useEffect(() => { setRows(lines.map(l => ({ ...l }))); }, [lines]);
+
+  // ── Unsaved-changes guard (sidebar / back button / refresh / ⌘K) ──────────
+  // Declared before the loading early-return so the hook order stays stable.
+  const baselineForm = rs ? {
+    reason: rs.reason || '', notes: rs.notes || '',
+    courier_company: rs.courier_company || '', courier_tracking_ref: rs.courier_tracking_ref || '',
+    dispatch_date: rs.dispatch_date || '', courier_notes: rs.courier_notes || '',
+    exception_notes: rs.exception_notes || '',
+  } : null;
+  const isEditable = rs ? (['draft', 'pending_approval'].includes(rs.status) && canProcess) : false;
+  const formDirty = !!form && !!baselineForm && JSON.stringify(form) !== JSON.stringify(baselineForm);
+  const rowsDirty = JSON.stringify(rows) !== JSON.stringify(lines.map(l => ({ ...l })));
+  useUnsavedChanges(!saving && isEditable && (formDirty || rowsDirty), {
+    message: 'You have unsaved changes to this re-send. Leave without saving?',
+  });
 
   if (isLoading || !rs || !form) {
     return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
@@ -179,7 +195,7 @@ export default function SalesResendDetail() {
 
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-[1000px] mx-auto">
-      <button onClick={() => navigate('/sales/resends')} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <button onClick={() => guardedNavigate('/sales/resends')} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="w-4 h-4" /> Back to Re-sends
       </button>
 
