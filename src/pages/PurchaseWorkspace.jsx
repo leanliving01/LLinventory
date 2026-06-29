@@ -89,9 +89,11 @@ export default function PurchaseWorkspace() {
 
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ['po', id] });
+    qc.invalidateQueries({ queryKey: ['po-lines', id] });
     qc.invalidateQueries({ queryKey: ['workspace-grns', id] });
     qc.invalidateQueries({ queryKey: ['workspace-invoices', id] });
     qc.invalidateQueries({ queryKey: ['workspace-shortages', id] });
+    qc.invalidateQueries({ queryKey: ['lines-tab-grn-lines', id] });
   };
 
   const handleRevertToDraft = async () => {
