@@ -15,6 +15,7 @@ import {
   defaultSubcategoryHex, SUBCATEGORY_COLOR_PALETTE,
 } from '@/lib/productClassification';
 import { cn } from '@/lib/utils';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 
 const TYPE_OPTIONS = CATEGORY_ORDER.map(value => ({ value, label: CATEGORY_LABELS[value] || value }));
 
@@ -239,6 +240,14 @@ export default function SettingsCategoriesTab() {
     });
   };
 
+  // Dirty when the user has typed a new subcategory name into any inline add box
+  // but not clicked Add yet. (Colours/merges persist immediately; nothing else
+  // is a held draft.) Hook stays above the loading early-return per Rules of Hooks.
+  const hasPendingSubName = Object.values(newSubNames).some(v => (v || '').trim());
+  useUnsavedChanges(hasPendingSubName, {
+    message: 'You have an unsaved subcategory name. Leave without adding it?',
+  });
+
   if (loadingCats || loadingSubs) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -459,6 +468,13 @@ function MergeDialog({ merge, subcategories, products, onClose, onDone }) {
   const { mode, source, label, count } = merge;
   const [target, setTarget] = useState('');
   const [busy, setBusy] = useState(false);
+  const guardedClose = useGuardedAction();
+
+  // Dirty once a merge target is chosen but not yet applied. Mounted only while
+  // open, so comparing against the empty initial value is safe.
+  useUnsavedChanges(!!target, {
+    message: 'You have an unapplied merge selection. Discard it?',
+  });
 
   const targetOptions = useMemo(() => {
     if (mode === 'subcategory') {
@@ -508,14 +524,14 @@ function MergeDialog({ merge, subcategories, products, onClose, onDone }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => guardedClose(onClose)}>
       <div className="bg-card rounded-xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <h2 className="text-base font-bold flex items-center gap-2">
             <GitMerge className="w-4 h-4 text-primary" />
             {mode === 'subcategory' ? 'Move subcategory' : 'Merge category'}
           </h2>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="w-5 h-5" /></Button>
+          <Button variant="ghost" size="icon" onClick={() => guardedClose(onClose)}><X className="w-5 h-5" /></Button>
         </div>
 
         <div className="px-5 py-4 space-y-4">

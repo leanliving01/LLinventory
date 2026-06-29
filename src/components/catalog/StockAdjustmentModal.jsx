@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, Loader2, Plus, Minus } from 'lucide-react';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 
 const REASONS = [
   { value: 'receipt', label: 'Stock Received', direction: 'in' },
@@ -98,12 +99,26 @@ export default function StockAdjustmentModal({ product, onClose }) {
 
   const canSave = Number(qty) > 0 && locationId;
 
+  // Unsaved-changes guard: dirty once the user has typed a quantity or notes
+  // (location/reason carry defaults, so they aren't user-intent signals).
+  const isDirty = qty.trim() !== '' || notes.trim() !== '';
+  useUnsavedChanges(isDirty, {
+    message: 'You have an unsaved stock adjustment. Leave without saving?',
+  });
+  const guardedClose = useGuardedAction();
+
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-      <div className="bg-card rounded-2xl border border-border w-full max-w-md shadow-xl">
+    <div
+      className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4"
+      onClick={() => guardedClose(onClose)}
+    >
+      <div
+        className="bg-card rounded-2xl border border-border w-full max-w-md shadow-xl"
+        onClick={e => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h3 className="text-lg font-bold">Adjust Stock</h3>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="w-5 h-5" /></Button>
+          <Button variant="ghost" size="icon" onClick={() => guardedClose(onClose)}><X className="w-5 h-5" /></Button>
         </div>
 
         <div className="p-6 space-y-4">
@@ -197,7 +212,7 @@ export default function StockAdjustmentModal({ product, onClose }) {
         </div>
 
         <div className="px-6 py-4 border-t border-border flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" className="flex-1" onClick={() => guardedClose(onClose)}>Cancel</Button>
           <Button
             className="flex-1 gap-2"
             onClick={handleSave}

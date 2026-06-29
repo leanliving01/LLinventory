@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -146,6 +147,12 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
   // Track whether we've done the initial seed
   const [seeded, setSeeded] = useState(false);
 
+  // Snapshots of the seeded baselines, so untouched pre-filled values don't read
+  // dirty — only edits away from the seed (or new typed fields) count.
+  const seededActualsJson = useRef('{}');
+  const seededWastageJson = useRef('{}');
+  const seededLeftoverJson = useRef(null);
+
   // Pre-fill actuals from saved TaskConsumption records, falling back to BOM-required.
   useEffect(() => {
     if (isPortioning || componentRows.length === 0 || seeded) return;
@@ -166,6 +173,8 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
     });
     setActuals(prefilled);
     setWastage(prefilledWaste);
+    seededActualsJson.current = JSON.stringify(prefilled);
+    seededWastageJson.current = JSON.stringify(prefilledWaste);
     setSeeded(true);
   }, [componentRows, isPortioning, existingConsumption, seeded]);
 
@@ -175,8 +184,23 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
       const prefilled = {};
       bulkRows.forEach(r => { prefilled[r.id] = '0'; });
       setPortionLeftover(prefilled);
+      seededLeftoverJson.current = JSON.stringify(prefilled);
     }
   }, [bulkRows, isPortioning]);
+
+  // Dirty when the operator types a yield/plates/variance note, or edits any
+  // pre-seeded consumed/wastage/leftover value away from its seeded baseline.
+  const leftoverSeed = seededLeftoverJson.current;
+  const dirty = !confirming && (
+    actualYield !== '' ||
+    platesProduced !== '' ||
+    varianceNote.trim() !== '' ||
+    JSON.stringify(actuals) !== seededActualsJson.current ||
+    JSON.stringify(wastage) !== seededWastageJson.current ||
+    (leftoverSeed !== null && JSON.stringify(portionLeftover) !== leftoverSeed)
+  );
+  useUnsavedChanges(dirty, { message: 'You have an unsaved task completion. Discard your entries?' });
+  const guardedClose = useGuardedAction();
 
   const handleConfirm = async () => {
     // Require actual yield for prep/cook tasks
@@ -265,7 +289,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
             <h3 className="text-lg font-bold">Complete Task</h3>
             <p className="text-sm text-muted-foreground">{task.meal_name || task.name}</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onCancel}>
+          <Button variant="ghost" size="icon" onClick={() => guardedClose(onCancel)}>
             <X className="w-5 h-5" />
           </Button>
         </div>
@@ -530,7 +554,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-border shrink-0 flex gap-3">
-          <Button variant="outline" className="flex-1 h-12" onClick={onCancel}>
+          <Button variant="outline" className="flex-1 h-12" onClick={() => guardedClose(onCancel)}>
             Cancel
           </Button>
           <Button

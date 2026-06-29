@@ -6,11 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import {
   ArrowLeft, ArrowRight, Check, Send,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import FloorZonePicker from '@/components/floor/FloorZonePicker';
 import FloorProductSearch from '@/components/floor/FloorProductSearch';
 import FloorTransferLines from '@/components/floor/FloorTransferLines';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 
 /**
  * §1E — Floor Transfer
@@ -51,6 +51,12 @@ export default function FloorTransfer() {
   };
 
   const validLines = lines.filter(l => Number(l.qty) > 0);
+
+  // Unsaved-draft guard: a transfer being built (lines added, not yet confirmed)
+  // lives only in memory until handleConfirm. No auto-save on this screen.
+  useUnsavedChanges(lines.length > 0 && !done && !saving, {
+    message: 'This transfer has unconfirmed items that will be lost if you leave.',
+  });
 
   const handleConfirm = async () => {
     if (validLines.length === 0) { toast.error('Add items with quantities'); return; }

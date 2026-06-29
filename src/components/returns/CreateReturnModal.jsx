@@ -6,11 +6,12 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
-import { X, Loader2, RotateCcw, Plus } from 'lucide-react';
+import { X, Loader2, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { writeAuditLog } from '@/lib/auditLog';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 
 const STOCK_ACTIONS = [
   { value: 'remove_from_stock', label: 'Remove from stock' },
@@ -115,6 +116,18 @@ export default function CreateReturnModal({ po = null, onCreated, onCancel }) {
     return s + (parseFloat(l.return_qty) || 0) * (parseFloat(l.unit_cost) || 0);
   }, 0);
 
+  // Dirty when the user has started building a return: picked a GRN, selected any
+  // line, typed notes, or changed the supplier from the pre-linked one.
+  const initialSupplierId = po?.supplier_id || '';
+  const dirty = !saving && (
+    supplierId !== initialSupplierId ||
+    !!grnId ||
+    selectedLines.length > 0 ||
+    notes.trim() !== ''
+  );
+  useUnsavedChanges(dirty, { message: 'You have an unsaved supplier return. Discard it?' });
+  const guardedClose = useGuardedAction();
+
   const handleCreate = async () => {
     if (!supplierId || !grnId || selectedLines.length === 0) {
       toast.error('Select supplier, GRN, and at least one line');
@@ -191,7 +204,7 @@ export default function CreateReturnModal({ po = null, onCreated, onCancel }) {
             <RotateCcw className="w-5 h-5 text-red-600" />
             <h3 className="text-lg font-bold">New Supplier Return</h3>
           </div>
-          <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-5 h-5" /></Button>
+          <Button variant="ghost" size="icon" onClick={() => guardedClose(onCancel)}><X className="w-5 h-5" /></Button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
@@ -368,7 +381,7 @@ export default function CreateReturnModal({ po = null, onCreated, onCancel }) {
             </p>
           )}
           <div className="flex gap-3">
-            <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
+            <Button variant="outline" className="flex-1" onClick={() => guardedClose(onCancel)}>Cancel</Button>
             <Button className="flex-1 gap-2" onClick={handleCreate} disabled={saving || selectedLines.length === 0}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
               {saving ? 'Creating...' : `Create Return (${selectedLines.length})`}

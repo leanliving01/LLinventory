@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { CheckCircle2, Save, Loader2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { DEFAULT_MATCH_TOLERANCES, MATCH_SETTING_KEYS } from '@/lib/threeWayMatch';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 
 const FIELDS = [
   {
@@ -75,12 +76,26 @@ export default function SettingsPurchasingTab() {
       queryClient.invalidateQueries({ queryKey: ['settings-purchasing'] });
       queryClient.invalidateQueries({ queryKey: ['match-tolerances'] });
       toast.success('Three-way match tolerances saved');
+      return true;
     } catch (err) {
       toast.error('Failed to save: ' + (err?.message || 'Unknown error'));
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  // Dirty = any field's typed value differs from its loaded setting (or default),
+  // reconstructing the baseline exactly as the seed effect does (String(s.value) || String(f.def)).
+  const hasUnsavedChanges = FIELDS.some((f) => {
+    const s = settings.find((x) => x.key === f.key);
+    const baseline = s ? String(s.value) : String(f.def);
+    return (values[f.key] ?? '') !== baseline;
+  });
+  useUnsavedChanges(hasUnsavedChanges, {
+    message: 'You have unsaved match tolerances. Leave without saving?',
+    onSave: handleSave,
+  });
 
   const resetDefaults = () => {
     const next = {};

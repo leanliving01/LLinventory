@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   ArrowLeft, Check, Truck, PackageCheck, Loader2,
 } from 'lucide-react';
@@ -11,6 +10,7 @@ import { toast } from 'sonner';
 import FloorZonePicker from '@/components/floor/FloorZonePicker';
 import FloorProductSearch from '@/components/floor/FloorProductSearch';
 import FloorReceiveLines from '@/components/floor/FloorReceiveLines';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 
 /**
  * §1F — Floor Receive
@@ -112,6 +112,12 @@ export default function FloorReceive() {
   };
 
   const validLines = lines.filter(l => Number(l.qty) > 0);
+
+  // Unsaved-draft guard: a receipt being built (lines added, not yet confirmed)
+  // lives only in memory until handleConfirm. Auto-save is not in play here.
+  useUnsavedChanges(lines.length > 0 && !done && !saving, {
+    message: 'This receipt has unconfirmed items that will be lost if you leave.',
+  });
 
   const handleConfirm = async () => {
     if (validLines.length === 0) { toast.error('Add items with quantities'); return; }

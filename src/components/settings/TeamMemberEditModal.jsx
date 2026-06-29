@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { X, Loader2, ShieldCheck, Utensils, Flame, ChefHat, Truck } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 
 const STATIONS = [
   { id: 'prep', label: 'Prep', icon: Utensils, color: 'border-blue-300 bg-blue-50' },
@@ -28,6 +29,21 @@ export default function TeamMemberEditModal({ member, onSave, onCancel }) {
   const [packPin, setPackPin] = useState(member?.pin || '');
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
+  const guardedClose = useGuardedAction();
+
+  // Baseline mirrors the exact init values above, so an untouched form is clean.
+  const baseStations = member?.stations?.length > 0
+    ? [...member.stations]
+    : member?.station ? [member.station] : [];
+  const isDirty =
+    name !== (member?.name || '') ||
+    JSON.stringify(stations) !== JSON.stringify(baseStations) ||
+    isManager !== (member?.is_manager || false) ||
+    pin !== (member?.manager_pin || '') ||
+    packPin !== (member?.pin || '');
+  useUnsavedChanges(isDirty, {
+    message: 'You have unsaved team member changes. Leave without saving?',
+  });
 
   const toggleStation = (sid) => {
     setStations(prev => prev.includes(sid) ? prev.filter(s => s !== sid) : [...prev, sid]);
@@ -63,7 +79,7 @@ export default function TeamMemberEditModal({ member, onSave, onCancel }) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h3 className="text-lg font-bold">{isNew ? 'Add Team Member' : 'Edit Team Member'}</h3>
-          <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-5 h-5" /></Button>
+          <Button variant="ghost" size="icon" onClick={() => guardedClose(onCancel)}><X className="w-5 h-5" /></Button>
         </div>
 
         {/* Body */}

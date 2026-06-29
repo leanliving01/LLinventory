@@ -9,6 +9,7 @@ import { X, Loader2, PackageCheck, Search, Check, ChevronsUpDown, FileText, Aler
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { nextDocNumber } from '@/lib/docNumbering';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 
 /**
  * Type-ahead supplier picker. Renders an inline (non-portal) dropdown so it
@@ -132,6 +133,17 @@ export default function CreateGRNModal({ onCreated, onCancel }) {
   const onSupplierChange = (supplierId) => {
     setForm(prev => ({ ...prev, supplier_id: supplierId, purchase_order_id: '', invoice_id: '' }));
   };
+
+  // Unsaved-changes guard: dirty once any picker/field is set. received_date
+  // defaults to today, so it doesn't count as an edit on its own.
+  const dirty =
+    !!form.supplier_id ||
+    !!form.location_id ||
+    !!form.purchase_order_id ||
+    !!form.invoice_id ||
+    !!form.notes;
+  useUnsavedChanges(dirty, { message: 'This goods received note has unsaved changes.' });
+  const guardedClose = useGuardedAction();
 
   const handleCreate = async () => {
     if (!form.supplier_id) { toast.error('Select a supplier'); return; }
@@ -275,7 +287,7 @@ export default function CreateGRNModal({ onCreated, onCancel }) {
             <PackageCheck className="w-5 h-5 text-primary" />
             <h3 className="text-lg font-bold">New Goods Received Note</h3>
           </div>
-          <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-5 h-5" /></Button>
+          <Button variant="ghost" size="icon" onClick={() => guardedClose(onCancel)}><X className="w-5 h-5" /></Button>
         </div>
 
         <div className="px-6 py-4 space-y-4 overflow-y-auto">
@@ -382,7 +394,7 @@ export default function CreateGRNModal({ onCreated, onCancel }) {
         </div>
 
         <div className="px-6 py-4 border-t border-border flex gap-3 shrink-0">
-          <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
+          <Button variant="outline" className="flex-1" onClick={() => guardedClose(onCancel)}>Cancel</Button>
           <Button className="flex-1 gap-2" onClick={handleCreate} disabled={saving || !form.supplier_id || !form.location_id}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <PackageCheck className="w-4 h-4" />}
             {saving ? 'Creating...' : selectedInvoice ? 'Receive Against Invoice' : 'Create GRN'}

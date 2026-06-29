@@ -79,7 +79,8 @@ export default function NewSalesOrder() {
     !!customerId || !!customerName || !!customerEmail || !!customerPhone || !!customerExternalId ||
     !!billingAddress || !!shippingAddress || !!shippingCity || !!shippingProvince || !!shippingZip ||
     !!notes || !!shippingCost || !!discount || !!amountPaid || !!paymentMethod || !!paymentReference ||
-    paymentStatus !== 'pending'
+    paymentStatus !== 'pending' ||
+    orderSource !== 'manual' || currency !== 'ZAR' || shippingCountry !== 'South Africa'
   );
   useUnsavedChanges(hasUnsavedChanges, {
     message: 'This order has not been saved yet. Leaving now will discard it.',

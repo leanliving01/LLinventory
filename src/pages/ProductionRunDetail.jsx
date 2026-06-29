@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3, RefreshCw, Trash2, XCircle, RotateCcw, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3, RefreshCw, XCircle, RotateCcw, ShieldAlert } from 'lucide-react';
 import { formatDateSAST, formatTimeSAST } from '@/lib/dateUtils';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -24,6 +24,7 @@ import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import { generatePickList } from '@/lib/pickListGenerator';
 import { clearProductionFloorForRun } from '@/lib/productionFloorStock.js';
 import CookingGateModal from '@/components/production/CookingGateModal';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 
 const STATUS_STYLES = {
   draft: 'bg-muted text-muted-foreground',
@@ -68,6 +69,24 @@ export default function ProductionRunDetail() {
     queryKey: ['production-run-lines', runId],
     queryFn: () => base44.entities.ProductionRunLine.filter({ run_id: runId }, 'product_sku', 200),
     enabled: !!runId,
+  });
+
+  // Unsaved-changes guard: inline planned-qty edits, typed variance reasons, and any
+  // actual differing from the persisted line value are buffered locally and only saved on
+  // Save/Complete. `actuals` is auto-prefilled from the line's stored actual_qty, so we
+  // only treat it as dirty when the typed value differs from what's already persisted.
+  const lineById = useMemo(() => Object.fromEntries(lines.map(l => [l.id, l])), [lines]);
+  const hasUnsavedActuals = Object.entries(actuals).some(([id, v]) => {
+    const line = lineById[id];
+    if (!line) return v !== '' && v !== undefined;
+    return Number(v) !== Number(line.actual_qty || 0);
+  });
+  const hasUnsavedChanges =
+    Object.keys(plannedEdits).length > 0 ||
+    Object.keys(reasons).length > 0 ||
+    hasUnsavedActuals;
+  useUnsavedChanges(hasUnsavedChanges, {
+    message: 'You have unsaved production edits. Leave without saving?',
   });
 
   // Check if a persisted PickList already exists for this run

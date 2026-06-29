@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import CSVStockImport from '@/components/stock/CSVStockImport';
 import StockTakeTable from '@/components/stock/StockTakeTable';
 import { PACKAGE_TYPES, GOAL_PACKAGE_TYPES, LOW_CARB_PACKAGE_TYPES, groupSkusByMeal } from '@/lib/mealGrouping';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 
 export default function StockTake() {
   const queryClient = useQueryClient();
@@ -65,7 +66,7 @@ export default function StockTake() {
     const entries = Object.entries(stockValues).filter(([_, v]) => v !== '' && v !== undefined);
     if (entries.length === 0) {
       toast.error('No values to save');
-      return;
+      return false;
     }
 
     setSaving(true);
@@ -90,14 +91,23 @@ export default function StockTake() {
       queryClient.invalidateQueries({ queryKey: ['latestStock'] });
       setStockValues({});
       toast.success(`Stock take saved for ${entries.length} SKUs`);
+      return true;
     } catch (err) {
       toast.error('Save failed: ' + (err.message || 'Unknown error'));
+      return false;
     } finally {
       setSaving(false);
     }
   };
 
   const saveCount = Object.values(stockValues).filter(v => v !== '' && v !== undefined).length;
+
+  // Unsaved-count guard: counts are typed into local state and only persist on
+  // "Save All" — so any entered-but-unsaved value is genuinely lost on leave.
+  useUnsavedChanges(saveCount > 0, {
+    message: `You have ${saveCount} stock count${saveCount === 1 ? '' : 's'} entered that haven't been saved yet.`,
+    onSave: handleSaveAll,
+  });
   const goalRows = mealRows.filter(r => GOAL_PACKAGE_TYPES.some(pt => r.skusByType[pt]));
   const lowCarbRows = mealRows.filter(r => LOW_CARB_PACKAGE_TYPES.some(pt => r.skusByType[pt]));
 

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Plus, Package, Loader2, Pill, UtensilsCrossed, Truck, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 import PackingRuleCard from './PackingRuleCard';
 import PackingRuleForm from './PackingRuleForm';
 
@@ -111,6 +112,13 @@ export default function SettingsPackingMaterialsTab() {
       setSavingAppUrl(false);
     }
   };
+
+  // Dirty when either saved-setting field differs from its loaded baseline.
+  const courierDirty = courierCost !== (courierSetting?.value ?? '');
+  const appUrlDirty = appUrl !== (appUrlSetting?.value ?? '');
+  useUnsavedChanges(courierDirty || appUrlDirty, {
+    message: 'You have unsaved packing settings. Leave without saving?',
+  });
 
   const { data: packagingProducts = [] } = useQuery({
     queryKey: ['packaging-products'],

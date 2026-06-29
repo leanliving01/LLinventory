@@ -46,6 +46,8 @@ export function NavigationGuardProvider({ children }) {
   const [saving, setSaving] = useState(false);
   // When we deliberately let one navigation through, skip our own interceptors.
   const bypassRef = useRef(false);
+  // True while the back-button confirmation dialog is open (ignore extra backs).
+  const backPromptOpenRef = useRef(false);
 
   const sync = useCallback(() => setDirtyCount(guards.current.size), []);
 
@@ -123,49 +125,65 @@ export function NavigationGuardProvider({ children }) {
   }, [isDirty]);
 
   // ── 3. Browser / hardware back button ────────────────────────────────────
-  // Depend on the boolean `dirty` (not the count) so the sentinel is pushed
-  // exactly once when we transition into a dirty state.
+  // Single-sentinel trap. On entering a dirty state we push ONE history entry
+  // (same URL) on top of the editor. A back press pops that sentinel — leaving
+  // us sitting on the editor entry — and we prompt. "Stay" re-pushes the
+  // sentinel; "Leave" steps back once more to the page before the editor.
+  // Depend on the boolean `dirty` so the sentinel is pushed once per session.
   useEffect(() => {
     if (!dirty) return;
-    // Clear any leftover bypass from a previous session so the first back press
-    // of this session always prompts.
+    // Clear any leftover bypass so the first back press of this session prompts.
     bypassRef.current = false;
-    window.history.pushState(null, document.title, window.location.href);
+    window.history.pushState({ __navGuardSentinel: true }, '', window.location.href);
     const onPop = () => {
       if (bypassRef.current) {
         bypassRef.current = false;
         return;
       }
       if (!isDirty()) return;
-      // Re-trap so the page stays put, then ask the user.
-      window.history.pushState(null, document.title, window.location.href);
+      // Ignore extra back presses while the prompt is already open.
+      if (backPromptOpenRef.current) {
+        // Re-trap so we don't fall through to the previous page.
+        window.history.pushState({ __navGuardSentinel: true }, '', window.location.href);
+        return;
+      }
+      backPromptOpenRef.current = true;
       setPending({ type: 'back' });
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [dirty, isDirty]);
 
-  const closeDialog = useCallback(() => setPending(null), []);
+  const closeDialog = useCallback(() => {
+    // "Stay" after a back press: re-trap, because the back already popped the
+    // sentinel and left us on the editor entry.
+    if (pending?.type === 'back') {
+      backPromptOpenRef.current = false;
+      window.history.pushState({ __navGuardSentinel: true }, '', window.location.href);
+    }
+    setPending(null);
+  }, [pending]);
 
-  // Let the pending navigation through, dropping all guards so the interceptors
-  // don't re-trigger on the way out.
+  // Let the pending navigation through. We do NOT clear the whole guard
+  // registry — the editor that actually leaves will unmount and unregister
+  // itself, so any OTHER mounted editor stays protected.
   const proceed = useCallback(() => {
     const p = pending;
     setPending(null);
-    guards.current.clear();
-    sync();
     if (!p) return;
     if (p.type === 'link' && p.to) {
-      navigate(p.to);
+      // `replace` consumes the back-button sentinel so history stays clean.
+      navigate(p.to, { replace: true });
     } else if (p.type === 'back') {
+      backPromptOpenRef.current = false;
       bypassRef.current = true;
-      // We pushed two sentinels (one on entering dirty, one on the back press),
-      // so step back twice to reach the page before the editor.
-      window.history.go(-2);
+      // The back press already popped the sentinel; one more step reaches the
+      // page before the editor.
+      window.history.go(-1);
     } else if (p.type === 'fn' && typeof p.run === 'function') {
       p.run();
     }
-  }, [pending, navigate, sync]);
+  }, [pending, navigate]);
 
   const saveAndLeave = useCallback(async () => {
     const g = activeGuard();

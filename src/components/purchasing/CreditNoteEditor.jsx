@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -11,8 +11,22 @@ import { nextDocNumber } from '@/lib/docNumbering';
 import { resolveTaxRateRecord } from '@/lib/taxResolution';
 import { shortageKind, createCreditNote, saveCreditNoteDraft, computeShortageValue } from '@/lib/shortageEngine';
 import TruncatedCell from '@/components/ui/TruncatedCell';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 
 const RESOLVED = ['resolved', 'cancelled', 'credit_received'];
+// Serialize the editable surface (header fields + lines) so we can diff against a
+// baseline captured when the editor first seeds, to know if there are unsaved edits.
+const serializeState = (header, lines) => JSON.stringify({
+  ...header,
+  lines: lines.map(l => ({
+    shortage_id: l.shortage_id || null,
+    return_id: l.return_id || null,
+    product_id: l.product_id || null,
+    credit_qty: String(l.credit_qty ?? ''),
+    unit_cost_excl: String(l.unit_cost_excl ?? ''),
+    tax_rate_id: l.tax_rate_id || null,
+  })),
+});
 const rnd2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
 const fmtR = (v) => `R ${(parseFloat(v) || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -125,6 +139,9 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
   // 'single' = just this PO (the original per-PO flow); 'multiple' = pick across all of
   // the supplier's open shortages & returns.
   const [scope, setScope] = useState('single');
+  // Baseline snapshot of the editable surface, captured when the editor first seeds, so
+  // we can tell whether the user has made unsaved edits to lines/header.
+  const baselineRef = useRef(null);
 
   // Seed editable lines: a new CN seeds from the PO's open credit shortages; a draft
   // seeds from its saved lines.
@@ -132,7 +149,7 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
     if (!editMode || seeded) return;
     if (isDraft) {
       if (!savedLines.length) return; // wait for load
-      setLines(savedLines.map(l => ({
+      const seededLines = savedLines.map(l => ({
         key: l.id,
         shortage_id: l.shortage_id || null,
         return_id: l.return_id || null,
@@ -144,7 +161,9 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
         tax_rate_id: l.tax_rate_id || null,
         tax_rule: l.tax_rule || '',
         tax_rate: parseFloat(l.tax_rate) || 0,
-      })));
+      }));
+      setLines(seededLines);
+      baselineRef.current = serializeState(buildHeader(existingCreditNote?.scn_number || ''), seededLines);
       setSeeded(true);
       return;
     }
@@ -152,7 +171,7 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
     const creditShortages = shortages.filter(s =>
       shortageKind(s.decision) === 'credit' && !RESOLVED.includes(s.status)
     );
-    setLines(creditShortages.map(s => ({
+    const seededLines = creditShortages.map(s => ({
       key: s.id,
       shortage_id: s.id,
       return_id: null,
@@ -165,9 +184,11 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
       tax_rate_id: defaultTax.id,
       tax_rule: defaultTax.name,
       tax_rate: defaultTax.rate || 0,
-    })));
+    }));
+    setLines(seededLines);
+    baselineRef.current = serializeState(buildHeader(''), seededLines);
     setSeeded(true);
-  }, [editMode, isDraft, seeded, defaultTax, shortages, savedLines]);
+  }, [editMode, isDraft, seeded, defaultTax, shortages, savedLines]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const update = (key, field, value) => setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
   const removeLine = (key) => setLines(prev => prev.filter(l => l.key !== key));
@@ -407,9 +428,11 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
     capturedTotal: capturedTotal === '' ? null : parseFloat(capturedTotal),
   });
 
-  // Save as draft — no matches, no shortage reconciliation
+  // Save as draft — no matches, no shortage reconciliation.
+  // Returns true on success / false on validation-abort or error so it can back the
+  // navigation guard's "Save & leave".
   const handleSaveDraft = async () => {
-    if (lines.length === 0) { toast.error('Add at least one credit line'); return; }
+    if (lines.length === 0) { toast.error('Add at least one credit line'); return false; }
     setSaving(true);
     try {
       const scnNumber = existingCreditNote?.scn_number || await nextDocNumber('SCN');
@@ -422,8 +445,10 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
       });
       toast.success('Credit note saved as draft');
       onCreated();
+      return true;
     } catch (err) {
       toast.error('Failed: ' + (err?.message || 'Unknown error'));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -452,6 +477,20 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
     }
   };
 
+  // Unsaved-changes guard: dirty once the editor has seeded and the current editable
+  // surface differs from the baseline snapshot. Read-only (view) mode is never dirty.
+  // "Save & leave" is backed by the clean single-status draft save.
+  const hasUnsavedChanges = editMode
+    && baselineRef.current != null
+    && serializeState(buildHeader(existingCreditNote?.scn_number || ''), lines) !== baselineRef.current;
+  // No onSave: handleSaveDraft also closes/refreshes the parent via onCreated(),
+  // which would double-close when combined with the guard's own leave action.
+  // The editor's own "Save draft" button remains the way to save.
+  useUnsavedChanges(hasUnsavedChanges, {
+    message: 'You have unsaved changes to this credit note. Leave without saving?',
+  });
+  const guardedClose = useGuardedAction();
+
   return (
     <div className="fixed inset-0 z-[200] flex flex-col bg-card">
       {/* Header */}
@@ -465,7 +504,7 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">{po.po_number} · {po.supplier_name}</p>
         </div>
-        <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-5 h-5" /></Button>
+        <Button variant="ghost" size="icon" onClick={() => guardedClose(onCancel)}><X className="w-5 h-5" /></Button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
@@ -749,7 +788,7 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
       {/* Footer */}
       {!viewMode && (
         <div className="sticky bottom-0 bg-card border-t border-border px-6 py-4 flex gap-3 shrink-0">
-          <Button variant="outline" onClick={onCancel} className="h-10">Cancel</Button>
+          <Button variant="outline" onClick={() => guardedClose(onCancel)} className="h-10">Cancel</Button>
           <div className="flex-1" />
           <Button variant="outline" onClick={handleSaveDraft} disabled={saving || lines.length === 0} className="gap-2 h-10">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

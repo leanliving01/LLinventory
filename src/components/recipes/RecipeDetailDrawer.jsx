@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -100,12 +101,22 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
       queryClient.invalidateQueries({ queryKey: ['bom-components', bom.id] });
       onUpdated?.();
       toast.success('BOM saved');
+      return true;
     } catch (err) {
       toast.error('Save failed: ' + (err.message || 'Unknown error'));
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  // ── Unsaved-changes guard (covers closing the drawer + navigating away) ──
+  const dirty = hasUnsavedChanges();
+  useUnsavedChanges(dirty, {
+    message: 'You have unsaved changes to this recipe. Close anyway?',
+    onSave: handleSave,
+  });
+  const guardedClose = useGuardedAction();
 
   const handleRemoveComponent = (comp) => {
     setConfirmAction({
@@ -332,7 +343,7 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/30" onClick={() => guardedClose(onClose)} />
       <div className="relative z-10 w-full max-w-lg bg-card shadow-xl flex flex-col">
         {/* Header */}
         <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-start justify-between z-10 shrink-0">
@@ -358,7 +369,7 @@ export default function RecipeDetailDrawer({ bom, onClose, onUpdated }) {
             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={handleDeleteBom} title="Delete this BOM">
               <Trash2 className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={onClose}>
+            <Button variant="ghost" size="icon" onClick={() => guardedClose(onClose)}>
               <X className="w-5 h-5" />
             </Button>
           </div>

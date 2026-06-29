@@ -21,6 +21,7 @@ import StockCountVarianceTable from '@/components/stock-count/StockCountVariance
 import LockedCountReport from '@/components/stock-count/LockedCountReport';
 import WebCountEntrySheet from '@/components/stock-count/WebCountEntrySheet';
 import { buildVarianceRows, buildProgressRows, postStockCount, cancelStockCount, requestRecount, syncCountLines, pruneArchivedLines, FLOOR_OPEN_STATUSES, RECOUNT_STATUSES, COUNT_STATUS } from '@/lib/stockCount';
+import { useGuardedNavigate } from '@/lib/navigationGuard';
 
 const STATUS_STYLES = {
   open: 'bg-blue-100 text-blue-700',
@@ -34,6 +35,7 @@ const STATUS_STYLES = {
 export default function StockCountReview() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const guardedNavigate = useGuardedNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const customRoles = useCustomRoles();
@@ -221,7 +223,7 @@ export default function StockCountReview() {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-3 flex-wrap">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/stock/stock-take')} className="gap-1.5 text-muted-foreground">
+        <Button variant="ghost" size="sm" onClick={() => guardedNavigate('/stock/stock-take')} className="gap-1.5 text-muted-foreground">
           <ArrowLeft className="w-4 h-4" /> Back
         </Button>
         <ClipboardCheck className="w-5 h-5 text-primary" />

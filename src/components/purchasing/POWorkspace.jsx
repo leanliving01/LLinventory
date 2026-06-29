@@ -10,10 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { CheckCircle2, ArrowLeft, Save, Loader2, Receipt, AlertTriangle, Ban, Package, Truck, FileText, CreditCard, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, ArrowLeft, Save, Loader2, Receipt, AlertTriangle, Ban, Truck, FileText, CreditCard, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { nextDocNumber } from '@/lib/docNumbering';
-import { resolveTaxRate, resolveTaxRateId, resolveTaxRateRecord } from '@/lib/taxResolution';
+import { resolveTaxRateRecord } from '@/lib/taxResolution';
 import { formatPaymentTerms, calculateDueDate, formatLocationAddress, toISODate } from '@/lib/utils';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
 import CreditNoteModal from './CreditNoteModal';
@@ -177,9 +177,11 @@ export default function POWorkspace() {
   // ---- Local lines state ----
   const [localLines, setLocalLines] = useState([emptyLine()]);
 
-  // Baselines for unsaved-change detection — initialised to the empty/new-PO
-  // form, then refreshed whenever a saved PO loads (or re-loads after a save).
-  const baselineHeaderRef = useRef(serializeHeader({}));
+  // Baselines for unsaved-change detection — initialised to match the empty/
+  // new-PO form (note orderDate defaults to today, so the baseline must too, or
+  // a brand-new PO reads dirty before the user touches anything), then
+  // refreshed whenever a saved PO loads (or re-loads after a save).
+  const baselineHeaderRef = useRef(serializeHeader({ orderDate: new Date().toISOString().slice(0, 10) }));
   const baselineLinesRef = useRef(serializeLines([emptyLine()]));
 
   // ---- UI state ----
@@ -281,6 +283,19 @@ export default function POWorkspace() {
   }, [isNew, po]);
 
   const currentStatus = isNew ? 'draft' : (po?.status || 'draft');
+
+  // ---- Unsaved-changes guard (sidebar / back button / refresh / ⌘K) ----
+  // Declared before the loading early-return so the hook order stays stable.
+  const canEditPO = !isViewOnly && (currentStatus === 'draft' || currentStatus === 'approved' || currentStatus === 'confirmed');
+  const headerDirty = serializeHeader({
+    supplierId, orderDate, expectedDate, locationId, notes, invoiceNumber, capturedTotal, isBlindReceipt,
+  }) !== baselineHeaderRef.current;
+  const linesDirty = serializeLines(localLines) !== baselineLinesRef.current;
+  useUnsavedChanges(canEditPO && (headerDirty || linesDirty), {
+    message: isNew
+      ? 'This purchase order has not been saved yet. Leaving now will discard it.'
+      : 'You have unsaved changes to this purchase order.',
+  });
 
   // ---- Products offered in the line picker ----
   // Scope to the supplier's linked products unless "Show all" is on (or no
@@ -813,18 +828,6 @@ export default function POWorkspace() {
   const deliveryAddress = formatLocationAddress(selectedLocation);
 
   const canSave = !isViewOnly && (currentStatus === 'draft' || currentStatus === 'approved' || currentStatus === 'confirmed');
-
-  // ---- Unsaved-changes guard (sidebar / back button / refresh / ⌘K) ----
-  const headerDirty = serializeHeader({
-    supplierId, orderDate, expectedDate, locationId, notes, invoiceNumber, capturedTotal, isBlindReceipt,
-  }) !== baselineHeaderRef.current;
-  const linesDirty = serializeLines(localLines) !== baselineLinesRef.current;
-  const hasUnsavedChanges = canSave && (headerDirty || linesDirty);
-  useUnsavedChanges(hasUnsavedChanges, {
-    message: isNew
-      ? 'This purchase order has not been saved yet. Leaving now will discard it.'
-      : 'You have unsaved changes to this purchase order.',
-  });
   const canApprove = !isViewOnly && currentStatus === 'draft';
   const canCancel = !isViewOnly && (currentStatus === 'draft' || currentStatus === 'approved' || currentStatus === 'confirmed');
   

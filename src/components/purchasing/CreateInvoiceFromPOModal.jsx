@@ -11,6 +11,7 @@ import { updateShortageIfExists, resolveShortageKind, shortageKind } from '@/lib
 import { parseTolerances } from '@/lib/threeWayMatch';
 import TruncatedCell from '@/components/ui/TruncatedCell';
 import SupplierInfoBlock from './SupplierInfoBlock';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 
 export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, onCreated, onCancel }) {
   const [invoiceNumber, setInvoiceNumber] = useState(existingInvoice?.invoice_number || '');
@@ -287,6 +288,40 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
 
   const submitInvoice = (decisions) => persist('approved', decisions);
   const handleSaveDraft = () => persist('draft', {});
+
+  // ── Unsaved-changes guard ────────────────────────────────────────────────
+  // Baseline = the seeded values for an existing draft, or empty/today for a
+  // new invoice. The form is dirty once any header field, line edit, or blind
+  // line diverges from that baseline.
+  const baseInvoiceDate = existingInvoice?.invoice_date || '';
+  const lineEditsBaseline = useMemo(() => {
+    const seed = {};
+    if (existingInvoice) {
+      existingInvoiceLines.forEach(l => {
+        if (!l.po_line_id) return;
+        seed[l.po_line_id] = {
+          invoiced_qty: String(l.qty ?? ''),
+          unit_cost: String(l.unit_cost ?? ''),
+          tax_rate_id: l.tax_rate_id || '',
+        };
+      });
+    }
+    return JSON.stringify(seed);
+  }, [existingInvoice, existingInvoiceLines]);
+  const dirty =
+    invoiceNumber !== (existingInvoice?.invoice_number || '') ||
+    // invoiceDate defaults to today for a new invoice; only count edits to an
+    // existing invoice's date, otherwise opening fresh would read dirty.
+    (existingInvoice ? invoiceDate !== baseInvoiceDate : false) ||
+    dueDate !== (existingInvoice?.due_date || '') ||
+    notes !== (existingInvoice?.notes || '') ||
+    capturedTotal !== (existingInvoice?.captured_total != null ? String(existingInvoice.captured_total) : '') ||
+    blindLines.length > 0 ||
+    // For an existing draft, only compare line edits once they've been seeded —
+    // before seeding, lineEdits is empty vs a non-empty baseline (false positive).
+    ((!existingInvoice || draftSeeded) && JSON.stringify(lineEdits) !== lineEditsBaseline);
+  useUnsavedChanges(submitting ? false : dirty, { message: 'This invoice has unsaved changes.' });
+  const guardedClose = useGuardedAction();
 
   const persist = async (targetStatus, decisions = {}) => {
     const isApprove = targetStatus === 'approved';
@@ -577,7 +612,7 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
               {latestGRN && <> · GRN {latestGRN.grn_number} received {latestGRN.received_date}</>}
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-5 h-5" /></Button>
+          <Button variant="ghost" size="icon" onClick={() => guardedClose(onCancel)}><X className="w-5 h-5" /></Button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
@@ -910,7 +945,7 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
 
         {/* Footer */}
         <div className="sticky bottom-0 bg-card border-t border-border px-6 py-4 flex gap-3 shrink-0">
-          <Button variant="outline" onClick={onCancel} className="h-10">Cancel</Button>
+          <Button variant="outline" onClick={() => guardedClose(onCancel)} className="h-10">Cancel</Button>
           <div className="flex-1" />
           <Button
             variant="outline"

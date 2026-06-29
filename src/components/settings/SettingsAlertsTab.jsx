@@ -4,9 +4,9 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
-import { Mail, MessageSquare, Save, Loader2, Plus, X, AlertTriangle, Info } from 'lucide-react';
+import { Mail, MessageSquare, Save, Loader2, Plus, X, Info } from 'lucide-react';
 import { toast } from 'sonner';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 
 export default function SettingsAlertsTab() {
   const queryClient = useQueryClient();
@@ -53,12 +53,28 @@ export default function SettingsAlertsTab() {
 
   const handleSave = async () => {
     setSaving(true);
-    await saveSetting('alert_emails', emails, 'Alert Email Recipients');
-    await saveSetting('slack_webhook_url', slackWebhook, 'Slack Webhook URL');
-    queryClient.invalidateQueries({ queryKey: ['settings-alerts'] });
-    toast.success('Alert settings saved');
-    setSaving(false);
+    try {
+      await saveSetting('alert_emails', emails, 'Alert Email Recipients');
+      await saveSetting('slack_webhook_url', slackWebhook, 'Slack Webhook URL');
+      queryClient.invalidateQueries({ queryKey: ['settings-alerts'] });
+      toast.success('Alert settings saved');
+      return true;
+    } catch (err) {
+      toast.error('Save failed: ' + (err?.message || 'Unknown error'));
+      return false;
+    } finally {
+      setSaving(false);
+    }
   };
+
+  // Dirty = either field differs from its loaded setting value (same normalisation as the seed effect).
+  const baselineEmails = settings.find(s => s.key === 'alert_emails')?.value || '';
+  const baselineSlack = settings.find(s => s.key === 'slack_webhook_url')?.value || '';
+  const hasUnsavedChanges = emails !== baselineEmails || slackWebhook !== baselineSlack;
+  useUnsavedChanges(hasUnsavedChanges, {
+    message: 'You have unsaved alert settings. Leave without saving?',
+    onSave: handleSave,
+  });
 
   return (
     <div className="space-y-6 max-w-2xl">

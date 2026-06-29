@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
-import { X, Plus, Trash2, Loader2, PackageCheck, AlertCircle, AlertTriangle } from 'lucide-react';
+import { X, Plus, Trash2, Loader2, PackageCheck, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirmGRN } from './GRNConfirmLogic';
 import { useAuth } from '@/lib/AuthContext';
@@ -12,6 +12,7 @@ import { nextDocNumber } from '@/lib/docNumbering';
 import { calculateDueDate, formatPaymentTerms, toISODate } from '@/lib/utils';
 import { resolveTaxRate } from '@/lib/taxResolution';
 import SupplierInfoBlock from '@/components/purchasing/SupplierInfoBlock';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 
 export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
   const { user } = useAuth();
@@ -126,6 +127,17 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
   const subtotal = validLines.reduce((s, l) => s + (Number(l.qty) * Number(l.unit_cost)), 0);
   const tax = Math.round(subtotal * poTaxRate * 100) / 100;
   const total = subtotal + tax;
+
+  // Unsaved-changes guard: dirty once a header field is set or any line has
+  // a product / qty / cost entered. Invoice date defaults to today.
+  const dirty =
+    !!supplierId ||
+    !!locationId ||
+    !!invoiceNumber ||
+    !!notes ||
+    lines.some(l => l.product_id || l.qty || l.unit_cost);
+  useUnsavedChanges(dirty, { message: 'This blind receipt has unsaved changes.' });
+  const guardedClose = useGuardedAction();
 
   const checkDuplicateInvoice = async () => {
     if (!invoiceNumber || !supplierId) return null;
@@ -275,7 +287,7 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
             <h3 className="text-lg font-bold">Blind Receipt</h3>
             <span className="text-xs text-muted-foreground">No PO required — receive stock directly</span>
           </div>
-          <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-5 h-5" /></Button>
+          <Button variant="ghost" size="icon" onClick={() => guardedClose(onCancel)}><X className="w-5 h-5" /></Button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">

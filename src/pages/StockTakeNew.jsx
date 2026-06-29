@@ -4,8 +4,7 @@ import { base44, adjustStockOnHand } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { ClipboardCheck, Search, X, Save, AlertTriangle, Eye, EyeOff, MapPin, Warehouse, Layers } from 'lucide-react';
+import { Search, Save, Eye, EyeOff, MapPin, Warehouse, Layers } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -15,6 +14,7 @@ import StockTakeVarianceReport from '@/components/stock-take/StockTakeVarianceRe
 import ZoneSelector from '@/components/stock-take/ZoneSelector';
 import { writeAuditLog } from '@/lib/auditLog';
 import { splitLocations, resolveLocation, getCountScopeIds, stockBearingZones } from '@/lib/locationHierarchy';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 
 export default function StockTakeNew() {
   const queryClient = useQueryClient();
@@ -105,6 +105,12 @@ export default function StockTakeNew() {
 
   const countedCount = Object.entries(counts).filter(([_, v]) => v !== '' && v !== undefined).length;
   const uncountedCount = products.length - countedCount;
+
+  // Draft = the in-memory counts map. Dirty once at least one count is entered;
+  // gated off while saving and on the post-save variance report screen.
+  useUnsavedChanges(!saving && !showVariance && countedCount > 0, {
+    message: 'You have unsaved stock-take counts. Leaving will discard them.',
+  });
 
   const handleSave = async () => {
     const entries = Object.entries(counts).filter(([_, v]) => v !== '' && v !== undefined);

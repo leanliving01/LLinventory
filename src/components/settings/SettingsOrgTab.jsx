@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
@@ -59,12 +60,28 @@ export default function SettingsOrgTab() {
       }
       queryClient.invalidateQueries({ queryKey: ['settings'] });
       toast.success('Organisation settings saved');
+      return true;
     } catch (err) {
       toast.error('Save failed: ' + (err.message || 'Unknown error'));
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  // Dirty = any org field's typed value differs from the loaded setting,
+  // compared over ORG_FIELDS only (with the same `|| ''` normalisation handleSave uses).
+  const settingsByKey = {};
+  settings.forEach(s => { settingsByKey[s.key] = s; });
+  const hasUnsavedChanges = ORG_FIELDS.some(field => {
+    const current = formValues[field.key] || '';
+    const baseline = (settingsByKey[field.key]?.value) || '';
+    return current !== baseline;
+  });
+  useUnsavedChanges(hasUnsavedChanges, {
+    message: 'You have unsaved organisation settings. Leave without saving?',
+    onSave: handleSave,
+  });
 
   const set = (key, value) => setFormValues(prev => ({ ...prev, [key]: value }));
 

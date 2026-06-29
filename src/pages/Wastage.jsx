@@ -3,15 +3,15 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44, adjustStockOnHand } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Trash2, Save, Search, X } from 'lucide-react';
+import { Save, Search, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import WastageTable from '@/components/wastage/WastageTable';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import POPagination from '@/components/purchasing/POPagination';
 import { writeAuditLog } from '@/lib/auditLog';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 
 export default function Wastage() {
   const queryClient = useQueryClient();
@@ -70,6 +70,12 @@ export default function Wastage() {
   };
 
   const entryCount = Object.values(entries).filter(e => e?.qty && Number(e.qty) > 0).length;
+
+  // Draft = the in-memory wastage entries grid. Dirty once a qty is entered;
+  // gated off while saving (post-save resets the entries).
+  useUnsavedChanges(!saving && entryCount > 0, {
+    message: 'You have unsaved wastage entries. Leaving will discard them.',
+  });
 
   const handleSave = async () => {
     const validEntries = Object.entries(entries).filter(([_, e]) => e?.qty && Number(e.qty) > 0);

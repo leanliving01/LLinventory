@@ -27,6 +27,7 @@ import {
 import { REFUND_DECISIONS, REFUND_STATUSES } from '@/lib/salesResends';
 import { createResendFromOrder } from '@/lib/createResend';
 import { logWorkflowEvent } from '@/lib/salesWorkflowEvents';
+import { useUnsavedChanges, useGuardedNavigate } from '@/lib/navigationGuard';
 
 export default function ShopifyReturnDetail() {
   const { returnId } = useParams();
@@ -52,22 +53,32 @@ export default function ShopifyReturnDetail() {
     enabled: !!returnId,
   });
 
+  // Reconstruct the loaded form from `ret` with EXACTLY the same keys/order as the
+  // initializer below, so an untouched page never reads dirty (stringify match).
+  const baselineForm = (r) => ({
+    stock_path: r.stock_path || 'undecided',
+    not_receiving_reason: r.not_receiving_reason || '',
+    courier_responsibility: r.courier_responsibility || '',
+    courier_company: r.courier_company || '',
+    courier_tracking_ref: r.courier_tracking_ref || '',
+    courier_collection_date: r.courier_collection_date || '',
+    courier_notes: r.courier_notes || '',
+    notes: r.notes || '',
+    refund_decision: r.refund_decision || 'undecided',
+    refund_amount: r.refund_amount || 0,
+    refund_status: r.refund_status || '',
+    exception_notes: r.exception_notes || '',
+  });
+
   useEffect(() => {
-    if (ret) setForm({
-      stock_path: ret.stock_path || 'undecided',
-      not_receiving_reason: ret.not_receiving_reason || '',
-      courier_responsibility: ret.courier_responsibility || '',
-      courier_company: ret.courier_company || '',
-      courier_tracking_ref: ret.courier_tracking_ref || '',
-      courier_collection_date: ret.courier_collection_date || '',
-      courier_notes: ret.courier_notes || '',
-      notes: ret.notes || '',
-      refund_decision: ret.refund_decision || 'undecided',
-      refund_amount: ret.refund_amount || 0,
-      refund_status: ret.refund_status || '',
-      exception_notes: ret.exception_notes || '',
-    });
+    if (ret) setForm(baselineForm(ret));
   }, [ret]);
+
+  // Dirty when the operator's decision/notes fields differ from what loaded.
+  const dirty = !saving && !!ret && !!form
+    && JSON.stringify(form) !== JSON.stringify(baselineForm(ret));
+  useUnsavedChanges(dirty, { message: 'You have unsaved return decisions. Leave without saving?' });
+  const guardedNavigate = useGuardedNavigate();
 
   if (isLoading || !ret || !form) {
     return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
@@ -183,7 +194,7 @@ export default function ShopifyReturnDetail() {
 
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-[1100px] mx-auto pb-24">
-      <button onClick={() => navigate('/sales/returns')} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <button onClick={() => guardedNavigate('/sales/returns')} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="w-4 h-4" /> Back to Returns
       </button>
 

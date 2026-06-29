@@ -8,6 +8,7 @@ import { Save, CheckCircle2, Search, Plus, ChevronDown, ChevronRight, ChevronsDo
 import { toast } from 'sonner';
 import { saveFloorCounts, completeFloorCount, addCountLine, convertedFromLine, buildUomOptions, STOCK_UOM_KEY } from '@/lib/stockCount';
 import { useAutoSave } from '@/lib/useAutoSave';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 import { CATEGORY_LABELS, CATEGORY_ORDER, CATEGORY_HEADER_BG, getSubcategoryColor, resolveSubcategory, hexToRgba, makeSubcategorySorter } from '@/lib/productClassification';
 import { compareNatural } from '@/lib/naturalSort';
 import { useSubcategories } from '@/lib/useSubcategories';
@@ -186,6 +187,13 @@ export default function WebCountEntrySheet({ countId, header, lines, products, s
     if (firstRun.current) { firstRun.current = false; return; }
     autoSave.trigger();
   }, [entries, broken, uomKey, seeded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Counts auto-save (debounced), so the only truly-unsaved window is the gap
+  // between typing and the next flush — plus 'error' (a failed save still holds
+  // unpersisted edits) so a dropped count can't be silently lost on leave.
+  useUnsavedChanges(['unsaved', 'saving', 'error'].includes(autoSave.status), {
+    message: 'A stock count you just entered is still saving. Leave anyway?',
+  });
 
   // ── Save draft ────────────────────────────────────────────────────────────────
   const handleSaveDraft = async () => {

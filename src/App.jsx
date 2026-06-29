@@ -101,6 +101,7 @@ import SupplierScorecard from '@/pages/SupplierScorecard';
 import ActivityLog from '@/pages/ActivityLog';
 import StockWriteOffs from '@/pages/StockWriteOffs';
 import ConnectionWatchdog from '@/components/layout/ConnectionWatchdog';
+import { NavigationGuardProvider } from '@/lib/navigationGuard';
 import SessionBanner from '@/components/layout/SessionBanner';
 import ErrorBoundary from '@/components/layout/ErrorBoundary';
 import NativeUpdateGate from '@/components/layout/NativeUpdateGate';
@@ -326,7 +327,9 @@ function App() {
           <TooltipProvider delayDuration={300}>
             <SessionBanner />
             <Router>
-              <AuthenticatedApp />
+              <NavigationGuardProvider>
+                <AuthenticatedApp />
+              </NavigationGuardProvider>
             </Router>
             <ConnectionWatchdog />
             <Toaster />

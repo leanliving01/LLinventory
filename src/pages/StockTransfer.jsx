@@ -5,11 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
-import { ArrowRight, Plus, Trash2, Save, Search } from 'lucide-react';
+import { ArrowRight, Plus, Trash2, Save } from 'lucide-react';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import { writeAuditLog } from '@/lib/auditLog';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 
 export default function StockTransfer() {
   const queryClient = useQueryClient();
@@ -17,6 +17,16 @@ export default function StockTransfer() {
   const [fromLocation, setFromLocation] = useState('');
   const [toLocation, setToLocation] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Draft = from/to locations + transfer lines. Dirty once anything is entered;
+  // gated off while submitting (post-save resets the lines).
+  const hasDraft =
+    !!fromLocation ||
+    !!toLocation ||
+    lines.some(l => l.product_id || l.qty || l.notes);
+  useUnsavedChanges(!saving && hasDraft, {
+    message: 'You have an unconfirmed stock transfer. Leaving will discard it.',
+  });
 
   const { data: locations = [] } = useQuery({
     queryKey: ['locations'],

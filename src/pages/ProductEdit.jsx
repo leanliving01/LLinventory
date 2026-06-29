@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useUnsavedChanges, useGuardedNavigate } from '@/lib/navigationGuard';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -34,11 +34,20 @@ const DEFAULT_FORM = {
   supplier_id: '', supplier_sku: '', description: '', internal_note: '',
 };
 
+// Drop server-managed fields so the unsaved-changes comparison only reflects
+// user-editable data (timestamps/ids drift on refetch and would read as dirty).
+function stripServerFields(obj) {
+  if (!obj) return obj;
+  const { id, created_date, updated_date, created_by, ...rest } = obj;
+  return rest;
+}
+
 export default function ProductEdit() {
   const { productId } = useParams();
   const isNew = productId === 'new';
   const navigate = useNavigate();
   const guardedNavigate = useGuardedNavigate();
+  const createdIdRef = useRef(null);
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const customRoles = useCustomRoles();
@@ -92,7 +101,9 @@ export default function ProductEdit() {
     }
   }, [isNew, product]);
 
-  const handleSave = async () => {
+  // Persist only — no navigation. Returns true on success / false on abort so
+  // the unsaved-changes guard can decide whether to proceed with the leave.
+  const persist = async () => {
     if (!formData) return false;
     if (!formData.name?.trim()) { toast.error('Product name is required'); return false; }
     if (!formData.sku?.trim()) { toast.error('SKU is required'); return false; }
@@ -103,15 +114,14 @@ export default function ProductEdit() {
         const newProduct = await base44.entities.Product.create(payload);
         queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
         toast.success('Product created');
-        setSaving(false);
-        navigate(`/catalog/${newProduct.id}`);
+        createdIdRef.current = newProduct.id;
       } else {
         await base44.entities.Product.update(productId, payload);
         queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
         queryClient.invalidateQueries({ queryKey: ['product', productId] });
         toast.success('Product saved');
-        setSaving(false);
       }
+      setSaving(false);
       return true;
     } catch (err) {
       toast.error('Save failed: ' + (err.message || 'Unknown error'));
@@ -120,12 +130,23 @@ export default function ProductEdit() {
     }
   };
 
+  // Save button: persist, then (for a brand-new product) open its detail page.
+  const handleSave = async () => {
+    const ok = await persist();
+    if (ok && isNew && createdIdRef.current) navigate(`/catalog/${createdIdRef.current}`);
+    return ok;
+  };
+
   // ---- Unsaved-changes guard (sidebar / back button / refresh / ⌘K) ----
+  // Compare only the editable payload — server-managed fields (timestamps, ids)
+  // would otherwise drift after a save/refetch and read as permanently dirty.
   const hasUnsavedChanges = !!formData &&
-    JSON.stringify(formData) !== JSON.stringify(isNew ? DEFAULT_FORM : product);
+    JSON.stringify(stripServerFields(formData)) !==
+      JSON.stringify(stripServerFields(isNew ? DEFAULT_FORM : product));
+  // onSave persists only; the guard performs the leave navigation itself.
   useUnsavedChanges(hasUnsavedChanges, {
     message: 'You have unsaved changes to this product.',
-    onSave: handleSave,
+    onSave: persist,
   });
 
   if (!isNew && isLoading) {

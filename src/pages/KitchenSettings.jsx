@@ -7,6 +7,7 @@ import { ArrowLeft, Moon, Sun, Utensils, Flame, ChefHat, Check } from 'lucide-re
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 
 const STATIONS = [
   { id: 'prep', label: 'PREP', desc: 'Wash, cut, marinate, weigh', icon: Utensils, color: 'bg-blue-500', ring: 'ring-blue-400' },
@@ -20,6 +21,14 @@ export default function KitchenSettings() {
   // Note: KitchenSettings still saves a single station for the user's *active* view
   const [saving, setSaving] = useState(false);
   const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark');
+
+  // Dirty when the picked station differs from the user's saved station.
+  // (Dark mode applies live to localStorage, so it isn't a held draft.)
+  // Gate on !saving so the Save handler's hard window.location redirect doesn't
+  // trip the beforeunload prompt while the selection is still "unsaved".
+  useUnsavedChanges(!saving && selected !== (user?.station || 'cook'), {
+    message: 'You have an unsaved station selection. Leave without saving?',
+  });
 
   useEffect(() => {
     if (dark) {

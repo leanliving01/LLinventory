@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -67,6 +68,9 @@ export default function ReceiveInvoiceModal({ invoice, invoiceLines = [], onDone
     };
   }));
 
+  // Baseline snapshot of the pre-filled rows so untouched rows don't read dirty.
+  const initialRowsJson = useRef(JSON.stringify(rows)).current;
+
   const setRow = (i, patch) => setRows(prev => prev.map((r, idx) => idx === i ? { ...r, ...patch } : r));
 
   const pickProduct = (i, productId) => {
@@ -92,6 +96,11 @@ export default function ReceiveInvoiceModal({ invoice, invoiceLines = [], onDone
 
   const readyRows = rows.filter(r => r.product_id && Number(r.qty) > 0);
   const unmappedCount = rows.filter(r => !r.product_id).length;
+
+  // Dirty when a delivery location is chosen or any pre-filled row was edited.
+  const dirty = !saving && (!!locationId || JSON.stringify(rows) !== initialRowsJson);
+  useUnsavedChanges(dirty, { message: 'You have an unreceived invoice in progress. Discard it?' });
+  const guardedClose = useGuardedAction();
 
   const handleConfirm = async () => {
     if (!locationId) { toast.error('Select a delivery location'); return; }
@@ -165,7 +174,7 @@ export default function ReceiveInvoiceModal({ invoice, invoiceLines = [], onDone
               {invoice.supplier_name} · {invoice.invoice_number} — creates a GRN and receives stock, no PO.
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-5 h-5" /></Button>
+          <Button variant="ghost" size="icon" onClick={() => guardedClose(onCancel)}><X className="w-5 h-5" /></Button>
         </div>
 
         <div className="px-6 py-4 space-y-4 flex-1 overflow-y-auto">
@@ -251,7 +260,7 @@ export default function ReceiveInvoiceModal({ invoice, invoiceLines = [], onDone
         </div>
 
         <div className="px-6 py-4 border-t border-border flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={onCancel} disabled={saving}>Cancel</Button>
+          <Button variant="outline" className="flex-1" onClick={() => guardedClose(onCancel)} disabled={saving}>Cancel</Button>
           <Button className="flex-1 gap-2" onClick={handleConfirm} disabled={saving}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <PackageCheck className="w-4 h-4" />}
             Receive {readyRows.length} line{readyRows.length !== 1 ? 's' : ''}

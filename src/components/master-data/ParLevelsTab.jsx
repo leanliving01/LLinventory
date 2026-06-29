@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { groupProductsForPar, categoriesFromGroups } from '@/lib/parGrouping';
 import { useSubcategories } from '@/lib/useSubcategories';
 import { useAutoSave } from '@/lib/useAutoSave';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 import ParPackageSummaryCard from './ParPackageSummaryCard';
 import ParPackageDetailTable, { effectivePar } from './ParPackageDetailTable';
 
@@ -192,6 +193,13 @@ export default function ParLevelsTab() {
     if (firstRun.current) { firstRun.current = false; return; }
     autoSave.trigger();
   }, [parEdits]);
+
+  // Par edits auto-save (debounced) — guard the pending/in-flight window plus
+  // 'error' (a failed save still holds unpersisted edits) so a value typed just
+  // before leaving the tab isn't silently dropped.
+  useUnsavedChanges(['unsaved', 'saving', 'error'].includes(autoSave.status), {
+    message: 'A par level you just changed is still saving. Leave anyway?',
+  });
 
   // ── Selection ────────────────────────────────────────────────────────────────
   const toggleOne = (id) => {

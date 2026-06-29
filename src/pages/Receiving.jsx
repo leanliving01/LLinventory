@@ -3,12 +3,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44, adjustStockOnHand } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
-import { Plus, Trash2, PackageCheck, Search } from 'lucide-react';
+import { Plus, Trash2, PackageCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import HelpDrawer from '@/components/help/HelpDrawer';
 import { writeAuditLog } from '@/lib/auditLog';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 
 export default function Receiving() {
   const queryClient = useQueryClient();
@@ -16,6 +16,16 @@ export default function Receiving() {
   const [locationId, setLocationId] = useState('');
   const [lines, setLines] = useState([{ product_id: '', qty: '', unit_cost: '' }]);
   const [saving, setSaving] = useState(false);
+
+  // Draft = supplier/location header + the line builder. Dirty once the user
+  // has entered anything; gated off while submitting (post-save resets state).
+  const hasDraft =
+    !!supplierId ||
+    !!locationId ||
+    lines.some(l => l.product_id || l.qty || l.unit_cost);
+  useUnsavedChanges(!saving && hasDraft, {
+    message: 'You have an unconfirmed stock receipt. Leaving will discard it.',
+  });
 
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers'],

@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useUnsavedChanges, useGuardedNavigate } from '@/lib/navigationGuard';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
@@ -50,7 +51,7 @@ export default function RecipeProductDetail() {
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [bulkForm, setBulkForm] = useState({ layer: '', step: '', qty: '', uom: '' });
-  const [pendingNav, setPendingNav] = useState(null);
+  const guardedNavigate = useGuardedNavigate();
   const [pendingLayerDeletes, setPendingLayerDeletes] = useState(() => new Set()); // bomIds staged for delete, committed on Save
 
   const { data: product, isLoading: loadingProduct } = useQuery({
@@ -271,9 +272,11 @@ export default function RecipeProductDetail() {
       if (willRecompose && !failedDeletes.length) await recomposePackage(product?.sku);
     } catch (err) {
       toast.error('Save failed: ' + (err.message || 'Unknown error'));
+      return false;
     } finally {
       setSaving(false);
     }
+    return true;
   };
 
   // ── Move an ingredient to a different layer (= different BOM) ───────────────
@@ -376,17 +379,11 @@ export default function RecipeProductDetail() {
     return target ? (operationsByBom[target.id] || []) : [];
   }, [bulkForm.layer, boms, operationsByBom]);
 
-  // ── Unsaved-changes guard ─────────────────────────────────────────────────
-  useEffect(() => {
-    const handler = (e) => { if (hasUnsavedChanges) { e.preventDefault(); e.returnValue = ''; } };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [hasUnsavedChanges]);
-
-  const guardedNavigate = (to) => {
-    if (hasUnsavedChanges) setPendingNav(to);
-    else navigate(to);
-  };
+  // ── Unsaved-changes guard (app-wide; covers sidebar, back button, refresh) ──
+  useUnsavedChanges(hasUnsavedChanges, {
+    message: 'You have unsaved changes to this recipe. Save them before leaving?',
+    onSave: handleSave,
+  });
 
   // ── Bom field helpers ─────────────────────────────────────────────────────
   const bomField = (bom, key, fallback) => {
@@ -1088,28 +1085,6 @@ export default function RecipeProductDetail() {
         </div>
       )}
 
-      {/* Unsaved-changes leave guard */}
-      {pendingNav && (
-        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
-          <div className="bg-card rounded-2xl border border-border w-full max-w-sm shadow-xl">
-            <div className="px-6 py-5">
-              <h3 className="text-lg font-bold mb-1">Unsaved changes</h3>
-              <p className="text-sm text-muted-foreground">You have unsaved changes to this recipe. Save them before leaving?</p>
-            </div>
-            <div className="px-6 py-4 border-t border-border flex flex-col gap-2">
-              <Button className="gap-2" disabled={saving}
-                onClick={async () => { const to = pendingNav; await handleSave(); setPendingNav(null); navigate(to); }}>
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save &amp; leave
-              </Button>
-              <Button variant="outline" className="text-destructive hover:text-destructive"
-                onClick={() => { const to = pendingNav; setPendingNav(null); navigate(to); }}>
-                Leave without saving
-              </Button>
-              <Button variant="ghost" onClick={() => setPendingNav(null)}>Cancel</Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

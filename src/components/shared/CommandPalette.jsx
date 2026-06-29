@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useGuardedNavigate } from '@/lib/navigationGuard';
 import {
   LayoutDashboard, Package, ShoppingCart, Factory, Warehouse, FileText,
   Settings, CookingPot, Users, Truck, PlayCircle, Wrench, Search,
@@ -33,7 +33,7 @@ export default function CommandPalette() {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef(null);
-  const navigate = useNavigate();
+  const navigate = useGuardedNavigate();
 
   // Cmd/Ctrl+K to open
   useEffect(() => {

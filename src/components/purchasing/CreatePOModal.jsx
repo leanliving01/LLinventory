@@ -3,9 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
-import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { X, Plus, Trash2, Loader2, Receipt, PackageCheck, AlertTriangle } from 'lucide-react';
@@ -15,6 +13,7 @@ import { nextDocNumber } from '@/lib/docNumbering';
 import { resolveTaxRate } from '@/lib/taxResolution';
 import { confirmGRN } from '@/components/grn/GRNConfirmLogic';
 import { useAuth } from '@/lib/AuthContext';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 
 export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
   const { user } = useAuth();
@@ -161,6 +160,18 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
   const subtotal = validLines.reduce((s, l) => s + (Number(l.qty) * Number(l.unit_cost)), 0);
   const tax = Math.round(subtotal * poTaxRate * 100) / 100;
   const total = subtotal + tax;
+
+  // Unsaved-changes guard: dirty once a header field is set or any line has
+  // a product / qty / cost entered. Date fields default to today so they don't
+  // count as edits on their own.
+  const dirty =
+    !!supplierId ||
+    !!locationId ||
+    !!notes ||
+    !!invoiceNumber ||
+    lines.some(l => l.product_id || l.qty || l.unit_cost);
+  useUnsavedChanges(dirty, { message: 'This purchase order has unsaved changes.' });
+  const guardedClose = useGuardedAction();
 
   // Handle blind receipt toggle
   const handleBlindReceiptToggle = (checked) => {
@@ -398,7 +409,7 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
               {isBlindReceipt ? 'New Blind Receipt' : 'New Purchase Order'}
             </h3>
           </div>
-          <Button variant="ghost" size="icon" onClick={onCancel}><X className="w-5 h-5" /></Button>
+          <Button variant="ghost" size="icon" onClick={() => guardedClose(onCancel)}><X className="w-5 h-5" /></Button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
@@ -661,7 +672,7 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-border shrink-0 flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
+          <Button variant="outline" className="flex-1" onClick={() => guardedClose(onCancel)}>Cancel</Button>
           {isBlindReceipt ? (
             <Button className="flex-1 gap-2" onClick={() => handleCreate(false)} disabled={saving}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <PackageCheck className="w-4 h-4" />}

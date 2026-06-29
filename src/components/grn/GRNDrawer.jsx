@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 import { base44 } from '@/api/base44Client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,19 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
   const isDraft = grn.status === 'draft';
   const isConfirmed = grn.status === 'confirmed';
   const editingLines = localLines || lines;
+
+  // ── Unsaved-changes guard (covers closing the drawer + navigating away) ──
+  // Entering "Edit Quantities" seeds localLines from the saved lines, so only
+  // flag dirty once the editable fields actually differ from what was loaded.
+  const lineKey = (arr) => JSON.stringify((arr || []).map(l => ({
+    id: l.id, received_qty: l.received_qty, unit_cost: l.unit_cost, condition: l.condition,
+  })));
+  const linesChanged = localLines !== null && lineKey(localLines) !== lineKey(lines);
+  const hasUnsavedChanges = linesChanged || localDate !== (grn.received_date || '');
+  useUnsavedChanges(hasUnsavedChanges, {
+    message: 'You have unsaved receiving edits on this GRN. Close anyway?',
+  });
+  const guardedClose = useGuardedAction();
 
   const startEditing = () => setLocalLines([...lines]);
 
@@ -252,7 +266,7 @@ export default function GRNDrawer({ grn, onClose, onUpdated }) {
             </span>
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose}><X className="w-5 h-5" /></Button>
+        <Button variant="ghost" size="icon" onClick={() => guardedClose(onClose)}><X className="w-5 h-5" /></Button>
       </div>
 
       {/* Linked PO info strip */}

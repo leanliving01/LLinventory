@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, Trash2, Loader2, Ruler, ArrowRightLeft } from 'lucide-react';
 import { toast } from 'sonner';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 import BulkPurchaseUomEditor from './BulkPurchaseUomEditor';
 
 const CATEGORY_LABELS = {
@@ -40,25 +41,39 @@ export default function SettingsUomTab() {
   });
 
   const handleAdd = async () => {
-    if (!newCode.trim()) return;
+    if (!newCode.trim()) return false;
     // Check for duplicate
     if (uoms.some(u => u.code.toLowerCase() === newCode.trim().toLowerCase())) {
       toast.error(`Unit "${newCode.trim()}" already exists`);
-      return;
+      return false;
     }
     setAdding(true);
-    await base44.entities.UnitOfMeasure.create({
-      code: newCode.trim(),
-      name: newName.trim() || newCode.trim(),
-      category: newCategory,
-      is_default: false,
-    });
-    queryClient.invalidateQueries({ queryKey: ['uom-list'] });
-    setNewCode('');
-    setNewName('');
-    toast.success(`Unit "${newCode.trim()}" added`);
-    setAdding(false);
+    try {
+      await base44.entities.UnitOfMeasure.create({
+        code: newCode.trim(),
+        name: newName.trim() || newCode.trim(),
+        category: newCategory,
+        is_default: false,
+      });
+      queryClient.invalidateQueries({ queryKey: ['uom-list'] });
+      setNewCode('');
+      setNewName('');
+      toast.success(`Unit "${newCode.trim()}" added`);
+      return true;
+    } catch (err) {
+      toast.error(err.message || 'Could not add unit');
+      return false;
+    } finally {
+      setAdding(false);
+    }
   };
+
+  // Dirty while the user has typed into the "Add New Unit" form but not saved.
+  const addFormDirty = !!(newCode.trim() || newName.trim());
+  useUnsavedChanges(addFormDirty, {
+    message: 'You have an unsaved unit of measure. Leave without adding it?',
+    onSave: handleAdd,
+  });
 
   const handleDelete = async (uom) => {
     if (uom.is_default) {
