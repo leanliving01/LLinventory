@@ -16,6 +16,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { writeAuditLog } from '@/lib/auditLog';
+import MachineLoadPanel from '@/components/production/MachineLoadPanel';
 
 export default function PlanRunReview() {
   const queryClient = useQueryClient();
@@ -49,6 +50,15 @@ export default function PlanRunReview() {
       };
     });
   }, [initialPlan, overrides]);
+
+  // All planned meal lines across every run — the machine load is shared, so the
+  // daily kitchen breakdown is the sum of the whole plan. (Declared before the
+  // early return below to keep hook order stable.)
+  const allPlanLines = useMemo(
+    () => splitPlan.flatMap(r => r.lines.filter(l => l.planned_qty > 0)
+      .map(l => ({ product_id: l.product_id, planned_qty: l.planned_qty }))),
+    [splitPlan]
+  );
 
   if (!planData) {
     return (
@@ -163,6 +173,9 @@ export default function PlanRunReview() {
           </div>
         </div>
       )}
+
+      {/* Machine load breakdown — how the plan splits across the kitchen */}
+      <MachineLoadPanel lines={allPlanLines} />
 
       {/* Runs */}
       {splitPlan.map((run) => (
