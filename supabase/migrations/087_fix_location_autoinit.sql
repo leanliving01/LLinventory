@@ -10,7 +10,6 @@
 --
 -- FIX: correct the function the same way 066 did — use COALESCE(p.stock_uom,'pcs'),
 -- a hex id like the rest of the app, and skip assemble-on-demand / non-stock types.
--- Then create the two insulated-box storage bins under the PE Main Warehouse.
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION auto_init_stock_on_hand_for_location()
@@ -42,13 +41,3 @@ CREATE OR REPLACE TRIGGER trg_auto_init_stock_on_hand_for_location
   AFTER INSERT ON locations
   FOR EACH ROW
   EXECUTE FUNCTION auto_init_stock_on_hand_for_location();
-
--- ── Create the two insulated-box bins (idempotent on code) ──────────────────
-INSERT INTO locations (id, name, code, type, is_stock_bearing, parent_location_id)
-SELECT encode(gen_random_bytes(12), 'hex'), v.name, v.code, 'bin', true,
-       '69ea6bec8ec21eb79273085e'   -- Port Elizabeth Main Warehouse
-FROM (VALUES
-  ('Meal Box Small', 'BIN-MBS'),
-  ('Meal Box Large', 'BIN-MBL')
-) AS v(name, code)
-WHERE NOT EXISTS (SELECT 1 FROM locations l WHERE l.code = v.code);
