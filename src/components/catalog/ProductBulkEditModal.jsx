@@ -33,6 +33,7 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
     stock_uom: false,
     sellable: false,
     purchasable: false,
+    produced: false,
     inventory_tracked: false,
   });
 
@@ -44,6 +45,7 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
   const [uom, setUom] = useState('');
   const [sellable, setSellable] = useState(true);
   const [purchasable, setPurchasable] = useState(true);
+  const [produced, setProduced] = useState(false);
   const [inventoryTracked, setInventoryTracked] = useState(true);
 
   const queryClient = useQueryClient();
@@ -83,6 +85,7 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
     if (apply.stock_uom && uom) payload.stock_uom = uom;
     if (apply.sellable) payload.sellable = sellable;
     if (apply.purchasable) payload.purchasable = purchasable;
+    if (apply.produced) payload.produced = produced;
     if (apply.inventory_tracked) payload.inventory_tracked = inventoryTracked;
     return payload;
   };
@@ -188,6 +191,7 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
                 {apply.stock_uom && <li>UOM → {uom}</li>}
                 {apply.sellable && <li>Sellable → {sellable ? 'Yes' : 'No'}</li>}
                 {apply.purchasable && <li>Purchasable → {purchasable ? 'Yes' : 'No'}</li>}
+                {apply.produced && <li>Produced In-House → {produced ? 'Yes' : 'No'}</li>}
                 {apply.inventory_tracked && <li>Inventory tracked → {inventoryTracked ? 'Yes' : 'No'}</li>}
               </ul>
             </div>
@@ -263,6 +267,13 @@ export default function ProductBulkEditModal({ productIds = [], products = [], l
               <div className="flex items-center gap-2 pt-1">
                 <Switch checked={purchasable} onCheckedChange={setPurchasable} />
                 <span className="text-sm text-muted-foreground">{purchasable ? 'Yes' : 'No'}</span>
+              </div>
+            </Row>
+
+            <Row field="produced" label="Produced in-house">
+              <div className="flex items-center gap-2 pt-1">
+                <Switch checked={produced} onCheckedChange={setProduced} />
+                <span className="text-sm text-muted-foreground">{produced ? 'Yes' : 'No'}</span>
               </div>
             </Row>
 

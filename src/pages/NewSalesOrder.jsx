@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 import { useQuery } from '@tanstack/react-query';
 import { base44, supabase } from '@/api/base44Client';
 import { toast } from 'sonner';
@@ -72,6 +73,18 @@ export default function NewSalesOrder() {
 
   const [submitting, setSubmitting] = useState(false);
 
+  // ---- Unsaved-changes guard (sidebar / back button / refresh / ⌘K) --------
+  const hasUnsavedChanges = !submitting && (
+    lines.length > 0 ||
+    !!customerId || !!customerName || !!customerEmail || !!customerPhone || !!customerExternalId ||
+    !!billingAddress || !!shippingAddress || !!shippingCity || !!shippingProvince || !!shippingZip ||
+    !!notes || !!shippingCost || !!discount || !!amountPaid || !!paymentMethod || !!paymentReference ||
+    paymentStatus !== 'pending'
+  );
+  useUnsavedChanges(hasUnsavedChanges, {
+    message: 'This order has not been saved yet. Leaving now will discard it.',
+  });
+
   // ---- Data ----------------------------------------------------------------
   const { data: customers = [] } = useQuery({
     queryKey: ['customers'],
@@ -81,8 +94,10 @@ export default function NewSalesOrder() {
 
   const { data: products = [] } = useQuery({
     queryKey: ['products-for-manual-order'],
-    // Active only — archived products must not be pickable onto a new order.
-    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 3000),
+    // Active + sellable only — a customer order can only contain products that
+    // are actually sold (raw materials, WIP bulks, packaging must never be
+    // pickable here). Mirrors the `sellable` role; see src/lib/productRoles.js.
+    queryFn: () => base44.entities.Product.filter({ status: 'active', sellable: true }, 'name', 3000),
     staleTime: 60000,
   });
 

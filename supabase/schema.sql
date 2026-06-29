@@ -57,8 +57,11 @@ CREATE TABLE products (
   item_type           text NOT NULL DEFAULT 'stock' CHECK (item_type IN (
                         'stock','non_stock','expense','service')),
   inventory_tracked   boolean NOT NULL DEFAULT true,
-  sellable            boolean NOT NULL DEFAULT false,
-  purchasable         boolean NOT NULL DEFAULT true,
+  -- Roles (independent): see src/lib/productRoles.js. A product must have ≥1
+  -- role, and a sellable product must be sourced (purchasable OR produced).
+  sellable            boolean NOT NULL DEFAULT false,  -- sold to customers
+  purchasable         boolean NOT NULL DEFAULT true,   -- bought from suppliers
+  produced            boolean NOT NULL DEFAULT false,  -- made in-house (has a BOM)
   status              text NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
 
   -- Units / conversions

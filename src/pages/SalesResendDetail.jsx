@@ -52,7 +52,9 @@ export default function SalesResendDetail() {
   });
   const { data: productMatches = [] } = useQuery({
     queryKey: ['product-search-resend', addQuery],
-    queryFn: () => base44.entities.Product.filter({ sku: { $ilike: addQuery.trim() } }, 'name', 15),
+    // Sellable only — a re-send replaces a sold item, so only sellable products
+    // are pickable. Mirrors the `sellable` role; see src/lib/productRoles.js.
+    queryFn: () => base44.entities.Product.filter({ sku: { $ilike: addQuery.trim() }, status: 'active', sellable: true }, 'name', 15),
     enabled: addQuery.trim().length >= 2,
   });
   // Active package SKUs — mirrors backend loadPackageSkus (packaging.ts) so a

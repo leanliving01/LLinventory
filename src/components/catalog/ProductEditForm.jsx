@@ -11,6 +11,7 @@ import { base44 } from '@/api/base44Client';
 import { Plus, Check, X as XIcon } from 'lucide-react';
 import { useSubcategories } from '@/lib/useSubcategories';
 import WarehouseZoneSelect from '@/components/shared/WarehouseZoneSelect';
+import { defaultRolesForType, isSellable, isPurchasable } from '@/lib/productRoles';
 
 // Compact "21 May 2026" formatter for the cost "last updated" badges.
 const fmtCostDate = (iso) => {
@@ -143,7 +144,16 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
             <Input value={formData.barcode || ''} onChange={e => set('barcode', e.target.value)} />
           </FormField>
           <FormField label="Category">
-            <Select value={formData.type || ''} onValueChange={v => onChange({ ...formData, type: v, subcategory: '' })}>
+            <Select
+              value={formData.type || ''}
+              onValueChange={v => {
+                // Changing category re-seeds the three role defaults for that
+                // category (user can still override any toggle below) and
+                // resets the subcategory. See src/lib/productRoles.js.
+                const roles = defaultRolesForType(v);
+                onChange({ ...formData, type: v, subcategory: '', ...roles });
+              }}
+            >
               <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
               <SelectContent>
                 {PRODUCT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
@@ -249,36 +259,53 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
           </div>
           <Switch checked={formData.inventory_tracked !== false} onCheckedChange={v => set('inventory_tracked', v)} />
         </div>
-        <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
-          <div>
-            <p className="text-sm font-medium">Sellable</p>
-            <p className="text-xs text-muted-foreground">Sold to customers (meals, supplements, packages)</p>
-          </div>
-          <Switch checked={formData.sellable === true} onCheckedChange={v => set('sellable', v)} />
-        </div>
       </Section>
 
-      {/* ── Supply Method ── */}
-      <Section title="Supply Method">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* ── Roles ── */}
+      {/* Three independent roles drive what this product can do across the app.
+          See src/lib/productRoles.js — they control the sales picker, PO picker,
+          BOM eligibility, and which sections appear below. */}
+      <Section title="Roles">
+        <p className="text-xs text-muted-foreground -mt-1">
+          What this product is for. A product needs at least one role; a sellable
+          product must also be sourced (purchasable or produced in-house).
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Sellable</p>
+              <p className="text-xs text-muted-foreground">Sold to customers — appears on sales orders</p>
+            </div>
+            <Switch checked={formData.sellable === true} onCheckedChange={v => set('sellable', v)} />
+          </div>
           <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
             <div>
               <p className="text-sm font-medium">Purchasable</p>
-              <p className="text-xs text-muted-foreground">Bought from suppliers (raw materials, packaging)</p>
+              <p className="text-xs text-muted-foreground">Bought from suppliers — appears on purchase orders</p>
             </div>
             <Switch checked={formData.purchasable !== false} onCheckedChange={v => set('purchasable', v)} />
           </div>
           <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3">
             <div>
               <p className="text-sm font-medium">Produced In-House</p>
-              <p className="text-xs text-muted-foreground">Made during production (bulk cooked, finished meals)</p>
+              <p className="text-xs text-muted-foreground">Made during production — carries a recipe / BOM</p>
             </div>
-            <Switch checked={!formData.purchasable || ['wip_bulk', 'finished_meal', 'sauce', 'solo_serve'].includes(formData.type)} disabled />
+            <Switch checked={formData.produced === true} onCheckedChange={v => set('produced', v)} />
           </div>
         </div>
-        {formData.purchasable === false && (
+        {formData.sellable === true && formData.purchasable === false && formData.produced !== true && (
+          <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
+            This product is sellable but has no source — mark it purchasable or produced in-house so it can actually be supplied.
+          </div>
+        )}
+        {formData.sellable !== true && formData.purchasable === false && formData.produced !== true && (
+          <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
+            This product has no role — it won't appear on sales orders, purchase orders, or in production.
+          </div>
+        )}
+        {formData.produced === true && (
           <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-2.5 text-sm text-blue-700 dark:text-blue-300">
-            This product is produced in-house — supplier, purchase UoM, and purchasing sections are hidden.
+            Produced in-house — manage its recipe / BOM from the Recipes tab.
           </div>
         )}
       </Section>
@@ -307,25 +334,28 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
 
       {/* ── Pricing & Costing ── */}
       <Section title="Pricing & Costing">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Selling price — editable */}
-          <FormField label="Selling Price (excl. VAT, ZAR)" hint="Set by ops manager — authoritative for margin calc">
-            <Input type="number" step="0.01" value={formData.selling_price ?? formData.price ?? ''} onChange={e => set('selling_price', e.target.value ? Number(e.target.value) : 0)} />
-          </FormField>
-          {/* Gross margin — computed, read-only */}
-          {(() => {
-            const sp = formData.selling_price || formData.price || 0;
-            const ca = formData.cost_avg || 0;
-            const margin = sp > 0 && ca > 0 ? ((sp - ca) / sp * 100).toFixed(1) : null;
-            return margin ? (
-              <FormField label="Gross Margin %">
-                <div className={`flex items-center h-9 px-3 rounded-md border text-sm font-medium ${parseFloat(margin) >= 50 ? 'bg-green-50 border-green-200 text-green-700' : parseFloat(margin) >= 40 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
-                  {margin}%
-                </div>
-              </FormField>
-            ) : null;
-          })()}
-        </div>
+        {/* Selling price + margin only apply to sellable products. */}
+        {isSellable(formData) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Selling price — editable */}
+            <FormField label="Selling Price (excl. VAT, ZAR)" hint="Set by ops manager — authoritative for margin calc">
+              <Input type="number" step="0.01" value={formData.selling_price ?? formData.price ?? ''} onChange={e => set('selling_price', e.target.value ? Number(e.target.value) : 0)} />
+            </FormField>
+            {/* Gross margin — computed, read-only */}
+            {(() => {
+              const sp = formData.selling_price || formData.price || 0;
+              const ca = formData.cost_avg || 0;
+              const margin = sp > 0 && ca > 0 ? ((sp - ca) / sp * 100).toFixed(1) : null;
+              return margin ? (
+                <FormField label="Gross Margin %">
+                  <div className={`flex items-center h-9 px-3 rounded-md border text-sm font-medium ${parseFloat(margin) >= 50 ? 'bg-green-50 border-green-200 text-green-700' : parseFloat(margin) >= 40 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                    {margin}%
+                  </div>
+                </FormField>
+              ) : null;
+            })()}
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Current cost — read-only */}
           <FormField label="Current Cost (excl. VAT, ZAR)" hint="Last GRN receipt price — auto-updated">
@@ -461,19 +491,24 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               </SelectContent>
             </Select>
           </FormField>
-          <FormField label="Revenue Account" hint="For sellable products">
-            <Select value={formData.revenue_account || 'none'} onValueChange={v => set('revenue_account', v === 'none' ? '' : v)}>
-              <SelectTrigger className="font-mono"><SelectValue placeholder="Select account" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">— None —</SelectItem>
-                {revenueAccounts.map(a => (
-                  <SelectItem key={a.id} value={acctValue(a)}>{a.code ? `${a.code} — ` : ''}{a.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FormField>
+          {/* Revenue account only applies to sellable products. */}
+          {isSellable(formData) && (
+            <FormField label="Revenue Account" hint="For sellable products">
+              <Select value={formData.revenue_account || 'none'} onValueChange={v => set('revenue_account', v === 'none' ? '' : v)}>
+                <SelectTrigger className="font-mono"><SelectValue placeholder="Select account" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— None —</SelectItem>
+                  {revenueAccounts.map(a => (
+                    <SelectItem key={a.id} value={acctValue(a)}>{a.code ? `${a.code} — ` : ''}{a.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+          )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Purchase tax only applies to purchasable products. */}
+          {isPurchasable(formData) && (
           <FormField label="Purchase Tax Rule" hint="Tax rule for purchases">
             <Select value={formData.purchase_tax_rule || 'none'} onValueChange={v => set('purchase_tax_rule', v === 'none' ? '' : v)}>
               <SelectTrigger><SelectValue placeholder="Select tax rule" /></SelectTrigger>
@@ -485,6 +520,9 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               </SelectContent>
             </Select>
           </FormField>
+          )}
+          {/* Sale tax only applies to sellable products. */}
+          {isSellable(formData) && (
           <FormField label="Sale Tax Rule" hint="Tax rule for sales (sellable items)">
             <Select value={formData.sale_tax_rule || 'none'} onValueChange={v => set('sale_tax_rule', v === 'none' ? '' : v)}>
               <SelectTrigger><SelectValue placeholder="Select tax rule" /></SelectTrigger>
@@ -496,6 +534,7 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
               </SelectContent>
             </Select>
           </FormField>
+          )}
         </div>
       </Section>
 

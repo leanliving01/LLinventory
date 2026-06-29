@@ -37,6 +37,7 @@ export default function Catalog() {
   const statusFilter = showArchive ? 'archived' : 'active';
   const [sellableFilter, setSellableFilter] = usePersistentState('catalog:sellableFilter', 'all');
   const [purchasableFilter, setPurchasableFilter] = usePersistentState('catalog:purchasableFilter', 'all');
+  const [producedFilter, setProducedFilter] = usePersistentState('catalog:producedFilter', 'all');
   const [inventoryFilter, setInventoryFilter] = usePersistentState('catalog:inventoryFilter', 'all');
   const [sortBy, setSortBy] = usePersistentState('catalog:sortBy', 'name_asc');
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('catalog_view_mode') || 'grouped');
@@ -165,6 +166,11 @@ export default function Catalog() {
         if (purchasableFilter === 'yes' && !isPurchasable) return false;
         if (purchasableFilter === 'no' && isPurchasable) return false;
       }
+      if (producedFilter !== 'all') {
+        const isProduced = p.produced === true;
+        if (producedFilter === 'yes' && !isProduced) return false;
+        if (producedFilter === 'no' && isProduced) return false;
+      }
       if (inventoryFilter !== 'all') {
         const isTracked = p.inventory_tracked !== false;
         if (inventoryFilter === 'yes' && !isTracked) return false;
@@ -197,7 +203,7 @@ export default function Catalog() {
         break;
     }
     return list;
-  }, [products, search, typeFilter, statusFilter, sellableFilter, purchasableFilter, inventoryFilter, sortBy]);
+  }, [products, search, typeFilter, statusFilter, sellableFilter, purchasableFilter, producedFilter, inventoryFilter, sortBy]);
 
   // Count by type
   const typeCounts = useMemo(() => {
@@ -348,6 +354,14 @@ export default function Catalog() {
             <SelectItem value="no">Not Purchasable</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={producedFilter} onValueChange={setProducedFilter}>
+          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Produced</SelectItem>
+            <SelectItem value="yes">Produced</SelectItem>
+            <SelectItem value="no">Not Produced</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={inventoryFilter} onValueChange={setInventoryFilter}>
           <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -366,8 +380,8 @@ export default function Catalog() {
             <SelectItem value="sku_asc">SKU (A-Z)</SelectItem>
           </SelectContent>
         </Select>
-        {(search || typeFilter !== 'all' || sellableFilter !== 'all' || purchasableFilter !== 'all' || inventoryFilter !== 'all') && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setTypeFilter('all'); setSellableFilter('all'); setPurchasableFilter('all'); setInventoryFilter('all'); }} className="gap-1">
+        {(search || typeFilter !== 'all' || sellableFilter !== 'all' || purchasableFilter !== 'all' || producedFilter !== 'all' || inventoryFilter !== 'all') && (
+          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setTypeFilter('all'); setSellableFilter('all'); setPurchasableFilter('all'); setProducedFilter('all'); setInventoryFilter('all'); }} className="gap-1">
             <X className="w-3.5 h-3.5" /> Clear
           </Button>
         )}
