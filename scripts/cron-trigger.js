@@ -98,14 +98,21 @@ async function run() {
   try {
     const { status, data } = await callRpc('/rest/v1/rpc/deduct_fulfilled_stock', '{"p_limit":50}');
     console.log(`[deduct-fulfilled-stock] ${status} — orders=${data?.orders_processed ?? '?'} rows_written=${data?.rows_written ?? '?'} missing_skus=${JSON.stringify(data?.missing_skus ?? [])}`);
-    // Surface the two silent failure modes so stuck orders / negative stock are visible:
+    // Surface the silent failure / deferral modes so stuck orders are visible:
     //  • missing_boms → a package whose explosion couldn't resolve; its order is parked
     //    stock_deducted=false and retried forever until someone intervenes.
     //  • went_negative → a SKU deducted below zero (the migration-057 "investigate me" signal).
+    //  • blocked_by_count → product under an OPEN stock count; order deferred until the
+    //    count is finished/cancelled (migration 090 — no longer freezes the whole batch).
+    //  • errored_orders → an order that raised an unexpected error and was skipped (isolated).
     const missingBoms = data?.missing_boms ?? [];
     const wentNegative = data?.went_negative ?? [];
+    const blockedByCount = data?.blocked_by_count ?? [];
+    const erroredOrders = data?.errored_orders ?? [];
     if (missingBoms.length) console.warn(`[deduct-fulfilled-stock] ⚠ missing_boms (${missingBoms.length}) — orders stuck undeducted: ${JSON.stringify(missingBoms)}`);
     if (wentNegative.length) console.warn(`[deduct-fulfilled-stock] ⚠ went_negative (${wentNegative.length}) — stock below zero: ${JSON.stringify(wentNegative)}`);
+    if (blockedByCount.length) console.warn(`[deduct-fulfilled-stock] ⏸ blocked_by_count (${blockedByCount.length}) — deferred, finish/cancel the open stock count: ${JSON.stringify(blockedByCount)}`);
+    if (erroredOrders.length) console.warn(`[deduct-fulfilled-stock] ⚠ errored_orders (${erroredOrders.length}) — skipped due to errors: ${JSON.stringify(erroredOrders)}`);
   } catch (e) {
     console.error('[deduct-fulfilled-stock] Error:', e.message);
   }
