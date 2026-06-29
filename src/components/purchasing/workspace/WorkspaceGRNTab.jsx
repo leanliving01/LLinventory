@@ -54,13 +54,13 @@ function ExpandableGRNRow({ grn, lines, poLines, onOpenDrawer }) {
 
       {open && grnLines.length > 0 && (
         <div className="border-t border-border">
-          <table className="w-full text-xs">
+          <table className="w-full text-sm">
             <thead>
-              <tr className="bg-muted/50">
-                <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase text-[10px]">Product</th>
-                <th className="text-right px-3 py-2 font-semibold text-muted-foreground uppercase text-[10px]">Ordered</th>
-                <th className="text-right px-3 py-2 font-semibold text-muted-foreground uppercase text-[10px]">Received</th>
-                <th className="text-right px-3 py-2 font-semibold text-muted-foreground uppercase text-[10px]">Still Short</th>
+              <tr className="bg-muted/60">
+                <th className="text-left px-4 py-3 font-semibold text-muted-foreground uppercase text-[11px] tracking-wide">Product</th>
+                <th className="text-right px-4 py-3 font-semibold text-muted-foreground uppercase text-[11px] tracking-wide">Ordered</th>
+                <th className="text-right px-4 py-3 font-semibold text-muted-foreground uppercase text-[11px] tracking-wide">Received</th>
+                <th className="text-right px-4 py-3 font-semibold text-muted-foreground uppercase text-[11px] tracking-wide">Still Short</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -71,13 +71,13 @@ function ExpandableGRNRow({ grn, lines, poLines, onOpenDrawer }) {
                 const stillShort = Math.max(0, orderedQty - totalReceived);
                 return (
                   <tr key={gl.id}>
-                    <td className="px-3 py-2">
+                    <td className="px-4 py-3">
                       <p className="font-medium">{gl.product_name}</p>
-                      <p className="text-[10px] font-mono text-muted-foreground">{gl.product_sku}</p>
+                      <p className="text-xs font-mono text-muted-foreground mt-0.5">{gl.product_sku}</p>
                     </td>
-                    <td className="px-3 py-2 text-right text-muted-foreground">{orderedQty}</td>
-                    <td className="px-3 py-2 text-right font-medium">{gl.received_qty}</td>
-                    <td className={`px-3 py-2 text-right font-semibold ${stillShort > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{orderedQty}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-medium">{gl.received_qty}</td>
+                    <td className={`px-4 py-3 text-right tabular-nums font-semibold ${stillShort > 0 ? 'text-amber-600' : 'text-green-600'}`}>
                       {stillShort > 0 ? stillShort : '✓ Complete'}
                     </td>
                   </tr>
@@ -241,11 +241,9 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], shortages
       const result = await confirmGRN(grnWithId, linesWithGRNId, user?.full_name || user?.email || 'System');
 
       if (result.requiresDecision) {
-        // Shortage detected — show per-line decision step before finalising
-        const initDecisions = {};
-        result.shortLines.forEach(l => { initDecisions[l.id] = 'receive_later'; });
+        // Shortage detected — show per-line decision step before finalising.
+        // ShortageDecisionPanel manages its own per-line decision state.
         setPendingDecision(result);
-        setDecisions(initDecisions);
         setSaving(false);
         return;
       }
@@ -374,13 +372,13 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], shortages
           <div className="border border-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-muted/50 border-b border-border">
-                  <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
-                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Ordered</th>
-                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Already</th>
-                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Remaining</th>
-                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-36">Received Qty *</th>
-                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Unit Cost</th>
+                <tr className="bg-muted/60 border-b border-border">
+                  <th className="text-left px-4 py-3 text-[11px] tracking-wide font-semibold text-muted-foreground uppercase">Product</th>
+                  <th className="text-right px-4 py-3 text-[11px] tracking-wide font-semibold text-muted-foreground uppercase w-24">Ordered</th>
+                  <th className="text-right px-4 py-3 text-[11px] tracking-wide font-semibold text-muted-foreground uppercase w-24">Already</th>
+                  <th className="text-right px-4 py-3 text-[11px] tracking-wide font-semibold text-muted-foreground uppercase w-24">Remaining</th>
+                  <th className="text-right px-4 py-3 text-[11px] tracking-wide font-semibold text-muted-foreground uppercase w-36">Received Qty *</th>
+                  <th className="text-right px-4 py-3 text-[11px] tracking-wide font-semibold text-muted-foreground uppercase w-28">Unit Cost</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -390,30 +388,30 @@ export default function WorkspaceGRNTab({ po, grns = [], poLines = [], shortages
                   const done = remaining <= 0;
                   return (
                   <tr key={l.id} className={done ? 'opacity-50' : ''}>
-                    <td className="px-3 py-2">
+                    <td className="px-4 py-3">
                       <p className="font-medium">{l.product_name}</p>
-                      <p className="text-[10px] font-mono text-muted-foreground">{l.product_sku}</p>
+                      <p className="text-xs font-mono text-muted-foreground mt-0.5">{l.product_sku}</p>
                     </td>
-                    <td className="px-3 py-2 text-right text-muted-foreground">{l.ordered_qty} {l.uom}</td>
-                    <td className="px-3 py-2 text-right text-muted-foreground">{already || '—'}</td>
-                    <td className="px-3 py-2 text-right font-medium">{remaining}</td>
-                    <td className="px-3 py-2">
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{l.ordered_qty} {l.uom}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{already || '—'}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-medium">{remaining}</td>
+                    <td className="px-4 py-3">
                       {done ? (
-                        <span className="text-[10px] text-green-600 font-medium block text-right">Fully received</span>
+                        <span className="text-xs text-green-600 font-medium block text-right">Fully received</span>
                       ) : (
                         <Input
                           type="number"
                           value={receivedQtys[l.id] ?? ''}
                           onChange={e => setReceivedQtys(prev => ({ ...prev, [l.id]: e.target.value }))}
                           placeholder={String(remaining)}
-                          className="h-8 text-sm text-right"
+                          className="h-9 text-sm text-right"
                           min="0"
                           max={remaining}
                           step="0.001"
                         />
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right text-muted-foreground">R {(l.unit_cost || 0).toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">R {(l.unit_cost || 0).toFixed(2)}</td>
                   </tr>
                   );
                 })}

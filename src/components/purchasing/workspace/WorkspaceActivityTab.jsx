@@ -20,9 +20,9 @@ export default function WorkspaceActivityTab({ poId }) {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {logs.map(log => (
-        <div key={log.id} className="flex gap-3 items-start py-2.5 border-b border-border last:border-0">
+        <div key={log.id} className="flex gap-3 items-start py-3.5 border-b border-border last:border-0">
           <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0">
             <User className="w-4 h-4 text-muted-foreground" />
           </div>

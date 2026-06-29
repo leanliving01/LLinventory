@@ -6,8 +6,8 @@ import { CheckCircle2, Clock, AlertTriangle, FileText, PackageCheck, CreditCard,
 function InfoRow({ label, value, mono }) {
   return (
     <div>
-      <dt className="text-[10px] uppercase font-semibold text-muted-foreground">{label}</dt>
-      <dd className={`text-sm font-medium mt-0.5 ${mono ? 'font-mono' : ''} ${value ? '' : 'text-muted-foreground'}`}>
+      <dt className="text-[11px] uppercase tracking-wide font-semibold text-muted-foreground">{label}</dt>
+      <dd className={`text-sm font-medium mt-1 ${mono ? 'font-mono' : ''} ${value ? '' : 'text-muted-foreground'}`}>
         {value || '—'}
       </dd>
     </div>
@@ -16,24 +16,24 @@ function InfoRow({ label, value, mono }) {
 
 function InfoSection({ title, children, faded, badge }) {
   return (
-    <div className={`space-y-3 ${faded ? 'opacity-50' : ''}`}>
-      <div className="flex items-center gap-2 pb-2 border-b border-border">
-        <p className="text-xs font-semibold uppercase text-muted-foreground">{title}</p>
+    <div className={`space-y-4 ${faded ? 'opacity-50' : ''}`}>
+      <div className="flex items-center gap-2 pb-2.5 border-b border-border">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
         {badge && <Badge className="text-[10px] py-0">{badge}</Badge>}
       </div>
-      <dl className="space-y-2.5">{children}</dl>
+      <dl className="space-y-3.5">{children}</dl>
     </div>
   );
 }
 
 function StatusCard({ icon: Icon, title, value, color, detail }) {
   return (
-    <div className="bg-card border border-border rounded-xl p-4 flex items-start gap-3">
+    <div className="bg-card border border-border rounded-xl p-5 flex items-start gap-3">
       <Icon className={`w-5 h-5 mt-0.5 shrink-0 ${color}`} />
       <div className="min-w-0">
-        <p className="text-[10px] uppercase font-semibold text-muted-foreground">{title}</p>
-        <p className={`text-sm font-semibold ${color}`}>{value}</p>
-        {detail && <p className="text-xs text-muted-foreground mt-0.5">{detail}</p>}
+        <p className="text-[11px] uppercase tracking-wide font-semibold text-muted-foreground">{title}</p>
+        <p className={`text-base font-semibold capitalize mt-0.5 ${color}`}>{value}</p>
+        {detail && <p className="text-xs text-muted-foreground mt-1">{detail}</p>}
       </div>
     </div>
   );
@@ -55,10 +55,10 @@ function deriveNextAction(po, invoice, grns, shortages) {
     return { tab: 'grn', label: 'A GRN is in draft — confirm it to update stock', action: 'Confirm GRN' };
   }
   if (!invoice) {
-    return { tab: 'lines', label: 'No invoice yet — add the supplier invoice', action: 'Add Invoice' };
+    return { tab: 'invoice', label: 'No invoice yet — add the supplier invoice', action: 'Add Invoice' };
   }
   if (invoice.status === 'pending_match') {
-    return { tab: 'lines', label: 'Invoice awaiting authorisation', action: 'Authorise Invoice' };
+    return { tab: 'invoice', label: 'Invoice awaiting authorisation', action: 'Authorise Invoice' };
   }
   if (invoice.payment_status === 'unpaid' && invoice.status === 'approved') {
     return { tab: null, label: 'Invoice approved — record payment when due', action: null };
@@ -81,11 +81,11 @@ export default function WorkspaceSummaryTab({ po, invoice, grns = [], shortages 
   const latestGRN = confirmedGRNs[0] || null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
 
       {/* ── Document Info Panel ── */}
-      <div className="bg-muted/30 border border-border rounded-xl p-5">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-border">
+      <div className="bg-card border border-border rounded-2xl shadow-sm p-6 md:p-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 divide-y md:divide-y-0 md:divide-x divide-border">
 
           {/* PO Section */}
           <InfoSection

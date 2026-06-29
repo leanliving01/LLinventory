@@ -129,10 +129,21 @@ export default function WorkspaceHeader({ po, invoice, grns = [], perms = {}, on
         </div>
 
         {/* Financials + actions */}
-        <div className="ml-auto flex items-center gap-3 text-sm shrink-0">
-          <span className="text-muted-foreground">Excl: <strong>R {subtotal.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
-          <span className="text-muted-foreground">VAT: <strong>R {tax.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
-          <span className="font-bold text-base">R {total.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        <div className="ml-auto flex items-center gap-5 shrink-0">
+          <div className="flex items-center gap-6">
+            <div className="text-right">
+              <p className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Excl. VAT</p>
+              <p className="text-sm font-semibold tabular-nums mt-0.5">R {subtotal.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">VAT</p>
+              <p className="text-sm font-semibold tabular-nums mt-0.5">R {tax.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Total</p>
+              <p className="text-lg font-bold tabular-nums mt-0.5">R {total.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            </div>
+          </div>
 
           {canRevertToDraft && (
             <Button

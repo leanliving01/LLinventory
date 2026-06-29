@@ -13,7 +13,8 @@ import { toast } from 'sonner';
 import WorkspaceHeader from '@/components/purchasing/workspace/WorkspaceHeader';
 import StepIndicator from '@/components/purchasing/workspace/StepIndicator';
 import WorkspaceSummaryTab from '@/components/purchasing/workspace/WorkspaceSummaryTab';
-import WorkspaceLinesTab from '@/components/purchasing/workspace/WorkspaceLinesTab';
+import WorkspacePurchaseOrderTab from '@/components/purchasing/workspace/WorkspacePurchaseOrderTab';
+import WorkspaceInvoiceTab from '@/components/purchasing/workspace/WorkspaceInvoiceTab';
 import WorkspaceGRNTab from '@/components/purchasing/workspace/WorkspaceGRNTab';
 import WorkspaceCreditReturnsTab from '@/components/purchasing/workspace/WorkspaceCreditReturnsTab';
 import WorkspaceAttachmentsTab from '@/components/purchasing/workspace/WorkspaceAttachmentsTab';
@@ -27,7 +28,9 @@ export default function PurchaseWorkspace() {
   const { user } = useAuth();
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'summary');
+  // 'lines' is the legacy combined tab — now split into Purchase Order + Invoice.
+  const initialTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(initialTab === 'lines' ? 'purchase_order' : (initialTab || 'summary'));
 
   // Load PO
   const { data: poList = [], isLoading: poLoading } = useQuery({
@@ -150,7 +153,8 @@ export default function PurchaseWorkspace() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="summary">Summary</TabsTrigger>
-            <TabsTrigger value="lines">Lines & Invoice</TabsTrigger>
+            <TabsTrigger value="purchase_order">Purchase Order</TabsTrigger>
+            <TabsTrigger value="invoice">Invoice</TabsTrigger>
             <TabsTrigger value="grn">GRN</TabsTrigger>
             <TabsTrigger value="credits">Credits & Returns</TabsTrigger>
             <TabsTrigger value="attachments">Attachments</TabsTrigger>
@@ -169,8 +173,12 @@ export default function PurchaseWorkspace() {
               />
             </TabsContent>
 
-            <TabsContent value="lines">
-              <WorkspaceLinesTab
+            <TabsContent value="purchase_order">
+              <WorkspacePurchaseOrderTab po={po} poLines={poLines} />
+            </TabsContent>
+
+            <TabsContent value="invoice">
+              <WorkspaceInvoiceTab
                 po={po}
                 poLines={poLines}
                 invoice={invoice}

@@ -20,11 +20,11 @@ function ShortageRow({ shortage, onAllocate }) {
     && !['resolved', 'cancelled', 'credit_received'].includes(shortage.status);
   const variance = shortage.credit_variance;
   return (
-    <div className="flex items-start gap-3 p-3 border border-border rounded-lg bg-card">
+    <div className="flex items-start gap-3 p-4 border border-border rounded-xl bg-card">
       <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium">{shortage.product_name}</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground mt-0.5">
           Short: {shortage.shortage_qty} {shortage.purchase_uom} · R {(shortage.shortage_value || 0).toFixed(2)}
           {shortage.credit_note_number && <> · CN: <span className="font-mono">{shortage.credit_note_number}</span></>}
         </p>
@@ -49,11 +49,11 @@ function ShortageRow({ shortage, onAllocate }) {
 
 function ReturnRow({ supplierReturn }) {
   return (
-    <div className="flex items-start gap-3 p-3 border border-border rounded-lg bg-card">
+    <div className="flex items-start gap-3 p-4 border border-border rounded-xl bg-card">
       <ArrowLeftRight className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium font-mono">{supplierReturn.return_number || 'RTN'}</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground mt-0.5">
           Supplier: {supplierReturn.supplier_name} · R {(supplierReturn.total_return_value || 0).toFixed(2)}
         </p>
       </div>
@@ -66,13 +66,13 @@ function CreditNoteRow({ creditNote, onOpen }) {
   const variance = creditNote.total_variance;
   return (
     <button
-      className="w-full flex items-start gap-3 p-3 border border-border rounded-lg bg-card text-left hover:bg-muted/30 transition-colors"
+      className="w-full flex items-start gap-3 p-4 border border-border rounded-xl bg-card text-left hover:bg-muted/30 transition-colors"
       onClick={() => onOpen(creditNote)}
     >
       <CreditCard className="w-4 h-4 text-purple-500 mt-0.5 shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium font-mono">{creditNote.supplier_credit_note_number || creditNote.scn_number}</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground mt-0.5">
           {creditNote.credit_note_date || '—'} · Total: R {(creditNote.total || 0).toFixed(2)}
           {variance != null && Math.abs(variance) > 0.001 && <> · <span className="text-amber-700">variance R {variance.toFixed(2)}</span></>}
         </p>

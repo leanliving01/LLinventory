@@ -39,11 +39,11 @@ export default function StepIndicator({ po, invoice, grns = [] }) {
   const current = activeIndex(steps);
 
   return (
-    <div className="flex items-center gap-0 bg-muted/40 rounded-lg px-4 py-3 overflow-x-auto">
+    <div className="flex items-center gap-0 bg-muted/40 rounded-xl px-5 py-4 overflow-x-auto">
       {steps.map((step, i) => (
         <React.Fragment key={step.label}>
           <div className={cn(
-            'flex items-center gap-1.5 shrink-0 text-xs font-medium',
+            'flex items-center gap-2 shrink-0 text-sm font-medium',
             step.done ? 'text-green-700' : i === current ? 'text-primary' : 'text-muted-foreground'
           )}>
             {step.done
