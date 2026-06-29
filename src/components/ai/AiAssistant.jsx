@@ -110,12 +110,22 @@ export default function AiAssistant({ open, onClose }) {
     setIsLoading(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('ai-chat', {
-        body: { messages: nextMessages, perms, pageContext, mode },
+      // Talk to the real Livy (Hermes) agent via the server-side proxy (/__fn/livy),
+      // which injects the API key. Livy is read-only over the ERP and uses its erp_*
+      // tools for live numbers.
+      const systemMsg = {
+        role: 'system',
+        content: `You are Livy, the Lean Living ERP agent, replying inside the web app. Current screen: ${pageContext}. The user's role is ${user?.role || 'unknown'}. Use your erp_* tools for any live numbers and never invent them. Be concise and use markdown.${mode === 'digest' ? ' The user asked for a short operations digest of what matters right now.' : ''}${mode === 'explain_screen' ? ` Explain what the "${pageContext}" screen is for and how to use it.` : ''}`,
+      };
+      const convo = nextMessages.map((m) => ({ role: m.role, content: m.content }));
+      const resp = await fetch('/__fn/livy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'gpt-5.4', stream: false, messages: [systemMsg, ...convo] }),
       });
-
-      if (error) throw new Error(error.message);
-      const reply = data?.reply ?? data?.error ?? 'Sorry, I could not get a response. Please try again.';
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error?.message || data?.error || `HTTP ${resp.status}`);
+      const reply = data?.choices?.[0]?.message?.content ?? 'Sorry, I could not get a response. Please try again.';
       setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
     } catch (err) {
       setMessages((prev) => [
@@ -125,7 +135,7 @@ export default function AiAssistant({ open, onClose }) {
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isLoading, perms, pageContext]);
+  }, [messages, isLoading, pageContext, user]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
