@@ -26,7 +26,7 @@ export default function FloorReceiveLines({ lines, onQtyChange, onCostChange, on
         </p>
         {totalValue > 0 && (
           <Badge variant="outline" className="text-xs">
-            Total: R {totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+            Total: R {totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </Badge>
         )}
       </div>

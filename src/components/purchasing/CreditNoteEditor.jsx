@@ -14,7 +14,7 @@ import TruncatedCell from '@/components/ui/TruncatedCell';
 
 const RESOLVED = ['resolved', 'cancelled', 'credit_received'];
 const rnd2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
-const fmtR = (v) => `R ${(parseFloat(v) || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+const fmtR = (v) => `R ${(parseFloat(v) || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
  * Full-screen supplier credit-note document editor.

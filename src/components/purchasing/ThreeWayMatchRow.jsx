@@ -25,7 +25,7 @@ function DocCard({ icon: Icon, label, exists, items, totalValue, variancePct }) 
       </div>
       {exists ? (
         <div>
-          <p className="text-sm font-bold tabular-nums">R {totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
+          <p className="text-sm font-bold tabular-nums">R {totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           {variancePct > 0 && (
             <p className={`text-[10px] font-medium mt-0.5 ${variancePct > 2 ? 'text-amber-600' : 'text-green-600'}`}>
               {variancePct > 2 ? `⚠ ${variancePct.toFixed(1)}% variance` : `✓ ${variancePct.toFixed(1)}% variance`}
@@ -67,7 +67,7 @@ export default function ThreeWayMatchRow({ match }) {
           <p className="text-xs text-muted-foreground truncate">{po.supplier_name} · {po.order_date || '—'}</p>
         </div>
         <div className="text-right shrink-0 mr-2">
-          <p className="text-sm font-bold tabular-nums">R {poTotal.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
+          <p className="text-sm font-bold tabular-nums">R {poTotal.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           <div className="flex items-center gap-1.5 justify-end mt-0.5">
             <span className={`w-2 h-2 rounded-full ${hasGRN ? 'bg-green-500' : 'bg-gray-300'}`} title={hasGRN ? 'GRN ✓' : 'GRN missing'} />
             <span className={`w-2 h-2 rounded-full ${hasInvoice ? 'bg-green-500' : 'bg-gray-300'}`} title={hasInvoice ? 'Invoice ✓' : 'Invoice missing'} />

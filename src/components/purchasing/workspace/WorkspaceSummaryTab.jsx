@@ -121,7 +121,7 @@ export default function WorkspaceSummaryTab({ po, invoice, grns = [], shortages 
               <InfoRow label="Received At" value={latestGRN?.location_name} />
               <InfoRow
                 label="Total Received"
-                value={latestGRN ? `R ${(latestGRN.total_received_value || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : null}
+                value={latestGRN ? `R ${(latestGRN.total_received_value || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null}
               />
             </InfoSection>
           </div>

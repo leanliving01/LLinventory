@@ -42,7 +42,7 @@ export default function ReturnCard({ ret, onClick }) {
             </span>
             {ret.total_return_value > 0 && (
               <span className="font-medium text-foreground">
-                R {ret.total_return_value.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                R {ret.total_return_value.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
             )}
           </div>

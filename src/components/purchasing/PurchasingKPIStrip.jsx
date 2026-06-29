@@ -27,7 +27,7 @@ export default function PurchasingKPIStrip({ kpis }) {
         icon={Receipt}
         label="Open POs"
         value={kpis.openPOCount}
-        subValue={`R ${(kpis.openPOValue || 0).toLocaleString('en-ZA', { minimumFractionDigits: 0 })} outstanding`}
+        subValue={`R ${(kpis.openPOValue || 0).toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} outstanding`}
         color="text-blue-600"
         linkTo="/purchasing/orders"
         linkLabel="Purchase Orders →"
@@ -63,7 +63,7 @@ export default function PurchasingKPIStrip({ kpis }) {
         icon={AlertTriangle}
         label="Open Shortages"
         value={kpis.openShortageCount}
-        subValue={`R ${(kpis.openShortageValue || 0).toLocaleString('en-ZA', { minimumFractionDigits: 0 })} value`}
+        subValue={`R ${(kpis.openShortageValue || 0).toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} value`}
         color={kpis.openShortageCount > 0 ? 'text-amber-600' : 'text-green-600'}
         linkTo="/purchasing/shortages"
         linkLabel="Shortages →"
@@ -81,7 +81,7 @@ export default function PurchasingKPIStrip({ kpis }) {
         icon={ArrowLeftRight}
         label="Pending Returns"
         value={kpis.pendingReturns}
-        subValue={kpis.pendingReturns > 0 ? `R ${(kpis.pendingReturnValue || 0).toLocaleString('en-ZA', { minimumFractionDigits: 0 })}` : 'None pending'}
+        subValue={kpis.pendingReturns > 0 ? `R ${(kpis.pendingReturnValue || 0).toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : 'None pending'}
         color={kpis.pendingReturns > 0 ? 'text-amber-600' : 'text-green-600'}
         linkTo="/purchasing/returns"
         linkLabel="Returns →"

@@ -43,7 +43,7 @@ export default function UnmatchedLineRow({ group, products, onLink }) {
           {group.lines.length} line{group.lines.length !== 1 ? 's' : ''}
         </Badge>
         <span className="text-xs text-muted-foreground shrink-0 w-28 text-right">
-          R {group.totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+          R {group.totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </span>
       </div>
 

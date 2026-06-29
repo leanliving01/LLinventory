@@ -157,7 +157,7 @@ export default function Receiving() {
         {totalLineValue > 0 && (
           <div className="text-right">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Total Value</p>
-            <p className="text-lg font-bold text-foreground">R {totalLineValue.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
+            <p className="text-lg font-bold text-foreground">R {totalLineValue.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
         )}
       </div>

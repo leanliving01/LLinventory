@@ -504,7 +504,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
               Purchase Orders ({supplierPOs.length})
               {outstandingTotal > 0 && (
                 <Badge className="text-[10px] bg-amber-100 text-amber-700 ml-auto">
-                  R {outstandingTotal.toLocaleString('en-ZA', { minimumFractionDigits: 2 })} outstanding
+                  R {outstandingTotal.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} outstanding
                 </Badge>
               )}
             </h3>
@@ -536,7 +536,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
                         <tr key={po.id} className="hover:bg-muted/20">
                           <td className="px-3 py-2 text-xs font-mono font-medium">{po.po_number}</td>
                           <td className="px-3 py-2 text-xs text-muted-foreground">{po.order_date || '—'}</td>
-                          <td className="px-3 py-2 text-xs text-right font-medium">R {(po.total || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2 text-xs text-right font-medium">R {(po.total || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                           <td className="px-3 py-2 text-center">
                             <Badge className={`text-[10px] ${statusColors[po.status] || 'bg-gray-100 text-gray-600'}`}>
                               {(po.status || 'draft').replace('_', ' ')}

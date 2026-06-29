@@ -122,7 +122,7 @@ export default function WipInventory() {
         <div className="w-px h-8 bg-border" />
         <div>
           <p className="text-[10px] text-muted-foreground uppercase font-semibold">Carrying Value</p>
-          <p className="text-lg font-bold tabular-nums">R {totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
+          <p className="text-lg font-bold tabular-nums">R {totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
         </div>
         <div className="w-px h-8 bg-border" />
         <div>

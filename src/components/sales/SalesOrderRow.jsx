@@ -280,7 +280,7 @@ export default function SalesOrderRow({ order }) {
           <OrderStatusBadges order={order} size="sm" />
         </div>
         <span className="hidden md:inline text-sm font-medium w-28 text-right shrink-0">
-          R{(order.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+          R{(order.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </span>
         <Link
           to={`/sales/orders/${order.id}`}
@@ -299,7 +299,7 @@ export default function SalesOrderRow({ order }) {
             <p className="text-xs text-muted-foreground truncate">{order.customer_name || '—'}</p>
           </div>
           <div className="text-right shrink-0">
-            <p className="text-sm font-medium">R{(order.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
+            <p className="text-sm font-medium">R{(order.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
             <div className="flex items-center gap-1 justify-end mt-0.5">
               <OrderStatusBadges order={order} size="sm" />
             </div>

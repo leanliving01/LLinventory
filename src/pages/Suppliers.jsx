@@ -318,16 +318,16 @@ export default function Suppliers() {
                   </td>
                   <td className="px-4 py-2.5 text-right text-sm font-medium">
                     {s.outstanding_balance ? (
-                      <span className="text-amber-600">R {s.outstanding_balance.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                      <span className="text-amber-600">R {s.outstanding_balance.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     ) : supplierPOStats[s.id]?.outstanding ? (
-                      <span className="text-muted-foreground">R {supplierPOStats[s.id].outstanding.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                      <span className="text-muted-foreground">R {supplierPOStats[s.id].outstanding.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-right text-sm font-medium">
                     {s.overdue_balance ? (
-                      <span className="text-red-600">R {s.overdue_balance.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                      <span className="text-red-600">R {s.overdue_balance.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}

@@ -56,7 +56,7 @@ const STATUS_TABS = [
 ];
 
 const fmtQty = (v) => (v == null || v === '' ? '—' : Number(v));
-const fmtR = (v) => `R ${(parseFloat(v) || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+const fmtR = (v) => `R ${(parseFloat(v) || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function SupplierShortages() {
   const navigate = useNavigate();

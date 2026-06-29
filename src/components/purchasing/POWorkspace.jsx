@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -71,6 +72,32 @@ function emptyLine() {
     _spOptions: [],
     _uomOptions: [], // supplier_products for this (supplier, product) — drives the UoM dropdown
   };
+}
+
+// Serialize just the user-editable header/line fields so we can detect unsaved
+// edits by comparing against a baseline captured when the PO loads.
+function serializeHeader(h) {
+  return JSON.stringify({
+    supplierId: h.supplierId || '',
+    orderDate: h.orderDate || '',
+    expectedDate: h.expectedDate || '',
+    locationId: h.locationId || '',
+    notes: h.notes || '',
+    invoiceNumber: h.invoiceNumber || '',
+    capturedTotal: h.capturedTotal || '',
+    isBlindReceipt: !!h.isBlindReceipt,
+  });
+}
+function serializeLines(lines) {
+  return JSON.stringify((lines || []).map(l => ({
+    product_id: l.product_id || '',
+    ordered_qty: String(l.ordered_qty ?? ''),
+    unit_cost: String(l.unit_cost ?? ''),
+    description: l.description || '',
+    purchase_uom: l.purchase_uom || '',
+    supplier_sku: l.supplier_sku || '',
+    tax_rule: l.tax_rule || '',
+  })));
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +177,11 @@ export default function POWorkspace() {
   // ---- Local lines state ----
   const [localLines, setLocalLines] = useState([emptyLine()]);
 
+  // Baselines for unsaved-change detection — initialised to the empty/new-PO
+  // form, then refreshed whenever a saved PO loads (or re-loads after a save).
+  const baselineHeaderRef = useRef(serializeHeader({}));
+  const baselineLinesRef = useRef(serializeLines([emptyLine()]));
+
   // ---- UI state ----
   const [saving, setSaving] = useState(false);
   const [savedBanner, setSavedBanner] = useState(false);
@@ -178,11 +210,22 @@ export default function POWorkspace() {
       setDueDate(po.due_date_calculated || po.due_date);
       setDueDateOverridden(!!po.due_date_overridden);
     }
+    // Capture the loaded header as the clean baseline for dirty-detection.
+    baselineHeaderRef.current = serializeHeader({
+      supplierId: po.supplier_id || '',
+      orderDate: po.order_date || new Date().toISOString().slice(0, 10),
+      expectedDate: po.expected_date || '',
+      locationId: po.location_id || '',
+      notes: po.notes || '',
+      invoiceNumber: po.supplier_invoice_number || '',
+      capturedTotal: '',
+      isBlindReceipt: blind,
+    });
   }, [po]);
 
   useEffect(() => {
     if (!savedLines.length) return;
-    setLocalLines(savedLines.map(l => ({
+    const mapped = savedLines.map(l => ({
       _key: l.id,
       id: l.id,
       product_id: l.product_id || '',
@@ -200,7 +243,10 @@ export default function POWorkspace() {
       supplier_product_id: l.supplier_product_id || null,
       _pendingProductId: null,
       _spOptions: [],
-    })));
+    }));
+    setLocalLines(mapped);
+    // Capture the loaded lines as the clean baseline for dirty-detection.
+    baselineLinesRef.current = serializeLines(mapped);
   }, [savedLines]);
 
   // ---- Derived ----
@@ -767,6 +813,18 @@ export default function POWorkspace() {
   const deliveryAddress = formatLocationAddress(selectedLocation);
 
   const canSave = !isViewOnly && (currentStatus === 'draft' || currentStatus === 'approved' || currentStatus === 'confirmed');
+
+  // ---- Unsaved-changes guard (sidebar / back button / refresh / ⌘K) ----
+  const headerDirty = serializeHeader({
+    supplierId, orderDate, expectedDate, locationId, notes, invoiceNumber, capturedTotal, isBlindReceipt,
+  }) !== baselineHeaderRef.current;
+  const linesDirty = serializeLines(localLines) !== baselineLinesRef.current;
+  const hasUnsavedChanges = canSave && (headerDirty || linesDirty);
+  useUnsavedChanges(hasUnsavedChanges, {
+    message: isNew
+      ? 'This purchase order has not been saved yet. Leaving now will discard it.'
+      : 'You have unsaved changes to this purchase order.',
+  });
   const canApprove = !isViewOnly && currentStatus === 'draft';
   const canCancel = !isViewOnly && (currentStatus === 'draft' || currentStatus === 'approved' || currentStatus === 'confirmed');
   
@@ -1140,15 +1198,15 @@ export default function POWorkspace() {
             <div className="max-w-sm ml-auto space-y-1.5">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Subtotal excl. VAT</span>
-                <span className="font-medium tabular-nums">R {subtotalExcl.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                <span className="font-medium tabular-nums">R {subtotalExcl.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Total VAT</span>
-                <span className="font-medium tabular-nums">R {totalVat.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                <span className="font-medium tabular-nums">R {totalVat.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between text-base font-bold pt-1.5 border-t border-border">
                 <span>Total incl. VAT</span>
-                <span className="tabular-nums">R {totalIncl.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                <span className="tabular-nums">R {totalIncl.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
 
               {/* Blind receipt = invoice: capture the supplier's stated total and flag any variance */}
@@ -1169,7 +1227,7 @@ export default function POWorkspace() {
                   {totalVariance != null && Math.abs(totalVariance) > 0.001 && (
                     <div className="flex justify-between text-sm text-amber-700 font-medium">
                       <span className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Total variance</span>
-                      <span className="tabular-nums">R {totalVariance.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                      <span className="tabular-nums">R {totalVariance.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   )}
                 </>
@@ -1180,12 +1238,12 @@ export default function POWorkspace() {
                 <>
                   <div className="flex justify-between text-sm pt-2 mt-1 border-t border-border">
                     <span className="text-muted-foreground">Invoice Total (incl, per supplier)</span>
-                    <span className="font-medium tabular-nums">R {Number(linkedInvoice.captured_total).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-medium tabular-nums">R {Number(linkedInvoice.captured_total).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                   {linkedInvoice.total_variance != null && Math.abs(linkedInvoice.total_variance) > 0.001 && (
                     <div className="flex justify-between text-sm text-amber-700 font-medium">
                       <span className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Total variance</span>
-                      <span className="tabular-nums">R {Number(linkedInvoice.total_variance).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+                      <span className="tabular-nums">R {Number(linkedInvoice.total_variance).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   )}
                 </>
@@ -1409,7 +1467,7 @@ function LineRow({
       <td className="px-3 py-2 text-right whitespace-nowrap">
         <span className="text-sm text-muted-foreground tabular-nums">
           {line._computedExcl > 0
-            ? `R ${line._computedExcl.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`
+            ? `R ${line._computedExcl.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
             : '—'}
         </span>
       </td>
@@ -1418,7 +1476,7 @@ function LineRow({
       <td className="px-3 py-2 text-right whitespace-nowrap">
         <span className="text-sm font-medium tabular-nums">
           {line._computedIncl > 0
-            ? `R ${line._computedIncl.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`
+            ? `R ${line._computedIncl.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
             : '—'}
         </span>
       </td>

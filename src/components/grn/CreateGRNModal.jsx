@@ -265,7 +265,7 @@ export default function CreateGRNModal({ onCreated, onCancel }) {
     onCreated(grn);
   };
 
-  const fmtMoney = (n) => `R ${Number(n || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+  const fmtMoney = (n) => `R ${Number(n || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">

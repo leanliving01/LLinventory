@@ -364,7 +364,7 @@ export default function PurchaseOrders() {
                           </span>
                         ) : '—'}
                       </td>
-                      <td className="px-4 py-2.5 text-sm text-right font-medium">R {(po.total || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-2.5 text-sm text-right font-medium">R {(po.total || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td className="px-4 py-2.5 text-center">
                         <Badge className={`text-[10px] ${STATUS_COLORS[po.status] || 'bg-gray-100 text-gray-600'}`}>
                           {STATUS_LABELS[po.status] || po.status}

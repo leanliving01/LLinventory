@@ -36,7 +36,7 @@ function ExpandableGRNRow({ grn, lines, poLines, onOpenDrawer }) {
           )}
         </div>
         <div className="text-right shrink-0 flex flex-col items-end gap-1">
-          <p className="text-sm font-bold">R {(grn.total_received_value || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</p>
+          <p className="text-sm font-bold">R {(grn.total_received_value || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           <Badge className={`text-[10px] ${grn.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
             {grn.status}
           </Badge>

@@ -404,7 +404,7 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
                           <Input type="number" value={line.unit_cost} onChange={e => updateLine(idx, 'unit_cost', e.target.value)} placeholder="0.00" className="h-9 text-sm bg-background" min="0" step="0.01" />
                         </td>
                         <td className="px-3 py-2 text-right text-sm font-medium whitespace-nowrap">
-                          {lt > 0 ? `R ${lt.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : '—'}
+                          {lt > 0 ? `R ${lt.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                         </td>
                         <td className="px-3 py-2">
                           {lines.length > 1 && (

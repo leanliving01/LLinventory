@@ -138,8 +138,8 @@ export default function ShopifyReturns() {
       {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         <KpiCard label="Total Returns" value={kpis.count} />
-        <KpiCard label="Return Value" value={`R ${kpis.totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`} />
-        <KpiCard label="Write-Off Value" value={`R ${kpis.writeOffValue.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`} />
+        <KpiCard label="Return Value" value={`R ${kpis.totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+        <KpiCard label="Write-Off Value" value={`R ${kpis.writeOffValue.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
         <KpiCard label="Expected Outstanding" value={kpis.expectedOutstanding} />
         <KpiCard label="Courier To Book" value={kpis.courierToBook} icon={kpis.courierToBook > 0 ? AlertTriangle : Truck} highlight={kpis.courierToBook > 0} />
         <KpiCard label="Not Receiving" value={kpis.notReceiving} />

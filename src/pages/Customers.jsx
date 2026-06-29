@@ -110,7 +110,7 @@ export default function Customers() {
                   </td>
                   <td className="px-4 py-2.5 text-sm text-right tabular-nums">{c.orders_count || 0}</td>
                   <td className="px-4 py-2.5 text-sm text-right tabular-nums">
-                    {c.total_spent ? `R ${Number(c.total_spent).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : '—'}
+                    {c.total_spent ? `R ${Number(c.total_spent).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex gap-1 flex-wrap">

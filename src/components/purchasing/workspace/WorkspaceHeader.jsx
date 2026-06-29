@@ -130,9 +130,9 @@ export default function WorkspaceHeader({ po, invoice, grns = [], perms = {}, on
 
         {/* Financials + actions */}
         <div className="ml-auto flex items-center gap-3 text-sm shrink-0">
-          <span className="text-muted-foreground">Excl: <strong>R {subtotal.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</strong></span>
-          <span className="text-muted-foreground">VAT: <strong>R {tax.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</strong></span>
-          <span className="font-bold text-base">R {total.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+          <span className="text-muted-foreground">Excl: <strong>R {subtotal.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+          <span className="text-muted-foreground">VAT: <strong>R {tax.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+          <span className="font-bold text-base">R {total.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 
           {canRevertToDraft && (
             <Button

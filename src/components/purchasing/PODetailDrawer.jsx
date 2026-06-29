@@ -419,7 +419,7 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                             <Input type="number" value={el.unit_cost} onChange={e => updateEditLine(idx, 'unit_cost', e.target.value)} className="h-9 text-sm bg-background" min="0" step="0.01" />
                           </td>
                           <td className="px-3 py-2 text-right text-sm font-medium whitespace-nowrap">
-                            {lt > 0 ? `R ${lt.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : '—'}
+                            {lt > 0 ? `R ${lt.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                           </td>
                           <td className="px-3 py-2">
                             {editLines.length > 1 && (
@@ -504,7 +504,7 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
                             />
                           </td>
                           <td className="px-3 py-2 text-right text-xs font-medium whitespace-nowrap">
-                            R {lineTotal.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                            R {lineTotal.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                         </tr>
                       );

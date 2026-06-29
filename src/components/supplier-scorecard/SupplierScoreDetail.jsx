@@ -84,7 +84,7 @@ export default function SupplierScoreDetail({ card, onClose }) {
 
       {card.outstandingBalance > 0 && (
         <div className="mt-3 px-3 py-2 bg-muted/30 rounded-lg text-xs text-muted-foreground">
-          Outstanding balance: <span className="font-semibold text-foreground">R {card.outstandingBalance.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</span>
+          Outstanding balance: <span className="font-semibold text-foreground">R {card.outstandingBalance.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
       )}
     </div>

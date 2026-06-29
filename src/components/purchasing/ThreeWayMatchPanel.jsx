@@ -35,7 +35,7 @@ const LINE_LABEL = {
 };
 
 const fmtQty = (n) => (n == null ? '—' : String(Math.round(Number(n) * 100) / 100));
-const fmtR = (n) => (n == null ? '—' : `R ${Number(n).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`);
+const fmtR = (n) => (n == null ? '—' : `R ${Number(n).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
 export default function ThreeWayMatchPanel({ invoice, invoiceLines = [], userName = 'Unknown', canApprove: canAct = true, onUpdated }) {
   const queryClient = useQueryClient();

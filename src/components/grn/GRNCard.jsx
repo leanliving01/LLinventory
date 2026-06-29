@@ -43,7 +43,7 @@ export default function GRNCard({ grn, onClick }) {
             <span>{grn.total_lines || 0} lines</span>
             {Number(grn.total_received_value) > 0 && (
               <span className="font-medium text-foreground">
-                R {Number(grn.total_received_value).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                R {Number(grn.total_received_value).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
             )}
           </div>

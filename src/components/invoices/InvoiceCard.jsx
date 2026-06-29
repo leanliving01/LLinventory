@@ -65,7 +65,7 @@ export default function InvoiceCard({ invoice, onClick }) {
               </span>
             )}
             <span className="font-medium text-foreground">
-              R {(invoice.total || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+              R {(invoice.total || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
         </div>

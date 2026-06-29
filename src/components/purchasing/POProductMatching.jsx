@@ -25,11 +25,10 @@ export default function POProductMatching() {
   // Load products for manual linking
   const { data: products = [] } = useQuery({
     queryKey: ['products-active-purchasable'],
-    queryFn: async () => {
-      const all = await base44.entities.Product.filter({ status: 'active', purchasable: true }, 'name', 1000);
-      const buyableTypes = ['raw', 'packaging', 'supplement', 'sauce', 'service'];
-      return all.filter(p => buyableTypes.includes(p.type));
-    },
+    // The `purchasable` role is authoritative — produced-in-house items
+    // (meals, packages, WIP bulks) are never purchasable and so can't be
+    // linked to a PO line. See src/lib/productRoles.js.
+    queryFn: () => base44.entities.Product.filter({ status: 'active', purchasable: true }, 'name', 1000),
   });
 
   // Deduplicate by product_name for display
@@ -112,7 +111,7 @@ export default function POProductMatching() {
             <CheckCircle2 className="w-4 h-4 text-green-500" />
             Unmatched Value
           </div>
-          <div className="text-2xl font-bold">R {groupedUnmatched.reduce((s, g) => s + g.totalValue, 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</div>
+          <div className="text-2xl font-bold">R {groupedUnmatched.reduce((s, g) => s + g.totalValue, 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           <div className="text-xs text-muted-foreground">Total across all unmatched</div>
         </div>
       </div>

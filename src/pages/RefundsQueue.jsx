@@ -80,7 +80,7 @@ export default function RefundsQueue() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Kpi label="Open Refunds" value={counts.open} highlight={counts.open > 0} />
-        <Kpi label="Open Refund Value" value={`R ${totalOpen.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`} />
+        <Kpi label="Open Refund Value" value={`R ${totalOpen.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
         <Kpi label="Completed" value={counts.completed} />
         <Kpi label="All Refunds" value={counts.all} />
       </div>

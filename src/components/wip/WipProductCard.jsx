@@ -36,7 +36,7 @@ export default function WipProductCard({ name, sku, totalKg, originalKg, batchCo
         </div>
       </div>
       <p className="text-[10px] text-muted-foreground text-center">
-        {batchCount} batch{batchCount !== 1 ? 'es' : ''} · R {totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+        {batchCount} batch{batchCount !== 1 ? 'es' : ''} · R {totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
       </p>
     </div>
   );
