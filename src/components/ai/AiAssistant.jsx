@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { supabase } from '@/api/supabaseClient';
 import { X, Send, Sparkles, Bot, Newspaper, HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
@@ -118,20 +117,42 @@ export default function AiAssistant({ open, onClose }) {
         content: `You are Livy, the Lean Living ERP agent, replying inside the web app. Current screen: ${pageContext}. The user's role is ${user?.role || 'unknown'}. Use your erp_* tools for any live numbers and never invent them. Be concise and use markdown.${mode === 'digest' ? ' The user asked for a short operations digest of what matters right now.' : ''}${mode === 'explain_screen' ? ` Explain what the "${pageContext}" screen is for and how to use it.` : ''}`,
       };
       const convo = nextMessages.map((m) => ({ role: m.role, content: m.content }));
-      const resp = await fetch('/__fn/livy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'gpt-5.4', stream: false, messages: [systemMsg, ...convo] }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data?.error?.message || data?.error || `HTTP ${resp.status}`);
+
+      // Abort a touch before the serverless 60s cap so we own the timeout and can
+      // show a friendly message instead of Vercel's plain-text error page (which
+      // used to crash the JSON parse with "Unexpected token 'A'").
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 58000);
+      let resp;
+      try {
+        resp = await fetch('/__fn/livy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'gpt-5.4', stream: false, messages: [systemMsg, ...convo] }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+
+      // The response may NOT be JSON (gateway timeout / error page), so read text
+      // first and parse defensively — never let resp.json() throw over the real error.
+      const rawText = await resp.text();
+      let data = null;
+      try { data = rawText ? JSON.parse(rawText) : null; } catch { /* non-JSON error body */ }
+
+      if (!resp.ok || !data) {
+        const detail = data?.error?.message || data?.error
+          || (rawText ? rawText.slice(0, 140).replace(/\s+/g, ' ').trim() : `HTTP ${resp.status}`);
+        throw new Error(detail || `HTTP ${resp.status}`);
+      }
       const reply = data?.choices?.[0]?.message?.content ?? 'Sorry, I could not get a response. Please try again.';
       setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: `Sorry, something went wrong: ${err.message}` },
-      ]);
+      const friendly = err.name === 'AbortError'
+        ? "That took too long — it's usually a heavy data question that timed out. Try again, or ask something more specific (e.g. one product or one week)."
+        : `Sorry, something went wrong: ${err.message}`;
+      setMessages((prev) => [...prev, { role: 'assistant', content: friendly }]);
     } finally {
       setIsLoading(false);
     }
