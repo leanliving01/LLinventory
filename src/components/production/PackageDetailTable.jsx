@@ -22,7 +22,16 @@ function StatusBar({ pct }) {
   );
 }
 
-function PackageSection({ pkg, stockMap, overrides, onOverride, search, belowParOnly, defaultExpanded }) {
+// Short, human reason for why the engine recommends (or skips) a meal.
+const REASON_BADGE = {
+  backorder:    { label: 'Backorder', cls: 'text-red-600' },
+  below_par:    { label: 'Below par', cls: 'text-amber-600' },
+  within_10pct: { label: 'Within 10%', cls: 'text-muted-foreground' },
+  at_par:       { label: 'At par', cls: 'text-emerald-600' },
+  no_par:       { label: 'No par', cls: 'text-muted-foreground' },
+};
+
+function PackageSection({ pkg, stockMap, recoMap, overrides, onOverride, search, belowParOnly, defaultExpanded }) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? true);
   const { fullLabel, label, color, meals } = pkg;
   const dotColor = color || '#6b7280';
@@ -101,10 +110,12 @@ function PackageSection({ pkg, stockMap, overrides, onOverride, search, belowPar
                 const committed = stockMap[product.id]?.qty_committed || 0;
                 const available = soh - committed;
                 const par = product.par_level || 0;
-                const recommended = Math.max(0, par - available);
+                const reco = recoMap?.[product.id] || {};
+                const recommended = reco.recommended || 0;
                 const finalQty = overrides[product.id] !== undefined ? Number(overrides[product.id]) : recommended;
                 const isBelowPar = par > 0 && available < par;
                 const pct = par > 0 ? (available / par) * 100 : 100;
+                const badge = REASON_BADGE[reco.reason];
 
                 return (
                   <tr
@@ -148,12 +159,19 @@ function PackageSection({ pkg, stockMap, overrides, onOverride, search, belowPar
                       {par || '—'}
                     </td>
 
-                    {/* Recommended */}
+                    {/* Recommended (engine: backorder-first, >10% trigger, 6-day cap) */}
                     <td className={cn(
                       'px-3 py-2.5 text-right text-xs tabular-nums font-semibold',
                       recommended > 0 ? 'text-foreground' : 'text-muted-foreground'
                     )}>
-                      {recommended > 0 ? recommended : '—'}
+                      <div className="flex flex-col items-end leading-tight">
+                        <span>{recommended > 0 ? recommended : '—'}</span>
+                        {badge && (
+                          <span className={cn('text-[9px] font-medium uppercase tracking-wide', badge.cls)}>
+                            {reco.capped ? 'Capped 6d' : badge.label}
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     {/* Final (editable) */}
@@ -199,6 +217,7 @@ export default function PackageDetailTable({
   packages,
   selectedPackage,
   stockMap,
+  recoMap,
   overrides,
   onOverride,
   search,
@@ -241,6 +260,7 @@ export default function PackageDetailTable({
           key={pkg.code}
           pkg={pkg}
           stockMap={stockMap}
+          recoMap={recoMap}
           overrides={overrides}
           onOverride={onOverride}
           search={search}

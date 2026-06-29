@@ -17,6 +17,8 @@ import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import { useSubcategories } from '@/lib/useSubcategories';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/api/supabaseClient';
+import { buildRecommendationMap } from '@/lib/productionEngine';
 
 export default function ProductionPlanning() {
   const queryClient = useQueryClient();
@@ -97,6 +99,33 @@ export default function ProductionPlanning() {
     return map;
   }, [stockRecords]);
 
+  // Sales velocity (units/week per meal) → drives the 6-day forward-cover cap.
+  // Reuses the Inventory Dashboard's inventory_trends RPC. Degrades gracefully:
+  // no velocity → the cap simply doesn't bite (engine falls back to par).
+  const { data: trends = [] } = useQuery({
+    queryKey: ['inventory-trends-planning'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('inventory_trends');
+      if (error) { console.error('[inventory_trends]', error.message); return []; }
+      return data || [];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const velocityMap = useMemo(() => {
+    const map = {};
+    trends.forEach(t => { if (t.product_id) map[t.product_id] = t.weekly_rate || 0; });
+    return map;
+  }, [trends]);
+
+  // The deterministic engine: one recommendation per meal (backorder-first,
+  // >10%-below-par trigger, 6-day cover cap). Single source of truth shared by
+  // the summary, the package cards, the detail table and the Run button.
+  const recoMap = useMemo(
+    () => buildRecommendationMap(finishedMeals, stockMap, velocityMap),
+    [finishedMeals, stockMap, velocityMap]
+  );
+
   // ── Package grouping ───────────────────────────────────────────────────────
   const packages = useMemo(
     () => groupMealsByPackage(finishedMeals, subcatRows),
@@ -113,7 +142,7 @@ export default function ProductionPlanning() {
         const com = stockMap[product.id]?.qty_committed || 0;
         const available = soh - com;
         const par = product.par_level || 0;
-        const recommended = Math.max(0, par - available);
+        const recommended = recoMap[product.id]?.recommended || 0;
         const finalQty = overrides[product.id] !== undefined ? Number(overrides[product.id]) : recommended;
         totalToProduce += finalQty;
         committed += com;
@@ -131,26 +160,25 @@ export default function ProductionPlanning() {
       };
     });
     return stats;
-  }, [packages, stockMap, overrides]);
+  }, [packages, stockMap, overrides, recoMap]);
 
   // Global totals for the summary strip
-  const { totalToProduce, belowParCount, totalCommitted } = useMemo(() => {
-    let total = 0, below = 0, committed = 0;
+  const { totalToProduce, belowParCount, totalCommitted, backorderCount } = useMemo(() => {
+    let total = 0, below = 0, committed = 0, backorders = 0;
     packages.forEach(pkg => {
       pkg.meals.forEach(({ product }) => {
-        const soh = stockMap[product.id]?.qty_on_hand || 0;
         const com = stockMap[product.id]?.qty_committed || 0;
-        const available = soh - com;
-        const par = product.par_level || 0;
-        const recommended = Math.max(0, par - available);
+        const reco = recoMap[product.id] || {};
+        const recommended = reco.recommended || 0;
         const finalQty = overrides[product.id] !== undefined ? Number(overrides[product.id]) : recommended;
         total += finalQty;
         committed += com;
-        if (par > 0 && available < par) below++;
+        if (reco.reason === 'below_par' || reco.reason === 'backorder') below++;
+        if (reco.backorderShortfall > 0) backorders++;
       });
     });
-    return { totalToProduce: total, belowParCount: below, totalCommitted: committed };
-  }, [packages, stockMap, overrides]);
+    return { totalToProduce: total, belowParCount: below, totalCommitted: committed, backorderCount: backorders };
+  }, [packages, stockMap, overrides, recoMap]);
 
   const handleOverride = (productId, value) => {
     setOverrides(prev => ({ ...prev, [productId]: value }));
@@ -163,9 +191,8 @@ export default function ProductionPlanning() {
       pkg.meals.forEach(({ product }) => {
         const soh = stockMap[product.id]?.qty_on_hand || 0;
         const com = stockMap[product.id]?.qty_committed || 0;
-        const available = soh - com;
         const par = product.par_level || 0;
-        const recommended = Math.max(0, par - available);
+        const recommended = recoMap[product.id]?.recommended || 0;
         const finalQty = overrides[product.id] !== undefined ? Number(overrides[product.id]) : recommended;
         if (finalQty > 0) {
           lines.push({
@@ -283,8 +310,13 @@ export default function ProductionPlanning() {
       {/* Summary strip */}
       <div className="flex items-center gap-6 bg-card border border-border rounded-xl px-6 py-4 flex-wrap">
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Below Par</p>
-          <p className="text-lg font-bold text-red-600">{belowParCount}</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Backorders</p>
+          <p className="text-lg font-bold text-red-600">{backorderCount}</p>
+        </div>
+        <div className="w-px h-8 bg-border" />
+        <div>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold" title="Meals more than 10% below par (the trigger to produce)">To Make (&gt;10%)</p>
+          <p className="text-lg font-bold text-amber-600">{belowParCount}</p>
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
@@ -396,6 +428,7 @@ export default function ProductionPlanning() {
               packages={packages}
               selectedPackage={selectedPackage}
               stockMap={stockMap}
+              recoMap={recoMap}
               overrides={overrides}
               onOverride={handleOverride}
               search={search}
