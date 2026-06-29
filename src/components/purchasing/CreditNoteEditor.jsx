@@ -30,6 +30,21 @@ const serializeState = (header, lines) => JSON.stringify({
 const rnd2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
 const fmtR = (v) => `R ${(parseFloat(v) || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// Badge shown against each item in the "Add from Outstanding" picker. Shortages are
+// labelled by the decision recorded at the GRN/invoice step so the user can tell a
+// credit-due short from one still awaiting stock or pending review.
+const OUT_BADGE = {
+  credit: { label: 'Credit due',     cls: 'bg-amber-100 text-amber-700' },
+  await:  { label: 'Awaiting stock', cls: 'bg-blue-100 text-blue-700' },
+  review: { label: 'Review',         cls: 'bg-gray-100 text-gray-600' },
+  other:  { label: 'Short',          cls: 'bg-amber-100 text-amber-700' },
+  return: { label: 'Return',         cls: 'bg-indigo-100 text-indigo-700' },
+  price:  { label: 'Price variance', cls: 'bg-red-100 text-red-700' },
+};
+const outBadge = (item) => (item.kind === 'shortage'
+  ? (OUT_BADGE[item.decision_kind] || OUT_BADGE.other)
+  : (OUT_BADGE[item.kind] || OUT_BADGE.other));
+
 /**
  * Full-screen supplier credit-note document editor.
  * Props:
@@ -222,12 +237,16 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
     const linkedShortageIds = new Set(lines.map(l => l.shortage_id).filter(Boolean));
     const linkedReturnIds = new Set(lines.map(l => l.return_id).filter(Boolean));
     const items = [];
+    // Every OPEN shortage on the PO/supplier is an issue you may want to credit —
+    // not just the ones already decided as "request credit". Awaiting-receival and
+    // review shorts are surfaced too (labelled by decision), so a credit note can
+    // pull in any noted short receival. Resolved/cancelled/credited ones are hidden.
     supplierShortages.forEach(s => {
-      if (shortageKind(s.decision) !== 'credit') return;
       if (RESOLVED.includes(s.status)) return;
       if (linkedShortageIds.has(s.id)) return;
       items.push({
-        kind: 'shortage', id: s.id, product_name: s.product_name, product_sku: s.product_sku,
+        kind: 'shortage', id: s.id, decision_kind: shortageKind(s.decision),
+        product_name: s.product_name, product_sku: s.product_sku,
         product_id: s.product_id, ref: refForShortage(s),
         purchase_order_id: s.purchase_order_id,
         po_number: poById[s.purchase_order_id]?.po_number || null,
@@ -685,7 +704,7 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
                         <div className="min-w-0">
                           <p className="text-sm font-medium">{item.product_name}</p>
                           <p className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-                            <span className={`px-1.5 py-0.5 rounded ${item.kind === 'return' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>{item.kind}</span>
+                            <span className={`px-1.5 py-0.5 rounded ${outBadge(item).cls}`}>{outBadge(item).label}</span>
                             {item.po_number && <span>PO {item.po_number}</span>}
                             {item.invoice_number && <span>INV {item.invoice_number}</span>}
                             {item.kind === 'return' && item.line_count > 0 && <span>{item.line_count} product{item.line_count !== 1 ? 's' : ''}</span>}
