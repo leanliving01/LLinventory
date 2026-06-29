@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { X, Loader2, Search, Link2, Truck } from 'lucide-react';
 import { formatZAR } from '@/lib/utils';
 import { toast } from 'sonner';
+import { linkInvoiceToPO, OPEN_PO_STATUSES } from '@/lib/invoiceLinking';
 
-const OPEN_STATUSES = ['draft', 'pending_approval', 'approved', 'sent', 'partially_received', 'received', 'invoiced'];
+const OPEN_STATUSES = OPEN_PO_STATUSES;
 
 /**
  * Link an existing supplier invoice (e.g. one synced from Xero with no PO) to an
@@ -37,7 +38,7 @@ export default function MatchInvoiceToPOModal({ invoice, onMatched, onCancel }) 
   const link = async (po) => {
     setSaving(true);
     try {
-      await base44.entities.PurchaseInvoice.update(invoice.id, { purchase_order_id: po.id });
+      await linkInvoiceToPO({ invoiceId: invoice.id, poId: po.id });
       toast.success(`Linked ${invoice.invoice_number} to ${po.po_number}`);
       onMatched?.(po);
     } catch (err) {
