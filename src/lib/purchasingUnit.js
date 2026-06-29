@@ -17,7 +17,7 @@ export const MEASURE_UNITS = [
   { code: 'g', label: 'g' },
   { code: 'l', label: 'L' },
   { code: 'ml', label: 'ml' },
-  { code: 'each', label: 'each' },
+  { code: 'each', label: 'each (piece)' },
 ];
 
 const MASS = { kg: 1000, g: 1, gr: 1, gram: 1, grams: 1, kgs: 1000 };

@@ -93,13 +93,13 @@ export default function CreateProductFromLineModal({ line, invoice, invoicePdfUr
       });
 
       toast.success(`Created product "${product.name}" and linked to ${invoice.supplier_name}`);
+      // Only hand back to the parent (which closes the modal) on a clean save.
+      onCreated(line, sp, product);
     } catch (err) {
       toast.error('Save failed: ' + (err.message || 'Unknown error'));
     } finally {
       setSaving(false);
     }
-
-    onCreated(line, sp, product);
   };
 
   return (
