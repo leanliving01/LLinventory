@@ -1,4 +1,4 @@
-import { base44, adjustStockOnHand } from '@/api/base44Client';
+import { base44, adjustStockOnHand, repriceSupplierProduct } from '@/api/base44Client';
 import { writeAuditLog } from '@/lib/auditLog';
 import { upsertShortage, reconcileAwaitShortages } from '@/lib/shortageEngine';
 import { allocateLandedCost } from '@/lib/landedCost';
@@ -324,10 +324,14 @@ export async function confirmGRN(grn, lines, userName, options = {}) {
       console.warn('[GRNConfirmLogic] Step failed (non-fatal):', stepErr?.message);
     }
 
-    // Update supplier product last_purchase_price
-    await base44.entities.SupplierProduct.update(sp.id, {
-      last_purchase_price: unitCost,
-    });
+    // Reprice via the shared policy (apply within tolerance, else park in
+    // pending_price for review) — same single rule as the invoice-line trigger,
+    // so a big jump never silently moves the cost basis from the GRN door either.
+    try {
+      await repriceSupplierProduct(sp.id, unitCost, null, 'grn');
+    } catch (stepErr) {
+      console.warn('[GRNConfirmLogic] Reprice failed (non-fatal):', stepErr?.message);
+    }
 
     // Flag the GRN line
     if (isFlagged && line.id) {

@@ -421,6 +421,21 @@ export async function adjustStockOnHand(productId, locationId, delta, newCostAvg
   return data;
 }
 
+// Unified supplier reprice — single policy shared with the invoice-line trigger.
+// Applies the new price when within the supplier product's variance threshold,
+// otherwise parks it in pending_price for review on the Product Auditing tab.
+// Returns 'applied' | 'parked' | 'skipped'. source is audit-only ('grn'|'invoice'|'manual').
+export async function repriceSupplierProduct(supplierProductId, unitCost, invoiceId = null, source = 'invoice') {
+  const { data, error } = await supabase.rpc('reprice_supplier_product', {
+    p_sp_id:      supplierProductId,
+    p_unit_cost:  unitCost,
+    p_invoice_id: invoiceId,
+    p_source:     source,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export const base44 = {
   entities: entitiesProxy,
 
