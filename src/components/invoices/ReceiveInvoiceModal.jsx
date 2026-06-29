@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, Loader2, PackageCheck, Search, AlertCircle } from 'lucide-react';
+import { X, Loader2, PackageCheck, Search, AlertCircle, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { nextDocNumber } from '@/lib/docNumbering';
@@ -37,6 +37,14 @@ export default function ReceiveInvoiceModal({ invoice, invoiceLines = [], onDone
     queryFn: () => base44.entities.SupplierProduct.filter({ supplier_id: invoice.supplier_id, active: true }, 'product_name', 300),
     enabled: !!invoice.supplier_id,
   });
+
+  // Un-allocated landed-cost charges on this invoice (shipping/freight…) — these
+  // get capitalised across the received stock lines when the GRN is confirmed.
+  const { data: charges = [] } = useQuery({
+    queryKey: ['invoice-charges-receive', invoice.id],
+    queryFn: () => base44.entities.PurchaseInvoiceCharge.filter({ invoice_id: invoice.id, allocated: false }, '-created_date', 50),
+  });
+  const chargesTotal = useMemo(() => charges.reduce((s, c) => s + (Number(c.amount) || 0), 0), [charges]);
 
   const spByProductId = useMemo(() => {
     const m = {};
@@ -128,7 +136,7 @@ export default function ReceiveInvoiceModal({ invoice, invoiceLines = [], onDone
         };
       });
 
-      await confirmGRN(grn, grnLines, user?.full_name || user?.email || 'System');
+      await confirmGRN(grn, grnLines, user?.full_name || user?.email || 'System', { charges });
 
       await base44.entities.PurchaseInvoice.update(invoice.id, {
         grn_id: grn.id,
@@ -175,6 +183,17 @@ export default function ReceiveInvoiceModal({ invoice, invoiceLines = [], onDone
             <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               {unmappedCount} line(s) aren't mapped to a product yet — map them or they'll be skipped.
+            </div>
+          )}
+
+          {chargesTotal > 0 && (
+            <div className="flex items-start gap-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg p-2.5">
+              <Truck className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>
+                <span className="font-semibold">R {chargesTotal.toFixed(2)}</span> in additional charges
+                ({charges.map(c => c.charge_type).join(', ')}) will be capitalised across the received
+                lines <span className="font-medium">by value</span> — raising each unit's stock cost.
+              </span>
             </div>
           )}
 

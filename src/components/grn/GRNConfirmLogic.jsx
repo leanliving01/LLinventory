@@ -1,6 +1,7 @@
 import { base44, adjustStockOnHand } from '@/api/base44Client';
 import { writeAuditLog } from '@/lib/auditLog';
 import { upsertShortage, reconcileAwaitShortages } from '@/lib/shortageEngine';
+import { allocateLandedCost } from '@/lib/landedCost';
 import { toast } from 'sonner';
 
 /**
@@ -13,6 +14,44 @@ async function triggerCostRollup() {
     await base44.functions.invoke('costRollup', {});
   } catch (err) {
     console.warn('[GRNConfirmLogic] Cost roll-up after receipt failed (non-fatal):', err?.message);
+  }
+}
+
+/**
+ * Recompute each PO line's received_qty from every CONFIRMED GRN on the PO and
+ * write it back, so the PO/workspace "Received" column always reflects reality.
+ * Mirrors the recompute deleteGRN already does — kept in one place so the
+ * confirm and delete paths can never drift apart. Non-fatal.
+ */
+export async function recomputePoLineReceipts(purchaseOrderId) {
+  if (!purchaseOrderId) return;
+  try {
+    const poLines = await base44.entities.PurchaseOrderLine.filter({ purchase_order_id: purchaseOrderId }, 'created_date', 200);
+    if (!poLines.length) return;
+    const grns = await base44.entities.GoodsReceivedNote.filter({ purchase_order_id: purchaseOrderId }, '-received_date', 50);
+    const confirmed = grns.filter(g => g.status === 'confirmed');
+    let grnLines = [];
+    if (confirmed.length) {
+      const chunks = await Promise.all(confirmed.map(g => base44.entities.GRNLine.filter({ grn_id: g.id }, 'product_name', 200)));
+      grnLines = chunks.flat();
+    }
+    // Sum received per PO line (primary) and per product (legacy fallback for
+    // older GRN lines that predate po_line_id).
+    const byPoLine = {};
+    const byProduct = {};
+    grnLines.forEach(l => {
+      const q = parseFloat(l.received_qty) || 0;
+      if (l.po_line_id) byPoLine[l.po_line_id] = (byPoLine[l.po_line_id] || 0) + q;
+      if (l.product_id) byProduct[l.product_id] = (byProduct[l.product_id] || 0) + q;
+    });
+    for (const pl of poLines) {
+      const received = (byPoLine[pl.id] != null) ? byPoLine[pl.id] : (byProduct[pl.product_id] || 0);
+      if ((parseFloat(pl.received_qty) || 0) !== received) {
+        await base44.entities.PurchaseOrderLine.update(pl.id, { received_qty: received });
+      }
+    }
+  } catch (err) {
+    console.warn('[GRNConfirmLogic] recomputePoLineReceipts failed (non-fatal):', err?.message);
   }
 }
 
@@ -75,7 +114,7 @@ export function validateGRNLines(grn, lines) {
  * 7. Updates PO status if linked
  * 8. Marks GRN as confirmed
  */
-export async function confirmGRN(grn, lines, userName) {
+export async function confirmGRN(grn, lines, userName, options = {}) {
   // Pre-flight validation — no DB writes happen if this fails
   const validationErrors = validateGRNLines(grn, lines);
   if (validationErrors.length > 0) {
@@ -83,6 +122,25 @@ export async function confirmGRN(grn, lines, userName) {
     err.validationErrors = validationErrors;
     throw err;
   }
+
+  // 0. Landed-cost (freight) capitalisation. One-off charges from the invoice
+  //    (shipping, freight…) are spread across the received STOCK lines by value
+  //    and folded into each line's stock cost — NOT the supplier unit price.
+  const charges = Array.isArray(options.charges) ? options.charges : [];
+  const chargesTotal = charges.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const allocMethod = charges[0]?.allocation_method || 'by_value';
+  const freightInput = lines
+    .map((l, idx) => ({
+      key: idx,
+      received_qty: parseFloat(l.received_qty) || 0,
+      unit_cost: parseFloat(l.unit_cost) || 0,
+      eligible: (!l.item_type || l.item_type === 'stock') && l.condition !== 'rejected',
+    }))
+    .filter(x => x.eligible);
+  const freightByIndex = chargesTotal > 0
+    ? allocateLandedCost(freightInput, chargesTotal, allocMethod)
+    : {};
+
   // 1. Persist lines and compute derived fields
   const persistedLines = [];
   let totalValue = 0;
@@ -90,7 +148,8 @@ export async function confirmGRN(grn, lines, userName) {
   let hasRejections = false;
   let hasPriceVariance = false;
 
-  for (const line of lines) {
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
     const receivedQty = parseFloat(line.received_qty) || 0;
     const expectedQty = parseFloat(line.expected_qty) || null;
     const cf = parseFloat(line.conversion_factor) || 1;
@@ -99,6 +158,10 @@ export async function confirmGRN(grn, lines, userName) {
     const varianceQty = expectedQty != null ? receivedQty - expectedQty : 0;
     const internalQty = Math.round(receivedQty * cf * yf * 1000) / 1000;
     const lineTotal = Math.round(receivedQty * unitCost * 100) / 100;
+
+    // Freight allocated to this line (per purchase unit) → landed stock cost.
+    const freight = freightByIndex[idx] || { freightTotal: 0, freightPerUnit: 0 };
+    const landedUnitCost = Math.round(((unitCost + (freight.freightPerUnit || 0)) / (cf * yf)) * 1000000) / 1000000;
 
     if (varianceQty < 0) hasShortages = true;
     if (line.condition === 'damaged' || line.condition === 'rejected') hasRejections = true;
@@ -114,6 +177,8 @@ export async function confirmGRN(grn, lines, userName) {
       line_total: lineTotal,
       conversion_factor: cf,
       yield_factor: yf,
+      landed_cost_total: Math.round((freight.freightTotal || 0) * 100) / 100,
+      landed_unit_cost: landedUnitCost,
     };
 
     if (line.id) {
@@ -147,8 +212,11 @@ export async function confirmGRN(grn, lines, userName) {
     const product = productCache[line.product_id];
     if (!product) continue;
 
-    // Cost per internal (stock) unit
-    const costPerStockUnit = line.unit_cost / ((line.conversion_factor || 1) * (line.yield_factor || 1)) || 0;
+    // Cost per internal (stock) unit — landed_unit_cost already folds in any
+    // allocated freight (it equals the plain cost when there was no charge).
+    const costPerStockUnit = (line.landed_unit_cost != null)
+      ? line.landed_unit_cost
+      : (line.unit_cost / ((line.conversion_factor || 1) * (line.yield_factor || 1)) || 0);
 
     // Create stock movement — unit_cost_at_movement must be per stock UOM, not purchase UOM
     try {
@@ -274,6 +342,25 @@ export async function confirmGRN(grn, lines, userName) {
     } catch (_) {}
   }
 
+  // 4c. Mark the source invoice charges as allocated so they're never
+  //     double-capitalised on a second receipt of the same invoice.
+  if (charges.length > 0 && chargesTotal > 0) {
+    const allocAt = new Date().toISOString();
+    for (const c of charges) {
+      if (!c.id) continue;
+      try {
+        await base44.entities.PurchaseInvoiceCharge.update(c.id, {
+          allocated: true,
+          allocated_grn_id: grn.id,
+          allocated_amount: Number(c.amount) || 0,
+          allocated_at: allocAt,
+        });
+      } catch (stepErr) {
+        console.warn('[GRNConfirmLogic] Charge allocation flag failed (non-fatal):', stepErr?.message);
+      }
+    }
+  }
+
   // 5. Detect short-received stock lines (not rejected)
   const shortStockLines = persistedLines.filter(l =>
     parseFloat(l.received_qty) < parseFloat(l.expected_qty) &&
@@ -317,6 +404,7 @@ export async function confirmGRN(grn, lines, userName) {
 
   // Reconcile PO line totals + auto-resolve any await shortage now fully received
   if (grn.purchase_order_id) {
+    await recomputePoLineReceipts(grn.purchase_order_id);
     try { await reconcileAwaitShortages(grn.purchase_order_id); } catch (_) {}
   }
 
@@ -448,6 +536,7 @@ export async function finaliseGRNWithDecisions(grn, persistedLines, decisions, u
 
   // Reconcile PO line totals + auto-resolve any await shortage now fully received
   if (grn.purchase_order_id) {
+    await recomputePoLineReceipts(grn.purchase_order_id);
     try { await reconcileAwaitShortages(grn.purchase_order_id); } catch (_) {}
   }
 

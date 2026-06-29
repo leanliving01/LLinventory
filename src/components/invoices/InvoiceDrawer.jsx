@@ -14,6 +14,7 @@ import ThreeWayMatchPanel from '@/components/purchasing/ThreeWayMatchPanel';
 import PurchaseAttachmentsPanel from '@/components/purchasing/PurchaseAttachmentsPanel';
 import MatchInvoiceToPOModal from './MatchInvoiceToPOModal';
 import ReceiveInvoiceModal from './ReceiveInvoiceModal';
+import InvoiceChargesPanel from './InvoiceChargesPanel';
 import { Link2, PackagePlus } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 
@@ -382,6 +383,9 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
                   Synced from Xero · Bill ID: {invoice.xero_bill_id?.substring(0, 12)}...
                 </div>
               )}
+
+              {/* Additional / landed-cost charges (shipping, freight…) */}
+              <InvoiceChargesPanel invoice={invoice} canEdit={canEdit && invoice.status !== 'approved'} />
             </div>
           )}
 
