@@ -103,7 +103,12 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
     queryFn: () => base44.entities.Setting.filter({ group: 'purchasing' }, 'key', 50),
     staleTime: 300000,
   });
-  const priceThreshold = useMemo(() => parseTolerances(purchasingSettings).pricePct, [purchasingSettings]);
+  const matchTolerances = useMemo(() => parseTolerances(purchasingSettings), [purchasingSettings]);
+  const priceThreshold = matchTolerances.pricePct;
+  // Rand allowance for the supplier-total vs recalculated-total balance check
+  // (shared rounding tolerance from Settings → Purchasing). A gap above this
+  // blocks approval — the invoice must add up before it can be paid.
+  const totalTolerance = matchTolerances.valueAbs;
   const taxById = useMemo(() => Object.fromEntries(taxRates.map(t => [t.id, t])), [taxRates]);
   const defaultTax = useMemo(
     () => taxRates.find(t => Math.abs((t.rate || 0) - 0.15) < 0.001) || taxRates[0] || null,
@@ -266,6 +271,9 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
   const taxAmount = Math.round((total - subtotal) * 100) / 100;
   const captured = capturedTotal === '' ? null : parseFloat(capturedTotal);
   const totalVariance = captured != null ? Math.round((captured - total) * 100) / 100 : null;
+  // The invoice's own arithmetic must reconcile before it can be approved: the
+  // supplier's stated total has to equal the total recalculated from the lines.
+  const totalMismatch = captured != null && Math.abs(totalVariance) > totalTolerance;
   const mismatchedRows = isBlindMode ? [] : rows.filter(r => r.qtyMismatch);
   // Only lines billed above received AND with no existing GRN decision need a prompt.
   const linesNeedingDecision = isBlindMode ? [] : rows.filter(r =>
@@ -276,6 +284,14 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
     if (!invoiceNumber.trim()) { toast.error('Enter the supplier invoice number'); return; }
     if (!invoiceDate) { toast.error('Select the invoice date'); return; }
     if (isBlindMode && blindLines.length === 0) { toast.error('Add at least one product line'); return; }
+    if (captured == null) {
+      toast.error("Enter the supplier's invoice total (incl VAT) so the invoice can be balance-checked before approving.");
+      return;
+    }
+    if (totalMismatch) {
+      toast.error(`Invoice doesn't balance — the line items total R${total.toFixed(2)} but the supplier's invoice total is R${captured.toFixed(2)} (off by R${Math.abs(totalVariance).toFixed(2)}). Fix the quantities or unit costs so they match before approving.`);
+      return;
+    }
     if (linesNeedingDecision.length > 0) {
       const initial = {};
       linesNeedingDecision.forEach(r => { initial[r.poLine.id] = 'receive_later'; });
@@ -325,6 +341,18 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
 
   const persist = async (targetStatus, decisions = {}) => {
     const isApprove = targetStatus === 'approved';
+    // Hard gate: never approve an invoice whose total doesn't reconcile with its
+    // lines. Drafts may be saved freely — the check only applies on approval.
+    if (isApprove) {
+      if (captured == null) {
+        toast.error("Enter the supplier's invoice total before approving.");
+        return;
+      }
+      if (Math.abs(totalVariance) > totalTolerance) {
+        toast.error(`Invoice doesn't balance — fix the lines so the recalculated total matches the supplier's R${captured.toFixed(2)} before approving.`);
+        return;
+      }
+    }
     setSubmitting(true);
     try {
       // For blind receipts, create PO lines from the entered invoice lines first
@@ -934,10 +962,16 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
                 />
               </div>
               {totalVariance != null && Math.abs(totalVariance) > 0.001 && (
-                <div className="flex justify-between text-amber-700 font-medium pt-1">
+                <div className={`flex justify-between font-medium pt-1 ${totalMismatch ? 'text-red-700' : 'text-amber-700'}`}>
                   <span className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Total variance</span>
                   <span className="tabular-nums">R {totalVariance.toFixed(2)}</span>
                 </div>
+              )}
+              {totalMismatch && (
+                <p className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5 mt-1 flex items-start gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>The invoice doesn't add up: the line items total <strong>R{total.toFixed(2)}</strong> but the supplier's invoice total is <strong>R{captured.toFixed(2)}</strong>. Correct the quantities or unit costs until they match — a mismatched invoice can't be approved.</span>
+                </p>
               )}
             </div>
           </div>
@@ -958,7 +992,8 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
           </Button>
           <Button
             onClick={handleSubmitClick}
-            disabled={submitting || linesLoading}
+            disabled={submitting || linesLoading || totalMismatch}
+            title={totalMismatch ? "Fix the total variance before approving" : undefined}
             className="gap-2 h-10 bg-purple-600 hover:bg-purple-700"
           >
             {submitting

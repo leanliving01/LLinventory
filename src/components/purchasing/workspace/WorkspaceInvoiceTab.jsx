@@ -8,9 +8,10 @@ import { toast } from 'sonner';
 import { formatPaymentTerms } from '@/lib/utils';
 import ValidationErrorBanner from '@/components/purchasing/ValidationErrorBanner';
 import CreateInvoiceFromPOModal from '@/components/purchasing/CreateInvoiceFromPOModal';
+import { parseTolerances } from '@/lib/threeWayMatch';
 import { DocSheet, DocTitle, Party, MetaField, MetaGrid, DocTable, Th, Td, TotalsBox, fmtMoney, fmtQty } from './documentUi';
 
-function validateInvoice(invoice, invoiceLines) {
+function validateInvoice(invoice, invoiceLines, valueTol = 0.5) {
   const errors = [];
   if (!invoice) { errors.push('No invoice linked to this PO.'); return errors; }
   if (!invoice.invoice_number) errors.push('Invoice number is missing.');
@@ -22,6 +23,20 @@ function validateInvoice(invoice, invoiceLines) {
     if (!l.product_id && !l.description) errors.push(`Line ${i + 1}: product mapping or description is required.`);
     if ((parseFloat(l.qty) || 0) <= 0) errors.push(`Line ${i + 1}: quantity must be greater than zero.`);
   });
+  // Mathematical accuracy: when the supplier's invoice total was captured it must
+  // reconcile with the total recalculated from the lines. A gap means a line is
+  // wrong or missing — it must be fixed (no override) before the invoice is paid.
+  if (invoice.captured_total != null) {
+    const captured = parseFloat(invoice.captured_total) || 0;
+    const variance = invoice.total_variance != null
+      ? parseFloat(invoice.total_variance)
+      : captured - (parseFloat(invoice.total) || 0);
+    if (Math.abs(variance) > valueTol) {
+      errors.push(
+        `Invoice doesn't balance — the supplier's invoice total (R${captured.toFixed(2)}) doesn't match the line items (R${(parseFloat(invoice.total) || 0).toFixed(2)}), off by R${Math.abs(variance).toFixed(2)}. Fix the line quantities or unit costs so they reconcile before authorising.`
+      );
+    }
+  }
   return errors;
 }
 
@@ -111,6 +126,8 @@ export default function WorkspaceInvoiceTab({ po, poLines = [], invoice, invoice
     settings.forEach(s => { byKey[s.key] = s.value; });
     return byKey.trading_name || byKey.company_name || 'Lean Living';
   }, [settings]);
+  // Rand tolerance for the invoice-balance check (Settings → Purchasing).
+  const balanceTol = useMemo(() => parseTolerances(settings).valueAbs, [settings]);
 
   const { data: matchSuggestions = [] } = useQuery({
     queryKey: ['match-suggestions', po?.id],
@@ -154,7 +171,7 @@ export default function WorkspaceInvoiceTab({ po, poLines = [], invoice, invoice
   }, [poLines]);
 
   const handleAuthorise = async () => {
-    const errors = validateInvoice(invoice, invoiceLines);
+    const errors = validateInvoice(invoice, invoiceLines, balanceTol);
     if (errors.length > 0) { setValidationErrors(errors); return; }
     setValidationErrors([]);
     setAuthorising(true);
