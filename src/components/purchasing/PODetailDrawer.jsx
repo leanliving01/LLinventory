@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
-import { X, Receipt, Truck, MapPin, Calendar, FileText, CheckCircle2, Loader2, Ban, Package, Pencil, Save, Plus, Trash2, Check, AlertTriangle, CreditCard } from 'lucide-react';
+import { X, Receipt, Truck, MapPin, Calendar, FileText, CheckCircle2, Loader2, Ban, Package, Pencil, Save, Plus, Trash2, AlertTriangle, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
 import CreditNoteModal from './CreditNoteModal';
@@ -205,17 +205,6 @@ export default function PODetailDrawer({ po, onClose, onUpdated }) {
     setUpdating(true);
     await base44.entities.PurchaseOrder.update(po.id, { status: 'cancelled' });
     toast.success('PO cancelled');
-    setUpdating(false);
-    onUpdated();
-  };
-
-  const handleMarkInvoiced = async () => {
-    setUpdating(true);
-    await base44.entities.PurchaseOrder.update(po.id, {
-      status: 'invoiced',
-      supplier_invoice_number: invoiceNumber || null,
-    });
-    toast.success('PO marked as invoiced');
     setUpdating(false);
     onUpdated();
   };

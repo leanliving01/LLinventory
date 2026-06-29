@@ -17,6 +17,7 @@ import { resolveTaxRateRecord } from '@/lib/taxResolution';
 import { formatPaymentTerms, calculateDueDate, formatLocationAddress, toISODate } from '@/lib/utils';
 import ReceiveAgainstPOModal from './ReceiveAgainstPOModal';
 import CreditNoteModal from './CreditNoteModal';
+import CreateInvoiceFromPOModal from './CreateInvoiceFromPOModal';
 import TruncatedCell from '@/components/ui/TruncatedCell';
 import SupplierInfoBlock from './SupplierInfoBlock';
 
@@ -192,6 +193,7 @@ export default function POWorkspace() {
   // to the chosen supplier; flip this to add a not-yet-linked product.
   const [showAllProducts, setShowAllProducts] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
+  const [showInvoice, setShowInvoice] = useState(false);
   const [showCreditNote, setShowCreditNote] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState('');
 
@@ -782,23 +784,6 @@ export default function POWorkspace() {
     queryClient.invalidateQueries({ queryKey: ['po', poId] });
   };
 
-  const handleMarkInvoiced = async () => {
-    setSaving(true);
-    try {
-      await base44.entities.PurchaseOrder.update(poId, {
-        status: 'invoiced',
-        supplier_invoice_number: invoiceNumber || null,
-      });
-      toast.success('PO marked as invoiced');
-      queryClient.invalidateQueries({ queryKey: ['po', poId] });
-      queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
-    } catch (err) {
-      toast.error(`Failed: ${err.message}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleMarkPaid = async () => {
     setSaving(true);
     try {
@@ -886,18 +871,9 @@ export default function POWorkspace() {
             </Button>
           )}
           {canInvoice && (
-            <div className="flex items-center gap-2 border border-purple-200 bg-purple-50 rounded-md pl-2 pr-1 py-1">
-              <input
-                type="text"
-                placeholder="Invoice #"
-                value={invoiceNumber}
-                onChange={e => setInvoiceNumber(e.target.value)}
-                className="bg-transparent border-none text-xs w-24 focus:outline-none placeholder:text-purple-300 text-purple-900"
-              />
-              <Button size="sm" onClick={handleMarkInvoiced} disabled={saving} className="gap-1.5 h-7 text-xs bg-purple-600 hover:bg-purple-700 px-2">
-                <FileText className="w-3.5 h-3.5" /> Mark Invoiced
-              </Button>
-            </div>
+            <Button size="sm" onClick={() => setShowInvoice(true)} disabled={saving} className="gap-1.5 bg-purple-600 hover:bg-purple-700">
+              <FileText className="w-4 h-4" /> Invoice
+            </Button>
           )}
           {canPay && (
             <Button size="sm" onClick={handleMarkPaid} disabled={saving} className="gap-1.5">
@@ -1267,6 +1243,18 @@ export default function POWorkspace() {
           lines={savedLines}
           onReceived={handleReceived}
           onCancel={() => setShowReceive(false)}
+        />
+      )}
+
+      {showInvoice && po && (
+        <CreateInvoiceFromPOModal
+          po={po}
+          onCreated={() => {
+            setShowInvoice(false);
+            queryClient.invalidateQueries({ queryKey: ['po', poId] });
+            queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+          }}
+          onCancel={() => setShowInvoice(false)}
         />
       )}
 
