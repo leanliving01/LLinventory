@@ -47,11 +47,6 @@ export default function WorkspaceHeader({ po, invoice, grns = [], perms = {}, on
 
   if (!po) return null;
 
-  // PO lines/header stay editable until it progresses past confirmed (matches
-  // POWorkspace's own editable statuses). The Edit button opens that editor.
-  const canEditPO = ['draft', 'approved', 'confirmed'].includes(po.status)
-    && (perms.po_create || perms.po_edit);
-
   const hasConfirmedGRN = grns.some(g => g.status === 'confirmed');
   const hasPriceVariance = grns.some(g => g.has_price_variance);
   const paymentTermsText = po.payment_term_type
@@ -64,6 +59,14 @@ export default function WorkspaceHeader({ po, invoice, grns = [], perms = {}, on
   const subtotal = po.subtotal || 0;
   const tax = po.tax_amount ?? po.tax ?? 0;
   const total = po.total || 0;
+
+  // A PO can only be edited while nothing downstream has locked it in: no
+  // received (confirmed) GRN and no invoice attached. Once goods are received
+  // or an invoice exists, the PO is fixed (edit via credit note / revert flow).
+  const canEditPO = ['draft', 'approved', 'confirmed'].includes(po.status)
+    && (perms.po_create || perms.po_edit)
+    && !hasConfirmedGRN
+    && !invoice;
 
   // Revert to draft: only if approved/confirmed and no GRNs and no invoice
   const canRevertToDraft = ['approved', 'confirmed', 'awaiting_approval'].includes(po.status)

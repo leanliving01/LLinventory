@@ -516,7 +516,9 @@ export default function POWorkspace() {
   // ---- Build PO header payload ----
   const buildHeaderPayload = () => ({
     supplier_id: supplierId,
-    supplier_name: selectedSupplier?.name || '',
+    // Preserve the existing supplier name when the PO's supplier isn't in the
+    // (active-only) picker list, so an edit never blanks out the supplier.
+    supplier_name: selectedSupplier?.name || po?.supplier_name || '',
     location_id: locationId || null,
     // Blind receipts have no order date — store the invoice date in order_date so listing/sorting still works
     order_date: isBlindReceipt ? (invoiceDate || null) : orderDate,
@@ -713,7 +715,7 @@ export default function POWorkspace() {
       const invoice = await base44.entities.PurchaseInvoice.create({
         invoice_number: invoiceNumber.trim(),
         supplier_id: supplierId,
-        supplier_name: selectedSupplier?.name || '',
+        supplier_name: selectedSupplier?.name || po?.supplier_name || '',
         purchase_order_id: poId2,
         invoice_date: invoiceDate,
         due_date: dueDateValue,
@@ -973,8 +975,11 @@ export default function POWorkspace() {
               <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
                 Supplier *
               </label>
-              {isViewOnly ? (
-                <p className="text-sm font-medium">{po?.supplier_name || '—'}</p>
+              {/* Supplier is fixed once a PO exists — you pick it only when
+                  creating the PO. Editing keeps the original supplier (changing
+                  it would orphan the supplier-scoped lines / pricing). */}
+              {(isViewOnly || !isNew) ? (
+                <p className="text-sm font-medium">{selectedSupplier?.name || po?.supplier_name || '—'}</p>
               ) : (
                 <SearchableSelect
                   value={supplierId}
