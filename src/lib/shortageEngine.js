@@ -166,11 +166,29 @@ export function creditCommittedByPoLine(shortages = []) {
   return m;
 }
 
+/** A shortage is "closed" once it has been resolved, cancelled or fully credited. */
+const CLOSED_SHORTAGE_STATUSES = ['resolved', 'cancelled', 'credit_received', 'written_off'];
+export function isOpenShortage(s) {
+  return !!s && !CLOSED_SHORTAGE_STATUSES.includes(s.status);
+}
+
 /**
- * After a GRN is confirmed, reconcile the PO's lines:
- *  - keep each PO line's received_qty accurate (sum of confirmed GRN receipts)
- *  - auto-resolve any "await remaining receival" shortage whose line is now fully received
- * Safe to call after every confirm; idempotent and does not touch PO status.
+ * After a GRN is confirmed, reconcile every open shortage on the PO against what has
+ * now physically been received. Safe to call after every confirm; idempotent and does
+ * not touch PO status. Resolves each shortage on the surface it lives on by clearing
+ * BOTH `status` (Shortages page / PO workspace) and `credit_follow_up_status`
+ * (Supplier Credits & Returns reads that field), so a cleared shortage disappears
+ * everywhere — not just from one screen.
+ *
+ *  - keeps each PO line's received_qty accurate (sum of confirmed GRN receipts, with a
+ *    per-product fallback for legacy GRN lines that predate po_line_id)
+ *  - an AWAIT shortage closes once the quantity it was waiting for has arrived. This is
+ *    judged from the shortage's own snapshot (received-at-creation + awaiting_qty) so a
+ *    genuine split (part await / part credit on the same line) still resolves its await
+ *    leg without the credited units ever needing to arrive.
+ *  - a CREDIT shortage with no credit note applied becomes moot once the line is fully
+ *    received (the goods turned up after all, so no credit is owed) and is cancelled.
+ *    A credit shortage that already carries a credit note is left untouched.
  */
 export async function reconcileAwaitShortages(purchaseOrderId) {
   if (!purchaseOrderId) return;
@@ -182,42 +200,66 @@ export async function reconcileAwaitShortages(purchaseOrderId) {
     const chunks = await Promise.all(grns.map(g => base44.entities.GRNLine.filter({ grn_id: g.id }, 'product_name', 200)));
     grnLines = chunks.flat();
   }
-  const receivedByPoLine = {};
+  // Sum received per PO line (primary) and per product (fallback for older GRN lines
+  // that predate po_line_id) — mirrors recomputePoLineReceipts so they never drift.
+  const byPoLine = {};
+  const byProduct = {};
   grnLines.forEach(l => {
-    if (l.po_line_id) receivedByPoLine[l.po_line_id] = (receivedByPoLine[l.po_line_id] || 0) + (parseFloat(l.received_qty) || 0);
+    const q = parseFloat(l.received_qty) || 0;
+    if (l.po_line_id) byPoLine[l.po_line_id] = (byPoLine[l.po_line_id] || 0) + q;
+    if (l.product_id) byProduct[l.product_id] = (byProduct[l.product_id] || 0) + q;
   });
 
-  // Credit-committed qty is NOT expected as stock, so the stock obligation for a line
-  // is ordered - credit. The await shortage resolves once that obligation is met.
   const shortages = await base44.entities.SupplierShortage.filter({ purchase_order_id: purchaseOrderId }, '-created_date', 200);
-  const creditByPoLine = creditCommittedByPoLine(shortages);
+  const EPS = 0.001;
+  const today = new Date().toISOString().slice(0, 10);
+  const hasRealCredit = (s) => !!s.credit_note_number || ['credit_received', 'partially_credited'].includes(s.status);
 
   for (const pl of poLines) {
     const ordered = parseFloat(pl.ordered_qty) || 0;
-    const received = receivedByPoLine[pl.id] || 0;
-    const creditCommitted = creditByPoLine[pl.id] || 0;
-    const stockObligation = Math.max(0, ordered - creditCommitted);
+    const received = (byPoLine[pl.id] != null) ? byPoLine[pl.id] : (byProduct[pl.product_id] || 0);
 
     // Keep the PO line's received_qty in sync with actual confirmed receipts
     if ((parseFloat(pl.received_qty) || 0) !== received) {
       try { await base44.entities.PurchaseOrderLine.update(pl.id, { received_qty: received }); } catch (_) {}
     }
 
-    // Once the stock obligation is met, close the awaiting-remainder shortage for this line
-    if (stockObligation > 0 && received >= stockObligation) {
-      const awaitShortage = shortages.find(s =>
-        s.po_line_id === pl.id &&
-        shortageKind(s.decision) === 'await' &&
-        !['resolved', 'cancelled'].includes(s.status)
-      );
-      if (awaitShortage) {
-        try {
-          await base44.entities.SupplierShortage.update(awaitShortage.id, {
-            status: 'resolved',
-            resolution_date: new Date().toISOString().slice(0, 10),
-            resolution_notes: 'Remaining quantity received in a later GRN',
-          });
-        } catch (_) {}
+    const lineShortages = shortages.filter(s => s.po_line_id === pl.id && isOpenShortage(s));
+    if (!lineShortages.length) continue;
+
+    const fullyReceived = ordered > 0 && received >= ordered - EPS;
+
+    for (const s of lineShortages) {
+      const kind = shortageKind(s.decision);
+
+      if (kind === 'await') {
+        const snapshotReceived = parseFloat(s.received_qty) || 0;
+        const awaitingQty = parseFloat(s.awaiting_qty) || parseFloat(s.shortage_qty) || 0;
+        const awaitTarget = snapshotReceived + awaitingQty;
+        if (fullyReceived || (awaitingQty > 0 && received >= awaitTarget - EPS)) {
+          try {
+            await base44.entities.SupplierShortage.update(s.id, {
+              status: 'resolved',
+              credit_follow_up_status: 'cancelled',
+              resolution_date: today,
+              resolution_notes: 'Remaining quantity received in a later GRN',
+            });
+          } catch (_) {}
+        }
+      } else if (kind === 'credit') {
+        // The credit request is moot once the goods physically arrive in full and no
+        // actual credit note has been applied — cancel it so it stops blocking the line
+        // and stops showing as an outstanding credit.
+        if (fullyReceived && !hasRealCredit(s)) {
+          try {
+            await base44.entities.SupplierShortage.update(s.id, {
+              status: 'cancelled',
+              credit_follow_up_status: 'cancelled',
+              resolution_date: today,
+              resolution_notes: 'Goods received in full — credit no longer required',
+            });
+          } catch (_) {}
+        }
       }
     }
   }

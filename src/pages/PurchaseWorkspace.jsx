@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
+import { isOpenShortage } from '@/lib/shortageEngine';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import { toast } from 'sonner';
 
@@ -69,12 +70,15 @@ export default function PurchaseWorkspace() {
     enabled: !!invoice?.id,
   });
 
-  // Load shortages for this PO (covers all linked GRNs)
-  const { data: shortages = [] } = useQuery({
+  // Load shortages for this PO. Anchored on the PO (not just linked GRNs) so a shortage
+  // raised from an invoice with no GRN still surfaces here, and only the OPEN ones are
+  // shown — once a shortage is received/credited/cancelled it drops off the PO.
+  const { data: allShortages = [] } = useQuery({
     queryKey: ['workspace-shortages', id],
-    queryFn: () => base44.entities.SupplierShortage.filter({ grn_id: grns.map(g => g.id) }, '-created_date', 50),
-    enabled: grns.length > 0,
+    queryFn: () => base44.entities.SupplierShortage.filter({ purchase_order_id: id }, '-created_date', 100),
+    enabled: !!id,
   });
+  const shortages = React.useMemo(() => allShortages.filter(isOpenShortage), [allShortages]);
 
   // Load returns for this PO
   const { data: returns = [] } = useQuery({
