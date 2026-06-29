@@ -10,14 +10,14 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { X, Truck, User, Mail, Phone, CreditCard, MapPin, Save, Loader2, Pencil, FileText, Tag, Factory, AlertTriangle, Percent, GitMerge, Users, Star, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Link } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import SupplierProductsTab from '@/components/purchasing/SupplierProductsTab';
 import SupplierMergeModal from '@/components/suppliers/SupplierMergeModal';
 import { SupplierContactsSection } from '@/components/suppliers/SupplierContactsSection';
-import { computePaymentTermsLabel, formatPaymentTerms, formatZAR } from '@/lib/utils';
+import { computePaymentTermsLabel, formatPaymentTerms } from '@/lib/utils';
+import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 
 const PAYMENT_TERM_TYPE_OPTIONS = [
   { value: 'immediate',              label: 'Immediate' },
@@ -202,14 +202,48 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
       setSaveError(msg);
       toast.error(`Save failed: ${msg}`);
       console.error('[SupplierDetailDrawer] save failed:', err);
+      return false;
     } finally {
       setSaving(false);
     }
+    return true;
   };
+
+  // Unsaved-changes guard. Pristine form mirrors the initial state derived from
+  // `supplier`; dirty when editing and either the form fields or the contacts
+  // differ from what was loaded.
+  const pristineForm = {
+    name: supplier.name || '',
+    contact_name: supplier.contact_name || '',
+    email: supplier.email || '',
+    phone: supplier.phone || '',
+    billing_address: supplier.billing_address || '',
+    shipping_address: supplier.shipping_address || '',
+    physical_address: supplier.physical_address || '',
+    tax_id: supplier.tax_id || '',
+    category: supplier.category || 'other',
+    is_production_supplier: supplier.is_production_supplier || false,
+    is_vat_registered: supplier.is_vat_registered || false,
+    vat_number: supplier.vat_number || '',
+    payment_term_type: supplier.payment_term_type || '',
+    payment_term_value: supplier.payment_term_value != null ? String(supplier.payment_term_value) : '',
+    payment_terms_basis: supplier.payment_terms_basis || '',
+    payment_terms_days: supplier.payment_terms_days != null ? String(supplier.payment_terms_days) : '',
+    payment_terms_cutoff_day: supplier.payment_terms_cutoff_day != null ? String(supplier.payment_terms_cutoff_day) : '',
+    default_tax_rate_id: supplier.default_tax_rate_id || '',
+  };
+  const formDirty = JSON.stringify(form) !== JSON.stringify(pristineForm);
+  const contactsDirty = JSON.stringify(contactsEdit.map(({ _key, ...c }) => c)) !== JSON.stringify(contacts);
+  const isDirty = editing && (formDirty || contactsDirty);
+  useUnsavedChanges(isDirty, {
+    message: 'You have unsaved supplier changes that will be lost.',
+    onSave: handleSave,
+  });
+  const guardedClose = useGuardedAction();
 
   return (
     <>
-    <div className="max-w-4xl space-y-4">
+    <div className="space-y-4">
         {/* Header */}
         <div className="bg-card border border-border rounded-xl px-6 py-4 flex items-start justify-between">
           <div>
@@ -232,7 +266,7 @@ export default function SupplierDetailDrawer({ supplier, onClose, onUpdated }) {
                 </Button>
               </>
             )}
-            <Button variant="ghost" size="icon" onClick={onClose}>
+            <Button variant="ghost" size="icon" onClick={() => guardedClose(onClose)}>
               <X className="w-5 h-5" />
             </Button>
           </div>

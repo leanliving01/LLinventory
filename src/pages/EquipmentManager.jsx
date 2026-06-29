@@ -9,6 +9,7 @@ import { Wrench, Plus, Trash2, Loader2, ArrowLeft, Search, X, Pencil, Check, Ale
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
+import { useUnsavedChanges } from '@/lib/navigationGuard';
 
 const STATUS_STYLES = {
   active: 'bg-green-100 text-green-700',
@@ -129,6 +130,13 @@ export default function EquipmentManager() {
   };
   const hasEditChanges = editingId ? getEditChanges().length > 0 : false;
 
+  // Unsaved-changes guard: dirty while the add form has any typed input, or an
+  // inline edit has changed fields.
+  const addFormDirty = adding && Object.values(form).some(v => v !== '' && v !== 'kg');
+  useUnsavedChanges(addFormDirty || hasEditChanges, {
+    message: 'You have an unsaved equipment edit. Leave without saving?',
+  });
+
   const handleSaveEdit = async () => {
     if (!editForm.name || !editForm.equipment_type) {
       toast.error('Name and type are required');
@@ -164,7 +172,7 @@ export default function EquipmentManager() {
   const existingTypes = [...new Set(equipment.map(e => e.equipment_type).filter(Boolean))].sort();
 
   return (
-    <div className="space-y-4 max-w-5xl">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link to="/settings">

@@ -28,7 +28,7 @@ export default function AppLayout() {
         "transition-all duration-300 min-h-screen print:ml-0",
         collapsed ? "ml-16" : "ml-60"
       )}>
-        <div className="p-6 max-w-[1600px] print:p-2 print:max-w-none">
+        <div className="p-6 max-w-[1920px] print:p-2 print:max-w-none">
           <RouteGuard>
             <Outlet />
           </RouteGuard>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useUnsavedChanges, useGuardedNavigate } from '@/lib/navigationGuard';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -25,7 +26,7 @@ const TABS = [
 
 const DEFAULT_FORM = {
   name: '', sku: '', barcode: '', type: 'raw', status: 'active',
-  inventory_tracked: true, sellable: false, purchasable: true, stock_uom: 'kg',
+  inventory_tracked: true, sellable: false, purchasable: true, produced: false, stock_uom: 'kg',
   subcategory: '', pick_category: '', weight_g: null, weight_unit: 'g',
   length_cm: null, width_cm: null, height_cm: null,
   cost_avg: 0, cost_current: 0, price: 0, par_level: 0,
@@ -37,6 +38,7 @@ export default function ProductEdit() {
   const { productId } = useParams();
   const isNew = productId === 'new';
   const navigate = useNavigate();
+  const guardedNavigate = useGuardedNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const customRoles = useCustomRoles();
@@ -91,25 +93,40 @@ export default function ProductEdit() {
   }, [isNew, product]);
 
   const handleSave = async () => {
-    if (!formData) return;
-    if (!formData.name?.trim()) { toast.error('Product name is required'); return; }
-    if (!formData.sku?.trim()) { toast.error('SKU is required'); return; }
+    if (!formData) return false;
+    if (!formData.name?.trim()) { toast.error('Product name is required'); return false; }
+    if (!formData.sku?.trim()) { toast.error('SKU is required'); return false; }
     setSaving(true);
     const { id, created_date, updated_date, created_by, ...payload } = formData;
-    if (isNew) {
-      const newProduct = await base44.entities.Product.create(payload);
-      queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
-      toast.success('Product created');
+    try {
+      if (isNew) {
+        const newProduct = await base44.entities.Product.create(payload);
+        queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
+        toast.success('Product created');
+        setSaving(false);
+        navigate(`/catalog/${newProduct.id}`);
+      } else {
+        await base44.entities.Product.update(productId, payload);
+        queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
+        queryClient.invalidateQueries({ queryKey: ['product', productId] });
+        toast.success('Product saved');
+        setSaving(false);
+      }
+      return true;
+    } catch (err) {
+      toast.error('Save failed: ' + (err.message || 'Unknown error'));
       setSaving(false);
-      navigate(`/catalog/${newProduct.id}`);
-    } else {
-      await base44.entities.Product.update(productId, payload);
-      queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
-      queryClient.invalidateQueries({ queryKey: ['product', productId] });
-      toast.success('Product saved');
-      setSaving(false);
+      return false;
     }
   };
+
+  // ---- Unsaved-changes guard (sidebar / back button / refresh / ⌘K) ----
+  const hasUnsavedChanges = !!formData &&
+    JSON.stringify(formData) !== JSON.stringify(isNew ? DEFAULT_FORM : product);
+  useUnsavedChanges(hasUnsavedChanges, {
+    message: 'You have unsaved changes to this product.',
+    onSave: handleSave,
+  });
 
   if (!isNew && isLoading) {
     return (
@@ -129,10 +146,10 @@ export default function ProductEdit() {
   }
 
   return (
-    <div className="space-y-4 max-w-4xl">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/catalog')}>
+          <Button variant="ghost" size="icon" onClick={() => guardedNavigate('/catalog')}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>

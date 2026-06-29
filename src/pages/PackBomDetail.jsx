@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { useUnsavedChanges, useGuardedNavigate } from '@/lib/navigationGuard';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -19,7 +20,7 @@ function parseOverrides(str) {
 
 export default function PackBomDetail() {
   const { packBomId } = useParams();
-  const navigate = useNavigate();
+  const guardedNavigate = useGuardedNavigate();
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const [showRecalcPrompt, setShowRecalcPrompt] = useState(false);
@@ -165,8 +166,10 @@ export default function PackBomDetail() {
       setOverrides(null);
       // Prompt user to recalculate committed stock
       setShowRecalcPrompt(true);
+      return true;
     } catch (err) {
       toast.error('Save failed: ' + (err.message || 'Unknown error'));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -191,6 +194,12 @@ export default function PackBomDetail() {
     return false;
   }, [packBom, disabledSkus, overrides, defaultMultiplier]);
 
+  // ---- Unsaved-changes guard (sidebar / back button / refresh / ⌘K) ----
+  useUnsavedChanges(hasChanges, {
+    message: 'You have unsaved changes to this pack composition.',
+    onSave: handleSave,
+  });
+
   if (isLoading || !packBom || disabledSkus === null) {
     return <div className="flex items-center justify-center py-24"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
   }
@@ -198,11 +207,11 @@ export default function PackBomDetail() {
   const isMismatch = totalMeals !== originalTotal;
 
   return (
-    <div className="space-y-5 max-w-3xl">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/purchasing/pack-bom')}>
+          <Button variant="ghost" size="icon" onClick={() => guardedNavigate('/purchasing/pack-bom')}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
@@ -227,7 +236,7 @@ export default function PackBomDetail() {
           <p className="text-xs text-blue-800 dark:text-blue-300">
             <strong>Managed in the Packing BOM.</strong> This pack’s meals — including enabling/disabling a meal and its quantity — are edited in the Packing BOM (the single source of truth). This view is read-only and stays in sync automatically.
           </p>
-          <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => navigate(`/recipes/product/${pkgProduct.id}`)}>
+          <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => guardedNavigate(`/recipes/product/${pkgProduct.id}`)}>
             <Package className="w-3.5 h-3.5" /> Open Packing BOM
           </Button>
         </div>
