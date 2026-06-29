@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { X, Loader2, Truck, CheckCircle2, AlertTriangle, Percent, MapPin, Users } from 'lucide-react';
+import { X, Loader2, Truck, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatPaymentTerms } from '@/lib/utils';
 import { SupplierContactsSection } from '@/components/suppliers/SupplierContactsSection';
@@ -188,7 +188,7 @@ export default function CreateSupplierModal({ onCreated, onCancel }) {
   };
 
   return (
-    <div className="max-w-4xl space-y-4">
+    <div className="max-w-7xl space-y-4">
         {/* Header */}
         <div className="bg-card border border-border rounded-xl px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -201,7 +201,10 @@ export default function CreateSupplierModal({ onCreated, onCancel }) {
         </div>
 
         {/* Body */}
-        <div className="bg-card border border-border rounded-xl px-6 py-5 space-y-5">
+        <div className="bg-card border border-border rounded-xl px-6 py-5 grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
+
+          {/* ╓── LEFT COLUMN ──╖ */}
+          <div className="space-y-5">
 
           {/* ── Supplier Name ── */}
           <div className="space-y-1">
@@ -375,10 +378,16 @@ export default function CreateSupplierModal({ onCreated, onCancel }) {
             </Select>
           </div>
 
+          </div>
+          {/* ╙── END LEFT COLUMN ──╜ */}
+
+          {/* ╓── RIGHT COLUMN ──╖ */}
+          <div className="space-y-5">
+
           {/* ── Addresses ── */}
           <div className="space-y-3">
             <SectionHeading>Addresses</SectionHeading>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3">
               {[
                 { key: 'physical_address', label: 'Physical Address' },
                 { key: 'billing_address',  label: 'Billing Address' },
@@ -402,6 +411,9 @@ export default function CreateSupplierModal({ onCreated, onCancel }) {
             <SectionHeading>Contacts</SectionHeading>
             <SupplierContactsSection contacts={contacts} onChange={setContacts} />
           </div>
+
+          </div>
+          {/* ╙── END RIGHT COLUMN ──╜ */}
         </div>
 
         {/* Footer */}
