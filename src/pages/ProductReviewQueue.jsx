@@ -11,6 +11,7 @@ import UnmatchedLineCard from '@/components/review-queue/UnmatchedLineCard';
 import CreateProductFromLineModal from '@/components/review-queue/CreateProductFromLineModal';
 import MatchToExistingModal from '@/components/review-queue/MatchToExistingModal';
 import PurchasingUnitsReviewTab from '@/components/review-queue/PurchasingUnitsReviewTab';
+import PriceVariancesTab from '@/components/review-queue/PriceVariancesTab';
 import { findPossibleMatches, findExistingLink } from '@/lib/reviewQueueMatching';
 import PageHelp from '@/components/help/PageHelp';
 import POFilters from '@/components/purchasing/POFilters';
@@ -32,7 +33,7 @@ export default function ProductReviewQueue() {
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
 
-  const [tab, setTab] = useState('lines');                // 'lines' | 'units'
+  const [tab, setTab] = useState('lines');                // 'lines' | 'units' | 'prices'
   const [createGroup, setCreateGroup] = useState(null);   // lineGroup → Create Product modal
   const [matchGroup, setMatchGroup] = useState(null);     // lineGroup → Match Existing modal
   const [autoFilling, setAutoFilling] = useState(false);  // bulk AI pre-fill running
@@ -67,11 +68,10 @@ export default function ProductReviewQueue() {
     queryFn: () => base44.entities.PurchaseUnitProposal.filter({ status: 'pending' }, '-confidence', 300),
   });
 
-  // Supplier prices flagged for review (big jump on a recurring invoice) — also
-  // surfaced on the Product Auditing tab; counted into its badge.
-  const { data: pendingPrices = [] } = useQuery({
-    queryKey: ['supplier-pending-prices'],
-    queryFn: () => base44.entities.SupplierProduct.filter({ pending_price: { $gt: 0 }, active: true }, '-pending_price_at', 300),
+  // Open price-variance reviews (pending + disputed) — for the Price Variances tab badge.
+  const { data: openPriceReviews = [] } = useQuery({
+    queryKey: ['supplier-price-reviews-open'],
+    queryFn: () => base44.entities.SupplierPriceReview.filter({ status: { $in: ['pending', 'disputed'] } }, '-updated_date', 500),
   });
 
   // AI pre-fill proposals (from "Auto-fill"): one per invoice line, keyed by line id.
@@ -567,7 +567,8 @@ export default function ProductReviewQueue() {
       <div className="flex items-center gap-1 border-b border-border">
         {[
           { key: 'lines', label: 'Items to Link', count: toLinkCount },
-          { key: 'units', label: 'Product Auditing', count: unitProposals.length + pendingPrices.length },
+          { key: 'units', label: 'Product Auditing', count: unitProposals.length },
+          { key: 'prices', label: 'Price Variances', count: openPriceReviews.length },
         ].map(t => (
           <button
             key={t.key}
@@ -587,6 +588,8 @@ export default function ProductReviewQueue() {
       </div>
 
       {tab === 'units' && <PurchasingUnitsReviewTab />}
+
+      {tab === 'prices' && <PriceVariancesTab />}
 
       {tab === 'lines' && (
       <>

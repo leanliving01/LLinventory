@@ -74,6 +74,7 @@ const ENTITY_TABLE_MAP = {
   BomComponent:             'bom_components',
   BomOperation:             'bom_operations',
   SupplierPriceHistory:     'supplier_price_histories',
+  SupplierPriceReview:      'supplier_price_reviews',
   SupplierYieldRecord:      'supplier_yield_records',
   PurchaseOrder:            'purchase_orders',
   SalesOrder:               'sales_orders',
@@ -431,6 +432,21 @@ export async function repriceSupplierProduct(supplierProductId, unitCost, invoic
     p_unit_cost:  unitCost,
     p_invoice_id: invoiceId,
     p_source:     source,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+// Price-variance review lifecycle — atomic state transition + price application.
+// action: 'accept' | 'dispute' | 'dismiss' | 'resolve_update' | 'resolve_credit'.
+// Returns the new status string.
+export async function resolvePriceReview(reviewId, action, { user = null, notes = null, creditAmount = null } = {}) {
+  const { data, error } = await supabase.rpc('resolve_price_review', {
+    p_review_id:     reviewId,
+    p_action:        action,
+    p_user:          user,
+    p_notes:         notes,
+    p_credit_amount: creditAmount,
   });
   if (error) throw new Error(error.message);
   return data;
