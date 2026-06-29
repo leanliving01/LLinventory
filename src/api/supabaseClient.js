@@ -152,6 +152,47 @@ const ENTITY_TABLE_MAP = {
   SalesWorkflowEvent:       'sales_workflow_events',
 };
 
+// Some tables carry large columns the browser UI never reads. The worst
+// offender is products.match_embedding — a vector(1536) (~18KB/row serialised);
+// a 400-row list with select('*') pulls ~8MB. On a slow link that single query
+// can run past the 60s entity timeout, leaving lists empty AND keeping the
+// ConnectionWatchdog "Connection is slow — data may not have loaded" banner up.
+// Dropping it from the default ('*') projection fixes every list/filter caller
+// at once (match_embedding is only ever read server-side: the embed-products
+// edge fn + the match_products RPC).
+const HEAVY_COLUMNS = {
+  products: ['match_embedding'],
+};
+
+// table -> resolved projection string (or in-flight Promise during first fetch).
+// Built once per session by introspecting the row shape, so newly-added columns
+// are picked up automatically on the next full page load (no hardcoded list to
+// drift out of sync with migrations).
+const projectionCache = {};
+
+async function defaultColumnsFor(table) {
+  const heavy = HEAVY_COLUMNS[table];
+  if (!heavy) return '*';
+  if (projectionCache[table]) return projectionCache[table];
+  const pending = (async () => {
+    try {
+      // One tiny round-trip: pull a single row to learn the column names. The
+      // embedding on this one row is negligible vs. dropping it from every
+      // subsequent multi-hundred-row list.
+      const { data, error } = await supabase.from(table).select('*').limit(1);
+      if (error || !data || data.length === 0) return '*'; // can't introspect → safe fallback
+      const cols = Object.keys(data[0]).filter((c) => !heavy.includes(c));
+      return cols.length ? cols.join(',') : '*';
+    } catch {
+      return '*';
+    }
+  })();
+  projectionCache[table] = pending;
+  const resolved = await pending;
+  projectionCache[table] = resolved; // replace the Promise with the resolved string
+  return resolved;
+}
+
 function applyFilters(query, filters) {
   for (const [key, value] of Object.entries(filters)) {
     if (value === null || value === undefined) {
@@ -198,8 +239,9 @@ function createEntityProxy(entityName) {
     async list(sortField = '-created_date', limit = 1000, columns = '*') {
       const ascending = !sortField.startsWith('-');
       const field = sortField.replace(/^-/, '');
+      const cols = columns === '*' ? await defaultColumnsFor(table) : columns;
       const { data, error } = await withTimeout(
-        supabase.from(table).select(columns).order(field, { ascending }).limit(limit)
+        supabase.from(table).select(cols).order(field, { ascending }).limit(limit)
       );
       if (error) { console.error(`[supabase] ${table} list:`, error.message); return []; }
       return isSkuField(field) ? naturalSkuSort(data || [], field, ascending) : (data || []);
@@ -208,7 +250,8 @@ function createEntityProxy(entityName) {
     async filter(filters = {}, sortField = '-created_date', limit = 1000, columns = '*') {
       const ascending = !sortField.startsWith('-');
       const field = sortField.replace(/^-/, '');
-      let query = supabase.from(table).select(columns);
+      const cols = columns === '*' ? await defaultColumnsFor(table) : columns;
+      let query = supabase.from(table).select(cols);
       query = applyFilters(query, filters);
       const { data, error } = await withTimeout(query.order(field, { ascending }).limit(limit));
       if (error) { console.error(`[supabase] ${table} filter:`, error.message); return []; }

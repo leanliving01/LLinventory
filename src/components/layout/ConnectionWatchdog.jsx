@@ -8,23 +8,43 @@ export default function ConnectionWatchdog() {
   const isFetching = useIsFetching();
   const queryClient = useQueryClient();
   const [showBanner, setShowBanner] = useState(false);
-  const fetchStartRef = useRef(null);
+  // useIsFetching() is an app-wide count of in-flight queries. The banner must
+  // only fire on a genuine STALL — not just because the count stayed above 0
+  // for a while. On a slow link a page can fire several queries that each take
+  // a few seconds; they complete one by one (the count keeps dropping) but the
+  // count rarely hits exactly 0, so a "fetching > 0 for 20s" rule would false-
+  // alarm even though data is arriving fine. Instead we track the last time a
+  // query COMPLETED (the count decreased) or everything settled, and only warn
+  // when there's been no such progress for SLOW_THRESHOLD_MS.
+  const prevCountRef = useRef(0);
+  const lastProgressRef = useRef(Date.now());
   const timerRef = useRef(null);
 
   useEffect(() => {
-    if (isFetching > 0) {
-      if (!fetchStartRef.current) {
-        fetchStartRef.current = Date.now();
-        timerRef.current = setTimeout(() => {
-          setShowBanner(true);
-        }, SLOW_THRESHOLD_MS);
-      }
-    } else {
-      fetchStartRef.current = null;
+    const prev = prevCountRef.current;
+    prevCountRef.current = isFetching;
+
+    if (isFetching === 0) {
+      // Everything settled — clear the warning and reset the stall clock.
       clearTimeout(timerRef.current);
       timerRef.current = null;
+      lastProgressRef.current = Date.now();
+      setShowBanner(false);
+      return;
+    }
+
+    // A query just finished (count dropped) — that's progress, so the
+    // connection is working. Restart the stall clock and hide any warning.
+    if (isFetching < prev) {
+      lastProgressRef.current = Date.now();
       setShowBanner(false);
     }
+
+    // (Re)arm a single timer to fire once we've gone SLOW_THRESHOLD_MS with no
+    // progress at all — i.e. queries are stuck, not merely slow.
+    clearTimeout(timerRef.current);
+    const remaining = Math.max(0, SLOW_THRESHOLD_MS - (Date.now() - lastProgressRef.current));
+    timerRef.current = setTimeout(() => setShowBanner(true), remaining);
     return () => {};
   }, [isFetching]);
 
