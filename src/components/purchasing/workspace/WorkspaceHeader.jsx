@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, TrendingUp, RotateCcw, Trash2, Loader2 } from 'lucide-react';
+import { TrendingUp, RotateCcw, Trash2, Loader2, Pencil } from 'lucide-react';
 import { dueDateColour, formatPaymentTerms } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import ManagerPinDialog from '@/components/purchasing/ManagerPinDialog';
@@ -39,10 +40,17 @@ function DueDateBadge({ dateStr, overridden }) {
 }
 
 export default function WorkspaceHeader({ po, invoice, grns = [], perms = {}, onRevertToDraft, onDeletePO }) {
-  if (!po) return null;
-
+  // Hooks must run unconditionally, before the `!po` early return below.
   const [showDeletePin, setShowDeletePin] = useState(false);
   const [reverting, setReverting] = useState(false);
+  const navigate = useNavigate();
+
+  if (!po) return null;
+
+  // PO lines/header stay editable until it progresses past confirmed (matches
+  // POWorkspace's own editable statuses). The Edit button opens that editor.
+  const canEditPO = ['draft', 'approved', 'confirmed'].includes(po.status)
+    && (perms.po_create || perms.po_edit);
 
   const hasConfirmedGRN = grns.some(g => g.status === 'confirmed');
   const hasPriceVariance = grns.some(g => g.has_price_variance);
@@ -144,6 +152,18 @@ export default function WorkspaceHeader({ po, invoice, grns = [], perms = {}, on
               <p className="text-lg font-bold tabular-nums mt-0.5">R {total.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
             </div>
           </div>
+
+          {canEditPO && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs h-7"
+              onClick={() => navigate(`/purchasing/purchase-orders/${po.id}`)}
+              title="Edit this purchase order's lines and details"
+            >
+              <Pencil className="w-3.5 h-3.5" /> Edit
+            </Button>
+          )}
 
           {canRevertToDraft && (
             <Button
