@@ -191,20 +191,24 @@ function createEntityProxy(entityName) {
   if (!table) return STUB;
 
   return {
-    async list(sortField = '-created_date', limit = 1000) {
+    // `columns` lets callers project only the fields they need (default '*').
+    // Crucial for wide tables like products, whose match_embedding column is
+    // ~18KB/row — selecting '*' for a 393-row dropdown pulls ~8MB and can
+    // time out on slow links, leaving the list empty.
+    async list(sortField = '-created_date', limit = 1000, columns = '*') {
       const ascending = !sortField.startsWith('-');
       const field = sortField.replace(/^-/, '');
       const { data, error } = await withTimeout(
-        supabase.from(table).select('*').order(field, { ascending }).limit(limit)
+        supabase.from(table).select(columns).order(field, { ascending }).limit(limit)
       );
       if (error) { console.error(`[supabase] ${table} list:`, error.message); return []; }
       return isSkuField(field) ? naturalSkuSort(data || [], field, ascending) : (data || []);
     },
 
-    async filter(filters = {}, sortField = '-created_date', limit = 1000) {
+    async filter(filters = {}, sortField = '-created_date', limit = 1000, columns = '*') {
       const ascending = !sortField.startsWith('-');
       const field = sortField.replace(/^-/, '');
-      let query = supabase.from(table).select('*');
+      let query = supabase.from(table).select(columns);
       query = applyFilters(query, filters);
       const { data, error } = await withTimeout(query.order(field, { ascending }).limit(limit));
       if (error) { console.error(`[supabase] ${table} filter:`, error.message); return []; }

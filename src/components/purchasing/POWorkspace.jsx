@@ -94,8 +94,13 @@ export default function POWorkspace() {
   });
 
   const { data: products = [] } = useQuery({
+    // Project only the columns the picker needs. Selecting '*' pulls the
+    // ~18KB/row match_embedding vector for every product (~8MB total), which
+    // can time out on slow links and leave the dropdown empty ("No results").
     queryKey: ['products-active'],
-    queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
+    queryFn: () => base44.entities.Product.filter(
+      { status: 'active' }, 'name', 500, 'id,sku,name,stock_uom,type,status',
+    ),
   });
 
   const { data: taxRates = [] } = useQuery({
