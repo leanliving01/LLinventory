@@ -1061,10 +1061,10 @@ export default function POWorkspace() {
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
                     <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[220px]">Product</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-20">Supplier SKU</th>
+                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[150px]">Supplier SKU</th>
                     <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[320px]">Description</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase min-w-[110px]">UOM</th>
-                    <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-20">Qty</th>
+                    <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-16">UOM</th>
+                    <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-24">Qty</th>
                     <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-28">Unit Cost</th>
                     <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-28">Tax</th>
                     <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase w-28">Line Total (excl)</th>
