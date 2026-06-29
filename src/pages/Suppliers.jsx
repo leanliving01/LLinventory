@@ -129,7 +129,15 @@ export default function Suppliers() {
 
   return (
     <div className="space-y-4">
-      {selectedSupplier ? (
+      {showCreate ? (
+        <CreateSupplierModal
+          onCreated={() => {
+            setShowCreate(false);
+            queryClient.invalidateQueries({ queryKey: ['suppliers-list'] });
+          }}
+          onCancel={() => setShowCreate(false)}
+        />
+      ) : selectedSupplier ? (
         <SupplierDetailDrawer
           supplier={selectedSupplier}
           onClose={() => setSelectedSupplier(null)}
@@ -364,16 +372,6 @@ export default function Suppliers() {
             setSelected([]);
             queryClient.invalidateQueries({ queryKey: ['suppliers-list'] });
           }}
-        />
-      )}
-
-      {showCreate && (
-        <CreateSupplierModal
-          onCreated={() => {
-            setShowCreate(false);
-            queryClient.invalidateQueries({ queryKey: ['suppliers-list'] });
-          }}
-          onCancel={() => setShowCreate(false)}
         />
       )}
     </div>
