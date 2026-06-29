@@ -154,7 +154,9 @@ export default function POWorkspace() {
   const [saving, setSaving] = useState(false);
   const [savedBanner, setSavedBanner] = useState(false);
   const [validationErrors, setValidationErrors] = useState([]);
-  const [productSearch, setProductSearch] = useState('');
+  // Picker scope: by default the product dropdown only offers products linked
+  // to the chosen supplier; flip this to add a not-yet-linked product.
+  const [showAllProducts, setShowAllProducts] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
   const [showCreditNote, setShowCreditNote] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState('');
@@ -204,6 +206,21 @@ export default function POWorkspace() {
   // ---- Derived ----
   const selectedSupplier = useMemo(() => suppliers.find(s => s.id === supplierId), [suppliers, supplierId]);
 
+  // Products linked to the chosen supplier (via supplier_products). The picker
+  // is scoped to these so a PO only offers what that supplier actually sells —
+  // not the whole catalogue.
+  const { data: supplierLinks = [] } = useQuery({
+    queryKey: ['po-supplier-links', supplierId],
+    queryFn: () => base44.entities.SupplierProduct.filter(
+      { supplier_id: supplierId, active: true }, 'product_name', 1000, 'product_id',
+    ),
+    enabled: !!supplierId,
+  });
+  const linkedProductIds = useMemo(
+    () => new Set(supplierLinks.map(sp => sp.product_id)),
+    [supplierLinks],
+  );
+
   // Auto-calculate the blind-receipt due date from supplier payment terms + invoice date.
   useEffect(() => {
     if (!isBlindReceipt || dueDateOverridden) return;
@@ -219,15 +236,14 @@ export default function POWorkspace() {
 
   const currentStatus = isNew ? 'draft' : (po?.status || 'draft');
 
-  // ---- Filtered products for search ----
-  const filteredProducts = useMemo(() => {
-    const q = productSearch.toLowerCase();
-    if (!q) return products.slice(0, 20);
-    return products.filter(p =>
-      p.name?.toLowerCase().includes(q) ||
-      (p.sku || '').toLowerCase().includes(q)
-    ).slice(0, 25);
-  }, [products, productSearch]);
+  // ---- Products offered in the line picker ----
+  // Scope to the supplier's linked products unless "Show all" is on (or no
+  // supplier is chosen yet, in which case the whole active catalogue shows so
+  // the picker is never needlessly empty).
+  const pickerProducts = useMemo(() => {
+    if (showAllProducts || !supplierId) return products;
+    return products.filter(p => linkedProductIds.has(p.id));
+  }, [products, supplierId, showAllProducts, linkedProductIds]);
 
   // ---- Line helpers ----
   const updateLine = useCallback((key, field, value) => {
@@ -1053,10 +1069,21 @@ export default function POWorkspace() {
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <h3 className="text-sm font-semibold">Line Items ({localLines.length})</h3>
               {!isViewOnly && (
-                <Button variant="outline" size="sm" onClick={addLine} className="gap-1.5">
-                  <Plus className="w-3.5 h-3.5" />
-                  Add Line
-                </Button>
+                <div className="flex items-center gap-4">
+                  {supplierId && (
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                      <Switch checked={showAllProducts} onCheckedChange={setShowAllProducts} />
+                      Show all products
+                      {!showAllProducts && (
+                        <span className="text-[10px]">({supplierLinks.length} linked to {selectedSupplier?.name || 'supplier'})</span>
+                      )}
+                    </label>
+                  )}
+                  <Button variant="outline" size="sm" onClick={addLine} className="gap-1.5">
+                    <Plus className="w-3.5 h-3.5" />
+                    Add Line
+                  </Button>
+                </div>
               )}
             </div>
 
@@ -1085,9 +1112,8 @@ export default function POWorkspace() {
                       idx={idx}
                       isViewOnly={isViewOnly}
                       products={products}
-                      filteredProducts={filteredProducts}
-                      productSearch={productSearch}
-                      setProductSearch={setProductSearch}
+                      pickerProducts={pickerProducts}
+                      supplierScoped={!!supplierId && !showAllProducts}
                       taxRates={taxRates}
                       supplierId={supplierId}
                       onUpdate={updateLine}
@@ -1194,7 +1220,7 @@ export default function POWorkspace() {
 // ---------------------------------------------------------------------------
 function LineRow({
   line, idx, isViewOnly,
-  products, filteredProducts, productSearch, setProductSearch,
+  products, pickerProducts, supplierScoped,
   taxRates, supplierId,
   onUpdate, onRemove, onSelectProduct, onSelectSupplierProduct, onSetLineUom,
 }) {
@@ -1230,9 +1256,14 @@ function LineRow({
             onValueChange={v => onSelectProduct(line._key, v)}
             placeholder="Select product..."
             searchPlaceholder="Search products..."
+            emptyText={
+              supplierScoped
+                ? 'No matching products linked to this supplier. Tick "Show all products" above to add one.'
+                : 'No results found.'
+            }
             triggerClassName="h-8 text-xs"
             contentClassName="w-[360px]"
-            options={products.map(p => ({
+            options={pickerProducts.map(p => ({
               value: p.id,
               label: `${p.sku} ${p.name}`,
               keywords: [p.sku, p.name],
