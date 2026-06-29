@@ -21,6 +21,7 @@ const serializeState = (header, lines) => JSON.stringify({
   lines: lines.map(l => ({
     shortage_id: l.shortage_id || null,
     return_id: l.return_id || null,
+    invoice_line_id: l.invoice_line_id || null,
     product_id: l.product_id || null,
     credit_qty: String(l.credit_qty ?? ''),
     unit_cost_excl: String(l.unit_cost_excl ?? ''),
@@ -111,6 +112,24 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
     });
     return m;
   }, [supplierReturnLines]);
+  // Supplier invoices + their flagged price-variance lines — so a price overcharge
+  // billed above the PO cost can be pulled into the credit note. Already-credited
+  // lines (price_variance_credited) are filtered out client-side so the same
+  // overcharge is never offered twice.
+  const { data: supplierInvoices = [] } = useQuery({
+    queryKey: ['cn-supplier-invoices', po.supplier_id],
+    queryFn: () => base44.entities.PurchaseInvoice.filter({ supplier_id: po.supplier_id }, '-created_date', 500),
+    enabled: !!po.supplier_id && editMode,
+  });
+  const invoiceById = useMemo(() => Object.fromEntries(supplierInvoices.map(i => [i.id, i])), [supplierInvoices]);
+  const { data: varianceLines = [] } = useQuery({
+    queryKey: ['cn-supplier-variance-lines', po.supplier_id, supplierInvoices.length],
+    queryFn: () => base44.entities.PurchaseInvoiceLine.filter(
+      { invoice_id: supplierInvoices.map(i => i.id), price_variance_flagged: true }, 'created_date', 1000
+    ),
+    enabled: editMode && supplierInvoices.length > 0,
+  });
+
   const poById = useMemo(() => Object.fromEntries(supplierPOs.map(p => [p.id, p])), [supplierPOs]);
   const grnById = useMemo(() => Object.fromEntries(supplierGRNs.map(g => [g.id, g])), [supplierGRNs]);
 
@@ -168,6 +187,7 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
         key: l.id,
         shortage_id: l.shortage_id || null,
         return_id: l.return_id || null,
+        invoice_line_id: l.invoice_line_id || null,
         product_id: l.product_id,
         product_name: l.product_name,
         product_sku: l.product_sku,
@@ -236,6 +256,7 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
   const outstandingItems = useMemo(() => {
     const linkedShortageIds = new Set(lines.map(l => l.shortage_id).filter(Boolean));
     const linkedReturnIds = new Set(lines.map(l => l.return_id).filter(Boolean));
+    const linkedInvLineIds = new Set(lines.map(l => l.invoice_line_id).filter(Boolean));
     const items = [];
     // Every OPEN shortage on the PO/supplier is an issue you may want to credit —
     // not just the ones already decided as "request credit". Awaiting-receival and
@@ -268,8 +289,34 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
         expected_qty: 1, unit_cost: parseFloat(r.total_return_value) || 0, total_value: parseFloat(r.total_return_value) || 0,
       });
     });
+    // Price variances: invoice lines billed above the PO cost. Credit = the per-unit
+    // overcharge × qty. Only over-bills (positive variance) are creditable; lines
+    // already credited or already on this note are skipped.
+    varianceLines.forEach(vl => {
+      if (vl.price_variance_credited) return;
+      if (linkedInvLineIds.has(vl.id)) return;
+      const inv = invoiceById[vl.invoice_id];
+      if (!inv) return;
+      const pct = parseFloat(vl.price_variance_pct) || 0;
+      const invCost = parseFloat(vl.unit_cost) || 0;
+      const qty = parseFloat(vl.qty) || 0;
+      if (pct <= 0 || invCost <= 0 || qty <= 0) return;
+      const poCost = invCost / (1 + pct / 100);
+      const overPerUnit = rnd2(invCost - poCost);
+      if (overPerUnit <= 0) return;
+      items.push({
+        kind: 'price', id: vl.id, invoice_line_id: vl.id,
+        product_name: vl.product_name, product_sku: vl.product_sku, product_id: vl.product_id,
+        ref: [poById[inv.purchase_order_id]?.po_number, inv.invoice_number].filter(Boolean).join(' · ') || '—',
+        purchase_order_id: inv.purchase_order_id,
+        po_number: poById[inv.purchase_order_id]?.po_number || null,
+        invoice_number: inv.invoice_number || null,
+        variance_pct: pct,
+        expected_qty: qty, unit_cost: overPerUnit, over_value: rnd2(overPerUnit * qty),
+      });
+    });
     return items;
-  }, [supplierShortages, supplierReturns, lines, poById, grnById, returnLinesByReturn]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [supplierShortages, supplierReturns, varianceLines, invoiceById, lines, poById, grnById, returnLinesByReturn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addOutstanding = (item) => {
     const tax = { tax_rate_id: defaultTax?.id || null, tax_rule: defaultTax?.name || '', tax_rate: defaultTax?.rate || 0 };
@@ -299,6 +346,22 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
           credit_qty: '1', unit_cost_excl: String(item.unit_cost ?? 0), ...tax,
         }]);
       }
+    } else if (item.kind === 'price') {
+      // Credit the per-unit overcharge × invoiced qty, linked to the invoice line
+      // so it gets marked credited (and never re-offered) when the note is recorded.
+      setLines(prev => [...prev, {
+        key: `price-${item.id}`,
+        shortage_id: null,
+        return_id: null,
+        invoice_line_id: item.invoice_line_id,
+        ref: item.ref,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        product_sku: item.product_sku,
+        credit_qty: String(item.expected_qty ?? 1),
+        unit_cost_excl: String(item.unit_cost ?? 0),
+        ...tax,
+      }]);
     } else {
       setLines(prev => [...prev, {
         key: `shortage-${item.id}`,
@@ -427,6 +490,7 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
   const buildPayloadLines = () => rows.map(r => ({
     shortage_id: r.shortage_id || null,
     return_id: r.return_id || null,
+    invoice_line_id: r.invoice_line_id || null,
     product_id: r.product_id,
     product_name: r.product_name,
     product_sku: r.product_sku,
@@ -622,7 +686,9 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
                     <td className="px-3 py-2 text-xs">
                       {(r.shortage_id || r.return_id)
                         ? <span className="font-mono text-[11px]">{lineRef(r)}<span className="text-muted-foreground">{r.return_id ? ' · return' : ' · shortage'}</span></span>
-                        : <span className="text-muted-foreground">— ad-hoc</span>}
+                        : r.invoice_line_id
+                          ? <span className="font-mono text-[11px]">{r.ref || '—'}<span className="text-muted-foreground"> · price variance</span></span>
+                          : <span className="text-muted-foreground">— ad-hoc</span>}
                     </td>
                     <td className="px-3 py-2 text-right">
                       {viewMode ? r.credit_qty : (
@@ -693,12 +759,12 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
                 <div className="bg-card rounded-xl shadow-2xl w-full max-w-lg p-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <Search className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <Input placeholder="Search this supplier's open shortages & returns..." value={outSearch} onChange={e => setOutSearch(e.target.value)} autoFocus className="h-8" />
+                    <Input placeholder="Search this supplier's open shortages, returns & price variances..." value={outSearch} onChange={e => setOutSearch(e.target.value)} autoFocus className="h-8" />
                     <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setShowOutstanding(false)}><X className="w-4 h-4" /></Button>
                   </div>
                   <div className="max-h-80 overflow-y-auto space-y-1">
                     {filteredOutstanding.length === 0 ? (
-                      <p className="text-center text-sm text-muted-foreground py-4">No outstanding shortages or returns for this supplier.</p>
+                      <p className="text-center text-sm text-muted-foreground py-4">No outstanding shortages, returns or price variances for this supplier{scope === 'single' ? ' on this PO' : ''}.</p>
                     ) : filteredOutstanding.map(item => (
                       <button key={`${item.kind}-${item.id}`} className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors flex items-start justify-between gap-3" onClick={() => addOutstanding(item)}>
                         <div className="min-w-0">
@@ -713,7 +779,9 @@ export default function CreditNoteEditor({ po, shortages = [], existingCreditNot
                         <div className="text-right shrink-0 text-[11px] text-muted-foreground">
                           {item.kind === 'shortage'
                             ? <>qty {item.expected_qty} · {fmtR(item.expected_qty * item.unit_cost)}</>
-                            : <>{fmtR(item.total_value)}</>}
+                            : item.kind === 'price'
+                              ? <>+{(item.variance_pct || 0).toFixed(1)}% · {fmtR(item.over_value)}</>
+                              : <>{fmtR(item.total_value)}</>}
                         </div>
                       </button>
                     ))}

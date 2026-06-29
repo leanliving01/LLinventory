@@ -397,6 +397,7 @@ async function replaceCreditNoteLines(creditNoteId, lines) {
       credit_note_id: creditNoteId,
       shortage_id: l.shortage_id || null,
       return_id: l.return_id || null,
+      invoice_line_id: l.invoice_line_id || null,
       product_id: l.product_id || null,
       product_name: l.product_name || '',
       product_sku: l.product_sku || '',
@@ -460,6 +461,7 @@ export async function createCreditNote({ po, header, lines, userName, existingId
       credit_note_id: scn.id,
       shortage_id: l.shortage_id || null,
       return_id: l.return_id || null,
+      invoice_line_id: l.invoice_line_id || null,
       product_id: l.product_id || null,
       product_name: l.product_name || '',
       product_sku: l.product_sku || '',
@@ -471,6 +473,17 @@ export async function createCreditNote({ po, header, lines, userName, existingId
       line_total_excl: round2(l.line_total_excl),
       line_total_incl: round2(l.line_total_incl),
     });
+
+    // A price-variance credit line carries the invoice line it credits. Mark that
+    // line credited so the same overcharge can't be offered/credited again.
+    if (l.invoice_line_id) {
+      try {
+        await base44.entities.PurchaseInvoiceLine.update(l.invoice_line_id, {
+          price_variance_credited: true,
+          price_variance_credit_note_id: scn.id,
+        });
+      } catch (_) { /* non-fatal — column may not be migrated yet */ }
+    }
 
     if (l.shortage_id || l.return_id) {
       anyMatch = true;
