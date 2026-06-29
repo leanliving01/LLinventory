@@ -34,7 +34,7 @@ const LINE_LABEL = {
   unmatched: 'Unmatched',
 };
 
-const fmtQty = (n) => (n == null ? '—' : String(Math.round(Number(n) * 1000) / 1000));
+const fmtQty = (n) => (n == null ? '—' : String(Math.round(Number(n) * 100) / 100));
 const fmtR = (n) => (n == null ? '—' : `R ${Number(n).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`);
 
 export default function ThreeWayMatchPanel({ invoice, invoiceLines = [], userName = 'Unknown', canApprove: canAct = true, onUpdated }) {

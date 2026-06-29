@@ -109,7 +109,7 @@ export default function StockValuationReport() {
                   <p className="text-[10px] font-mono text-muted-foreground">{r.sku}</p>
                 </td>
                 <td className="px-4 py-2.5 text-xs text-muted-foreground">{r.type}</td>
-                <td className="px-4 py-2.5 text-right text-xs">{r.qty.toFixed(3)} {r.uom}</td>
+                <td className="px-4 py-2.5 text-right text-xs">{r.qty.toFixed(2)} {r.uom}</td>
                 <td className="px-4 py-2.5 text-right text-xs">{formatZAR(r.cost_avg)}</td>
                 <td className="px-4 py-2.5 text-right text-xs font-semibold">{formatZAR(r.value)}</td>
               </tr>

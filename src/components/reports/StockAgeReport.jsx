@@ -104,7 +104,7 @@ export default function StockAgeReport() {
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-2.5 text-right text-xs">{r.qty.toFixed(3)} {r.uom}</td>
+                <td className="px-4 py-2.5 text-right text-xs">{r.qty.toFixed(2)} {r.uom}</td>
                 <td className="px-4 py-2.5 text-right text-xs text-muted-foreground">{r.received_date}</td>
                 <td className={`px-4 py-2.5 text-right text-xs font-semibold ${r.flagged ? 'text-amber-600' : ''}`}>{r.age}d</td>
                 <td className="px-4 py-2.5 text-right text-xs font-semibold">{formatZAR(r.value)}</td>

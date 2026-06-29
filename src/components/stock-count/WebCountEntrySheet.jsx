@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 const fmtQty = (n) => {
   const v = Number(n);
   if (isNaN(v)) return '—';
-  return Number.isInteger(v) ? String(v) : v.toFixed(3).replace(/\.?0+$/, '');
+  return Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/\.?0+$/, '');
 };
 
 const STOCK_KEY = STOCK_UOM_KEY;

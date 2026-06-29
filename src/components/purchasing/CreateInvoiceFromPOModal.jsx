@@ -506,7 +506,7 @@ export default function CreateInvoiceFromPOModal({ po, existingInvoice = null, o
                 <p className="text-xs text-muted-foreground mb-2">
                   Received: <span className="font-semibold">{row.receivedQty}</span>
                   {' · '}Invoiced: <span className="font-semibold">{row.invoicedQty}</span>
-                  {' · '}Difference: <span className="font-semibold text-amber-600">{(row.invoicedQty - row.receivedQty).toFixed(3).replace(/\.?0+$/, '')}</span>
+                  {' · '}Difference: <span className="font-semibold text-amber-600">{(row.invoicedQty - row.receivedQty).toFixed(2).replace(/\.?0+$/, '')}</span>
                 </p>
                 <div className="grid grid-cols-3 gap-2">
                   <button

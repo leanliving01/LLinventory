@@ -8,7 +8,7 @@ import StockCountVarianceTable from '@/components/stock-count/StockCountVariance
 
 const fmtQty = (n) => {
   const v = Number(n) || 0;
-  return Number.isInteger(v) ? String(v) : v.toFixed(3).replace(/\.?0+$/, '');
+  return Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/\.?0+$/, '');
 };
 
 const fmtDateTime = (v) => (v ? format(new Date(v), 'dd MMM yyyy HH:mm') : '—');

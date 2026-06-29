@@ -90,7 +90,7 @@ export default function SupplierProductDrawer({ sp, onClose, onUpdated, canEdit 
     }
   };
 
-  const effectiveQty = ((form.conversion_factor || 1) * (form.yield_factor || 1)).toFixed(3);
+  const effectiveQty = ((form.conversion_factor || 1) * (form.yield_factor || 1)).toFixed(2);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">

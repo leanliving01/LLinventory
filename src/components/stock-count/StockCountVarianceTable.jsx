@@ -8,7 +8,7 @@ import { useSubcategories } from '@/lib/useSubcategories';
 
 const fmtQty = (n) => {
   const v = Number(n) || 0;
-  return Number.isInteger(v) ? String(v) : v.toFixed(3).replace(/\.?0+$/, '');
+  return Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/\.?0+$/, '');
 };
 
 export default function StockCountVarianceTable({

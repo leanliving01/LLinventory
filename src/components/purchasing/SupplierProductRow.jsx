@@ -57,7 +57,7 @@ export default function SupplierProductRow({ sp, onClick, mismatch, aiEnriched }
 
       {/* 7. Conversion: 1 [uom] = X [stock_uom] */}
       <td className="px-4 py-2.5 text-xs text-right tabular-nums whitespace-nowrap">
-        1 {sp.purchase_uom || 'unit'} = {(cf * yf).toFixed(3)} {sp.conversion_uom || ''}
+        1 {sp.purchase_uom || 'unit'} = {(cf * yf).toFixed(2)} {sp.conversion_uom || ''}
       </td>
 
       {/* 8. Nominal Cost */}
