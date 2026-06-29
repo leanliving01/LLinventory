@@ -16,32 +16,6 @@
 
 const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-/**
- * Decide whether an invoice line is ALREADY linked to a product for this supplier.
- *
- * A line counts as already-linked when its supplier SKU (item code) OR its
- * description exactly matches an existing supplier_product for the same supplier.
- * These lines should be auto-resolved and never shown in the review queue — the
- * product is known, there's nothing to review.
- *
- * Matching is exact-on-normalised-text (case/punctuation-insensitive); empty
- * values never match, so a blank item code can't collapse unrelated lines.
- *
- * @param {object} line                 PurchaseInvoiceLine ({ xero_item_code, xero_description })
- * @param {object[]} supplierProducts   supplier_products for THIS supplier
- * @returns {object|null} the matching supplier_product, or null
- */
-export function findExistingLink(line, supplierProducts = []) {
-  const sku = norm(line?.xero_item_code);
-  const desc = norm(line?.xero_description);
-  if (!sku && !desc) return null;
-  for (const sp of supplierProducts) {
-    if (sku && (norm(sp.supplier_sku) === sku || norm(sp.xero_item_code) === sku)) return sp;
-    if (desc && (norm(sp.supplier_description) === desc || norm(sp.product_name) === desc)) return sp;
-  }
-  return null;
-}
-
 // Light singular/plural stem so "lemons" ↔ "lemon", "boxes" ↔ "box" match. Keeps
 // short words intact; only trims common English plural endings.
 const stem = (t) => {
@@ -52,6 +26,87 @@ const stem = (t) => {
 };
 const tokenize = (s) =>
   (s || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2).map(stem);
+
+// Minimum shared significant tokens for a contained-match to fire. Two keeps
+// single-word collisions (a stray "Butternut" landing on "Butternut Dice
+// Halfmoon") from auto-resolving while still catching real wording drift.
+const CONTAIN_MIN_SHARED = 2;
+
+/**
+ * Contained-match score between two descriptions, 0 when they don't qualify.
+ *
+ * Tokenises both (dropping units/short words), then requires that EVERY
+ * significant token of the shorter side appears in the longer side, sharing at
+ * least CONTAIN_MIN_SHARED tokens. This tolerates wording that gains or loses a
+ * word between invoices (e.g. a trailing "HALFMOON") without collapsing two
+ * genuinely different items — "…DICE…" and "…WHOLE…" each carry a distinct token,
+ * so neither is contained in the other. Score = shared-token count (more shared
+ * tokens = a more specific, preferred match).
+ */
+function containedScore(aText, bText) {
+  const a = new Set(tokenize(aText));
+  const b = new Set(tokenize(bText));
+  if (!a.size || !b.size) return 0;
+  const [small, big] = a.size <= b.size ? [a, b] : [b, a];
+  let shared = 0;
+  for (const t of small) if (big.has(t)) shared++;
+  if (shared < CONTAIN_MIN_SHARED || shared !== small.size) return 0;
+  return shared;
+}
+
+/**
+ * Decide whether an invoice line is ALREADY linked to a product for this supplier.
+ *
+ * A line counts as already-linked when, for the SAME supplier, it matches an
+ * existing supplier_product by (in priority order):
+ *   1. supplier SKU / item code   — exact, normalised
+ *   2. description                 — exact, normalised
+ *   3. description contained-match — tolerant of wording drift (see containedScore)
+ *
+ * These lines are auto-resolved and never shown in the queue — the product is
+ * already known for this supplier, so there's nothing to review. The fuzzy tier
+ * is supplier-scoped (it only ever compares against products already confirmed
+ * for THIS supplier) and picks a single clear winner; an ambiguous tie between
+ * two different products is left for manual review rather than guessed.
+ *
+ * @param {object} line                 PurchaseInvoiceLine ({ xero_item_code, xero_description })
+ * @param {object[]} supplierProducts   supplier_products for THIS supplier
+ * @returns {object|null} the matching supplier_product, or null
+ */
+export function findExistingLink(line, supplierProducts = []) {
+  const sku = norm(line?.xero_item_code);
+  const desc = norm(line?.xero_description);
+  const descRaw = line?.xero_description || '';
+  if (!sku && !descRaw) return null;
+
+  // 1 — exact SKU / item code (strongest identifier).
+  if (sku) {
+    for (const sp of supplierProducts) {
+      if (norm(sp.supplier_sku) === sku || norm(sp.xero_item_code) === sku) return sp;
+    }
+  }
+  // 2 — exact description (normalised).
+  if (desc) {
+    for (const sp of supplierProducts) {
+      if (norm(sp.supplier_description) === desc || norm(sp.product_name) === desc) return sp;
+    }
+  }
+  // 3 — contained-match on description: pick the single best-scoring supplier
+  //     product; bail on a tie between two different products (ambiguous).
+  if (descRaw) {
+    let best = null, bestScore = 0, tie = false;
+    for (const sp of supplierProducts) {
+      const score = Math.max(
+        containedScore(descRaw, sp.supplier_description || ''),
+        containedScore(descRaw, sp.product_name || ''),
+      );
+      if (score > bestScore) { best = sp; bestScore = score; tie = false; }
+      else if (score === bestScore && score > 0 && best && sp.product_id !== best.product_id) { tie = true; }
+    }
+    if (best && bestScore > 0 && !tie) return best;
+  }
+  return null;
+}
 
 /** Jaccard-ish token overlap, 0..1. */
 function tokenOverlap(a, b) {
