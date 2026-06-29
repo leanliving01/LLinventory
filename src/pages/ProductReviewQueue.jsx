@@ -67,6 +67,13 @@ export default function ProductReviewQueue() {
     queryFn: () => base44.entities.PurchaseUnitProposal.filter({ status: 'pending' }, '-confidence', 300),
   });
 
+  // Supplier prices flagged for review (big jump on a recurring invoice) — also
+  // surfaced on the Product Auditing tab; counted into its badge.
+  const { data: pendingPrices = [] } = useQuery({
+    queryKey: ['supplier-pending-prices'],
+    queryFn: () => base44.entities.SupplierProduct.filter({ pending_price: { $gt: 0 }, active: true }, '-pending_price_at', 300),
+  });
+
   // AI pre-fill proposals (from "Auto-fill"): one per invoice line, keyed by line id.
   const { data: rqProposals = [] } = useQuery({
     queryKey: ['review-queue-proposals'],
@@ -560,7 +567,7 @@ export default function ProductReviewQueue() {
       <div className="flex items-center gap-1 border-b border-border">
         {[
           { key: 'lines', label: 'Items to Link', count: toLinkCount },
-          { key: 'units', label: 'Product Auditing', count: unitProposals.length },
+          { key: 'units', label: 'Product Auditing', count: unitProposals.length + pendingPrices.length },
         ].map(t => (
           <button
             key={t.key}

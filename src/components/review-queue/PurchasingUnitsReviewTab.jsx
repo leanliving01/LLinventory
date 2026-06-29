@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, ArrowRightLeft, CheckCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import PurchaseUnitReviewModal from '@/components/settings/PurchaseUnitReviewModal';
+import PriceChangesToReview from '@/components/review-queue/PriceChangesToReview';
 
 /**
  * "Product Auditing" tab of the Review Queue.
@@ -63,7 +64,11 @@ export default function PurchasingUnitsReviewTab() {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-6">
+      {/* Supplier prices that jumped past their variance threshold on a recurring
+          invoice — auto-update parked them here instead of silently overwriting. */}
+      <PriceChangesToReview />
+
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <p className="text-xs text-muted-foreground max-w-2xl">
           Audit of already-linked products whose <strong>conversion factor</strong> looks wrong (e.g. a 10kg box set to
