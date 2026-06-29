@@ -1,0 +1,27 @@
+#!/bin/sh
+#
+# Pre-push guard — blocks pushing code whose local imports point to files that
+# aren't tracked by git (the "forgot to `git add` the new file" trap that
+# crashes the Vercel build with ENOENT but passes a local `npm run build`).
+#
+# Installed via:  git config core.hooksPath .githooks
+# Bypass once (use sparingly):  git push --no-verify
+#
+# stdin lines: <local ref> <local sha> <remote ref> <remote sha>
+ZERO=0000000000000000000000000000000000000000
+checked=""
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # skip branch deletions
+  [ "$local_sha" = "$ZERO" ] && continue
+  case " $checked " in *" $local_sha "*) continue ;; esac
+  checked="$checked $local_sha"
+  node scripts/check-local-imports.mjs "$local_sha" || exit 1
+done
+
+# Fallback: nothing on stdin (e.g. manual invocation) — check HEAD.
+if [ -z "$checked" ]; then
+  node scripts/check-local-imports.mjs HEAD || exit 1
+fi
+
+exit 0

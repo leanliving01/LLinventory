@@ -1,0 +1,2 @@
+# Git hooks must stay LF — they run under sh; CRLF breaks the shebang on Unix.
+.githooks/** text eol=lf
