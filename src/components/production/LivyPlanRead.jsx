@@ -46,12 +46,13 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
   }, [lines]);
 
   const summary = useMemo(() => {
-    const backorders = [], belowPar = [];
+    const backorders = [], belowPar = [], catchUp = [];
     let totalUnits = 0;
     for (const l of lines) {
       const soh = l.soh_at_plan || 0, com = l.committed_at_plan || 0, par = l.par_at_plan || 0, qty = l.planned_qty || 0;
       totalUnits += qty;
-      if (com > soh) backorders.push({ sku: l.product_sku, name: l.product_name, owed: com - soh, making: qty });
+      if (l.reason === 'catch_up') catchUp.push({ sku: l.product_sku, name: l.product_name, making: qty });
+      else if (com > soh) backorders.push({ sku: l.product_sku, name: l.product_name, owed: com - soh, making: qty });
       else if (par > 0 && (soh - com) < par) belowPar.push({ sku: l.product_sku, name: l.product_name, short: par - (soh - com), making: qty });
     }
     backorders.sort((a, b) => b.owed - a.owed);
@@ -64,6 +65,7 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
     return {
       date: new Date().toISOString().slice(0, 10), total_meals: totalUnits, meal_lines: lines.length,
       backorders: backorders.slice(0, 8), below_par: belowPar.slice(0, 8),
+      catch_up: catchUp.slice(0, 12),
       top_quantities: topMakes, machines, bulks_without_capacity: (machinePlan?.unscheduled || []).map(u => u.name),
     };
   }, [lines, machinePlan]);
@@ -82,7 +84,8 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
         '"machine":["≤8-word note on balance/idle/overload"],' +
         '"watch":[{"level":"risk","text":"short risk or note"}],' +
         '"adjustments":[{"sku":"MWL10","name":"Lean Mince…","to_qty":120,"reason":"short why"}]}\n' +
-        "Rules: make_first = ordered make-first list (backorders before below-par), qty = today's make for that meal, keep ≤5. machine = 1-3 very short notes (the wet line Ivario↔tilting pan is interchangeable). watch = risks (level:\"risk\") or notes (level:\"info\"), ≤4, each one line. adjustments = ONLY real make-quantity changes you'd recommend (to_qty = new total), max 5, else []. Every string short and scannable. Numbers from the plan only.",
+        "Rules: make_first = ordered make-first list (backorders before below-par), qty = today's make for that meal, keep ≤5. machine = 1-3 very short notes (the wet line Ivario↔tilting pan is interchangeable). watch = risks (level:\"risk\") or notes (level:\"info\"), ≤4, each one line. adjustments = ONLY real make-quantity changes you'd recommend (to_qty = new total), max 5, else []. Every string short and scannable. Numbers from the plan only.\n" +
+        "NOTE: a `catch_up` list means the engine already topped up the other package variants of a dish whose bulk is being cooked anyway (same recipe, different plating) — call this out positively in `watch` (level:\"info\") if present, e.g. \"Caught up 3 packages on shared bulks\".",
     };
     const user = { role: 'user', content: "Today's computed plan:\n```json\n" + JSON.stringify(summary) + "\n```" };
     const controller = new AbortController();

@@ -208,6 +208,7 @@ export default function ProductionPlanning() {
             soh_at_plan: soh,
             committed_at_plan: com,
             par_at_plan: par,
+            reason: recoMap[product.id]?.reason || null,
             status: 'pending',
           });
         }

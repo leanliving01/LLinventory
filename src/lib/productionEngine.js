@@ -226,14 +226,34 @@ export function buildMachinePlan(wipNeeded, capsByProduct, equipment = [], optio
   return { groups, unscheduled };
 }
 
+// A "dish" is the same recipe plated across the 4 goal packages (MWL/MLM/WLM/WWL).
+// They share the same cooked bulk(s) — only the portioning differs. The dish key
+// is the meal NUMBER from the SKU (MWL1/MLM1/WLM1/WWL1 → "1"). Self-contained
+// (mirrors lib/productionGrouping.extractMealNumber) so the engine stays
+// node-testable without the '@/' alias.
+const GOAL_CODES = ['MLM', 'MWL', 'WLM', 'WWL'];
+function dishKey(sku) {
+  if (!sku) return null;
+  for (const c of GOAL_CODES) {
+    if (sku.startsWith(c) && /^\d+$/.test(sku.slice(c.length))) return sku.slice(c.length);
+  }
+  return null;
+}
+
 /**
- * Build the per-meal recommendation map for a list of meals.
+ * Build the per-meal recommendation map for a list of meals, then apply the
+ * BULK CATCH-UP rule: once any package-variant of a dish is being cooked (it
+ * triggered a backorder or >10%-below-par), every OTHER variant of that same
+ * dish that's below par gets topped up too — even if it's under the 10%
+ * threshold. Rationale: the bulk is already being cooked, so the extra packages
+ * cost only portioning. "You're already making Beef & Beans for one package, so
+ * portion the other three that are a few short."
  *
- * @param {Array}  meals      - finished_meal products ({ id, par_level, ... })
+ * @param {Array}  meals      - finished_meal products ({ id, sku, par_level, ... })
  * @param {object} stockMap   - { [productId]: { qty_on_hand, qty_committed } }
  * @param {object} velocityMap- { [productId]: weeklyRate }
  * @param {object} [options]
- * @returns {object} { [productId]: result-from-recommendMealQty }
+ * @returns {object} { [productId]: result-from-recommendMealQty (reason may be 'catch_up') }
  */
 export function buildRecommendationMap(meals, stockMap, velocityMap = {}, options = {}) {
   const map = {};
@@ -247,5 +267,33 @@ export function buildRecommendationMap(meals, stockMap, velocityMap = {}, option
       options,
     });
   }
+
+  // ── Bulk catch-up across the 4 package variants of each dish ────────────────
+  const groups = {};
+  for (const p of meals) {
+    const k = dishKey(p.sku);
+    if (k) (groups[k] ||= []).push(p);
+  }
+  for (const members of Object.values(groups)) {
+    if (members.length < 2) continue;
+    const cooking = members.some(p => (map[p.id]?.recommended || 0) > 0);
+    if (!cooking) continue; // the bulk isn't being made today → no catch-up
+    for (const p of members) {
+      const r = map[p.id];
+      if (!r || r.recommended > 0) continue; // already producing this variant
+      const s = stockMap[p.id] || {};
+      const onHand = s.qty_on_hand || 0, committed = s.qty_committed || 0, par = p.par_level || 0;
+      if (par > 0 && (onHand - committed) < par) {
+        // Below par but didn't trigger on its own — top to par (force the trigger
+        // with a 0% threshold), still clamped to the 6-day forward-cover cap.
+        const catchUp = recommendMealQty({
+          par, onHand, committed, weeklyRate: velocityMap[p.id] || 0,
+          options: { ...options, belowParTriggerPct: 0 },
+        });
+        if (catchUp.recommended > 0) map[p.id] = { ...catchUp, reason: 'catch_up' };
+      }
+    }
+  }
+
   return map;
 }

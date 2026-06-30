@@ -26,6 +26,7 @@ function StatusBar({ pct }) {
 const REASON_BADGE = {
   backorder:    { label: 'Backorder', cls: 'text-red-600' },
   below_par:    { label: 'Below par', cls: 'text-amber-600' },
+  catch_up:     { label: 'Catch-up', cls: 'text-indigo-600' },
   within_10pct: { label: 'Within 10%', cls: 'text-muted-foreground' },
   at_par:       { label: 'At par', cls: 'text-emerald-600' },
   no_par:       { label: 'No par', cls: 'text-muted-foreground' },
