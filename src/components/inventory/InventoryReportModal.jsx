@@ -3,10 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Printer, X } from 'lucide-react';
+import { Printer, X, Check } from 'lucide-react';
 import { formatZAR } from '@/lib/utils';
 import { buildFifoCostMap, fifoUnitCost } from '@/lib/fifoValuation';
-import { CATEGORY_LABELS, CATEGORY_ORDER, getCategoryColor } from '@/lib/productClassification';
+import { CATEGORY_LABELS, CATEGORY_ORDER } from '@/lib/productClassification';
 
 const BRAND = '#12B76E'; // Lean Living green (hsl(153 82% 40%)) — explicit hex prints reliably
 const exact = { WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
@@ -39,11 +39,16 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
     enabled: open,
   });
 
-  // Categories actually present in the loaded products, in business order.
-  const presentCats = useMemo(() => {
-    const set = new Set(products.map(p => p.type).filter(Boolean));
-    return CATEGORY_ORDER.filter(t => set.has(t));
-  }, [products]);
+  // Categories present among products WITH stock on hand, plus a per-category count
+  // (so each chip shows how many in-stock lines it will pull).
+  const { presentCats, countByType } = useMemo(() => {
+    const counts = {};
+    for (const p of products) {
+      if (!p.type) continue;
+      if ((stockByProduct[p.id]?.on_hand || 0) > 0) counts[p.type] = (counts[p.type] || 0) + 1;
+    }
+    return { presentCats: CATEGORY_ORDER.filter(t => counts[t]), countByType: counts };
+  }, [products, stockByProduct]);
 
   const rows = useMemo(() => {
     const fifoMap = buildFifoCostMap(layers);
@@ -100,15 +105,27 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-[95vw] w-[1100px] max-h-[92vh] overflow-y-auto p-0 bg-white">
         {/* ── Controls (not printed) ── */}
-        <div className="no-print sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-medium text-gray-500 mr-1">Include:</span>
+        <div className="no-print sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-xs font-semibold text-gray-700">
+              Choose categories to pull — click to include / exclude
+            </p>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5 h-8 text-xs">
+                <Printer className="w-3.5 h-3.5" /> Print / PDF
+              </Button>
+              <Button variant="ghost" size="sm" onClick={onClose} className="gap-1.5 h-8 text-xs">
+                <X className="w-3.5 h-3.5" /> Close
+              </Button>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
             <button
               onClick={() => setSelected([])}
-              className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${isAll ? 'text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full font-medium border transition-all ${isAll ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}
               style={isAll ? { backgroundColor: BRAND } : undefined}
             >
-              All Categories
+              {isAll && <Check className="w-3 h-3" />} All Categories
             </button>
             {presentCats.map(t => {
               const on = selected.includes(t);
@@ -116,21 +133,13 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
                 <button
                   key={t}
                   onClick={() => toggleCat(t)}
-                  className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${getCategoryColor(t)} ${on ? 'ring-2 ring-offset-1' : 'opacity-60 hover:opacity-100'}`}
-                  style={on ? { '--tw-ring-color': BRAND } : undefined}
+                  className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full font-medium border transition-all ${on ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}
+                  style={on ? { backgroundColor: BRAND } : undefined}
                 >
-                  {CATEGORY_LABELS[t] || t}
+                  {on && <Check className="w-3 h-3" />} {CATEGORY_LABELS[t] || t} ({countByType[t]})
                 </button>
               );
             })}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5 h-8 text-xs">
-              <Printer className="w-3.5 h-3.5" /> Print / PDF
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onClose} className="gap-1.5 h-8 text-xs">
-              <X className="w-3.5 h-3.5" /> Close
-            </Button>
           </div>
         </div>
 
