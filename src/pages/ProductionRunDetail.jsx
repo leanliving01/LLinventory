@@ -100,7 +100,7 @@ export default function ProductionRunDetail() {
   const [generatingPickList, setGeneratingPickList] = useState(false);
 
   // Fetch tasks to check completion status for the "Review & Complete" gate
-  const { data: runTasks = [] } = useQuery({
+  const { data: runTasks = [], isFetched: runTasksFetched } = useQuery({
     queryKey: ['production-tasks', runId],
     queryFn: () => base44.entities.ProductionTask.filter({ run_id: runId }, 'step_no', 500),
     enabled: !!runId && run?.status === 'in_progress',
@@ -1089,10 +1089,10 @@ export default function ProductionRunDetail() {
             </Button>
           )}
           {/* Schedule Run removed — auto-transitions to scheduled when cooking runs are released from WIP Planning */}
-          {canStart && perms.runs_start_complete && (
+          {(canStart || (isInProgress && runTasksFetched && nonArchivedTasks.length === 0)) && perms.runs_start_complete && (
             <Button onClick={handleStartRun} disabled={starting} className="gap-2 bg-amber-600 hover:bg-amber-700">
               <Play className="w-4 h-4" />
-              {starting ? 'Checking stock...' : 'Start Run'}
+              {starting ? 'Checking stock...' : (isInProgress ? 'Generate Tasks' : 'Start Production')}
             </Button>
           )}
           {isInProgress && perms.runs_start_complete && (
