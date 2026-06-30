@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, Pause, CheckCircle2, Clock, Undo2, ChefHat } from 'lucide-react';
+import { Play, Pause, CheckCircle2, Clock, Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import LiveTimer, { formatDuration } from '@/components/kitchen/LiveTimer';
 
@@ -56,9 +56,11 @@ function groupAndSortTasks(tasks, categoryMap) {
     groups[key].push(task);
   });
 
-  // Sort groups alphabetically by meal name, then within each group sort by package type
+  // Order meal groups by the production sequence (min sequence_order = unlock
+  // order), alphabetical as a tiebreak; within a group keep the package order.
   const PKG_ORDER = { mlm: 0, mwl: 1, byo: 2, wwl: 3, wlm: 4, lc: 5 };
-  const sortedGroupKeys = Object.keys(groups).sort();
+  const groupSeq = (k) => Math.min(...groups[k].map(t => t.sequence_order || 0));
+  const sortedGroupKeys = Object.keys(groups).sort((a, b) => groupSeq(a) - groupSeq(b) || a.localeCompare(b));
 
   const result = [];
   let groupIndex = 0;

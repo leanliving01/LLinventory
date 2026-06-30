@@ -18,6 +18,7 @@ import RecalculateRunModal from '@/components/production/RecalculateRunModal';
 import RunActionDialog from '@/components/production/RunActionDialog';
 import { writeAuditLog } from '@/lib/auditLog';
 import { splitTasksByEquipment } from '@/lib/equipmentSplitter';
+import { assignTaskSequence } from '@/lib/productionEngine';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -496,8 +497,34 @@ export default function ProductionRunDetail() {
       }
     }
 
-    // Split tasks by equipment capacity
-    const finalTasks = splitTasksByEquipment(baseTasks, equipmentList, capacityRules);
+    // Production sequencing: order cook/prep/portion tasks so the broad + slow
+    // components (high fan-out, e.g. rice/chicken) cook first and meals unlock for
+    // portioning in a steady stream. Fan-out / cook-time / meal→bulk map are
+    // derived from this run's own BOMs.
+    const fanOut = {}, cookMinByBulk = {}, mealBulks = {};
+    for (const line of lines) {
+      const pbom = boms.find(b => b.product_id === line.product_id && b.bom_type === 'portion');
+      if (!pbom) continue;
+      const bulks = [];
+      for (const comp of (compsByBom[pbom.id] || [])) {
+        const ip = productMap[comp.input_product_id];
+        if (!ip) continue;
+        const cookBom = boms.find(b => b.product_id === ip.id && b.bom_type === 'cook');
+        if (!cookBom) continue;
+        bulks.push(ip.id);
+        fanOut[ip.id] = (fanOut[ip.id] || 0) + 1;
+        if (cookMinByBulk[ip.id] == null) {
+          cookMinByBulk[ip.id] = (opsByBom[cookBom.id] || [])
+            .filter(o => o.station === 'cook')
+            .reduce((s, o) => s + (Number(o.cycle_time_min) || 0), 0);
+        }
+      }
+      mealBulks[line.product_id] = bulks;
+    }
+    const sequencedTasks = assignTaskSequence(baseTasks, { fanOut, cookMin: cookMinByBulk, mealBulks });
+
+    // Split tasks by equipment capacity (sequence_order is preserved through the split)
+    const finalTasks = splitTasksByEquipment(sequencedTasks, equipmentList, capacityRules);
 
     if (finalTasks.length > 0) {
       for (let i = 0; i < finalTasks.length; i += 25) {

@@ -253,6 +253,54 @@ export function buildMachinePlan(wipNeeded, capsByProduct, equipment = [], optio
   return { groups, totals, unscheduled };
 }
 
+/**
+ * Production SEQUENCING — assign a `sequence_order` to each floor task so the
+ * kitchen/prep/portioning tablets show work in the right ORDER.
+ *
+ * Cook/prep order: the BROAD + SLOW components first — those that feed the most
+ * meals (high fan-out, e.g. rice/chicken) and take longest to cook+chill — so the
+ * most meals become plate-ready as early as possible and the portioning line is
+ * fed continuously. Portion order: each meal is sequenced by when its LAST
+ * component is cooked, so meals unlock in a steady stream rather than all at once.
+ *
+ * Station bases keep prep < cook < portion if ever combined; within a station the
+ * board just sorts ascending by sequence_order.
+ *
+ * @param {Array}  tasks - base tasks ({ station, product_id, step_no, ... })
+ * @param {object} ctx   - { fanOut:{bulkId:mealCount}, cookMin:{bulkId:min}, mealBulks:{mealId:[bulkId]} }
+ * @returns {Array} tasks with sequence_order set
+ */
+export function assignTaskSequence(tasks, ctx = {}) {
+  const fanOut = ctx.fanOut || {};
+  const cookMin = ctx.cookMin || {};
+  const mealBulks = ctx.mealBulks || {};
+
+  // Rank the cooked bulks: most meals first, then longest cook, then stable id.
+  const bulkIds = [...new Set(tasks.filter(t => t.station === 'cook' || t.station === 'prep').map(t => t.product_id))];
+  bulkIds.sort((a, b) =>
+    (fanOut[b] || 0) - (fanOut[a] || 0) ||
+    (cookMin[b] || 0) - (cookMin[a] || 0) ||
+    String(a).localeCompare(String(b)));
+  const cookRank = {};
+  bulkIds.forEach((id, i) => { cookRank[id] = i; });
+
+  const portionRank = (mealId) => {
+    let max = 0;
+    for (const b of (mealBulks[mealId] || [])) {
+      if (cookRank[b] != null && cookRank[b] > max) max = cookRank[b];
+    }
+    return max; // ready after its last-cooked component
+  };
+
+  const BASE = { prep: 0, cook: 1000, portion: 2000 };
+  return tasks.map((t) => {
+    const rank = t.station === 'portion'
+      ? portionRank(t.product_id)
+      : (cookRank[t.product_id] != null ? cookRank[t.product_id] : 90);
+    return { ...t, sequence_order: (BASE[t.station] ?? 0) + rank * 10 };
+  });
+}
+
 // A "dish" is the same recipe plated across the 4 goal packages (MWL/MLM/WLM/WWL).
 // They share the same cooked bulk(s) — only the portioning differs. The dish key
 // is the meal NUMBER from the SKU (MWL1/MLM1/WLM1/WWL1 → "1"). Self-contained

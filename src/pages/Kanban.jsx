@@ -3,10 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ArrowLeft, ChefHat, Flame, Utensils, Tablet } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { nextDocNumber } from '@/lib/docNumbering';
 import KanbanColumn from '@/components/production/KanbanColumn';
@@ -107,6 +104,10 @@ export default function Kanban() {
       const station = t.station || 'prep';
       if (cols[station]) cols[station].push(t);
     });
+    // Production sequence order (broad+slow cooks first; meals unlock in order).
+    // Falls back to step_no when sequence_order is unset (old runs = 0).
+    const bySeq = (a, b) => (a.sequence_order || 0) - (b.sequence_order || 0) || (a.step_no || 0) - (b.step_no || 0);
+    Object.values(cols).forEach(list => list.sort(bySeq));
     return cols;
   }, [tasks]);
 

@@ -51,7 +51,10 @@ function groupTasks(tasks) {
     if (!groups[key]) groups[key] = [];
     groups[key].push(task);
   });
-  const sortedKeys = Object.keys(groups).sort();
+  // Order meal groups by the production sequence (min sequence_order in the group),
+  // alphabetical as a tiebreak — so the board follows the cook/portion order.
+  const groupSeq = (k) => Math.min(...groups[k].map(t => t.sequence_order || 0));
+  const sortedKeys = Object.keys(groups).sort((a, b) => groupSeq(a) - groupSeq(b) || a.localeCompare(b));
   const result = [];
   let groupIndex = 0;
   for (const key of sortedKeys) {

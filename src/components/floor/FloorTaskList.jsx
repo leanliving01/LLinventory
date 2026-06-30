@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { CheckCircle2, ChevronDown, ChevronUp, Undo2 } from 'lucide-react';
 import FloorTaskCard from './FloorTaskCard';
 import { getBlockedTaskIds } from '@/lib/taskDependencyCheck';
@@ -18,10 +18,13 @@ export default function FloorTaskList({ tasks, allTasks, taskLogs, onStatusChang
   }, [tasks, allTasks, pickListConfirmed, bomComponentsMap, allBoms]);
 
   const { active, pendingReady, pendingBlocked, done } = useMemo(() => {
+    // Production sequence: broad+slow cooks first; meals unlock in order. Falls
+    // back to step_no when sequence_order is unset (old runs = 0).
+    const bySeq = (a, b) => (a.sequence_order || 0) - (b.sequence_order || 0) || (a.step_no || 0) - (b.step_no || 0);
     const active = tasks.filter(t => t.status === 'in_progress' || t.status === 'paused');
     const pending = tasks.filter(t => t.status === 'pending');
-    const pendingReady = pending.filter(t => !blockedIds.has(t.id));
-    const pendingBlocked = pending.filter(t => blockedIds.has(t.id));
+    const pendingReady = pending.filter(t => !blockedIds.has(t.id)).sort(bySeq);
+    const pendingBlocked = pending.filter(t => blockedIds.has(t.id)).sort(bySeq);
     const done = tasks.filter(t => t.status === 'done');
     return { active, pendingReady, pendingBlocked, done };
   }, [tasks, blockedIds]);
