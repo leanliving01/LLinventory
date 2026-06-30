@@ -233,11 +233,24 @@ export function buildMachinePlan(wipNeeded, capsByProduct, equipment = [], optio
   const groups = Object.values(G).map((g) => {
     const capacityMin = g.units * g.cookWindowMin;
     const utilisationPct = capacityMin > 0 ? Math.round((g.cookMin / capacityMin) * 100) : 0;
-    return { ...g, capacityMin, utilisationPct, over: g.cookMin > capacityMin, idle: g.bulks.length === 0,
+    // Wall-clock = total batch-minutes spread across the machine's parallel units.
+    const wallClockMin = g.units > 0 ? Math.round(g.cookMin / g.units) : g.cookMin;
+    return { ...g, capacityMin, utilisationPct, wallClockMin, over: g.cookMin > capacityMin, idle: g.bulks.length === 0,
              bulks: g.bulks.sort((a, b) => b.kg - a.kg) };
   });
 
-  return { groups, unscheduled };
+  // Day totals + critical path (the longest single machine = the bottleneck that
+  // sets when the whole cook is done).
+  const active = groups.filter((g) => !g.idle);
+  const critical = active.reduce((m, g) => (g.wallClockMin > (m?.wallClockMin || 0) ? g : m), null);
+  const totals = {
+    kg: Math.round(active.reduce((s, g) => s + g.kg, 0)),
+    batches: active.reduce((s, g) => s + g.batches, 0),
+    wallClockMin: critical?.wallClockMin || 0,
+    criticalLabel: critical?.label || null,
+  };
+
+  return { groups, totals, unscheduled };
 }
 
 // A "dish" is the same recipe plated across the 4 goal packages (MWL/MLM/WLM/WWL).

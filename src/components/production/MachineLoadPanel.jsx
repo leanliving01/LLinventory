@@ -8,6 +8,14 @@ const fmtMin = (m) => {
   return h > 0 ? `${h}h ${r}m` : `${r}m`;
 };
 
+// Cook window starts 07:30 (see the equipment register). Finish ≈ start + the
+// machine's wall-clock time.
+const START_MIN = 7 * 60 + 30;
+const fmtClock = (min) => {
+  const h = Math.floor((min / 60)) % 24, m = Math.round(min % 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
 const GROUP_ICON = {
   IVARIO: Soup, TILT: Soup, 'OVEN-ROAST': Flame, 'OVEN-STEAM': ChefHat,
 };
@@ -45,6 +53,20 @@ export default function MachineLoadPanel({ lines = [] }) {
         </div>
       </div>
 
+      {/* Day total + critical path (the bottleneck that sets the finish time) */}
+      {plan.totals && plan.totals.batches > 0 && (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-6 py-3 border-b border-border bg-muted/30 text-sm">
+          <span className="text-muted-foreground">Today: <b className="text-foreground tabular-nums">{plan.totals.kg} kg</b> · <b className="text-foreground tabular-nums">{plan.totals.batches}</b> batches</span>
+          {plan.totals.criticalLabel && (
+            <span className="text-muted-foreground">
+              Critical path: <b className="text-foreground">{plan.totals.criticalLabel}</b>
+              {' '}<span className="tabular-nums">{fmtMin(plan.totals.wallClockMin)}</span>
+              {' '}· done ~<b className="text-foreground tabular-nums">{fmtClock(START_MIN + plan.totals.wallClockMin)}</b>
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="grid gap-4 p-5 sm:grid-cols-2">
         {plan.groups.map((g) => {
           const Icon = GROUP_ICON[g.key] || Soup;
@@ -72,7 +94,8 @@ export default function MachineLoadPanel({ lines = [] }) {
               <div className="flex items-center gap-4 text-xs text-muted-foreground mb-2 tabular-nums">
                 <span><b className="text-foreground">{Math.round(g.kg)}</b> kg</span>
                 <span><b className="text-foreground">{g.batches}</b> batches</span>
-                <span><b className="text-foreground">{fmtMin(g.cookMin)}</b> cook · of {fmtMin(g.capacityMin)}</span>
+                <span><b className="text-foreground">{fmtMin(g.wallClockMin)}</b>{g.units > 1 ? ` · ${g.units} units` : ''}</span>
+                {!g.idle && <span>done ~<b className="text-foreground">{fmtClock(START_MIN + g.wallClockMin)}</b></span>}
               </div>
 
               {g.over && (
