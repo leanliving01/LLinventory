@@ -1,6 +1,10 @@
 import React, { useState, useMemo } from 'react';
+import { CheckCircle2, ChevronDown, ChevronUp, Undo2 } from 'lucide-react';
 import FloorTaskCard from './FloorTaskCard';
 import { getBlockedTaskIds } from '@/lib/taskDependencyCheck';
+
+const STATION_LABEL = { prep: 'Prepping', cook: 'Cooking', portion: 'Portioning' };
+const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
 /**
  * Renders station tasks grouped: active first, then pending (ready above blocked), then done (collapsed).
@@ -24,6 +28,9 @@ export default function FloorTaskList({ tasks, allTasks, taskLogs, onStatusChang
 
   const [showDone, setShowDone] = React.useState(false);
 
+  // The hero "NEXT UP" card: the running task if any, else the first ready task.
+  const heroId = active[0]?.id ?? pendingReady[0]?.id ?? null;
+
   if (tasks.length === 0) {
     return (
       <div className="text-center py-12">
@@ -40,8 +47,45 @@ export default function FloorTaskList({ tasks, allTasks, taskLogs, onStatusChang
     onOpenDetail,
     loading,
     horizontal,
+    isNext: task.id === heroId,
     ...(blocked !== undefined ? { isBlocked: blocked } : {}),
   });
+
+  // Compact green-checked strip for completed tasks at this station.
+  const CompletedStrip = () => (
+    done.length > 0 ? (
+      <div className="pt-1">
+        <button
+          onClick={() => setShowDone(!showDone)}
+          className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground uppercase tracking-wider"
+        >
+          Completed ({done.length})
+          {showDone ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        {showDone && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">
+            {done.map(t => (
+              <div key={t.id} className="flex items-start gap-2 p-3 rounded-xl border bg-card">
+                <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-sm truncate">{t.meal_name || t.name}</p>
+                  <p className="text-xs text-green-600">{STATION_LABEL[t.station] || 'Task'} completed</p>
+                  {t.finished_at && <p className="text-[11px] text-muted-foreground">{fmtTime(t.finished_at)}</p>}
+                </div>
+                <button
+                  onClick={() => onStatusChange(t.id, 'undo')}
+                  disabled={loading}
+                  className="shrink-0 flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700"
+                >
+                  <Undo2 className="w-3.5 h-3.5" /> Undo
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    ) : null
+  );
 
   if (horizontal) {
     return (
@@ -86,22 +130,8 @@ export default function FloorTaskList({ tasks, allTasks, taskLogs, onStatusChang
           </div>
         )}
 
-        {/* Done row — collapsed */}
-        {done.length > 0 && (
-          <div>
-            <button
-              onClick={() => setShowDone(!showDone)}
-              className="w-full py-3 text-sm font-medium text-muted-foreground bg-muted/50 rounded-xl active:bg-muted transition-colors"
-            >
-              {showDone ? 'Hide' : 'Show'} {done.length} completed task{done.length > 1 ? 's' : ''}
-            </button>
-            {showDone && (
-              <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 mt-2">
-                {done.map(task => <FloorTaskCard {...cardProps(task)} />)}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Done — compact completed strip */}
+        <CompletedStrip />
       </div>
     );
   }
@@ -123,13 +153,7 @@ export default function FloorTaskList({ tasks, allTasks, taskLogs, onStatusChang
       {pendingBlocked.length > 10 && (
         <p className="text-xs text-muted-foreground text-center py-2">+{pendingBlocked.length - 10} more blocked tasks</p>
       )}
-      {done.length > 0 && (
-        <button onClick={() => setShowDone(!showDone)}
-          className="w-full py-3 text-sm font-medium text-muted-foreground bg-muted/50 rounded-xl active:bg-muted transition-colors">
-          {showDone ? 'Hide' : 'Show'} {done.length} completed task{done.length > 1 ? 's' : ''}
-        </button>
-      )}
-      {showDone && done.map(task => <FloorTaskCard {...cardProps(task)} />)}
+      <CompletedStrip />
     </div>
   );
 }

@@ -2,11 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Utensils, Flame, ChefHat, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
 import { logTaskEvent } from '@/lib/taskEventLog';
 import { checkTaskDependencies } from '@/lib/taskDependencyCheck';
 import FloorRunPicker from '@/components/floor/FloorRunPicker';
@@ -17,12 +15,6 @@ import TeamMemberSelect from '@/components/kitchen/TeamMemberSelect';
 import TaskCompletionModal from '@/components/kitchen/TaskCompletionModal';
 import DependencyBlockModal from '@/components/kitchen/DependencyBlockModal';
 import RunCompleteBanner from '@/components/floor/RunCompleteBanner';
-
-const STATIONS = [
-  { id: 'prep', label: 'Prep', icon: Utensils, color: 'bg-blue-500' },
-  { id: 'cook', label: 'Cook', icon: Flame, color: 'bg-amber-500' },
-  { id: 'portion', label: 'Portion', icon: ChefHat, color: 'bg-green-500' },
-];
 
 export default function FloorTasks() {
   const { user } = useAuth();
@@ -111,13 +103,12 @@ export default function FloorTasks() {
     return tasks.filter(t => t.station === selectedStation);
   }, [tasks, selectedStation]);
 
-  // Progress stats for selected station
-  const progress = useMemo(() => {
-    const total = stationTasks.length;
-    const done = stationTasks.filter(t => t.status === 'done').length;
-    const active = stationTasks.filter(t => t.status === 'in_progress').length;
-    return { total, done, active, pending: total - done - active - stationTasks.filter(t => t.status === 'paused').length };
-  }, [stationTasks]);
+  // Overall progress across ALL stations (run-wide).
+  const overall = useMemo(() => {
+    const total = tasks.length;
+    const done = tasks.filter(t => t.status === 'done').length;
+    return { total, done, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
+  }, [tasks]);
 
   // Dependency check — component-level for portioning
   const checkDependencies = (task) => {
@@ -437,8 +428,6 @@ export default function FloorTasks() {
     );
   }
 
-  const currentStation = STATIONS.find(s => s.id === selectedStation);
-
   // Check if ALL tasks across all stations are done
   const allTasksDone = tasks.length > 0 && tasks.every(t => t.status === 'done');
 
@@ -460,24 +449,26 @@ export default function FloorTasks() {
         </Button>
       </div>
 
-      {/* Station pills */}
-      <FloorStationPills
-        tasks={tasks}
-        selectedStation={selectedStation}
-        onSelect={setSelectedStation}
-      />
-
-      {/* Progress bar */}
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <span>{progress.done}/{progress.total} done</span>
-        {progress.active > 0 && <Badge className="bg-amber-100 text-amber-700 text-[10px]">{progress.active} active</Badge>}
-        <div className="flex-1 bg-muted rounded-full h-3 overflow-hidden">
-          <div
-            className={cn("h-full rounded-full transition-all", currentStation?.color || 'bg-primary')}
-            style={{ width: `${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
-          />
+      {/* Overall run progress (all stations) */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Overall Progress</span>
+          <span className="text-xs text-muted-foreground">
+            <span className="font-bold text-primary">{overall.pct}% Complete</span>
+            <span> · {overall.done}/{overall.total} Completed</span>
+          </span>
+        </div>
+        <div className="bg-muted rounded-full h-2.5 overflow-hidden">
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${overall.pct}%` }} />
         </div>
       </div>
+
+      {/* Station header — active station full-width, others as peek chips */}
+      <FloorStationPills
+        tasks={tasks}
+        selected={selectedStation}
+        onSelect={setSelectedStation}
+      />
 
       {/* Task list */}
       {loadingTasks ? (

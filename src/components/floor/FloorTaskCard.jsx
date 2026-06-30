@@ -11,7 +11,7 @@ const BTN_COLORS = {
   portion: 'bg-green-500 hover:bg-green-600',
 };
 
-export default function FloorTaskCard({ task, taskLogs, onStatusChange, onOpenDetail, loading, isBlocked, horizontal }) {
+export default function FloorTaskCard({ task, taskLogs, onStatusChange, onOpenDetail, loading, isBlocked, isNext, horizontal }) {
   const [showNotes, setShowNotes] = useState(false);
   const isDone = task.status === 'done';
   const isActive = task.status === 'in_progress';
@@ -36,11 +36,15 @@ export default function FloorTaskCard({ task, taskLogs, onStatusChange, onOpenDe
     : (isPending && !isBlocked) ? 'bg-primary/30'
     : 'bg-muted';
 
+  // The "NEXT UP" hero card — the single most important task at this station.
+  const isHero = isNext && (isReady || isActive || isPaused);
+
   return (
     <div
       onClick={handleCardTap}
       className={cn(
         "bg-card border-2 rounded-2xl p-4 transition-all overflow-hidden",
+        isHero && "p-5",
         horizontal && "w-80 flex-shrink-0",
         (isActive || isPaused) && onOpenDetail && "cursor-pointer",
         isActive && "border-amber-400 ring-2 ring-amber-200 dark:ring-amber-800 shadow-md",
@@ -48,9 +52,14 @@ export default function FloorTaskCard({ task, taskLogs, onStatusChange, onOpenDe
         isPaused && "border-blue-300",
         isPending && isBlocked && "border-border opacity-50",
         isPending && !isBlocked && "border-primary/30",
+        isHero && isReady && "border-primary ring-2 ring-primary/20 shadow-lg",
       )}>
       {/* Status stripe */}
-      <div className={cn("h-1 rounded-t-[10px] -mx-4 -mt-4 mb-3", stripeColor)} />
+      <div className={cn("h-1 rounded-t-[10px] -mx-4 -mt-4 mb-3", isHero && "-mx-5 -mt-5", stripeColor)} />
+      {/* NEXT UP badge — only on the hero card while it's still waiting to start */}
+      {isHero && isReady && (
+        <Badge className={cn("mb-2 text-[10px] font-bold text-white border-0", btnColor)}>NEXT UP</Badge>
+      )}
       {/* Top row: name + qty */}
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="flex-1 min-w-0">
@@ -141,8 +150,8 @@ export default function FloorTaskCard({ task, taskLogs, onStatusChange, onOpenDe
       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
         {isPending && (
           <Button disabled={loading || isBlocked} onClick={() => onStatusChange(task.id, 'in_progress')}
-            className={`h-16 flex-1 gap-2 text-lg font-bold rounded-xl text-white ${btnColor}`}>
-            <Play className="w-6 h-6" /> Start
+            className={cn('flex-1 gap-2 font-bold rounded-xl text-white', isHero ? 'h-20 text-xl' : 'h-16 text-lg', btnColor)}>
+            <Play className={isHero ? 'w-7 h-7' : 'w-6 h-6'} /> Start
           </Button>
         )}
         {isActive && (
