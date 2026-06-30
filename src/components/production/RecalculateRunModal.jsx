@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { RefreshCw, X, ArrowUp, ArrowDown, Minus, Loader2, Plus, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { compareNatural } from '@/lib/naturalSort';
+import { useStockLevels } from '@/lib/useStockLevels';
 
 /**
  * Recalculate modal — compares existing run lines against ALL finished meals
@@ -20,10 +21,8 @@ export default function RecalculateRunModal({ runId, existingLines, onConfirm, o
     queryFn: () => base44.entities.Product.filter({ type: 'finished_meal', status: 'active' }, '-sku', 500),
   });
 
-  const { data: stockRecords = [], isLoading: loadingStock } = useQuery({
-    queryKey: ['recalc-stock'],
-    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 1000),
-  });
+  // Canonical, never-truncated per-product stock (RPC) — see lib/useStockLevels.js.
+  const { rows: stockRecords = [], isLoading: loadingStock } = useStockLevels();
 
   // Fetch max meals per run setting
   const { data: maxSetting } = useQuery({

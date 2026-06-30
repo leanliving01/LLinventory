@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useUnsavedChanges } from '@/lib/navigationGuard';
+import { useStockLevels } from '@/lib/useStockLevels';
 import { useQuery } from '@tanstack/react-query';
 import { base44, supabase } from '@/api/base44Client';
 import { toast } from 'sonner';
@@ -102,11 +103,8 @@ export default function NewSalesOrder() {
     staleTime: 60000,
   });
 
-  const { data: stockRows = [] } = useQuery({
-    queryKey: ['soh-for-manual-order'],
-    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 10000),
-    staleTime: 60000,
-  });
+  // Canonical, never-truncated per-product stock (RPC) — see lib/useStockLevels.js.
+  const { rows: stockRows = [] } = useStockLevels({ staleTime: 60000 });
 
   // Active package SKUs — mirrors backend loadPackageSkus (packaging.ts) so a
   // manually-entered package SKU is flagged as a parent and explodes server-side.
