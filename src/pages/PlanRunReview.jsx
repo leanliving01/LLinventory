@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,6 +60,24 @@ export default function PlanRunReview() {
     () => splitPlan.flatMap(r => r.lines.filter(l => l.planned_qty > 0)),
     [splitPlan]
   );
+
+  // Apply one of Livy's suggested quantities (by SKU) into the plan. If a meal is
+  // split across runs, put the new total on the first (priority) line and zero
+  // the rest, so the engine/machine load reflects the single new total. (Declared
+  // before the early return below to keep hook order stable.)
+  const applyLivyQty = useCallback((sku, toQty) => {
+    const matches = [];
+    splitPlan.forEach(run => run.lines.forEach(l => {
+      if (l.product_sku === sku) matches.push({ runIndex: run.runIndex, productId: l.product_id });
+    }));
+    if (matches.length === 0) return;
+    setOverrides(prev => {
+      const next = { ...prev };
+      matches.forEach((m, i) => { next[`${m.runIndex}-${m.productId}`] = String(i === 0 ? toQty : 0); });
+      return next;
+    });
+    toast.success(`Set ${sku} to ${toQty} (Livy)`);
+  }, [splitPlan]);
 
   if (!planData) {
     return (
@@ -175,8 +193,8 @@ export default function PlanRunReview() {
         </div>
       )}
 
-      {/* Livy's read — judgment on top of the engine's computed plan */}
-      <LivyPlanRead lines={allPlanLines} />
+      {/* Livy's read — judgment + one-tap adjustments on top of the engine's plan */}
+      <LivyPlanRead lines={allPlanLines} onApply={applyLivyQty} />
 
       {/* Machine load breakdown — how the plan splits across the kitchen */}
       <MachineLoadPanel lines={allPlanLines} />
