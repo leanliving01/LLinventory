@@ -76,9 +76,18 @@ export default function ProductionPlanning() {
     refetchOnWindowFocus: true,
   });
 
+  // Stock summed per product across ALL locations, server-side. The old
+  // StockOnHand.list('-updated_date', 1000) silently truncated (stock_on_hand has
+  // >1700 product×location rows): any meal not touched recently read 0 on-hand and
+  // the engine recommended a full par batch of stock already held. The RPC returns
+  // one row per product → never hits the 1000-row REST cap. (migration 101)
   const { data: stockRecords = [] } = useQuery({
     queryKey: ['stock-on-hand'],
-    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 1000),
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('production_stock_levels');
+      if (error) { console.error('[production_stock_levels]', error.message); return []; }
+      return data || [];
+    },
     refetchOnWindowFocus: true,
   });
 
@@ -120,9 +129,13 @@ export default function ProductionPlanning() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Feed the engine the spike-DAMPENED cap_rate (= max(28-day smooth, 0.5×this-week))
+  // so one hot week can't authorise an oversized cook of perishable meals. Falls back
+  // to weekly_rate if the migration-100 column isn't present yet. (Alerts/days-of-cover
+  // still use the full weekly_rate elsewhere; only the production cover cap uses this.)
   const velocityMap = useMemo(() => {
     const map = {};
-    trends.forEach(t => { if (t.product_id) map[t.product_id] = t.weekly_rate || 0; });
+    trends.forEach(t => { if (t.product_id) map[t.product_id] = t.cap_rate ?? t.weekly_rate ?? 0; });
     return map;
   }, [trends]);
 
@@ -374,10 +387,13 @@ export default function ProductionPlanning() {
             <Input
               type="number"
               min="1"
+              max="30"
               value={coverDays}
-              onChange={e => { const v = Number(e.target.value); if (v >= 1) setCoverDays(v); }}
+              // Clamp to a sane 1–30d integer: an unbounded value (e.g. a huge
+              // number → Infinity) would silently disable the forward-cover cap.
+              onChange={e => { const v = Math.floor(Number(e.target.value)); if (v >= 1) setCoverDays(Math.min(30, v)); }}
               className="w-16 h-7 text-xs text-right"
-              title="Custom number of days"
+              title="Custom number of days (1–30)"
             />
           </div>
         </div>
