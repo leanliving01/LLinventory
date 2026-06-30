@@ -53,10 +53,15 @@ export async function analyzeInvoiceLine({ invoiceId, line, stockUom }) {
   const res = await base44.functions.invoke('extract-invoice', { invoiceId });
   const payload = res?.data || {};
   if (payload.status !== 'ok') {
-    const err = payload.error || 'no-lines';
-    const reason = err === 'no-pdf' ? 'no-pdf'
-      : String(err).toUpperCase().includes('OPENAI') ? 'no-key'
-      : String(err);
+    // The invoke wrapper turns a non-2xx edge response into
+    // `HTTP <code>: <body>`, so the bare codes ('no-pdf', OpenAI errors) are
+    // embedded in a longer string — match on substring, not equality, or the
+    // friendly reason is lost and the raw "HTTP 404: {...}" leaks to the panel.
+    const err = String(payload.error || 'no-lines');
+    const reason = err.includes('no-pdf') ? 'no-pdf'
+      : err.toUpperCase().includes('OPENAI') ? 'no-key'
+      : err.includes('no-lines') ? 'no-lines'
+      : err;
     return { ok: false, reason };
   }
 
