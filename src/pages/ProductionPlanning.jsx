@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Factory, Search, X, Settings2, Save, Loader2, Plus, AlertTriangle, Sparkles } from 'lucide-react';
+import { Factory, Search, X, Settings2, Save, Loader2, Plus, AlertTriangle, Sparkles, CalendarDays } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import AdHocRunModal from '@/components/production/AdHocRunModal';
@@ -35,6 +35,9 @@ export default function ProductionPlanning() {
   const [showAdHoc, setShowAdHoc] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [belowParOnly, setBelowParOnly] = useState(false);
+  // Forward-cover planning window (days). Drives the "produce-to" cap: we build at
+  // most this many days of sales velocity per meal. Default 6; raise to plan ahead.
+  const [coverDays, setCoverDays] = useState(6);
 
   // ── Settings ──────────────────────────────────────────────────────────────
   const { data: maxSetting } = useQuery({
@@ -127,8 +130,8 @@ export default function ProductionPlanning() {
   // >10%-below-par trigger, 6-day cover cap). Single source of truth shared by
   // the summary, the package cards, the detail table and the Run button.
   const recoMap = useMemo(
-    () => buildRecommendationMap(finishedMeals, stockMap, velocityMap),
-    [finishedMeals, stockMap, velocityMap]
+    () => buildRecommendationMap(finishedMeals, stockMap, velocityMap, { forwardCoverDays: coverDays }),
+    [finishedMeals, stockMap, velocityMap, coverDays]
   );
 
   // ── Package grouping ───────────────────────────────────────────────────────
@@ -352,8 +355,35 @@ export default function ProductionPlanning() {
           <p className="text-lg font-bold text-foreground">{packages.length}</p>
         </div>
 
-        {/* Max meals per run inline editor */}
+        {/* Planning window — how many days of demand to build toward (forward-cover cap) */}
         <div className="ml-auto flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-2 border border-border">
+          <CalendarDays className="w-4 h-4 text-muted-foreground shrink-0" />
+          <div className="text-[10px] text-muted-foreground uppercase font-semibold whitespace-nowrap" title="We build at most this many days of sales velocity per meal. Raise it to plan further ahead.">Plan Window</div>
+          <div className="flex items-center gap-1">
+            {[6, 7, 10, 14].map(d => (
+              <Button
+                key={d}
+                size="sm"
+                variant={coverDays === d ? 'default' : 'ghost'}
+                onClick={() => setCoverDays(d)}
+                className="h-7 px-2.5 text-xs tabular-nums"
+              >
+                {d}d
+              </Button>
+            ))}
+            <Input
+              type="number"
+              min="1"
+              value={coverDays}
+              onChange={e => { const v = Number(e.target.value); if (v >= 1) setCoverDays(v); }}
+              className="w-16 h-7 text-xs text-right"
+              title="Custom number of days"
+            />
+          </div>
+        </div>
+
+        {/* Max meals per run inline editor */}
+        <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-2 border border-border">
           <Settings2 className="w-4 h-4 text-muted-foreground shrink-0" />
           <div className="text-[10px] text-muted-foreground uppercase font-semibold whitespace-nowrap">Max / Run</div>
           <Input
@@ -446,6 +476,7 @@ export default function ProductionPlanning() {
               onOverride={handleOverride}
               search={search}
               belowParOnly={belowParOnly}
+              coverDays={coverDays}
             />
           </div>
         </>

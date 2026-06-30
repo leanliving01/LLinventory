@@ -169,7 +169,7 @@ function PackageSection({ pkg, stockMap, recoMap, overrides, onOverride, search,
                         <span>{recommended > 0 ? recommended : '—'}</span>
                         {badge && (
                           <span className={cn('text-[9px] font-medium uppercase tracking-wide', badge.cls)}>
-                            {reco.capped ? 'Capped 6d' : badge.label}
+                            {reco.capped ? `Capped ${coverDays}d` : badge.label}
                           </span>
                         )}
                       </div>
@@ -223,6 +223,7 @@ export default function PackageDetailTable({
   onOverride,
   search,
   belowParOnly,
+  coverDays = 6,
 }) {
   const visible = selectedPackage
     ? packages.filter(p => p.code === selectedPackage)
