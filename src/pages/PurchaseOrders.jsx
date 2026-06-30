@@ -18,6 +18,7 @@ import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import { dueDateColour } from '@/lib/utils';
 import { usePersistentState, useScrollRestoration } from '@/lib/usePersistentState';
+import { buildPoFolderContext, matchesFolder, PO_FOLDER_KEYS } from '@/lib/poFolders';
 
 const STATUS_COLORS = {
   draft: 'bg-gray-100 text-gray-600',
@@ -64,7 +65,10 @@ export default function PurchaseOrders() {
   });
 
   const [needsAttentionOnly, setNeedsAttentionOnly] = usePersistentState('po:needsAttentionOnly', false);
-  const [activeFolder, setActiveFolder] = usePersistentState('po:activeFolder', null);
+  const [activeFolderRaw, setActiveFolder] = usePersistentState('po:activeFolder', 'all');
+  const [creditReturnsFilter, setCreditReturnsFilter] = usePersistentState('po:creditReturnsFilter', 'all');
+  // Normalise any legacy/removed folder key (e.g. 'paid', 'awaiting_grn') back to 'all'.
+  const activeFolder = PO_FOLDER_KEYS.includes(activeFolderRaw) ? activeFolderRaw : 'all';
 
   const { data: pos = [], isLoading } = useQuery({
     queryKey: ['purchase-orders'],
@@ -138,58 +142,15 @@ export default function PurchaseOrders() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [pos]);
 
-  const filtered = useMemo(() => {
-    // Build lookup maps for folder filtering
-    const grnByPoId = {};
-    grns.forEach(g => {
-      if (!grnByPoId[g.purchase_order_id]) grnByPoId[g.purchase_order_id] = [];
-      grnByPoId[g.purchase_order_id].push(g);
-    });
-    const invoiceByPoId = {};
-    invoices.forEach(i => {
-      if (!invoiceByPoId[i.purchase_order_id]) invoiceByPoId[i.purchase_order_id] = [];
-      invoiceByPoId[i.purchase_order_id].push(i);
-    });
-    const priceVariancePoIds = new Set(
-      grns.filter(g => g.has_price_variance).map(g => g.purchase_order_id).filter(Boolean)
-    );
+  const folderCtx = useMemo(
+    () => buildPoFolderContext({ grns, invoices, creditNotes, returns, posNeedingAttention }),
+    [grns, invoices, creditNotes, returns, posNeedingAttention]
+  );
 
+  const filtered = useMemo(() => {
     let result = pos.filter(po => {
-      // Folder filter takes precedence over status chips
-      if (activeFolder) {
-        const approved = ['approved', 'confirmed'];
-        const postReceive = ['received', 'invoiced'];
-        switch (activeFolder) {
-          case 'all_active':         if (['cancelled', 'paid'].includes(po.status)) return false; break;
-          case 'draft':              if (po.status !== 'draft') return false; break;
-          case 'awaiting_approval':  if (po.status !== 'awaiting_approval') return false; break;
-          case 'approved':           if (!approved.includes(po.status)) return false; break;
-          case 'awaiting_grn':
-            if (!approved.includes(po.status)) return false;
-            if ((grnByPoId[po.id] || []).some(g => g.status === 'confirmed')) return false;
-            break;
-          case 'partially_received': if (po.status !== 'partially_received') return false; break;
-          case 'received':           if (po.status !== 'received') return false; break;
-          case 'awaiting_invoice':
-            if (!postReceive.includes(po.status)) return false;
-            if ((invoiceByPoId[po.id] || []).some(i => !i.is_credit_note)) return false;
-            break;
-          case 'credit_note_pending': if (po.status !== 'credit_note_pending') return false; break;
-          case 'invoiced':           if (po.status !== 'invoiced') return false; break;
-          case 'paid':               if (po.status !== 'paid') return false; break;
-          case 'needs_review':       if (!posNeedingAttention.has(po.id)) return false; break;
-          case 'price_variance':     if (!priceVariancePoIds.has(po.id)) return false; break;
-          case 'credit_notes':       return false; // credit notes don't map 1:1 to POs; show nothing for now
-          case 'returns_pending':    return false; // returns don't map 1:1 to POs; show nothing for now
-          default: break;
-        }
-      } else {
-        // Status filter
-        if (statusFilter === 'open' && ['invoiced', 'paid', 'cancelled'].includes(po.status)) return false;
-        if (statusFilter !== 'open' && statusFilter !== 'all' && po.status !== statusFilter) return false;
-        // Needs attention filter
-        if (needsAttentionOnly && !posNeedingAttention.has(po.id)) return false;
-      }
+      // Smart-folder filter (always active; defaults to 'all')
+      if (!matchesFolder(po, activeFolder, folderCtx, creditReturnsFilter)) return false;
 
       // Text search (always applied)
       if (filters.search) {
@@ -232,7 +193,7 @@ export default function PurchaseOrders() {
     });
 
     return result;
-  }, [pos, grns, invoices, filters, statusFilter, needsAttentionOnly, posNeedingAttention, activeFolder]);
+  }, [pos, filters, folderCtx, activeFolder, creditReturnsFilter]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -325,6 +286,8 @@ export default function PurchaseOrders() {
           posNeedingAttention={posNeedingAttention}
           activeFolder={activeFolder}
           onFolderSelect={key => { setActiveFolder(key); setPage(1); }}
+          creditReturnsFilter={creditReturnsFilter}
+          onCreditReturnsFilterChange={key => { setCreditReturnsFilter(key); setPage(1); }}
         />
 
         <div className="flex-1 min-w-0">
@@ -396,10 +359,10 @@ export default function PurchaseOrders() {
                   {filtered.length === 0 && (
                     <tr>
                       <td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
-                        {activeFolder === 'credit_notes' ? (
-                          <>Credit notes are managed inside individual PO workspaces. <Link to="/purchasing/invoices" className="text-primary hover:underline">View Invoices →</Link></>
-                        ) : activeFolder === 'returns_pending' ? (
-                          <>Supplier returns are tracked on the Returns page. <Link to="/purchasing/returns" className="text-primary hover:underline">View Returns →</Link></>
+                        {activeFolder === 'credit_returns' ? (
+                          <>No purchase orders with an open {creditReturnsFilter === 'returns' ? 'return' : creditReturnsFilter === 'credit_notes' ? 'credit note' : 'credit note or return'}.</>
+                        ) : activeFolder === 'completed' ? (
+                          'No completed purchase orders yet.'
                         ) : pos.length === 0 ? 'No purchase orders yet. Click "New PO" to create one.' : 'No orders match your filter.'}
                       </td>
                     </tr>

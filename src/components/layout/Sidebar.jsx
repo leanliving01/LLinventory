@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { APP_VERSION, formatBuildTime } from '@/lib/version';
+import { HIDE_INVOICES } from '@/config/testingMode';
 import { 
   LayoutDashboard, 
   Package, 
@@ -135,7 +136,8 @@ const navItems = [
       { label: 'Shortages', path: '/purchasing/shortages', icon: AlertTriangle },
       { label: 'Returns', path: '/purchasing/returns', icon: ArrowLeftRight },
       { label: 'Credits & Returns', path: '/purchasing/credits-returns', icon: ArrowLeftRight },
-      { label: 'Invoices (Xero)', path: '/purchasing/invoices', icon: FileText },
+      // Hidden during the PO testing phase (see config/testingMode.js)
+      ...(HIDE_INVOICES ? [] : [{ label: 'Invoices (Xero)', path: '/purchasing/invoices', icon: FileText }]),
       { label: 'Review Queue', path: '/purchasing/review-queue', icon: ClipboardCheck },
       { label: '3-Way Match', path: '/purchasing/three-way-match', icon: CheckCircle2 },
       { label: 'Supplier Scorecard', path: '/purchasing/scorecard', icon: Award },

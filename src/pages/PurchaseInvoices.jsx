@@ -14,6 +14,7 @@ import PageHelp from '@/components/help/PageHelp';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
 import SyncStatusBanner from '@/components/shopify/SyncStatusBanner';
+import { HIDE_INVOICES } from '@/config/testingMode';
 
 const HELP_ITEMS = [
   { title: 'Sync invoices', text: 'Click "Sync from Xero" to pull all ACCPAY (purchase) bills from Xero. The system auto-matches invoice lines to your Supplier Product catalog using Xero item codes.' },
@@ -112,6 +113,22 @@ export default function PurchaseInvoices() {
   useEffect(() => {
     queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
   }, [xeroInvoiceState?.records_synced, xeroInvoiceState?.sync_status, queryClient]);
+
+  // Hidden during the PO testing phase (config/testingMode.js). Invoice data is
+  // untouched in the database — only the view is hidden.
+  if (HIDE_INVOICES) {
+    return (
+      <div className="max-w-xl mx-auto mt-20 text-center space-y-3">
+        <FileText className="w-10 h-10 text-muted-foreground mx-auto" />
+        <h1 className="text-xl font-bold">Purchase Invoices are hidden</h1>
+        <p className="text-sm text-muted-foreground">
+          Invoices are hidden while we run the purchase-order testing phase. Your invoice
+          records and all product / SKU review work are safe and untouched — this section
+          will return once testing is complete.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
