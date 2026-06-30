@@ -40,6 +40,18 @@ interface MealInfo {
   familyType: string;
 }
 
+// Strip "free gift" decoration that Shopify gift/discount apps splice into the
+// product title (e.g. "🎁 Everyday Energy (100% off)" → "Everyday Energy").
+// Without this, making a product a free gift renames the inventory record on
+// the next sync. We only clean for naming — Shopify's storefront title is left
+// untouched.
+function stripGiftDecoration(title: string): string {
+  return (title || '')
+    .replace(/^\s*🎁\s*/u, '')
+    .replace(/\s*\(\s*\d{1,3}\s*%\s*off\s*\)\s*$/i, '')
+    .trim();
+}
+
 // Derive meal metadata from a product SKU and Shopify title.
 // Returns null for non-meal products (e.g. packing materials).
 function deriveMealInfo(sku: string, title: string, productType?: string): MealInfo | null {
@@ -238,6 +250,8 @@ Deno.serve(async (req) => {
 
   for (const p of products) {
     const isMultiVariant = (p.variants || []).length > 1;
+    // Clean gift/discount-app decoration out of the title used for inventory naming.
+    const baseTitle = stripGiftDecoration(p.title);
 
     // Auto-detect dynamic bundles: BYO products have variant titles like
     // "Flavour A / Flavour B / Flavour C". Real packages use "Starter Pack (15 x meals)".
@@ -265,7 +279,7 @@ Deno.serve(async (req) => {
 
       // Track meal info for SKU-bearing variants
       if (hasSku) {
-        const info = deriveMealInfo(v.sku, p.title, p.product_type);
+        const info = deriveMealInfo(v.sku, baseTitle, p.product_type);
         if (info) mealInfoBySku.set(v.sku, info);
       }
 
@@ -278,7 +292,7 @@ Deno.serve(async (req) => {
       // For multi-variant products, append the variant title to distinguish records
       // (e.g. "WINTER WARMER RANGE - 15 Meals"). Single-variant and dynamic bundles use product title only.
       const variantSuffix = isMultiVariant && !isDynamicBundle && v.title && v.title !== 'Default Title' ? ` - ${v.title}` : '';
-      const productName = `${p.title}${variantSuffix}`;
+      const productName = `${baseTitle}${variantSuffix}`;
 
       // Match priority:
       // 1. shopify_variant_id — stays stable even when SKU is changed in either system
