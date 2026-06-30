@@ -92,7 +92,6 @@ import SupplierReturns from '@/pages/SupplierReturns';
 import SupplierCreditsReturns from '@/pages/SupplierCreditsReturns';
 import PurchaseInvoices from '@/pages/PurchaseInvoices';
 import ProductReviewQueue from '@/pages/ProductReviewQueue';
-import PriceVarianceDashboard from '@/pages/PriceVarianceDashboard';
 import ThreeWayMatch from '@/pages/ThreeWayMatch';
 import PurchasingDashboard from '@/pages/PurchasingDashboard';
 import PurchaseWorkspace from '@/pages/PurchaseWorkspace';
@@ -249,7 +248,6 @@ const AuthenticatedApp = () => {
         <Route path="/purchasing/credits-returns" element={<ErrorBoundary><SupplierCreditsReturns /></ErrorBoundary>} />
         <Route path="/purchasing/invoices" element={<PurchaseInvoices />} />
         <Route path="/purchasing/review-queue" element={<ProductReviewQueue />} />
-        <Route path="/purchasing/price-variance" element={<PriceVarianceDashboard />} />
         <Route path="/purchasing/three-way-match" element={<ThreeWayMatch />} />
         <Route path="/purchasing/dashboard" element={<ErrorBoundary><PurchasingDashboard /></ErrorBoundary>} />
         <Route path="/purchasing/workspace/:id" element={<PurchaseWorkspace />} />

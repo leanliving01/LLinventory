@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { ClipboardList, Sparkles, Loader2 } from 'lucide-react';
@@ -33,7 +34,11 @@ export default function ProductReviewQueue() {
   const customRoles = useCustomRoles();
   const perms = getUserPermissions(user || {}, customRoles);
 
-  const [tab, setTab] = useState('lines');                // 'lines' | 'units' | 'prices'
+  const [searchParams] = useSearchParams();
+  const initialTab = ['lines', 'units', 'prices'].includes(searchParams.get('tab'))
+    ? searchParams.get('tab')
+    : 'lines';
+  const [tab, setTab] = useState(initialTab);             // 'lines' | 'units' | 'prices'
   const [createGroup, setCreateGroup] = useState(null);   // lineGroup → Create Product modal
   const [matchGroup, setMatchGroup] = useState(null);     // lineGroup → Match Existing modal
   const [autoFilling, setAutoFilling] = useState(false);  // bulk AI pre-fill running

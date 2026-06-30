@@ -74,7 +74,7 @@ export default function PurchasingKPIStrip({ kpis }) {
         value={kpis.flaggedPriceChanges}
         subValue={`${kpis.recentPriceIncreases} increases in last 100`}
         color={kpis.flaggedPriceChanges > 0 ? 'text-red-600' : 'text-green-600'}
-        linkTo="/purchasing/price-variance"
+        linkTo="/purchasing/review-queue?tab=prices"
         linkLabel="Price Variance →"
       />
       <KPICard

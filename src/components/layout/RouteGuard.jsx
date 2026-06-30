@@ -25,7 +25,6 @@ const ROUTE_PERMISSIONS = {
   '/purchasing/returns':   'returns_view',
   '/purchasing/invoices':  'xero_invoice_sync',
   '/purchasing/review-queue': 'product_review',
-  '/purchasing/price-variance': 'price_variance_view',
   '/purchasing/three-way-match': 'three_way_match_view',
   '/purchasing/dashboard': 'purchasing_dashboard',
   '/purchasing/scorecard': 'supplier_scorecard',

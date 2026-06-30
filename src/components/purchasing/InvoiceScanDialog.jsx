@@ -58,9 +58,37 @@ function seedUnitForm(line, product) {
   };
 }
 
-export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplierId }) {
+// Two destinations for an uploaded invoice, chosen up-front:
+//  • 'invoice' — save a live AP invoice to be matched to an open PO / GRN later
+//  • 'blind'   — no PO; receive the stock directly via the blind-receipt engine
+const MODE_INVOICE = 'invoice';
+const MODE_BLIND   = 'blind';
+
+function ModeToggle({ mode, onChange, disabled }) {
+  const opt = (value, label) => (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onChange(value)}
+      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-50 ${
+        mode === value ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+      }`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/40">
+      {opt(MODE_INVOICE, 'Invoice (match to PO/GRN)')}
+      {opt(MODE_BLIND, 'Blind receipt')}
+    </div>
+  );
+}
+
+export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplierId, initialMode = MODE_INVOICE }) {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState(STEP_UPLOAD);
+  const [mode, setMode] = useState(initialMode === MODE_BLIND ? MODE_BLIND : MODE_INVOICE);
   const [dragOver, setDragOver] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
@@ -506,6 +534,16 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
           {/* Step 1 — Upload */}
           {(step === STEP_UPLOAD || scanning) && (
             <div className="space-y-4">
+              {/* Mode toggle — chosen up-front */}
+              <div className="space-y-2">
+                <ModeToggle mode={mode} onChange={setMode} disabled={scanning} />
+                <p className="text-xs text-muted-foreground">
+                  {mode === MODE_BLIND
+                    ? 'Blind receipt — no PO needed. After scanning, you confirm quantities and the stock is received directly (one invoice + GRN created).'
+                    : 'Standard invoice — saved live so you can match it to an open purchase order / GRN. No stock is moved.'}
+                </p>
+              </div>
+
               <p className="text-sm text-muted-foreground">
                 Upload a photo or PDF of your supplier invoice. The line items, totals, date and due date are extracted automatically.
               </p>
@@ -556,6 +594,14 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
           {/* Step 2 — Review */}
           {step === STEP_REVIEW && extracted && (
             <div className="space-y-5">
+              {/* Mode toggle — still switchable mid-review */}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <ModeToggle mode={mode} onChange={setMode} />
+                <p className="text-[11px] text-muted-foreground">
+                  {mode === MODE_BLIND ? 'Will receive stock' : 'Will save as a live invoice to match'}
+                </p>
+              </div>
+
               {/* Invoice header fields */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -648,7 +694,9 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
                         const sp = !isSkipped ? spByProductId[productId] : null;
                         const product = !isSkipped ? productById[productId] : null;
                         const cf = lineConversion(idx);
-                        const needsUnit = !isSkipped && cf <= 0;
+                        // Conversions only matter when we're going to move stock.
+                        const showUnit = mode === MODE_BLIND && !isSkipped;
+                        const needsUnit = showUnit && cf <= 0;
                         const isExpanded = expandedUnit === idx;
                         return (
                           <React.Fragment key={idx}>
@@ -674,7 +722,7 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
                                   onChange={v => linkProduct(idx, v)}
                                   allProducts={products}
                                 />
-                                {!isSkipped && (
+                                {showUnit && (
                                   <div className="flex items-center gap-2 mt-1">
                                     {cf > 0 ? (
                                       <span className="text-[10px] text-green-600 inline-flex items-center gap-1">
@@ -718,10 +766,15 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
               </div>
 
               <div className="text-xs text-muted-foreground space-y-1">
-                <p><strong>Save (prices only)</strong> updates supplier prices and sends unlinked lines to the Review Queue — no stock movement.</p>
-                <p><strong>Receive stock</strong> hands the linked lines to a blind receipt: it creates the invoice + GRN and adds stock using the conversions above.</p>
-                {skippedCount > 0 && (
-                  <p className="text-amber-600">{skippedCount} unlinked line{skippedCount !== 1 ? 's' : ''} won't be received — link them or use Save (prices only).</p>
+                {mode === MODE_BLIND ? (
+                  <>
+                    <p><strong>Receive stock</strong> hands the linked lines to a blind receipt: it creates the invoice + GRN and adds stock using the conversions above.</p>
+                    {skippedCount > 0 && (
+                      <p className="text-amber-600">{skippedCount} unlinked line{skippedCount !== 1 ? 's' : ''} won't be received — link them, or switch to <strong>Invoice</strong> mode.</p>
+                    )}
+                  </>
+                ) : (
+                  <p><strong>Save invoice</strong> records a live invoice (matched lines update supplier prices; unlinked lines go to the Review Queue) ready to match against an open PO / GRN. No stock is moved.</p>
                 )}
               </div>
             </div>
@@ -733,7 +786,8 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
               <CheckCircle2 className="w-16 h-16 text-green-500" />
               <p className="text-lg font-semibold">Invoice saved</p>
               <p className="text-sm text-muted-foreground text-center">
-                {matchedCount} product price{matchedCount !== 1 ? 's' : ''} updated from this invoice.
+                Live invoice created — ready to match against an open PO / GRN.
+                {matchedCount > 0 && ` ${matchedCount} product price${matchedCount !== 1 ? 's' : ''} updated.`}
               </p>
             </div>
           )}
@@ -748,24 +802,26 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
               <Button variant="outline" onClick={() => { setStep(STEP_UPLOAD); setExtracted(null); setMappings({}); setUnitForms({}); setExpandedUnit(null); setScannedFile(null); }}>
                 Rescan
               </Button>
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={handleSave}
-                disabled={!header.invoice_number || !header.supplier_id}
-              >
-                <FileText className="w-4 h-4" />
-                Save (prices only)
-              </Button>
-              <Button
-                className="flex-1 gap-2"
-                onClick={handleReceive}
-                disabled={!canReceive || preparing}
-                title={!canReceive ? 'Link lines and set a purchasing unit for each to receive stock' : undefined}
-              >
-                {preparing ? <Loader2 className="w-4 h-4 animate-spin" /> : <PackageCheck className="w-4 h-4" />}
-                Receive Stock ({mappedIdxs.length})
-              </Button>
+              {mode === MODE_BLIND ? (
+                <Button
+                  className="flex-1 gap-2"
+                  onClick={handleReceive}
+                  disabled={!canReceive || preparing}
+                  title={!canReceive ? 'Link lines and set a purchasing unit for each to receive stock' : undefined}
+                >
+                  {preparing ? <Loader2 className="w-4 h-4 animate-spin" /> : <PackageCheck className="w-4 h-4" />}
+                  Receive Stock ({mappedIdxs.length})
+                </Button>
+              ) : (
+                <Button
+                  className="flex-1 gap-2"
+                  onClick={handleSave}
+                  disabled={!header.invoice_number || !header.supplier_id}
+                >
+                  <FileText className="w-4 h-4" />
+                  Save Invoice
+                </Button>
+              )}
             </>
           ) : (
             <Button variant="outline" className="flex-1" onClick={onClose} disabled={scanning}>
