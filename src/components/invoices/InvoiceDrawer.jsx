@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { formatZAR } from '@/lib/utils';
+import { linkInvoiceToPO } from '@/lib/invoiceLinking';
+import { suggestPosForInvoice } from '@/lib/poMatchSuggest';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -73,6 +76,44 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
       { supplier_id: invoice.supplier_id, active: true }, 'product_name', 200
     ),
   });
+
+  // ── PO match suggestions (for Xero/scan invoices with no PO yet) ──────────
+  const { data: candidatePos = [] } = useQuery({
+    queryKey: ['candidate-pos-for-invoice', invoice.supplier_id],
+    queryFn: () => base44.entities.PurchaseOrder.filter({ supplier_id: invoice.supplier_id }, '-order_date', 100),
+    enabled: !invoice.purchase_order_id && !!invoice.supplier_id,
+  });
+  const suggestions = useMemo(
+    () => suggestPosForInvoice({ invoice, pos: candidatePos }),
+    [invoice, candidatePos]
+  );
+  const [linking, setLinking] = useState(false);
+  const autoLinkTried = useRef(false);
+
+  const doLink = async (poId, label, { auto = false } = {}) => {
+    setLinking(true);
+    try {
+      await linkInvoiceToPO({ invoiceId: invoice.id, poId, queryClient });
+      toast.success(auto
+        ? `Auto-matched ${invoice.invoice_number} to ${label} (invoice number)`
+        : `Linked ${invoice.invoice_number} to ${label}`);
+      onUpdated?.();
+    } catch (err) {
+      toast.error(`Failed to link: ${err.message}`);
+      if (auto) autoLinkTried.current = false; // allow a manual retry
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  // Exact invoice-number match → link silently (the agreed auto-link rule).
+  useEffect(() => {
+    if (invoice.purchase_order_id || invoice.grn_id || !canEdit) return;
+    if (autoLinkTried.current || !suggestions.exact) return;
+    autoLinkTried.current = true;
+    doLink(suggestions.exact.id, suggestions.exact.po_number, { auto: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestions.exact, invoice.purchase_order_id, invoice.grn_id, canEdit]);
 
   // Linked PO (Order Details tab)
   const { data: po = null } = useQuery({
@@ -413,6 +454,34 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
                     No purchase order linked to this invoice. Link it to an existing PO, or receive it
                     directly as a blind receipt (creates a GRN, no PO).
                   </p>
+
+                  {/* Suggested POs — ranked by total/date/status. An exact
+                      invoice-number match is auto-linked elsewhere; these are the
+                      review-and-accept candidates. */}
+                  {!invoice.grn_id && suggestions.ranked.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">Suggested purchase orders</p>
+                      {suggestions.ranked.map(({ po: cand, score, reasons }) => (
+                        <div key={cand.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                          <div className="min-w-0">
+                            <p className="font-mono text-sm font-medium">
+                              {cand.po_number}
+                              <span className="ml-2 text-[11px] font-sans text-primary">{Math.round(score * 100)}% match</span>
+                            </p>
+                            <p className="text-[11px] text-muted-foreground capitalize">
+                              {(cand.status || '').replace(/_/g, ' ')} · {cand.order_date || '—'} · {formatZAR(cand.total || 0)}
+                              {reasons.length > 0 && <span className="normal-case"> · {reasons.join(', ')}</span>}
+                            </p>
+                          </div>
+                          <Button size="sm" variant="outline" className="gap-1.5 shrink-0" disabled={!canEdit || linking}
+                            onClick={() => doLink(cand.id, cand.po_number)}>
+                            <Link2 className="w-3.5 h-3.5" /> Accept
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {invoice.grn_id ? (
                     <p className="text-xs text-green-700">Already received — GRN linked.</p>
                   ) : (
