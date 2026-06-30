@@ -349,6 +349,9 @@ export default function PriceVariancesTab() {
     setBusy('all');
     let n = 0;
     for (const r of byBucket.pending) {
+      // Don't sweep away cost-fix rows that still need a pack size — accepting
+      // them is a no-op that would just hide the flag.
+      if (r.kind === 'cost_fix' && r.new_price_per_stock_unit == null) continue;
       try { await resolvePriceReview(r.id, 'accept', { user: userName }); n++; } catch { /* skip */ }
     }
     toast.success(`Accepted ${n} price change${n !== 1 ? 's' : ''}`);
@@ -425,13 +428,33 @@ export default function PriceVariancesTab() {
           {rows.map(r => (
             <div key={r.id} className="p-3 flex items-start gap-3 text-xs">
               <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{r.product_name}</p>
+                <p className="font-medium truncate">
+                  {r.product_name}
+                  {r.kind === 'cost_fix' && (
+                    <span className="ml-1.5 align-middle text-[10px] uppercase tracking-wide bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">Cost fix</span>
+                  )}
+                  {r.kind === 'cost_fix' && r.confidence && (
+                    <span className={`ml-1 align-middle text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                      r.confidence === 'high' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+                      {r.confidence === 'high' ? 'auto' : 'needs pack size'}
+                    </span>
+                  )}
+                </p>
                 <p className="text-muted-foreground">
                   {r.supplier_name}
                   {r.purchase_uom ? <span> · per {r.purchase_uom}</span> : null}
                   {r.source ? <span className="ml-1 uppercase tracking-wide text-[10px] bg-muted px-1 py-0.5 rounded">{r.source}</span> : null}
                 </p>
-                <VariancePill prev={r.previous_price} next={r.new_price} variance={r.variance} />
+                {r.kind === 'cost_fix' ? (
+                  <>
+                    {r.new_price_per_stock_unit != null ? (
+                      <VariancePill prev={r.current_pps} next={r.new_price_per_stock_unit} variance={r.variance} />
+                    ) : null}
+                    {r.derivation ? <p className="mt-1 text-[11px] text-muted-foreground italic">{r.derivation}</p> : null}
+                  </>
+                ) : (
+                  <VariancePill prev={r.previous_price} next={r.new_price} variance={r.variance} />
+                )}
                 {bucket === 'credits' && (
                   <p className="mt-1 text-muted-foreground">
                     Credit owed: <span className="font-semibold text-foreground">{r.credit_amount != null ? money(r.credit_amount) : '— (enter on claim)'}</span>
@@ -444,15 +467,21 @@ export default function PriceVariancesTab() {
               <div className="flex flex-col items-end gap-1.5 shrink-0">
                 {bucket === 'pending' && (
                   <div className="flex gap-1.5">
-                    <Button variant="outline" size="sm" className="h-7 text-xs border-primary/40 text-primary gap-1"
-                      onClick={() => act(r, 'accept')} disabled={!!busy}>
-                      {busy === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                      Accept
-                    </Button>
-                    <Button variant="outline" size="sm" className="h-7 text-xs border-amber-300 text-amber-700 gap-1"
-                      onClick={() => act(r, 'dispute')} disabled={!!busy}>
-                      <MessageSquareWarning className="w-3.5 h-3.5" /> Dispute
-                    </Button>
+                    {r.kind === 'cost_fix' && r.new_price_per_stock_unit == null ? (
+                      <span className="text-[10px] text-amber-700 self-center mr-1">Set pack size on the product</span>
+                    ) : (
+                      <Button variant="outline" size="sm" className="h-7 text-xs border-primary/40 text-primary gap-1"
+                        onClick={() => act(r, 'accept')} disabled={!!busy}>
+                        {busy === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                        Accept
+                      </Button>
+                    )}
+                    {r.kind !== 'cost_fix' && (
+                      <Button variant="outline" size="sm" className="h-7 text-xs border-amber-300 text-amber-700 gap-1"
+                        onClick={() => act(r, 'dispute')} disabled={!!busy}>
+                        <MessageSquareWarning className="w-3.5 h-3.5" /> Dispute
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground gap-1"
                       onClick={() => act(r, 'dismiss')} disabled={!!busy}>
                       <X className="w-3.5 h-3.5" /> Keep old
