@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { base44, supabase } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
@@ -22,18 +22,24 @@ const recvOf = (l) => (l.received_qty === '' || l.received_qty == null)
   ? (Number(l.invoiced_qty) || 0)
   : (Number(l.received_qty) || 0);
 
-export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
+export default function CreateBlindReceiptModal({ onCreated, onCancel, prefill }) {
   const { user } = useAuth();
   const userName = user?.full_name || user?.email || 'System';
   const [saving, setSaving] = useState(false);
-  const [supplierId, setSupplierId] = useState('');
+  const [supplierId, setSupplierId] = useState(prefill?.supplier_id || '');
   const [locationId, setLocationId] = useState('');
-  const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
-  const [dueDate, setDueDate] = useState('');
-  const [dueDateOverridden, setDueDateOverridden] = useState(false);
-  const [notes, setNotes] = useState('');
-  const [lines, setLines] = useState([emptyLine()]);
+  const [invoiceNumber, setInvoiceNumber] = useState(prefill?.invoice_number || '');
+  const [invoiceDate, setInvoiceDate] = useState(prefill?.invoice_date || new Date().toISOString().slice(0, 10));
+  // A scanned explicit due date is treated as an override so the supplier-terms
+  // auto-calc doesn't overwrite it; a terms-derived prefill leaves it recomputable.
+  const [dueDate, setDueDate] = useState(prefill?.due_date || '');
+  const [dueDateOverridden, setDueDateOverridden] = useState(!!prefill?.due_date_overridden);
+  const [notes, setNotes] = useState(prefill?.notes || '');
+  const [lines, setLines] = useState(
+    prefill?.lines?.length
+      ? prefill.lines.map(l => ({ ...emptyLine(), ...l }))
+      : [emptyLine()],
+  );
   const [duplicateInvoice, setDuplicateInvoice] = useState(null);
   // When confirmGRN short-receives, it pauses here for per-line decisions.
   const [pendingDecision, setPendingDecision] = useState(null); // { result, po, grn }
@@ -210,6 +216,32 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
 
     // Stamp the expected invoice number on the PO (mirrors linkInvoiceToPO).
     try { await base44.entities.PurchaseOrder.update(po.id, { supplier_invoice_number: invoiceNumber.trim() }); } catch (_) {}
+
+    // When this receipt came from a scanned invoice, archive the original
+    // document against the invoice so it shows on the Attachments tab — same
+    // place native scans / Xero PDFs land. Non-fatal.
+    if (prefill?.scannedFile) {
+      try {
+        const f = prefill.scannedFile;
+        const ext = (f.name?.split('.').pop() || 'pdf').toLowerCase();
+        const path = `native/${invoice.id}/${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from('purchase-documents')
+          .upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: true });
+        if (!upErr) {
+          const { data: pub } = supabase.storage.from('purchase-documents').getPublicUrl(path);
+          await base44.entities.PurchaseAttachment.create({
+            invoice_id: invoice.id,
+            source: 'native',
+            file_name: f.name || `scan.${ext}`,
+            file_path: path,
+            file_url: pub?.publicUrl || null,
+            mime_type: f.type || null,
+            size_bytes: f.size || null,
+          });
+        }
+      } catch { /* non-fatal — invoice is already saved */ }
+    }
 
     toast.success(`Blind receipt ${grn.grn_number} confirmed — stock updated`);
     onCreated(po);

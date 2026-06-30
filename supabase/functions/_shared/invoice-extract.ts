@@ -13,6 +13,8 @@ export const EXTRACT_PROMPT = `You are an invoice data extraction assistant. Ext
   "supplier_name": "string or null",
   "invoice_number": "string or null",
   "invoice_date": "YYYY-MM-DD or null",
+  "due_date": "YYYY-MM-DD or null",
+  "payment_terms": "the payment terms text as printed (e.g. '30 days', 'COD', 'Net 30', '7th of following month') or null",
   "subtotal": number or null,
   "vat_amount": number or null,
   "total": number or null,
@@ -34,6 +36,10 @@ Rules:
 - If a field cannot be determined, use null
 - Include every line item, even if some fields are null
 - Descriptions should be verbatim from the invoice
+- due_date is the explicit payment due date if the invoice prints one (labelled
+  "Due Date", "Payment Due", "Pay By"). If only payment terms are printed (e.g.
+  "30 days", "Net 30", "COD") and no explicit date, leave due_date null and put
+  the wording in payment_terms — the app will compute the date from supplier terms.
 - item_code is the supplier's own product/stock code. Look for a column labelled
   "Item Code", "Item No", "Code", "Product Code", "Stock Code", "SKU", "Part No",
   "Cat No", or a short alphanumeric code printed alongside the description. This is

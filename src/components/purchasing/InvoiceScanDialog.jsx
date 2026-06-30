@@ -1,13 +1,17 @@
-import React, { useState, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44, supabase } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
+import PurchasingUnitFields from '@/components/shared/PurchasingUnitFields';
+import CreateBlindReceiptModal from '@/components/grn/CreateBlindReceiptModal';
+import { calculateDueDate, formatPaymentTerms, toISODate } from '@/lib/utils';
+import { parsePack } from '@/lib/purchasingUnit';
 import {
   X, Upload, Loader2, ScanLine, CheckCircle2, AlertCircle, FileText,
-  ChevronRight, Package, Link2, Unlink,
+  Package, Unlink, PackageCheck, Settings2, Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -39,12 +43,28 @@ function autoMatch(description, products) {
   return bestScore > 0.5 ? best : null;
 }
 
+// Seed a purchasing-unit form for a freshly-linked line. Pull a best-guess pack
+// from the invoice line text (e.g. "10 × 2kg", "25kg", "per kg"); otherwise
+// default to a 1:1 single unit the user can adjust.
+function seedUnitForm(line, product) {
+  const guess = parsePack(`${line?.description || ''} ${line?.unit || ''}`);
+  const stockUom = (product?.stock_uom || 'each').toLowerCase();
+  return {
+    purchase_uom: line?.unit || product?.purchase_uom || '',
+    pack_size: guess?.packSize != null ? String(guess.packSize) : '1',
+    pack_size_uom: guess?.packSizeUom || stockUom,
+    pack_qty: guess?.packQty != null ? String(guess.packQty) : '1',
+    conversion_factor: '',
+  };
+}
+
 export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplierId }) {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState(STEP_UPLOAD);
   const [dragOver, setDragOver] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
+  const [preparing, setPreparing] = useState(false);
 
   // Extracted invoice data
   const [extracted, setExtracted] = useState(null);
@@ -52,8 +72,20 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
   const [scannedFile, setScannedFile] = useState(null);
   // Per-line product mappings (index → product_id | 'skip')
   const [mappings, setMappings] = useState({});
+  // Per-line purchasing-unit forms (index → { purchase_uom, pack_size, ... })
+  const [unitForms, setUnitForms] = useState({});
+  // Which line's purchasing-unit editor is expanded.
+  const [expandedUnit, setExpandedUnit] = useState(null);
   // Editable header fields
-  const [header, setHeader] = useState({ supplier_id: preselectedSupplierId || '', invoice_number: '', invoice_date: '' });
+  const [header, setHeader] = useState({
+    supplier_id: preselectedSupplierId || '',
+    invoice_number: '',
+    invoice_date: '',
+    due_date: '',
+    due_date_overridden: false,
+  });
+  // When set, hand the scanned invoice into the canonical blind-receipt engine.
+  const [receivePrefill, setReceivePrefill] = useState(null);
 
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers-active'],
@@ -65,10 +97,48 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 1000),
   });
 
+  // Supplier-product links for the chosen supplier — drives conversion lookup so
+  // we know which linked lines still need a purchasing unit before receiving.
+  const { data: supplierProducts = [] } = useQuery({
+    queryKey: ['supplier-products-for-scan', header.supplier_id],
+    queryFn: () => base44.entities.SupplierProduct.filter({ supplier_id: header.supplier_id, active: true }, 'product_name', 500),
+    enabled: !!header.supplier_id,
+  });
+
+  const productById = useMemo(() => {
+    const m = {};
+    products.forEach(p => { m[p.id] = p; });
+    return m;
+  }, [products]);
+
+  const spByProductId = useMemo(() => {
+    const m = {};
+    supplierProducts.forEach(sp => { m[sp.product_id] = sp; });
+    return m;
+  }, [supplierProducts]);
+
+  const selectedSupplier = useMemo(
+    () => suppliers.find(s => s.id === header.supplier_id),
+    [suppliers, header.supplier_id],
+  );
+
   const ingredientProducts = useMemo(
     () => products.filter(p => ['ingredient', 'raw_material', 'packaging'].includes(p.type)),
     [products],
   );
+
+  // Auto-calculate the due date from the supplier's payment terms whenever the
+  // supplier / invoice date changes — unless a date was scanned or hand-edited.
+  useEffect(() => {
+    if (header.due_date_overridden) return;
+    if (!selectedSupplier?.payment_term_type || !header.invoice_date) {
+      setHeader(p => (p.due_date ? { ...p, due_date: '' } : p));
+      return;
+    }
+    const calc = calculateDueDate(header.invoice_date, selectedSupplier.payment_term_type, selectedSupplier.payment_term_value);
+    const iso = calc ? toISODate(calc) : '';
+    setHeader(p => (p.due_date === iso ? p : { ...p, due_date: iso }));
+  }, [header.supplier_id, header.invoice_date, header.due_date_overridden, selectedSupplier]);
 
   const handleFile = useCallback(async (file) => {
     if (!file) return;
@@ -99,11 +169,14 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
       setExtracted(inv);
       setScannedFile(file);
 
-      // Pre-fill header fields from extracted data
+      // Pre-fill header fields from extracted data. A scanned explicit due date
+      // is treated as an override; otherwise the terms-based effect fills it.
       setHeader(prev => ({
-        supplier_id: prev.supplier_id || '',
+        ...prev,
         invoice_number: inv.invoice_number || prev.invoice_number || '',
         invoice_date: inv.invoice_date || prev.invoice_date || new Date().toISOString().slice(0, 10),
+        due_date: inv.due_date || prev.due_date || '',
+        due_date_overridden: inv.due_date ? true : prev.due_date_overridden,
       }));
 
       // Auto-match lines to products
@@ -129,6 +202,52 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
     if (file) handleFile(file);
   }, [handleFile]);
 
+  const isMapped = (idx) => mappings[idx] && mappings[idx] !== 'skip';
+
+  // Resolve a line's conversion factor: an existing supplier link wins, else the
+  // hand-entered unit form. Returns 0 when neither yields a usable factor.
+  const lineConversion = useCallback((idx) => {
+    const productId = mappings[idx];
+    if (!productId || productId === 'skip') return 0;
+    const sp = spByProductId[productId];
+    if (sp?.conversion_factor > 0) return Number(sp.conversion_factor);
+    const cf = parseFloat(unitForms[idx]?.conversion_factor);
+    return cf > 0 ? cf : 0;
+  }, [mappings, spByProductId, unitForms]);
+
+  // Pick (or change) the product on a line. New links with no saved conversion
+  // open the purchasing-unit editor, seeded from the invoice line text.
+  const linkProduct = (idx, productId) => {
+    setMappings(prev => ({ ...prev, [idx]: productId }));
+    if (!productId || productId === 'skip') {
+      setUnitForms(prev => { const n = { ...prev }; delete n[idx]; return n; });
+      if (expandedUnit === idx) setExpandedUnit(null);
+      return;
+    }
+    const sp = spByProductId[productId];
+    if (sp?.conversion_factor > 0) {
+      // Already has a conversion — nothing to capture.
+      setUnitForms(prev => { const n = { ...prev }; delete n[idx]; return n; });
+      if (expandedUnit === idx) setExpandedUnit(null);
+      return;
+    }
+    setUnitForms(prev => ({ ...prev, [idx]: seedUnitForm(extracted?.lines?.[idx], productById[productId]) }));
+    setExpandedUnit(idx);
+  };
+
+  const setUnitField = (idx, key, value) =>
+    setUnitForms(prev => ({ ...prev, [idx]: { ...prev[idx], [key]: value } }));
+
+  const mappedIdxs = useMemo(
+    () => (extracted?.lines || []).map((_, idx) => idx).filter(isMapped),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [extracted, mappings],
+  );
+  const skippedCount = (extracted?.lines?.length || 0) - mappedIdxs.length;
+  const unresolvedConversions = mappedIdxs.filter(idx => lineConversion(idx) <= 0);
+  const canReceive = mappedIdxs.length > 0 && unresolvedConversions.length === 0 && !!header.supplier_id;
+
+  // ── Price-only save (original behaviour) ────────────────────────────────────
   const handleSave = async () => {
     if (!header.invoice_number) { toast.error('Enter an invoice number'); return; }
     if (!header.supplier_id) { toast.error('Select a supplier'); return; }
@@ -140,7 +259,6 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
       const invDate = header.invoice_date || now.slice(0, 10);
       const lines = extracted?.lines || [];
 
-      const isMapped = (idx) => mappings[idx] && mappings[idx] !== 'skip';
       const unmatchedCount = lines.filter((_, idx) => !isMapped(idx)).length;
 
       // 1. Create the invoice record (status reflects whether anything still
@@ -148,6 +266,9 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
       const invoice = await base44.entities.PurchaseInvoice.create({
         invoice_number: header.invoice_number,
         invoice_date: invDate,
+        due_date: header.due_date || null,
+        due_date_calculated: header.due_date || null,
+        due_date_overridden: !!header.due_date_overridden,
         supplier_id: header.supplier_id,
         supplier_name: supplier?.name || '',
         subtotal: extracted?.subtotal || 0,
@@ -252,7 +373,113 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
     }
   };
 
-  const matchedCount = Object.values(mappings).filter(v => v && v !== 'skip').length;
+  // ── Receive stock (scan → canonical blind receipt) ──────────────────────────
+  // Make sure every linked line has a saved supplier_products link carrying the
+  // conversion the blind receipt reads, then hand a prefilled receipt to it.
+  const handleReceive = async () => {
+    if (!header.supplier_id) { toast.error('Select a supplier'); return; }
+    if (mappedIdxs.length === 0) { toast.error('Link at least one line to a product'); return; }
+    if (unresolvedConversions.length > 0) {
+      toast.error('Set a purchasing unit for every linked line first');
+      setExpandedUnit(unresolvedConversions[0]);
+      return;
+    }
+
+    setPreparing(true);
+    try {
+      const supplier = suppliers.find(s => s.id === header.supplier_id);
+      const lines = extracted?.lines || [];
+      const prefillLines = [];
+
+      for (const idx of mappedIdxs) {
+        const line = lines[idx];
+        const productId = mappings[idx];
+        const product = productById[productId];
+        const existing = spByProductId[productId];
+        const uf = unitForms[idx];
+
+        let supplierProductId = existing?.id || null;
+        let uomLabel = existing?.purchase_uom_label || existing?.purchase_uom || line.unit || '';
+
+        // No saved conversion → persist the supplier link from the unit form,
+        // mirroring the Review Queue's supplier_products payload shape.
+        if (!(existing?.conversion_factor > 0) && uf) {
+          const cf = parseFloat(uf.conversion_factor) || 1;
+          const ps = uf.pack_size !== '' && uf.pack_size != null ? parseFloat(uf.pack_size) : null;
+          const pq = uf.pack_qty !== '' && uf.pack_qty != null ? parseFloat(uf.pack_qty) : 1;
+          const nc = line.unit_price || 0;
+          const payload = {
+            supplier_id: header.supplier_id,
+            supplier_name: supplier?.name || '',
+            product_id: productId,
+            product_name: product?.name || '',
+            product_sku: product?.sku || '',
+            supplier_sku: existing?.supplier_sku || line.item_code || '',
+            xero_item_code: line.item_code || null,
+            purchase_uom: uf.purchase_uom || 'each',
+            purchase_uom_label: uf.purchase_uom || 'each',
+            purchase_uom_name: uf.purchase_uom || 'each',
+            pack_size: ps,
+            pack_size_uom: uf.pack_size_uom || null,
+            pack_qty: pq,
+            conversion_uom: product?.stock_uom || null,
+            conversion_factor: cf,
+            yield_factor: 1,
+            effective_internal_qty: Math.round(cf * 1000) / 1000,
+            nominal_cost: nc,
+            price_per_stock_unit: cf > 0 ? nc / cf : 0,
+            last_purchase_price: nc,
+            active: true,
+          };
+          if (existing?.id) {
+            await base44.entities.SupplierProduct.update(existing.id, payload);
+            supplierProductId = existing.id;
+          } else {
+            const created = await base44.entities.SupplierProduct.create(payload);
+            supplierProductId = created.id;
+          }
+          uomLabel = uf.purchase_uom || uomLabel;
+        }
+
+        prefillLines.push({
+          product_id: productId,
+          supplier_product_id: supplierProductId,
+          invoiced_qty: line.qty != null ? String(line.qty) : '',
+          received_qty: '',
+          unit_cost: line.unit_price != null ? String(line.unit_price) : '',
+          uom: uomLabel,
+        });
+      }
+
+      setReceivePrefill({
+        supplier_id: header.supplier_id,
+        invoice_number: header.invoice_number || '',
+        invoice_date: header.invoice_date || new Date().toISOString().slice(0, 10),
+        due_date: header.due_date || '',
+        due_date_overridden: !!header.due_date_overridden,
+        lines: prefillLines,
+        scannedFile,
+      });
+    } catch (err) {
+      toast.error('Failed to prepare receipt: ' + (err.message || 'Unknown error'));
+    } finally {
+      setPreparing(false);
+    }
+  };
+
+  const matchedCount = mappedIdxs.length;
+
+  // The blind receipt takes over from here — it creates the PO + GRN + invoice
+  // and moves stock, then we close the whole flow.
+  if (receivePrefill) {
+    return (
+      <CreateBlindReceiptModal
+        prefill={receivePrefill}
+        onCreated={() => { onSaved?.(); onClose?.(); }}
+        onCancel={() => setReceivePrefill(null)}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -280,7 +507,7 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
           {(step === STEP_UPLOAD || scanning) && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Upload a photo or PDF of your supplier invoice. GPT-4o will extract the line items automatically.
+                Upload a photo or PDF of your supplier invoice. The line items, totals, date and due date are extracted automatically.
               </p>
 
               <div
@@ -296,7 +523,7 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
                   <div className="flex flex-col items-center gap-3">
                     <Loader2 className="w-10 h-10 text-primary animate-spin" />
                     <p className="text-sm font-medium text-muted-foreground">Scanning invoice...</p>
-                    <p className="text-xs text-muted-foreground">GPT-4o is extracting line items</p>
+                    <p className="text-xs text-muted-foreground">Extracting line items, totals & dates</p>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-3">
@@ -330,7 +557,7 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
           {step === STEP_REVIEW && extracted && (
             <div className="space-y-5">
               {/* Invoice header fields */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">Supplier *</label>
                   <SearchableSelect
@@ -360,6 +587,33 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
                     onChange={e => setHeader(p => ({ ...p, invoice_date: e.target.value }))}
                   />
                 </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">Due Date</label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="date"
+                      value={header.due_date}
+                      onChange={e => setHeader(p => ({ ...p, due_date: e.target.value, due_date_overridden: true }))}
+                      className="flex-1"
+                    />
+                    {header.due_date_overridden && (
+                      <Button
+                        variant="ghost" size="sm" className="text-xs text-muted-foreground"
+                        onClick={() => setHeader(p => ({ ...p, due_date_overridden: false }))}
+                      >
+                        Reset
+                      </Button>
+                    )}
+                  </div>
+                  {selectedSupplier?.payment_term_type && !header.due_date_overridden && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Auto: {formatPaymentTerms(selectedSupplier.payment_term_type, selectedSupplier.payment_term_value)}
+                    </p>
+                  )}
+                  {extracted.payment_terms && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Detected terms: {extracted.payment_terms}</p>
+                  )}
+                </div>
               </div>
 
               {/* Totals strip */}
@@ -375,7 +629,7 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-semibold">{extracted.lines.length} line{extracted.lines.length !== 1 ? 's' : ''} extracted</p>
-                  <p className="text-xs text-muted-foreground">{matchedCount} matched · {extracted.lines.length - matchedCount} → review queue</p>
+                  <p className="text-xs text-muted-foreground">{matchedCount} linked · {skippedCount} → review queue</p>
                 </div>
                 <div className="border border-border rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
@@ -391,33 +645,71 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
                       {extracted.lines.map((line, idx) => {
                         const productId = mappings[idx];
                         const isSkipped = !productId || productId === 'skip';
-                        const linkedProduct = !isSkipped ? products.find(p => p.id === productId) : null;
+                        const sp = !isSkipped ? spByProductId[productId] : null;
+                        const product = !isSkipped ? productById[productId] : null;
+                        const cf = lineConversion(idx);
+                        const needsUnit = !isSkipped && cf <= 0;
+                        const isExpanded = expandedUnit === idx;
                         return (
-                          <tr key={idx} className={isSkipped ? 'opacity-50' : ''}>
-                            <td className="px-3 py-2">
-                              <p className="text-xs font-medium">{line.description}</p>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                {line.item_code && (
-                                  <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded">{line.item_code}</span>
+                          <React.Fragment key={idx}>
+                            <tr className={isSkipped ? 'opacity-50' : ''}>
+                              <td className="px-3 py-2">
+                                <p className="text-xs font-medium">{line.description}</p>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  {line.item_code && (
+                                    <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded">{line.item_code}</span>
+                                  )}
+                                  {line.unit && <span className="text-[10px] text-muted-foreground">{line.unit}</span>}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-right text-xs">
+                                {line.qty != null ? line.qty : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-right text-xs font-medium">
+                                {line.unit_price != null ? `R ${line.unit_price.toFixed(2)}` : '—'}
+                              </td>
+                              <td className="px-3 py-2">
+                                <ProductPicker
+                                  value={productId || 'skip'}
+                                  onChange={v => linkProduct(idx, v)}
+                                  allProducts={products}
+                                />
+                                {!isSkipped && (
+                                  <div className="flex items-center gap-2 mt-1">
+                                    {cf > 0 ? (
+                                      <span className="text-[10px] text-green-600 inline-flex items-center gap-1">
+                                        <Check className="w-3 h-3" />
+                                        1 {(sp?.purchase_uom_label || sp?.purchase_uom || unitForms[idx]?.purchase_uom || 'unit')} = {cf} {product?.stock_uom || ''}
+                                      </span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        className="text-[10px] text-amber-600 inline-flex items-center gap-1 hover:underline font-medium"
+                                        onClick={() => setExpandedUnit(isExpanded ? null : idx)}
+                                      >
+                                        <Settings2 className="w-3 h-3" />
+                                        Set purchasing unit
+                                      </button>
+                                    )}
+                                  </div>
                                 )}
-                                {line.unit && <span className="text-[10px] text-muted-foreground">{line.unit}</span>}
-                              </div>
-                            </td>
-                            <td className="px-3 py-2 text-right text-xs">
-                              {line.qty != null ? line.qty : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-right text-xs font-medium">
-                              {line.unit_price != null ? `R ${line.unit_price.toFixed(2)}` : '—'}
-                            </td>
-                            <td className="px-3 py-2">
-                              <ProductPicker
-                                value={productId || 'skip'}
-                                onChange={v => setMappings(prev => ({ ...prev, [idx]: v }))}
-                                products={ingredientProducts}
-                                allProducts={products}
-                              />
-                            </td>
-                          </tr>
+                              </td>
+                            </tr>
+                            {needsUnit && isExpanded && (
+                              <tr>
+                                <td colSpan={4} className="px-3 py-3 bg-muted/30">
+                                  <p className="text-[11px] text-muted-foreground mb-2">
+                                    How <strong>{product?.name}</strong> is ordered from this supplier — sets the conversion used to add stock (stock unit: {product?.stock_uom || 'each'}).
+                                  </p>
+                                  <PurchasingUnitFields
+                                    form={unitForms[idx] || seedUnitForm(line, product)}
+                                    set={(k, v) => setUnitField(idx, k, v)}
+                                    stockUom={product?.stock_uom || 'each'}
+                                  />
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         );
                       })}
                     </tbody>
@@ -425,9 +717,13 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
                 </div>
               </div>
 
-              <p className="text-xs text-muted-foreground">
-                Prices will be saved to each matched product's supplier record and price history. BOMs and stock levels are unaffected.
-              </p>
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p><strong>Save (prices only)</strong> updates supplier prices and sends unlinked lines to the Review Queue — no stock movement.</p>
+                <p><strong>Receive stock</strong> hands the linked lines to a blind receipt: it creates the invoice + GRN and adds stock using the conversions above.</p>
+                {skippedCount > 0 && (
+                  <p className="text-amber-600">{skippedCount} unlinked line{skippedCount !== 1 ? 's' : ''} won't be received — link them or use Save (prices only).</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -449,16 +745,26 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
             <Button className="flex-1" onClick={onClose}>Close</Button>
           ) : step === STEP_REVIEW ? (
             <>
-              <Button variant="outline" onClick={() => { setStep(STEP_UPLOAD); setExtracted(null); setMappings({}); setScannedFile(null); }}>
+              <Button variant="outline" onClick={() => { setStep(STEP_UPLOAD); setExtracted(null); setMappings({}); setUnitForms({}); setExpandedUnit(null); setScannedFile(null); }}>
                 Rescan
               </Button>
               <Button
-                className="flex-1 gap-2"
+                variant="outline"
+                className="gap-2"
                 onClick={handleSave}
                 disabled={!header.invoice_number || !header.supplier_id}
               >
                 <FileText className="w-4 h-4" />
-                Save Invoice + Update Prices
+                Save (prices only)
+              </Button>
+              <Button
+                className="flex-1 gap-2"
+                onClick={handleReceive}
+                disabled={!canReceive || preparing}
+                title={!canReceive ? 'Link lines and set a purchasing unit for each to receive stock' : undefined}
+              >
+                {preparing ? <Loader2 className="w-4 h-4 animate-spin" /> : <PackageCheck className="w-4 h-4" />}
+                Receive Stock ({mappedIdxs.length})
               </Button>
             </>
           ) : (
@@ -472,7 +778,7 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
   );
 }
 
-function ProductPicker({ value, onChange, products, allProducts }) {
+function ProductPicker({ value, onChange, allProducts }) {
   const options = useMemo(() => [
     {
       value: 'skip',
