@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
   Loader2, TrendingUp, TrendingDown, Minus, Check, X, AlertTriangle,
-  CheckCheck, Receipt, MessageSquareWarning, ArrowRight, History, Search,
+  CheckCheck, Receipt, MessageSquareWarning, ArrowRight, History, Search, Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
@@ -333,11 +333,44 @@ export default function PriceVariancesTab() {
     return map;
   }, [reviews]);
 
+  const [editId, setEditId] = useState(null);   // cost-fix row being price-corrected
+  const [editCost, setEditCost] = useState('');  // corrected cost per stock unit
+
   const act = async (review, action, opts = {}) => {
     setBusy(review.id);
     try {
       await resolvePriceReview(review.id, action, { user: userName, ...opts });
       await refetch();
+    } catch (err) {
+      toast.error(`Failed: ${err.message}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const startEdit = (r) => {
+    setEditId(r.id);
+    setEditCost(r.new_price_per_stock_unit != null ? String(r.new_price_per_stock_unit) : '');
+  };
+
+  // Save a hand-corrected per-unit cost, then accept. Keeps the supplier purchase
+  // price consistent with the corrected unit cost (price = unit cost × pack).
+  const saveAndAccept = async (r) => {
+    const cost = Number(editCost);
+    if (!Number.isFinite(cost) || cost <= 0) { toast.error('Enter a valid cost per unit'); return; }
+    setBusy(r.id);
+    try {
+      const cf = Number(r.new_conversion_factor) || Number(r.conversion_factor) || 1;
+      await base44.entities.SupplierPriceReview.update(r.id, {
+        new_price_per_stock_unit: Math.round(cost * 10000) / 10000,
+        new_price: Math.round(cost * cf * 10000) / 10000,
+        confidence: 'high',
+        derivation: `${r.derivation ? r.derivation + ' · ' : ''}Hand-corrected to R${cost}/unit`,
+      });
+      await resolvePriceReview(r.id, 'accept', { user: userName });
+      setEditId(null);
+      await refetch();
+      toast.success('Corrected cost saved & applied');
     } catch (err) {
       toast.error(`Failed: ${err.message}`);
     } finally {
@@ -447,10 +480,25 @@ export default function PriceVariancesTab() {
                 </p>
                 {r.kind === 'cost_fix' ? (
                   <>
-                    {r.new_price_per_stock_unit != null ? (
+                    {editId === r.id ? (
+                      <div className="mt-1 flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] text-muted-foreground">Cost per unit R</span>
+                        <Input
+                          type="number" min="0" step="0.0001" autoFocus
+                          value={editCost} onChange={e => setEditCost(e.target.value)}
+                          className="h-7 w-28 text-xs"
+                          onKeyDown={e => { if (e.key === 'Enter') saveAndAccept(r); }}
+                        />
+                        {Number(editCost) > 0 && (r.new_conversion_factor || r.conversion_factor) ? (
+                          <span className="text-[11px] text-muted-foreground">
+                            = {money(Number(editCost) * (Number(r.new_conversion_factor) || Number(r.conversion_factor) || 1))} per {r.purchase_uom || 'pack'}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : r.new_price_per_stock_unit != null ? (
                       <VariancePill prev={r.current_pps} next={r.new_price_per_stock_unit} variance={r.variance} />
                     ) : null}
-                    {r.derivation ? <p className="mt-1 text-[11px] text-muted-foreground italic">{r.derivation}</p> : null}
+                    {r.derivation && editId !== r.id ? <p className="mt-1 text-[11px] text-muted-foreground italic">{r.derivation}</p> : null}
                   </>
                 ) : (
                   <VariancePill prev={r.previous_price} next={r.new_price} variance={r.variance} />
@@ -465,15 +513,29 @@ export default function PriceVariancesTab() {
 
               {/* Actions per bucket */}
               <div className="flex flex-col items-end gap-1.5 shrink-0">
-                {bucket === 'pending' && (
+                {bucket === 'pending' && editId === r.id && (
                   <div className="flex gap-1.5">
-                    {r.kind === 'cost_fix' && r.new_price_per_stock_unit == null ? (
-                      <span className="text-[10px] text-amber-700 self-center mr-1">Set pack size on the product</span>
-                    ) : (
+                    <Button size="sm" className="h-7 text-xs gap-1"
+                      onClick={() => saveAndAccept(r)} disabled={busy === r.id}>
+                      {busy === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                      Save &amp; Accept
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setEditId(null)} disabled={busy === r.id}>Cancel</Button>
+                  </div>
+                )}
+                {bucket === 'pending' && editId !== r.id && (
+                  <div className="flex gap-1.5">
+                    {r.kind === 'cost_fix' && r.new_price_per_stock_unit == null ? null : (
                       <Button variant="outline" size="sm" className="h-7 text-xs border-primary/40 text-primary gap-1"
                         onClick={() => act(r, 'accept')} disabled={!!busy}>
                         {busy === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                         Accept
+                      </Button>
+                    )}
+                    {r.kind === 'cost_fix' && (
+                      <Button variant="outline" size="sm" className="h-7 text-xs border-blue-300 text-blue-700 gap-1"
+                        onClick={() => startEdit(r)} disabled={!!busy}>
+                        <Pencil className="w-3.5 h-3.5" /> {r.new_price_per_stock_unit == null ? 'Set price' : 'Correct'}
                       </Button>
                     )}
                     {r.kind !== 'cost_fix' && (
