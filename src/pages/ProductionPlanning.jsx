@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Factory, Search, X, Settings2, Save, Loader2, Plus, AlertTriangle } from 'lucide-react';
+import { Factory, Search, X, Settings2, Save, Loader2, Plus, AlertTriangle, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import AdHocRunModal from '@/components/production/AdHocRunModal';
@@ -45,6 +45,11 @@ export default function ProductionPlanning() {
     },
   });
   const maxPerRun = maxSetting ? Number(maxSetting.value) || 2500 : 2500;
+  // The typed value takes effect on the plan IMMEDIATELY (no need to click Save —
+  // Save only persists it as the default). So changing Max/Run instantly re-splits
+  // the run and updates the button. Falls back to the saved default when blank.
+  const typedMax = Number(maxInput);
+  const effectiveMax = maxInput !== '' && typedMax >= 1 ? typedMax : maxPerRun;
 
   const handleSaveMax = async () => {
     const val = Number(maxInput);
@@ -217,9 +222,9 @@ export default function ProductionPlanning() {
       toast.error('No meals to produce — all quantities are zero');
       return;
     }
-    const numRuns = Math.max(1, Math.ceil(totalToProduce / maxPerRun));
-    const splitPlan = buildSplitPlan(lines, numRuns, maxPerRun, totalToProduce);
-    sessionStorage.setItem('planRunReview', JSON.stringify({ splitPlan, maxPerRun, totalUnits: totalToProduce }));
+    const numRuns = Math.max(1, Math.ceil(totalToProduce / effectiveMax));
+    const splitPlan = buildSplitPlan(lines, numRuns, effectiveMax, totalToProduce);
+    sessionStorage.setItem('planRunReview', JSON.stringify({ splitPlan, maxPerRun: effectiveMax, totalUnits: totalToProduce }));
     navigate('/production/plan-review');
   };
 
@@ -269,7 +274,7 @@ export default function ProductionPlanning() {
     return runs;
   };
 
-  const numRuns = Math.max(1, Math.ceil(totalToProduce / maxPerRun));
+  const numRuns = Math.max(1, Math.ceil(totalToProduce / effectiveMax));
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -292,17 +297,24 @@ export default function ProductionPlanning() {
             </Button>
           )}
           {perms.planning_create && (
-            <Button
-              onClick={handleOpenConfirm}
-              disabled={totalToProduce === 0}
-              size="lg"
-              className="gap-2 h-12 px-6 text-base"
-            >
-              <Factory className="w-5 h-5" />
-              {numRuns > 1
-                ? `Plan All Packages (${totalToProduce.toLocaleString()})`
-                : `Confirm Run (${totalToProduce.toLocaleString()})`}
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              <Button
+                onClick={handleOpenConfirm}
+                disabled={totalToProduce === 0}
+                size="lg"
+                className="gap-2 h-12 px-6 text-base"
+              >
+                <Factory className="w-5 h-5" />
+                {numRuns > 1
+                  ? `Plan Production Run · ${numRuns} runs (${totalToProduce.toLocaleString()})`
+                  : `Plan Production Run (${totalToProduce.toLocaleString()})`}
+              </Button>
+              {totalToProduce > 0 && (
+                <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-primary" /> Next: review with Livy →
+                </span>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -413,7 +425,7 @@ export default function ProductionPlanning() {
                 stats={packageStats[pkg.code] || { totalToProduce: 0, committed: 0, belowPar: 0, onPlanPct: 100, totalMeals: 0 }}
                 selected={selectedPackage === pkg.code}
                 onClick={() => setSelectedPackage(prev => prev === pkg.code ? null : pkg.code)}
-                maxPerRun={maxPerRun}
+                maxPerRun={effectiveMax}
               />
             ))}
           </div>
