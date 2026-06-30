@@ -24,8 +24,26 @@ const stem = (t) => {
   if (t.length > 3 && t.endsWith('s') && !t.endsWith('ss')) return t.slice(0, -1);
   return t;
 };
+// Drop pack/size tokens so "CORIANDER 30g" and "CORIANDER 100g" tokenise the same.
+// Anything starting with a digit ("30g", "10kg", "350", "5l") is a size, not an
+// identifier; bare unit words ("kg", "ml") are already removed by the length filter.
+const isPackToken = (t) => /^\d/.test(t);
 const tokenize = (s) =>
-  (s || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2).map(stem);
+  (s || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2 && !isPackToken(t)).map(stem);
+
+// A pack-size-insensitive signature: the significant words, stemmed, sorted, joined.
+// Two descriptions that differ ONLY by pack size collapse to the same signature.
+const packlessSig = (s) => tokenize(s).slice().sort().join('|');
+
+// Every wording an existing supplier_product is known by — the stored description,
+// the product name, and every past invoice wording remembered in known_descriptions.
+const candidateTexts = (sp) => {
+  const out = [];
+  if (sp?.supplier_description) out.push(sp.supplier_description);
+  if (sp?.product_name) out.push(sp.product_name);
+  for (const d of sp?.known_descriptions || []) if (d) out.push(d);
+  return out;
+};
 
 // Minimum shared significant tokens for a contained-match to fire. Two keeps
 // single-word collisions (a stray "Butternut" landing on "Butternut Dice
@@ -77,6 +95,7 @@ export function findExistingLink(line, supplierProducts = []) {
   const sku = norm(line?.xero_item_code);
   const desc = norm(line?.xero_description);
   const descRaw = line?.xero_description || '';
+  const sig = packlessSig(descRaw);
   if (!sku && !descRaw) return null;
 
   // 1 — exact SKU / item code (strongest identifier).
@@ -85,21 +104,31 @@ export function findExistingLink(line, supplierProducts = []) {
       if (norm(sp.supplier_sku) === sku || norm(sp.xero_item_code) === sku) return sp;
     }
   }
-  // 2 — exact description (normalised).
+  // 2 — exact description against ANY remembered wording (normalised).
   if (desc) {
     for (const sp of supplierProducts) {
-      if (norm(sp.supplier_description) === desc || norm(sp.product_name) === desc) return sp;
+      if (candidateTexts(sp).some((t) => norm(t) === desc)) return sp;
     }
   }
-  // 3 — contained-match on description: pick the single best-scoring supplier
-  //     product; bail on a tie between two different products (ambiguous).
+  // 2b — pack-size-insensitive exact: same words, only the size differs
+  //      ("CORIANDER 30g" ↔ "CORIANDER 100g"). Single clear winner only.
+  if (sig) {
+    let hit = null, ambiguous = false;
+    for (const sp of supplierProducts) {
+      if (candidateTexts(sp).some((t) => packlessSig(t) === sig)) {
+        if (hit && sp.product_id !== hit.product_id) ambiguous = true;
+        else hit = sp;
+      }
+    }
+    if (hit && !ambiguous) return hit;
+  }
+  // 3 — contained-match on description (tolerant of added/dropped words); pick the
+  //     single best-scoring supplier product; bail on an ambiguous tie.
   if (descRaw) {
     let best = null, bestScore = 0, tie = false;
     for (const sp of supplierProducts) {
-      const score = Math.max(
-        containedScore(descRaw, sp.supplier_description || ''),
-        containedScore(descRaw, sp.product_name || ''),
-      );
+      let score = 0;
+      for (const t of candidateTexts(sp)) score = Math.max(score, containedScore(descRaw, t));
       if (score > bestScore) { best = sp; bestScore = score; tie = false; }
       else if (score === bestScore && score > 0 && best && sp.product_id !== best.product_id) { tie = true; }
     }
@@ -157,10 +186,11 @@ export function findPossibleMatches(lineGroup, { products = [], supplierProducts
     }
   }
 
-  // 3 — description / name similarity (supplier description first, then product name).
+  // 3 — description / name similarity (best of every remembered wording).
   if (desc) {
     for (const sp of supplierProducts) {
-      const ov = tokenOverlap(desc, sp.supplier_description || sp.product_name);
+      let ov = 0;
+      for (const t of candidateTexts(sp)) ov = Math.max(ov, tokenOverlap(desc, t));
       if (ov >= 0.5) add(productById.get(sp.product_id), sp, 0.5 + ov * 0.4, 'Description matches a supplier product');
     }
     for (const p of products) {

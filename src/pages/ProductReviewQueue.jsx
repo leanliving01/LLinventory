@@ -193,6 +193,13 @@ export default function ProductReviewQueue() {
             product_sku: sp.product_sku,
             match_status: 'auto_matched',
           });
+          // Learn this wording: remember it so the exact tier catches it next time.
+          const d = (line.xero_description || '').trim();
+          if (d && !(sp.known_descriptions || []).includes(d)) {
+            const merged = Array.from(new Set([...(sp.known_descriptions || []), d]));
+            await base44.entities.SupplierProduct.update(sp.id, { known_descriptions: merged }).catch(() => {});
+            sp.known_descriptions = merged;
+          }
           invoiceIds.add(line.invoice_id);
           n++;
         } catch { /* leave for manual review */ }
@@ -370,6 +377,15 @@ export default function ProductReviewQueue() {
         }
       }
 
+      // Remember every wording this product has been linked under for this supplier,
+      // so the matcher recognises it next time however the supplier rewords it.
+      const knownDescs = Array.from(new Set([
+        ...(existing[0]?.known_descriptions || []),
+        existing[0]?.supplier_description,
+        form.supplier_description,
+        ...lineGroup.lines.map(({ line }) => line.xero_description),
+      ].map(d => (d || '').trim()).filter(Boolean)));
+
       const spPayload = {
         supplier_id: inv.supplier_id,
         supplier_name: inv.supplier_name || '',
@@ -378,6 +394,7 @@ export default function ProductReviewQueue() {
         product_sku: product.sku || '',
         supplier_sku: (form.supplier_sku || '').trim(),
         supplier_description: (form.supplier_description || '').trim(),
+        known_descriptions: knownDescs,
         xero_item_code: lineGroup.representativeLine.xero_item_code || null,
         purchase_uom: form.purchase_uom || 'each',
         // Mirror the clean Purchase UOM into legacy label/name for PO/table displays.
@@ -401,6 +418,19 @@ export default function ProductReviewQueue() {
         await base44.entities.SupplierProduct.update(sp.id, spPayload);
       } else {
         sp = await base44.entities.SupplierProduct.create(spPayload);
+      }
+
+      // Push the price you just set onto the product cost (purchased items only;
+      // manufactured items are rollup-costed). So linking immediately updates cost.
+      const pps = spPayload.price_per_stock_unit;
+      if (pps > 0 && ['raw', 'packaging', 'supplement', 'sauce'].includes(product.type)) {
+        const nowIso = new Date().toISOString();
+        await base44.entities.Product.update(product.id, {
+          cost_avg: Math.round(pps * 10000) / 10000,
+          cost_current: Math.round(pps * 10000) / 10000,
+          cost_avg_updated_at: nowIso,
+          cost_current_updated_at: nowIso,
+        }).catch(() => {});
       }
 
       await resolveGroupLines(lineGroup, sp, product);
