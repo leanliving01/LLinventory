@@ -28,6 +28,7 @@ const fmtQty = (n) => Number(n || 0).toLocaleString('en-ZA', { minimumFractionDi
  */
 export default function InventoryReportModal({ open, onClose, products = [], stockByProduct = {} }) {
   const [selected, setSelected] = useState([]); // [] = All; else array of product.type
+  const [logoOk, setLogoOk] = useState(true); // falls back to the LL badge if the logo asset is missing
   const isAll = selected.length === 0;
   const toggleCat = (t) => setSelected(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
 
@@ -137,22 +138,37 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
         <div id="inventory-report-print" className="px-8 py-6 text-gray-900">
           {/* Branded header */}
           <div className="flex items-start justify-between">
-            <div className="flex items-center gap-3.5">
-              <div
-                className="w-14 h-14 rounded-xl flex items-center justify-center text-white font-extrabold text-2xl shrink-0"
-                style={{ backgroundColor: BRAND, ...exact }}
-              >
-                LL
-              </div>
+            {logoOk ? (
               <div>
-                <h1 className="text-2xl font-extrabold tracking-tight leading-none" style={{ color: BRAND, ...exact }}>
-                  Lean Living
-                </h1>
-                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-500 mt-1.5">
+                <img
+                  src="/lean-living-logo.png"
+                  alt="Lean Living"
+                  className="h-16 w-auto object-contain"
+                  style={exact}
+                  onError={() => setLogoOk(false)}
+                />
+                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-500 mt-2 ml-1">
                   Inventory Valuation Report
                 </p>
               </div>
-            </div>
+            ) : (
+              <div className="flex items-center gap-3.5">
+                <div
+                  className="w-14 h-14 rounded-xl flex items-center justify-center text-white font-extrabold text-2xl shrink-0"
+                  style={{ backgroundColor: BRAND, ...exact }}
+                >
+                  LL
+                </div>
+                <div>
+                  <h1 className="text-2xl font-extrabold tracking-tight leading-none" style={{ color: BRAND, ...exact }}>
+                    Lean Living
+                  </h1>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-gray-500 mt-1.5">
+                    Inventory Valuation Report
+                  </p>
+                </div>
+              </div>
+            )}
             <div className="text-right text-[11px] text-gray-600 leading-5">
               <p><span className="text-gray-400">Generated</span> {generatedDate}</p>
               <p><span className="text-gray-400">Scope</span> {catLabel}</p>
