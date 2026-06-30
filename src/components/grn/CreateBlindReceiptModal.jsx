@@ -244,7 +244,9 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
         supplier_id: supplierId,
         supplier_name: supplier?.name || '',
         location_id: locationId,
-        status: 'received',
+        // Stays 'approved' until confirmGRN / finalise advances it — so a failure
+        // mid-flow doesn't leave a PO that looks fully received (and re-invoiceable).
+        status: 'approved',
         type: 'blind_receipt',
         order_date: today,
         expected_date: today,
@@ -358,13 +360,30 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
     }
   };
 
-  // Cancelling the decision leaves a confirmed-stock GRN as a draft to finalise
-  // later (stock has already moved) — surface that and close cleanly.
-  const handleDecisionsCancelled = () => {
-    const po = pendingDecision?.po;
-    setPendingDecision(null);
-    toast.warning('Stock received, but short lines still need a decision — finalise the GRN from the order to record the credit/await.');
-    if (po) onCreated(po); else setSaving(false);
+  // confirmGRN has ALREADY moved stock by the time the decision modal shows, so
+  // "cancel" must not orphan a draft GRN with unrecorded shortages. Instead we
+  // finalise with every short line flagged 'review' — a safe, consistent state
+  // (GRN confirmed, shortages queued for review) the user can resolve later.
+  const handleDecisionsCancelled = async () => {
+    if (!pendingDecision) return;
+    setSaving(true);
+    try {
+      const reviewDecisions = {};
+      (pendingDecision.result.shortLines || []).forEach((l) => { if (l.id) reviewDecisions[l.id] = { action: 'review' }; });
+      await finaliseGRNWithDecisions(
+        pendingDecision.result.grn,
+        pendingDecision.result.persistedLines,
+        reviewDecisions,
+        userName,
+      );
+      await createInvoiceAndFinish(pendingDecision.po, pendingDecision.grn);
+      setPendingDecision(null);
+      toast.warning('Short lines flagged for review — resolve them in Shortages / Credits & Returns.');
+    } catch (err) {
+      console.error('[CreateBlindReceiptModal] cancel-finalise', err);
+      toast.error(`Failed to finalise: ${err.message || 'Unknown error'}`);
+      setSaving(false);
+    }
   };
 
   return (

@@ -81,13 +81,9 @@ export async function linkInvoiceToPO({ invoiceId, poId, queryClient = null }) {
     grnByKey[k] = cur;
   });
 
-  // 1. Header links.
-  await base44.entities.PurchaseInvoice.update(invoiceId, {
-    purchase_order_id: poId,
-    ...(primaryGrn ? { grn_id: primaryGrn.id } : {}),
-  });
-
-  // 2. Backfill invoice lines (display convenience; match recomputes live).
+  // 1. Backfill invoice lines (display convenience; match recomputes live).
+  //    Done BEFORE the header link so the invoice isn't marked linked until the
+  //    rest succeeds — a mid-flow failure leaves it cleanly unlinked + retryable.
   const hasGRN = confirmedGRNs.length > 0;
   for (const il of (invoiceLines || [])) {
     const k = keyOf(il);
@@ -108,7 +104,7 @@ export async function linkInvoiceToPO({ invoiceId, poId, queryClient = null }) {
     }
   }
 
-  // 3. Advance PO status (never regress) + stamp expected invoice number.
+  // 2. Advance PO status (never regress) + stamp expected invoice number.
   const poPatch = {};
   if (['received', 'partially_received'].includes(po.status)) poPatch.status = 'invoiced';
   if (!po.supplier_invoice_number && invoice.invoice_number) {
@@ -118,6 +114,13 @@ export async function linkInvoiceToPO({ invoiceId, poId, queryClient = null }) {
     try { await base44.entities.PurchaseOrder.update(poId, poPatch); }
     catch { /* non-fatal */ }
   }
+
+  // 3. Header link LAST — this is the write that marks the invoice "linked".
+  //    grn_id explicitly nulled when the PO has no confirmed GRN.
+  await base44.entities.PurchaseInvoice.update(invoiceId, {
+    purchase_order_id: poId,
+    grn_id: primaryGrn ? primaryGrn.id : null,
+  });
 
   // 4. Invalidate caches.
   if (queryClient) {

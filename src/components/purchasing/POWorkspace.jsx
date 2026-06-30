@@ -641,10 +641,6 @@ export default function POWorkspace() {
   };
 
   const handleApprove = async () => {
-    if (isBlindReceipt) {
-      await handleApproveBlindReceipt();
-      return;
-    }
     const errors = validateForApproval();
     if (errors.length) {
       setValidationErrors(errors);
@@ -679,89 +675,8 @@ export default function POWorkspace() {
     }
   };
 
-  // Blind receipt approve: raises the PO + invoice together, then sends the user to the
-  // workspace where the next step is the GRN.
-  const handleApproveBlindReceipt = async () => {
-    if (!supplierId) { toast.error('Select a supplier'); return; }
-    if (!invoiceNumber.trim()) { toast.error('Enter the supplier invoice number'); return; }
-    if (!invoiceDate) { toast.error('Enter the invoice date'); return; }
-    const validLines = localLines.filter(l => l.product_id && parseFloat(l.ordered_qty) > 0 && parseFloat(l.unit_cost) > 0);
-    if (validLines.length === 0) { toast.error('Add at least one line with quantity and cost'); return; }
-
-    setValidationErrors([]);
-    setSaving(true);
-    try {
-      // Due date from supplier payment terms (state value, already auto-calculated /
-      // overridable via the Due Date field).
-      const dueDateValue = dueDate || null;
-
-      // 1. Create or update the PO (status approved — invoice is authorised on creation)
-      let poId2;
-      if (isNew) {
-        const docNumber = await nextDocNumber('PO');
-        const created = await base44.entities.PurchaseOrder.create({
-          ...buildHeaderPayload(),
-          po_number: docNumber,
-          status: 'approved',
-        });
-        poId2 = created.id;
-      } else {
-        await base44.entities.PurchaseOrder.update(poId, { ...buildHeaderPayload(), status: 'approved' });
-        poId2 = poId;
-      }
-
-      // 2. Persist the line items
-      await persistLines(poId2, validLines);
-
-      // 3. Create the supplier invoice + lines (authorised)
-      const invoice = await base44.entities.PurchaseInvoice.create({
-        invoice_number: invoiceNumber.trim(),
-        supplier_id: supplierId,
-        supplier_name: selectedSupplier?.name || po?.supplier_name || '',
-        purchase_order_id: poId2,
-        invoice_date: invoiceDate,
-        due_date: dueDateValue,
-        due_date_calculated: dueDateValue,
-        due_date_overridden: dueDateOverridden,
-        source: 'manual',
-        status: 'approved',
-        payment_status: 'unpaid',
-        subtotal: Math.round(subtotalExcl * 100) / 100,
-        tax_amount: Math.round(totalVat * 100) / 100,
-        total: Math.round(totalIncl * 100) / 100,
-        captured_total: capturedTotalNum,
-        total_variance: totalVariance,
-        currency: 'ZAR',
-        unmatched_line_count: 0,
-      });
-
-      for (const l of validLines) {
-        const qty = parseFloat(l.ordered_qty) || 0;
-        const cost = parseFloat(l.unit_cost) || 0;
-        await base44.entities.PurchaseInvoiceLine.create({
-          invoice_id: invoice.id,
-          product_id: l.product_id,
-          product_name: l.product_name || '',
-          product_sku: l.product_sku || '',
-          supplier_product_id: l.supplier_product_id || null,
-          qty,
-          unit_cost: cost,
-          tax_rule: l.tax_rule || '',
-          line_total: Math.round(qty * cost * 100) / 100,
-          match_status: 'manually_matched',
-        });
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
-      toast.success('Blind receipt created — raise the GRN to receive stock');
-      navigate(`/purchasing/workspace/${poId2}`);
-    } catch (err) {
-      console.error('[POWorkspace] Blind receipt approve failed', err);
-      toast.error(`Failed: ${err.message || 'Unknown error'}`);
-    } finally {
-      setSaving(false);
-    }
-  };
+  // (Blind receipts are no longer created here — see the dedicated "Blind Receipt"
+  // flow on the Purchase Orders page. This workspace only views existing ones.)
 
   const handleCancelPO = async () => {
     if (isNew) { navigate('/purchasing/orders'); return; }

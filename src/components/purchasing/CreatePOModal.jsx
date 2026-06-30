@@ -182,6 +182,7 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
           product_id: l.product_id,
           product_name: product?.name || '',
           product_sku: product?.sku || '',
+          supplier_product_id: l.supplier_product_id || null,
           ordered_qty: qty,
           received_qty: 0,
           unit_cost: unitCost,

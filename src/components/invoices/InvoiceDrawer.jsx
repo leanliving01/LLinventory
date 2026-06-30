@@ -89,7 +89,7 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
     [invoice, candidatePos]
   );
   const [linking, setLinking] = useState(false);
-  const autoLinkTried = useRef(false);
+  const autoLinkedInvoiceId = useRef(null); // which invoice we've already auto-linked
 
   const doLink = async (poId, label, { auto = false } = {}) => {
     setLinking(true);
@@ -101,20 +101,21 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
       onUpdated?.();
     } catch (err) {
       toast.error(`Failed to link: ${err.message}`);
-      if (auto) autoLinkTried.current = false; // allow a manual retry
+      if (auto) autoLinkedInvoiceId.current = null; // allow a manual retry
     } finally {
       setLinking(false);
     }
   };
 
   // Exact invoice-number match → link silently (the agreed auto-link rule).
+  // Guarded per-invoice so reusing the drawer for another invoice still works.
   useEffect(() => {
     if (invoice.purchase_order_id || invoice.grn_id || !canEdit) return;
-    if (autoLinkTried.current || !suggestions.exact) return;
-    autoLinkTried.current = true;
+    if (autoLinkedInvoiceId.current === invoice.id || !suggestions.exact) return;
+    autoLinkedInvoiceId.current = invoice.id;
     doLink(suggestions.exact.id, suggestions.exact.po_number, { auto: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestions.exact, invoice.purchase_order_id, invoice.grn_id, canEdit]);
+  }, [suggestions.exact, invoice.id, invoice.purchase_order_id, invoice.grn_id, canEdit]);
 
   // Linked PO (Order Details tab)
   const { data: po = null } = useQuery({

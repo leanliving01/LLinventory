@@ -14,6 +14,10 @@
  */
 import { OPEN_PO_STATUSES } from './invoiceLinking';
 
+// Statuses a PO may be in to be SILENTLY auto-linked by exact invoice number.
+// Excludes 'invoiced' (already billed) so we never re-link a terminal-ish PO.
+const AUTO_LINK_STATUSES = ['draft', 'awaiting_approval', 'approved', 'partially_received', 'received'];
+
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 const norm = (s) => (s == null ? '' : String(s)).trim().toLowerCase();
 
@@ -74,8 +78,13 @@ export function suggestPosForInvoice({ invoice, pos = [] }) {
   );
 
   const invNo = norm(invoice?.invoice_number);
+  // Exact auto-link only to a PO that pre-declared this number AND is still
+  // awaiting its invoice (not already 'invoiced'/terminal).
   const exact = invNo
-    ? (open.find((p) => norm(p.supplier_invoice_number) && norm(p.supplier_invoice_number) === invNo) || null)
+    ? (open.find((p) =>
+        AUTO_LINK_STATUSES.includes(p.status) &&
+        norm(p.supplier_invoice_number) &&
+        norm(p.supplier_invoice_number) === invNo) || null)
     : null;
 
   const ranked = open
