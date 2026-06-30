@@ -10,7 +10,9 @@ import { CATEGORY_LABELS, CATEGORY_ORDER } from '@/lib/productClassification';
 
 const BRAND = '#12B76E'; // Lean Living green (hsl(153 82% 40%)) — explicit hex prints reliably
 const exact = { WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
-const fmtQty = (n) => Number(n || 0).toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+// Match formatZAR's locale (af-ZA: space thousands, comma decimal) so qty and money
+// read consistently on the same printed report.
+const fmtQty = (n) => Number(n || 0).toLocaleString('af-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
 /**
  * Professional inventory report, launched from Inventory Overview.
@@ -47,7 +49,11 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
       if (!p.type) continue;
       if ((stockByProduct[p.id]?.on_hand || 0) > 0) counts[p.type] = (counts[p.type] || 0) + 1;
     }
-    return { presentCats: CATEGORY_ORDER.filter(t => counts[t]), countByType: counts };
+    // Known categories first (business order), then any unmapped type so new enum
+    // values are still selectable rather than silently appearing only under "All".
+    const known = CATEGORY_ORDER.filter(t => counts[t]);
+    const extra = Object.keys(counts).filter(t => !CATEGORY_ORDER.includes(t));
+    return { presentCats: [...known, ...extra], countByType: counts };
   }, [products, stockByProduct]);
 
   const rows = useMemo(() => {
@@ -203,6 +209,7 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
               <p className="text-xl font-bold mt-0.5" style={{ color: BRAND, ...exact }}>{formatZAR(margin)}</p>
             </div>
           </div>
+          <p className="text-[10px] text-gray-400 text-right mt-1.5">All values in ZAR, excluding VAT.</p>
 
           {/* Per-category breakdown (when result spans >1 category) */}
           {byType.length > 1 && (
@@ -268,8 +275,8 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
           {/* Methodology note */}
           <p className="text-[10px] text-gray-400 mt-3 leading-4">
             Figures reflect stock physically on hand at the time of generation. Inventory is valued at FIFO
-            (first-in, first-out) cost; retail value uses the current selling price (excl. VAT). Products with no stock
-            on hand are excluded.
+            (first-in, first-out) cost; where a current cost layer is unavailable the latest average cost is used.
+            Retail value uses the current selling price (excl. VAT). Products with no stock on hand are excluded.
           </p>
 
           {/* Branded footer (repeats on each printed page) */}

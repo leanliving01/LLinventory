@@ -279,7 +279,9 @@ body.barcode-scanning-active .barcode-scanning-ui * {
   }
   #inventory-report-print {
     position: static !important;
-    padding: 0 !important;
+    /* Reserve space at the end of the flow so the fixed footer never overlaps the
+       final table rows on the last page. */
+    padding: 0 0 14mm !important;
   }
   /* Branded footer repeats at the bottom of every printed page. */
   .report-print-footer {
@@ -290,9 +292,10 @@ body.barcode-scanning-active .barcode-scanning-ui * {
     background: white;
     padding: 4px 0;
   }
-  /* Bank-ready page margins; leave room for the fixed footer. */
+  /* Bank-ready page margins; the 20mm bottom margin holds the repeating footer
+     clear of page content. */
   @page {
-    margin: 14mm 12mm 18mm 12mm;
+    margin: 14mm 12mm 20mm 12mm;
   }
 }
 
