@@ -250,6 +250,38 @@ body.barcode-scanning-active .barcode-scanning-ui * {
   }
 }
 
+/* ── Inventory Report — isolate the report so only it prints (clean PDF) ── */
+@media print {
+  /* Hide everything, then reveal only the report subtree. */
+  body * {
+    visibility: hidden;
+  }
+  #inventory-report-print,
+  #inventory-report-print * {
+    visibility: visible;
+  }
+  .no-print {
+    display: none !important;
+  }
+  /* Break the report out of the fixed, height-capped, scrolling Dialog so the
+     full table flows across pages. */
+  [role='dialog']:has(#inventory-report-print) {
+    position: static !important;
+    transform: none !important;
+    inset: auto !important;
+    max-width: none !important;
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+  #inventory-report-print {
+    position: static !important;
+  }
+}
+
 /* ── Order Profitability — meal-box "fill" gauge animations ── */
 @keyframes profit-wave {
   0%   { transform: translateX(0); }

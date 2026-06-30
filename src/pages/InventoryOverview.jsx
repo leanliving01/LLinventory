@@ -5,10 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Search, X, Gauge, MapPin, CheckSquare } from 'lucide-react';
+import { Search, X, Gauge, MapPin, CheckSquare, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ProductionFloorBanner from '@/components/inventory/ProductionFloorBanner';
 import InventoryCSVExport from '@/components/inventory/InventoryCSVExport';
+import InventoryReportModal from '@/components/inventory/InventoryReportModal';
 import TablePagination from '@/components/shared/TablePagination';
 import InventoryCSVImport from '@/components/inventory/InventoryCSVImport';
 import RecalcCommittedStock from '@/components/inventory/RecalcCommittedStock';
@@ -36,6 +37,7 @@ export default function InventoryOverview() {
   const [pageSize, setPageSize] = useState(15);
   const [selection, setSelection] = useState([]); // product ids
   const [bulkMode, setBulkMode] = useState(null); // 'reorder' | 'location' | null
+  const [reportOpen, setReportOpen] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -154,6 +156,9 @@ export default function InventoryOverview() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={() => setReportOpen(true)} className="gap-1.5">
+            <FileText className="w-4 h-4" /> Inventory Report
+          </Button>
           <InventoryCSVExport products={filtered} stockByProduct={stockByProduct} />
           <InventoryCSVImport
             products={products}
@@ -342,6 +347,13 @@ export default function InventoryOverview() {
           }}
         />
       )}
+
+      <InventoryReportModal
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        products={products}
+        stockByProduct={stockByProduct}
+      />
     </div>
   );
 }
