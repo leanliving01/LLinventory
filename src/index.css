@@ -279,6 +279,20 @@ body.barcode-scanning-active .barcode-scanning-ui * {
   }
   #inventory-report-print {
     position: static !important;
+    padding: 0 !important;
+  }
+  /* Branded footer repeats at the bottom of every printed page. */
+  .report-print-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    padding: 4px 0;
+  }
+  /* Bank-ready page margins; leave room for the fixed footer. */
+  @page {
+    margin: 14mm 12mm 18mm 12mm;
   }
 }
 

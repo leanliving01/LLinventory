@@ -8,15 +8,18 @@ import { formatZAR } from '@/lib/utils';
 import { buildFifoCostMap, fifoUnitCost } from '@/lib/fifoValuation';
 import { CATEGORY_LABELS, CATEGORY_ORDER, getCategoryColor } from '@/lib/productClassification';
 
+const BRAND = '#12B76E'; // Lean Living green (hsl(153 82% 40%)) — explicit hex prints reliably
+const exact = { WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
 const fmtQty = (n) => Number(n || 0).toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
 /**
  * Professional inventory report, launched from Inventory Overview.
  *
- * Scope is chosen via a category radio (one product type at a time, or "All").
+ * Scope is chosen via multi-select category chips (any combination, or All).
  * Per product: FIFO unit cost, selling price, qty on hand, and the resulting
  * cost-value and selling-value. Totals for inventory (cost) value and retail
- * (selling) value. On-screen + clean Print/PDF (print isolation in src/index.css).
+ * (selling) value. Bank-ready Print/PDF with branded header + footer
+ * (print isolation in src/index.css).
  *
  * Props:
  *  - open, onClose
@@ -24,7 +27,9 @@ const fmtQty = (n) => Number(n || 0).toLocaleString('en-ZA', { minimumFractionDi
  *  - stockByProduct: { [productId]: { on_hand, committed, available } }
  */
 export default function InventoryReportModal({ open, onClose, products = [], stockByProduct = {} }) {
-  const [cat, setCat] = useState('all'); // 'all' | product.type
+  const [selected, setSelected] = useState([]); // [] = All; else array of product.type
+  const isAll = selected.length === 0;
+  const toggleCat = (t) => setSelected(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
 
   // FIFO layers are the authoritative cost basis (cost_avg is a legacy fallback).
   const { data: layers = [], isLoading } = useQuery({
@@ -42,7 +47,7 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
   const rows = useMemo(() => {
     const fifoMap = buildFifoCostMap(layers);
     return products
-      .filter(p => cat === 'all' || p.type === cat)
+      .filter(p => isAll || selected.includes(p.type))
       .map(p => {
         const qty = stockByProduct[p.id]?.on_hand || 0;
         const unitCost = fifoUnitCost(fifoMap, p.id, p.cost_avg || 0);
@@ -62,7 +67,7 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
       })
       .filter(r => r.qty > 0) // stock-value report: only what's on hand
       .sort((a, b) => b.costValue - a.costValue);
-  }, [products, layers, stockByProduct, cat]);
+  }, [products, layers, stockByProduct, selected, isAll]);
 
   const totals = useMemo(() => rows.reduce((t, r) => {
     t.qty += r.qty;
@@ -71,9 +76,8 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
     return t;
   }, { qty: 0, cost: 0, sell: 0 }), [rows]);
 
-  // Per-category breakdown strip (only meaningful on "All").
+  // Per-category breakdown strip (shown whenever the result spans >1 category).
   const byType = useMemo(() => {
-    if (cat !== 'all') return [];
     const g = {};
     for (const r of rows) {
       const a = g[r.type] || (g[r.type] = { cost: 0, sell: 0 });
@@ -81,33 +85,43 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
       a.sell += r.sellValue;
     }
     return CATEGORY_ORDER.filter(t => g[t]).map(t => [t, g[t]]);
-  }, [rows, cat]);
+  }, [rows]);
 
   const margin = totals.sell - totals.cost;
-  const catLabel = cat === 'all' ? 'All Categories' : (CATEGORY_LABELS[cat] || cat);
-  const generated = new Date().toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' });
+  const catLabel = isAll
+    ? 'All Categories'
+    : selected.map(t => CATEGORY_LABELS[t] || t).join(', ');
+  const now = new Date();
+  const generatedDate = now.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' });
+  const generatedStamp = now.toLocaleString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-[95vw] w-[1100px] max-h-[92vh] overflow-y-auto p-0">
+      <DialogContent className="max-w-[95vw] w-[1100px] max-h-[92vh] overflow-y-auto p-0 bg-white">
         {/* ── Controls (not printed) ── */}
-        <div className="no-print sticky top-0 z-10 bg-background border-b border-border px-6 py-3 flex items-center justify-between gap-4">
+        <div className="no-print sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-medium text-gray-500 mr-1">Include:</span>
             <button
-              onClick={() => setCat('all')}
-              className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${cat === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:opacity-100 opacity-80'}`}
+              onClick={() => setSelected([])}
+              className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${isAll ? 'text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              style={isAll ? { backgroundColor: BRAND } : undefined}
             >
               All Categories
             </button>
-            {presentCats.map(t => (
-              <button
-                key={t}
-                onClick={() => setCat(t)}
-                className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${getCategoryColor(t)} ${cat === t ? 'ring-2 ring-primary/40' : 'opacity-70 hover:opacity-100'}`}
-              >
-                {CATEGORY_LABELS[t] || t}
-              </button>
-            ))}
+            {presentCats.map(t => {
+              const on = selected.includes(t);
+              return (
+                <button
+                  key={t}
+                  onClick={() => toggleCat(t)}
+                  className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${getCategoryColor(t)} ${on ? 'ring-2 ring-offset-1' : 'opacity-60 hover:opacity-100'}`}
+                  style={on ? { '--tw-ring-color': BRAND } : undefined}
+                >
+                  {CATEGORY_LABELS[t] || t}
+                </button>
+              );
+            })}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5 h-8 text-xs">
@@ -120,94 +134,126 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
         </div>
 
         {/* ── The report itself (printable) ── */}
-        <div id="inventory-report-print" className="px-6 py-5 space-y-4">
-          {/* Header */}
-          <div className="flex items-start justify-between border-b border-border pb-3">
-            <div>
-              <h1 className="text-xl font-bold text-foreground">Lean Living — Inventory Report</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">{catLabel}</p>
+        <div id="inventory-report-print" className="px-8 py-6 text-gray-900">
+          {/* Branded header */}
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3.5">
+              <div
+                className="w-14 h-14 rounded-xl flex items-center justify-center text-white font-extrabold text-2xl shrink-0"
+                style={{ backgroundColor: BRAND, ...exact }}
+              >
+                LL
+              </div>
+              <div>
+                <h1 className="text-2xl font-extrabold tracking-tight leading-none" style={{ color: BRAND, ...exact }}>
+                  Lean Living
+                </h1>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-500 mt-1.5">
+                  Inventory Valuation Report
+                </p>
+              </div>
             </div>
-            <div className="text-right text-xs text-muted-foreground">
-              <p>Generated {generated}</p>
-              <p>{rows.length} product{rows.length === 1 ? '' : 's'} with stock</p>
+            <div className="text-right text-[11px] text-gray-600 leading-5">
+              <p><span className="text-gray-400">Generated</span> {generatedDate}</p>
+              <p><span className="text-gray-400">Scope</span> {catLabel}</p>
+              <p><span className="text-gray-400">Lines</span> {rows.length} product{rows.length === 1 ? '' : 's'} with stock</p>
             </div>
           </div>
+
+          {/* Brand divider */}
+          <div className="h-[3px] rounded-full mt-4 mb-5" style={{ backgroundColor: BRAND, ...exact }} />
 
           {/* Totals summary */}
           <div className="grid grid-cols-3 gap-3">
-            <div className="bg-card rounded-lg border border-border p-3">
-              <p className="text-[11px] text-muted-foreground">Total Inventory (Cost) Value</p>
-              <p className="text-lg font-bold mt-0.5">{formatZAR(totals.cost)}</p>
+            <div className="rounded-lg border border-gray-200 p-3.5" style={{ backgroundColor: '#f8fafc', ...exact }}>
+              <p className="text-[11px] text-gray-500">Total Inventory (Cost) Value</p>
+              <p className="text-xl font-bold mt-0.5 text-gray-900">{formatZAR(totals.cost)}</p>
             </div>
-            <div className="bg-card rounded-lg border border-border p-3">
-              <p className="text-[11px] text-muted-foreground">Total Retail (Selling) Value</p>
-              <p className="text-lg font-bold mt-0.5">{formatZAR(totals.sell)}</p>
+            <div className="rounded-lg border border-gray-200 p-3.5" style={{ backgroundColor: '#f8fafc', ...exact }}>
+              <p className="text-[11px] text-gray-500">Total Retail (Selling) Value</p>
+              <p className="text-xl font-bold mt-0.5 text-gray-900">{formatZAR(totals.sell)}</p>
             </div>
-            <div className="bg-card rounded-lg border border-border p-3">
-              <p className="text-[11px] text-muted-foreground">Gross Margin (Retail − Cost)</p>
-              <p className="text-lg font-bold mt-0.5">{formatZAR(margin)}</p>
+            <div className="rounded-lg border p-3.5" style={{ backgroundColor: '#ecfdf5', borderColor: '#a7f3d0', ...exact }}>
+              <p className="text-[11px] text-gray-500">Gross Margin (Retail − Cost)</p>
+              <p className="text-xl font-bold mt-0.5" style={{ color: BRAND, ...exact }}>{formatZAR(margin)}</p>
             </div>
           </div>
 
-          {/* Per-category breakdown (All only) */}
+          {/* Per-category breakdown (when result spans >1 category) */}
           {byType.length > 1 && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
               {byType.map(([t, v]) => (
-                <div key={t} className="bg-muted/40 rounded-lg border border-border p-2.5">
-                  <p className="text-[11px] font-medium text-foreground">{CATEGORY_LABELS[t] || t}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Cost {formatZAR(v.cost)}</p>
-                  <p className="text-xs text-muted-foreground">Retail {formatZAR(v.sell)}</p>
+                <div key={t} className="rounded-lg border border-gray-200 p-2.5" style={{ backgroundColor: '#fbfdfc', ...exact }}>
+                  <p className="text-[11px] font-semibold text-gray-800">{CATEGORY_LABELS[t] || t}</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">Cost {formatZAR(v.cost)}</p>
+                  <p className="text-[11px] text-gray-500">Retail {formatZAR(v.sell)}</p>
                 </div>
               ))}
             </div>
           )}
 
           {/* Detail table */}
-          <div className="bg-card rounded-xl border border-border overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="rounded-xl border border-gray-200 overflow-hidden mt-4 break-inside-avoid">
+            <table className="w-full text-sm border-collapse">
               <thead>
-                <tr className="bg-muted/50 border-b border-border text-[10px] font-semibold text-muted-foreground uppercase">
-                  <th className="text-left px-3 py-2">SKU</th>
-                  <th className="text-left px-3 py-2">Product</th>
-                  <th className="text-left px-3 py-2 w-28">Category</th>
-                  <th className="text-right px-3 py-2 w-24">Qty on Hand</th>
-                  <th className="text-right px-3 py-2 w-24">Unit Cost</th>
-                  <th className="text-right px-3 py-2 w-28">Cost Value</th>
-                  <th className="text-right px-3 py-2 w-24">Selling Price</th>
-                  <th className="text-right px-3 py-2 w-28">Selling Value</th>
+                <tr className="text-[10px] font-semibold text-gray-600 uppercase" style={{ backgroundColor: '#f1f5f9', ...exact }}>
+                  <th className="text-left px-3 py-2.5">SKU</th>
+                  <th className="text-left px-3 py-2.5">Product</th>
+                  <th className="text-left px-3 py-2.5 w-28">Category</th>
+                  <th className="text-right px-3 py-2.5 w-24">Qty on Hand</th>
+                  <th className="text-right px-3 py-2.5 w-24">Unit Cost</th>
+                  <th className="text-right px-3 py-2.5 w-28">Cost Value</th>
+                  <th className="text-right px-3 py-2.5 w-24">Selling Price</th>
+                  <th className="text-right px-3 py-2.5 w-28">Selling Value</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
-                {rows.map(r => (
-                  <tr key={r.id}>
-                    <td className="px-3 py-2 text-[10px] font-mono text-muted-foreground">{r.sku}</td>
-                    <td className="px-3 py-2 text-xs font-medium">{r.name}</td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground">{CATEGORY_LABELS[r.type] || r.type}</td>
-                    <td className="px-3 py-2 text-right text-xs">{fmtQty(r.qty)} {r.uom}</td>
-                    <td className="px-3 py-2 text-right text-xs">{formatZAR(r.unitCost)}</td>
-                    <td className="px-3 py-2 text-right text-xs font-semibold">{formatZAR(r.costValue)}</td>
-                    <td className="px-3 py-2 text-right text-xs">{r.sellPrice > 0 ? formatZAR(r.sellPrice) : '—'}</td>
-                    <td className="px-3 py-2 text-right text-xs font-semibold">{r.sellValue > 0 ? formatZAR(r.sellValue) : '—'}</td>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={r.id} style={i % 2 ? { backgroundColor: '#f8fafc', ...exact } : undefined}>
+                    <td className="px-3 py-2 text-[10px] font-mono text-gray-400 border-b border-gray-100">{r.sku}</td>
+                    <td className="px-3 py-2 text-xs font-medium text-gray-900 border-b border-gray-100">{r.name}</td>
+                    <td className="px-3 py-2 text-xs text-gray-500 border-b border-gray-100">{CATEGORY_LABELS[r.type] || r.type}</td>
+                    <td className="px-3 py-2 text-right text-xs text-gray-700 border-b border-gray-100 tabular-nums">{fmtQty(r.qty)} {r.uom}</td>
+                    <td className="px-3 py-2 text-right text-xs text-gray-700 border-b border-gray-100 tabular-nums">{formatZAR(r.unitCost)}</td>
+                    <td className="px-3 py-2 text-right text-xs font-semibold text-gray-900 border-b border-gray-100 tabular-nums">{formatZAR(r.costValue)}</td>
+                    <td className="px-3 py-2 text-right text-xs text-gray-700 border-b border-gray-100 tabular-nums">{r.sellPrice > 0 ? formatZAR(r.sellPrice) : '—'}</td>
+                    <td className="px-3 py-2 text-right text-xs font-semibold text-gray-900 border-b border-gray-100 tabular-nums">{r.sellValue > 0 ? formatZAR(r.sellValue) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-muted/50 border-t-2 border-border font-bold">
+                <tr className="font-bold text-gray-900" style={{ backgroundColor: '#f1f5f9', ...exact }}>
                   <td className="px-3 py-2.5 text-xs" colSpan={3}>Total — {catLabel}</td>
-                  <td className="px-3 py-2.5 text-right text-xs">{fmtQty(totals.qty)}</td>
+                  <td className="px-3 py-2.5 text-right text-xs tabular-nums">{fmtQty(totals.qty)}</td>
                   <td className="px-3 py-2.5" />
-                  <td className="px-3 py-2.5 text-right text-xs">{formatZAR(totals.cost)}</td>
+                  <td className="px-3 py-2.5 text-right text-xs tabular-nums">{formatZAR(totals.cost)}</td>
                   <td className="px-3 py-2.5" />
-                  <td className="px-3 py-2.5 text-right text-xs">{formatZAR(totals.sell)}</td>
+                  <td className="px-3 py-2.5 text-right text-xs tabular-nums">{formatZAR(totals.sell)}</td>
                 </tr>
               </tfoot>
             </table>
             {!isLoading && rows.length === 0 && (
-              <p className="px-4 py-6 text-sm text-muted-foreground text-center">No stock on hand for this category</p>
+              <p className="px-4 py-6 text-sm text-gray-500 text-center">No stock on hand for the selected categories</p>
             )}
             {isLoading && (
-              <p className="px-4 py-6 text-sm text-muted-foreground text-center">Loading cost layers…</p>
+              <p className="px-4 py-6 text-sm text-gray-500 text-center">Loading cost layers…</p>
             )}
+          </div>
+
+          {/* Methodology note */}
+          <p className="text-[10px] text-gray-400 mt-3 leading-4">
+            Figures reflect stock physically on hand at the time of generation. Inventory is valued at FIFO
+            (first-in, first-out) cost; retail value uses the current selling price (excl. VAT). Products with no stock
+            on hand are excluded.
+          </p>
+
+          {/* Branded footer (repeats on each printed page) */}
+          <div className="report-print-footer flex items-center justify-between text-[10px] text-gray-500 mt-6 pt-2 border-t border-gray-200">
+            <span className="flex items-center gap-1.5">
+              <span className="w-4 h-4 rounded flex items-center justify-center text-white font-bold text-[8px]" style={{ backgroundColor: BRAND, ...exact }}>LL</span>
+              Lean Living · Inventory Valuation Report
+            </span>
+            <span>Generated {generatedStamp} · Confidential</span>
           </div>
         </div>
       </DialogContent>
