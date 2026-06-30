@@ -28,8 +28,18 @@ const stem = (t) => {
 // Anything starting with a digit ("30g", "10kg", "350", "5l") is a size, not an
 // identifier; bare unit words ("kg", "ml") are already removed by the length filter.
 const isPackToken = (t) => /^\d/.test(t);
+// Supplier-branding / packaging filler that carries no product identity — Bidfood's
+// "COOKING WITH", Bell Ceres' "DELI", "1000 OFF", "LOOSE", "SALES", etc. Dropping
+// these stops noise words from creating false matches AND false duplicate-ties.
+const STOPWORDS = new Set([
+  'deli', 'off', 'cooking', 'with', 'loose', 'sales', 'sale', 'per', 'pkg', 'the',
+  'and', 'for', 'from', 'plus', 'new', 'fresh', 'each', 'pack', 'packet',
+]);
 const tokenize = (s) =>
-  (s || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2 && !isPackToken(t)).map(stem);
+  (s || '').toLowerCase().split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 2 && !isPackToken(t))
+    .map(stem)
+    .filter((t) => !STOPWORDS.has(t));
 
 // A pack-size-insensitive signature: the significant words, stemmed, sorted, joined.
 // Two descriptions that differ ONLY by pack size collapse to the same signature.
