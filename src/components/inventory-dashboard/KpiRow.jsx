@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { supabase } from '@/api/supabaseClient';
 import StatCard from '@/components/dashboard/StatCard';
 import { buildReorderItems, isAssembledOnDemand } from '@/lib/reorderSignals';
+import { useStockLevels } from '@/lib/useStockLevels';
 import { typeInGroup } from '@/lib/inventoryCategories';
 import { DollarSign, PackageX, AlertTriangle, TrendingUp, Clock, Boxes } from 'lucide-react';
 
@@ -36,10 +37,8 @@ export default function KpiRow({ types = null }) {
     queryKey: ['products-reorder'],
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
   });
-  const { data: stockRecords = [] } = useQuery({
-    queryKey: ['stock-on-hand-reorder'],
-    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 2000),
-  });
+  // Canonical, never-truncated per-product stock (RPC) — see lib/useStockLevels.js.
+  const { rows: stockRecords = [] } = useStockLevels();
   const { data: trends = [] } = useQuery({
     queryKey: ['inventory-trends'],
     queryFn: fetchTrends,

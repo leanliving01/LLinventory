@@ -7,6 +7,7 @@ import { formatZAR } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Download, Printer } from 'lucide-react';
 import { buildFifoCostMap, fifoUnitCost } from '@/lib/fifoValuation';
+import { useStockLevels } from '@/lib/useStockLevels';
 
 const NO_MOVEMENT_DAYS = 30;
 
@@ -18,10 +19,8 @@ const OUTBOUND_REASONS = new Set([
 ]);
 
 export default function DeadStockReport() {
-  const { data: soh = [] } = useQuery({
-    queryKey: ['report-dead-stock-soh'],
-    queryFn: () => base44.entities.StockOnHand.list('product_id', 5000),
-  });
+  // Canonical, never-truncated per-product stock (RPC) — see lib/useStockLevels.js.
+  const { rows: soh = [] } = useStockLevels();
   const { data: products = [] } = useQuery({
     queryKey: ['active-products'],
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),

@@ -7,6 +7,7 @@ import { Search, X, AlertTriangle, Save, Check, Loader2, AlertCircle, CheckSquar
 import { cn } from '@/lib/utils';
 import { groupProductsForPar, categoriesFromGroups } from '@/lib/parGrouping';
 import { useSubcategories } from '@/lib/useSubcategories';
+import { useStockLevels } from '@/lib/useStockLevels';
 import { useAutoSave } from '@/lib/useAutoSave';
 import { useUnsavedChanges } from '@/lib/navigationGuard';
 import ParPackageSummaryCard from './ParPackageSummaryCard';
@@ -40,11 +41,8 @@ export default function ParLevelsTab() {
     refetchOnWindowFocus: true,
   });
 
-  const { data: stockRecords = [] } = useQuery({
-    queryKey: ['stock-on-hand'],
-    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 5000),
-    refetchOnWindowFocus: true,
-  });
+  // Canonical, never-truncated per-product stock (RPC) — see lib/useStockLevels.js.
+  const { rows: stockRecords = [] } = useStockLevels({ refetchOnWindowFocus: true });
 
   // Live updates — reflect new/changed products, stock and subcategories.
   useEffect(() => {

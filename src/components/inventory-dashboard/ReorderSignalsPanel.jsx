@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { ShoppingCart, ArrowRight, PackageX } from 'lucide-react';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
 import { buildReorderItems, SEVERITY_ORDER } from '@/lib/reorderSignals';
+import { useStockLevels } from '@/lib/useStockLevels';
 import { typeInGroup } from '@/lib/inventoryCategories';
 
 const SEVERITY_BADGE = {
@@ -30,10 +31,8 @@ export default function ReorderSignalsPanel({ types = null, limit = 12 }) {
     queryKey: ['products-reorder'],
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
   });
-  const { data: stockRecords = [] } = useQuery({
-    queryKey: ['stock-on-hand-reorder'],
-    queryFn: () => base44.entities.StockOnHand.list('-updated_date', 2000),
-  });
+  // Canonical, never-truncated per-product stock (RPC) — see lib/useStockLevels.js.
+  const { rows: stockRecords = [] } = useStockLevels();
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers-active'],
     queryFn: () => base44.entities.Supplier.filter({ status: 'active' }, 'name', 200),

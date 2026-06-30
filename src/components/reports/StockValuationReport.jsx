@@ -6,6 +6,7 @@ import { formatZAR } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Download, Printer } from 'lucide-react';
 import { buildFifoCostMap, fifoUnitCost } from '@/lib/fifoValuation';
+import { useStockLevels } from '@/lib/useStockLevels';
 
 // products.type is a lowercase snake_case enum — map to readable labels for display.
 const TYPE_LABELS = {
@@ -16,10 +17,10 @@ const TYPE_LABELS = {
 const typeLabel = (t) => TYPE_LABELS[t] || (t ? t.replace(/_/g, ' ') : 'Other');
 
 export default function StockValuationReport() {
-  const { data: soh = [] } = useQuery({
-    queryKey: ['report-soh-valuation'],
-    queryFn: () => base44.entities.StockOnHand.list('product_id', 5000),
-  });
+  // Canonical, never-truncated per-product stock (server-side RPC). The old
+  // StockOnHand.list('product_id', 5000) was capped at 1000 rows, undercounting
+  // valuation. See lib/useStockLevels.js.
+  const { rows: soh = [] } = useStockLevels();
   const { data: products = [] } = useQuery({
     queryKey: ['active-products'],
     queryFn: () => base44.entities.Product.filter({ status: 'active' }, 'name', 500),
