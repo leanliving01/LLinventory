@@ -17,6 +17,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { writeAuditLog } from '@/lib/auditLog';
 import MachineLoadPanel from '@/components/production/MachineLoadPanel';
+import ProductionFlowPanel from '@/components/production/ProductionFlowPanel';
 import LivyPlanRead from '@/components/production/LivyPlanRead';
 
 export default function PlanRunReview() {
@@ -232,6 +233,9 @@ export default function PlanRunReview() {
 
       {/* Livy's read — judgment + one-tap adjustments on top of the engine's plan */}
       <LivyPlanRead lines={allPlanLines} onApply={applyLivyQty} onSuggestions={handleSuggestions} />
+
+      {/* Production flow — the recommended cook order + portioning start */}
+      <ProductionFlowPanel lines={allPlanLines} />
 
       {/* Machine load breakdown — how the plan splits across the kitchen */}
       <MachineLoadPanel lines={allPlanLines} />

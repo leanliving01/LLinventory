@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { explodeLinesToBulks, buildMachinePlan } from '@/lib/productionEngine';
+import { explodeLinesToBulks, buildMachinePlan, buildProductionFlow } from '@/lib/productionEngine';
 
 /**
  * Shared loader + compute for the machine-load plan. Both MachineLoadPanel and
@@ -9,7 +9,7 @@ import { explodeLinesToBulks, buildMachinePlan } from '@/lib/productionEngine';
  * shared key) and they agree on the numbers.
  *
  * @param {Array} lines - [{ product_id, planned_qty }]
- * @returns {{ plan: object|null, isLoading: boolean }}
+ * @returns {{ plan: object|null, flow: object|null, isLoading: boolean }}
  */
 export function useMachinePlan(lines = []) {
   const { data, isLoading } = useQuery({
@@ -45,5 +45,35 @@ export function useMachinePlan(lines = []) {
     return buildMachinePlan(wip, capsByProduct, data.equipment);
   }, [data, lines]);
 
-  return { plan, isLoading };
+  // Production flow (cook order + portioning-start) — fan-out counts only TODAY's
+  // meals (the plan lines), so the order reflects what's actually being made.
+  const flow = useMemo(() => {
+    if (!data || !plan) return null;
+    const skuById = {};
+    data.products.forEach((p) => { skuById[p.id] = p.sku; });
+    const isCookBulk = new Set(data.cookBoms.map((b) => b.product_id));
+    const compsByBomId = {};
+    data.bomComponents.forEach((c) => { (compsByBomId[c.bom_id] ||= []).push(c); });
+    const portionByProductId = {};
+    data.portionBoms.forEach((b) => { portionByProductId[b.product_id] = b; });
+
+    const planMealIds = new Set(lines.map((l) => l.product_id));
+    const fanOutBySku = {};
+    const mealBulksBySku = {};
+    for (const mealId of planMealIds) {
+      const pb = portionByProductId[mealId];
+      if (!pb) continue;
+      const skus = [];
+      for (const c of (compsByBomId[pb.id] || [])) {
+        if (isCookBulk.has(c.input_product_id)) {
+          const s = skuById[c.input_product_id];
+          if (s) { skus.push(s); fanOutBySku[s] = (fanOutBySku[s] || 0) + 1; }
+        }
+      }
+      mealBulksBySku[mealId] = skus;
+    }
+    return buildProductionFlow(plan, { fanOutBySku, mealBulksBySku });
+  }, [data, plan, lines]);
+
+  return { plan, flow, isLoading };
 }

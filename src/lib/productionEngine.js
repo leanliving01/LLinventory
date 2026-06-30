@@ -253,6 +253,72 @@ export function buildMachinePlan(wipNeeded, capsByProduct, equipment = [], optio
   return { groups, totals, unscheduled };
 }
 
+// Approx blast-chill minutes per station (from the CIN7 flow sheet: wet stews/
+// sauces chill slowest, steamed veg fastest). Used until per-bulk chill is stored.
+const CHILL_BY_GROUP = { IVARIO: 25, TILT: 25, 'OVEN-ROAST': 17, 'OVEN-STEAM': 12 };
+
+/**
+ * Production FLOW (run sheet) — schedules the cooked bulks into a sensible ORDER
+ * and estimates when portioning can start. Broad + slow bulks (high fan-out, long
+ * cook) go first; each bulk is scheduled into its machine's parallel lanes, and a
+ * meal is "ready to portion" once its last component has cooked + chilled. So the
+ * sheet shows: cook in THIS order → portioning can start ~HH:MM → all done ~HH:MM.
+ *
+ * @param {object} machinePlan      - output of buildMachinePlan (groups with bulks/units)
+ * @param {object} ctx
+ * @param {object} ctx.fanOutBySku  - { bulkSku: how many of today's meals use it }
+ * @param {object} ctx.mealBulksBySku - { mealId: [bulkSku,...] } for today's meals
+ * @returns {{ steps:Array, portioningStartMin:number, doneMin:number }}
+ */
+export function buildProductionFlow(machinePlan, ctx = {}) {
+  const fanOut = ctx.fanOutBySku || {};
+  const mealBulks = ctx.mealBulksBySku || {};
+  const byRank = (a, b) =>
+    (fanOut[b.sku] || 0) - (fanOut[a.sku] || 0) ||
+    (b.cookMin || 0) - (a.cookMin || 0) ||
+    String(a.sku || '').localeCompare(String(b.sku || ''));
+
+  const steps = [];
+  const readyBySku = {};
+  for (const g of (machinePlan?.groups || [])) {
+    if (g.idle) continue;
+    const chill = CHILL_BY_GROUP[g.key] ?? 15;
+    const lanes = new Array(Math.max(1, g.units)).fill(0);
+    for (const b of [...g.bulks].sort(byRank)) {
+      let li = 0;
+      for (let i = 1; i < lanes.length; i++) if (lanes[i] < lanes[li]) li = i;
+      const start = lanes[li];
+      const end = start + (b.cookMin || 0);
+      lanes[li] = end;
+      const ready = end + chill;
+      readyBySku[b.sku] = Math.max(readyBySku[b.sku] || 0, ready);
+      steps.push({
+        sku: b.sku, name: b.name, machine: g.label, machineKey: g.key,
+        fanOut: fanOut[b.sku] || 0, cookMin: b.cookMin || 0, chillMin: chill,
+        kg: b.kg, batches: b.batches, startMin: start, readyMin: ready,
+      });
+    }
+  }
+  steps.sort((a, b) => a.startMin - b.startMin || (b.fanOut - a.fanOut));
+
+  // Portioning can start once the EARLIEST meal is fully cooked + chilled.
+  let portioningStartMin = Infinity;
+  for (const skus of Object.values(mealBulks)) {
+    if (!skus || !skus.length) continue;
+    let ready = 0, ok = true;
+    for (const s of skus) {
+      if (readyBySku[s] == null) { ok = false; break; }
+      ready = Math.max(ready, readyBySku[s]);
+    }
+    if (ok && ready < portioningStartMin) portioningStartMin = ready;
+  }
+  if (!isFinite(portioningStartMin)) {
+    portioningStartMin = steps.length ? Math.min(...steps.map(s => s.readyMin)) : 0;
+  }
+  const doneMin = steps.length ? Math.max(...steps.map(s => s.readyMin)) : 0;
+  return { steps, portioningStartMin, doneMin };
+}
+
 /**
  * Production SEQUENCING — assign a `sequence_order` to each floor task so the
  * kitchen/prep/portioning tablets show work in the right ORDER.

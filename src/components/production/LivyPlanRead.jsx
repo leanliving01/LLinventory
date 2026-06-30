@@ -29,8 +29,14 @@ function extractStructured(text) {
   try { return JSON.parse(body.slice(first, last + 1)); } catch { return null; }
 }
 
+const FLOW_START_MIN = 7 * 60 + 30; // 07:30 cook-window start
+const flowClock = (min) => {
+  const h = Math.floor((FLOW_START_MIN + min) / 60) % 24, m = Math.round((FLOW_START_MIN + min) % 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
 export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
-  const { plan: machinePlan, isLoading: planLoading } = useMachinePlan(lines);
+  const { plan: machinePlan, flow, isLoading: planLoading } = useMachinePlan(lines);
   const [structured, setStructured] = useState(null);
   const [fallbackText, setFallbackText] = useState('');
   const [adjustments, setAdjustments] = useState([]);
@@ -62,13 +68,17 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
     const machines = (machinePlan?.groups || []).map(g => ({
       machine: g.label, utilisation_pct: g.utilisationPct, over_capacity: g.over, kg: Math.round(g.kg), batches: g.batches,
     }));
+    const cookOrder = (flow?.steps || []).slice(0, 6).map(s => ({ bulk: s.name, machine: s.machine, feeds_meals: s.fanOut }));
     return {
       date: new Date().toISOString().slice(0, 10), total_meals: totalUnits, meal_lines: lines.length,
       backorders: backorders.slice(0, 8), below_par: belowPar.slice(0, 8),
       catch_up: catchUp.slice(0, 12),
       top_quantities: topMakes, machines, bulks_without_capacity: (machinePlan?.unscheduled || []).map(u => u.name),
+      cook_order: cookOrder,
+      portioning_can_start: flow ? flowClock(flow.portioningStartMin) : null,
+      all_cooked_by: flow ? flowClock(flow.doneMin) : null,
     };
-  }, [lines, machinePlan]);
+  }, [lines, machinePlan, flow]);
 
   const ask = useCallback(async () => {
     if (!lines.length) return;
@@ -85,7 +95,8 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
         '"watch":[{"level":"risk","text":"short risk or note"}],' +
         '"adjustments":[{"sku":"MWL10","name":"Lean Mince…","to_qty":120,"reason":"short why"}]}\n' +
         "Rules: make_first = ordered make-first list (backorders before below-par), qty = today's make for that meal, keep ≤5. machine = 1-3 very short notes (the wet line Ivario↔tilting pan is interchangeable). watch = risks (level:\"risk\") or notes (level:\"info\"), ≤4, each one line. adjustments = ONLY real make-quantity changes you'd recommend (to_qty = new total), max 5, else []. Every string short and scannable. Numbers from the plan only.\n" +
-        "NOTE: a `catch_up` list means the engine already topped up the other package variants of a dish whose bulk is being cooked anyway (same recipe, different plating) — call this out positively in `watch` (level:\"info\") if present, e.g. \"Caught up 3 packages on shared bulks\".",
+        "NOTE: a `catch_up` list means the engine already topped up the other package variants of a dish whose bulk is being cooked anyway (same recipe, different plating) — call this out positively in `watch` (level:\"info\") if present, e.g. \"Caught up 3 packages on shared bulks\".\n" +
+        "NOTE: `cook_order` is the recommended sequence (broad+slow bulks first) and `portioning_can_start` is when the line can begin. Work the flow into your read — e.g. a make_first 'why' like \"start first, feeds 12 meals\", or a watch note \"portioning can start ~08:40\".",
     };
     const user = { role: 'user', content: "Today's computed plan:\n```json\n" + JSON.stringify(summary) + "\n```" };
     const controller = new AbortController();
