@@ -32,7 +32,7 @@ const REASON_BADGE = {
   no_par:       { label: 'No par', cls: 'text-muted-foreground' },
 };
 
-function PackageSection({ pkg, stockMap, recoMap, overrides, onOverride, search, belowParOnly, defaultExpanded }) {
+function PackageSection({ pkg, stockMap, recoMap, overrides, onOverride, search, belowParOnly, defaultExpanded, coverDays = 6 }) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? true);
   const { fullLabel, label, color, meals } = pkg;
   const dotColor = color || '#6b7280';
@@ -267,6 +267,7 @@ export default function PackageDetailTable({
           onOverride={onOverride}
           search={search}
           belowParOnly={belowParOnly}
+          coverDays={coverDays}
           defaultExpanded={!!selectedPackage || visible.length <= 2}
         />
       ))}
