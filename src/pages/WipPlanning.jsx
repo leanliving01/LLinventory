@@ -265,10 +265,12 @@ export default function WipPlanning() {
   const declinedBatches = useMemo(() => activeBatches.filter(b => decisions[b.id] === 'declined'), [activeBatches, decisions]);
   const approvedBatches = useMemo(() => activeBatches.filter(b => decisions[b.id] === 'approved'), [activeBatches, decisions]);
   const undecidedCount = activeBatches.length - Object.keys(decisions).length;
-  // Zero batches counts as "all decided" — a fresh day with no carried-over WIP
-  // must still be confirmable, otherwise the release gate deadlocks (nothing to check,
-  // yet QC can never be confirmed). See empty-state confirm button below.
-  const allDecided = undecidedCount === 0;
+  const allDecided = undecidedCount === 0 && activeBatches.length > 0;
+  // When there are genuinely no WIP batches to inspect, there is nothing to QC —
+  // the gate clears automatically (no confirmation click required). Otherwise the
+  // gate needs an explicitly confirmed session.
+  const noBatchesToCheck = !loadingBatches && activeBatches.length === 0;
+  const qcGatePassed = isSessionConfirmed || noBatchesToCheck;
 
   const handleDecide = useCallback((batchId, decision) => {
     setDecisions(prev => {
@@ -402,15 +404,17 @@ export default function WipPlanning() {
               <p className="text-xs text-muted-foreground">
                 {isSessionConfirmed
                   ? `✓ Completed — ${todaySession?.approved_count || 0} approved, ${todaySession?.declined_count || 0} declined`
-                  : `${activeBatches.length} batches to check • ${Object.keys(decisions).length} decided`}
+                  : noBatchesToCheck
+                    ? '✓ Nothing to check — auto-cleared'
+                    : `${activeBatches.length} batches to check • ${Object.keys(decisions).length} decided`}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {isSessionConfirmed && (
-              <Badge className="bg-green-100 text-green-700 text-xs gap-1"><CheckCircle2 className="w-3 h-3" /> Confirmed</Badge>
+            {(isSessionConfirmed || noBatchesToCheck) && (
+              <Badge className="bg-green-100 text-green-700 text-xs gap-1"><CheckCircle2 className="w-3 h-3" /> {noBatchesToCheck && !isSessionConfirmed ? 'Cleared' : 'Confirmed'}</Badge>
             )}
-            {!isSessionConfirmed && allDecided && (
+            {!isSessionConfirmed && !noBatchesToCheck && allDecided && (
               <Badge className="bg-amber-100 text-amber-700 text-xs">Ready to confirm</Badge>
             )}
             {showQCSection ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
@@ -436,15 +440,12 @@ export default function WipPlanning() {
             {isLoading ? (
               <div className="text-center py-12 text-sm text-muted-foreground">Loading batches...</div>
             ) : activeBatches.length === 0 ? (
-              <div className="text-center py-10 px-5 space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  No active WIP batches to check — nothing was carried over from previous runs.
+              <div className="text-center py-10 px-5 space-y-2">
+                <CheckCircle2 className="w-8 h-8 text-green-600 mx-auto" />
+                <p className="text-sm font-medium text-green-700 dark:text-green-400">Nothing to check</p>
+                <p className="text-xs text-muted-foreground">
+                  No WIP batches were carried over from previous runs, so QC is automatically cleared — cooking runs can be released.
                 </p>
-                <Button onClick={handleConfirmSession} disabled={confirming} className="gap-2 h-11 bg-green-600 hover:bg-green-700">
-                  {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  Confirm — No Batches to Check
-                </Button>
-                <p className="text-xs text-muted-foreground">Confirms the morning QC so cooking runs can be released.</p>
               </div>
             ) : (
               <>
@@ -594,7 +595,7 @@ export default function WipPlanning() {
             canRelease={perms.cooking_runs_release}
             onReleased={() => queryClient.invalidateQueries({ queryKey: ['wip-cooking-runs'] })}
             draftAdHocRuns={draftAdHocRuns}
-            isQcConfirmed={isSessionConfirmed}
+            isQcConfirmed={qcGatePassed}
           />
         </>
       )}
