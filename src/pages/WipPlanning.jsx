@@ -265,7 +265,10 @@ export default function WipPlanning() {
   const declinedBatches = useMemo(() => activeBatches.filter(b => decisions[b.id] === 'declined'), [activeBatches, decisions]);
   const approvedBatches = useMemo(() => activeBatches.filter(b => decisions[b.id] === 'approved'), [activeBatches, decisions]);
   const undecidedCount = activeBatches.length - Object.keys(decisions).length;
-  const allDecided = undecidedCount === 0 && activeBatches.length > 0;
+  // Zero batches counts as "all decided" — a fresh day with no carried-over WIP
+  // must still be confirmable, otherwise the release gate deadlocks (nothing to check,
+  // yet QC can never be confirmed). See empty-state confirm button below.
+  const allDecided = undecidedCount === 0;
 
   const handleDecide = useCallback((batchId, decision) => {
     setDecisions(prev => {
@@ -433,8 +436,15 @@ export default function WipPlanning() {
             {isLoading ? (
               <div className="text-center py-12 text-sm text-muted-foreground">Loading batches...</div>
             ) : activeBatches.length === 0 ? (
-              <div className="text-center py-12 text-sm text-muted-foreground">
-                No active WIP batches to check. Complete cooking runs first.
+              <div className="text-center py-10 px-5 space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  No active WIP batches to check — nothing was carried over from previous runs.
+                </p>
+                <Button onClick={handleConfirmSession} disabled={confirming} className="gap-2 h-11 bg-green-600 hover:bg-green-700">
+                  {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                  Confirm — No Batches to Check
+                </Button>
+                <p className="text-xs text-muted-foreground">Confirms the morning QC so cooking runs can be released.</p>
               </div>
             ) : (
               <>
