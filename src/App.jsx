@@ -40,6 +40,7 @@ import StockCountReview from '@/pages/StockCountReview';
 import StockAdjustments from '@/pages/StockAdjustments';
 import StockMovements from '@/pages/StockMovements';
 import PickList from '@/pages/PickList';
+import ProductionPrintSheets from '@/pages/ProductionPrintSheets';
 import Kanban from '@/pages/Kanban';
 import Kitchen from '@/pages/Kitchen';
 import KitchenSettings from '@/pages/KitchenSettings';
@@ -274,6 +275,7 @@ const AuthenticatedApp = () => {
         <Route path="/production/run/:runId" element={<ProductionRunDetail />} />
         <Route path="/production/run/:runId/complete" element={<RunCompletionReview />} />
         <Route path="/production/run/:runId/pick-list" element={<PickList />} />
+        <Route path="/production/run/:runId/print" element={<ProductionPrintSheets />} />
         <Route path="/production/run/:runId/kanban" element={<Kanban />} />
         <Route path="/production/cooking" element={<CookingRuns />} />
         <Route path="/production/wip" element={<WipInventory />} />

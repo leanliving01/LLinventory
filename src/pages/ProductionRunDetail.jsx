@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3, RefreshCw, XCircle, RotateCcw, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Play, ClipboardList, LayoutGrid, Package, FileText, BarChart3, RefreshCw, XCircle, RotateCcw, ShieldAlert, Printer } from 'lucide-react';
 import { formatDateSAST, formatTimeSAST } from '@/lib/dateUtils';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -1001,6 +1001,11 @@ export default function ProductionRunDetail() {
         </div>
         <div className="flex items-center gap-2">
           <HelpDrawer pageKey="production-run-detail" />
+          <Link to={`/production/run/${runId}/print`}>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <Printer className="w-4 h-4" /> Print Sheets
+            </Button>
+          </Link>
           {canRevertToDraft && perms.runs_create && (
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowRevertDialog(true)}>
               <RotateCcw className="w-4 h-4" /> Revert to Draft
