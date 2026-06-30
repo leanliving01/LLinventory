@@ -225,7 +225,7 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
           )}
 
           {/* Detail table */}
-          <div className="rounded-xl border border-gray-200 overflow-hidden mt-4 break-inside-avoid">
+          <div className="rounded-xl border border-gray-200 overflow-hidden mt-4">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="text-[10px] font-semibold text-gray-600 uppercase" style={{ backgroundColor: '#f1f5f9', ...exact }}>
@@ -252,17 +252,19 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
                     <td className="px-3 py-2 text-right text-xs font-semibold text-gray-900 border-b border-gray-100 tabular-nums">{r.sellValue > 0 ? formatZAR(r.sellValue) : '—'}</td>
                   </tr>
                 ))}
+                {/* Grand total as the final body row (NOT <tfoot>, which browsers
+                    repeat at the bottom of every printed page). */}
+                {rows.length > 0 && (
+                  <tr className="font-bold text-gray-900" style={{ backgroundColor: '#f1f5f9', ...exact }}>
+                    <td className="px-3 py-2.5 text-xs" colSpan={3}>Total — {catLabel}</td>
+                    <td className="px-3 py-2.5 text-right text-xs tabular-nums">{fmtQty(totals.qty)}</td>
+                    <td className="px-3 py-2.5" />
+                    <td className="px-3 py-2.5 text-right text-xs tabular-nums">{formatZAR(totals.cost)}</td>
+                    <td className="px-3 py-2.5" />
+                    <td className="px-3 py-2.5 text-right text-xs tabular-nums">{formatZAR(totals.sell)}</td>
+                  </tr>
+                )}
               </tbody>
-              <tfoot>
-                <tr className="font-bold text-gray-900" style={{ backgroundColor: '#f1f5f9', ...exact }}>
-                  <td className="px-3 py-2.5 text-xs" colSpan={3}>Total — {catLabel}</td>
-                  <td className="px-3 py-2.5 text-right text-xs tabular-nums">{fmtQty(totals.qty)}</td>
-                  <td className="px-3 py-2.5" />
-                  <td className="px-3 py-2.5 text-right text-xs tabular-nums">{formatZAR(totals.cost)}</td>
-                  <td className="px-3 py-2.5" />
-                  <td className="px-3 py-2.5 text-right text-xs tabular-nums">{formatZAR(totals.sell)}</td>
-                </tr>
-              </tfoot>
             </table>
             {!isLoading && rows.length === 0 && (
               <p className="px-4 py-6 text-sm text-gray-500 text-center">No stock on hand for the selected categories</p>

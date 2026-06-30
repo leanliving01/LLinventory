@@ -285,9 +285,15 @@ body.barcode-scanning-active .barcode-scanning-ui * {
   }
   #inventory-report-print {
     position: static !important;
-    /* Reserve space at the end of the flow so the fixed footer never overlaps the
-       final table rows on the last page. */
-    padding: 0 0 14mm !important;
+    padding: 0 !important;
+  }
+  /* Keep column headers on every page, but never split a single row, and don't let
+     the table reserve a whole page (which left page 1 blank under the summary). */
+  #inventory-report-print thead {
+    display: table-header-group;
+  }
+  #inventory-report-print tr {
+    break-inside: avoid;
   }
   /* Branded footer repeats at the bottom of every printed page. */
   .report-print-footer {
