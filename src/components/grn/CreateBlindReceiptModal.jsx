@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { X, Plus, Trash2, Loader2, PackageCheck, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { confirmGRN } from './GRNConfirmLogic';
+import { confirmGRN, finaliseGRNWithDecisions } from './GRNConfirmLogic';
+import ShortReceivalDecisionModal from './ShortReceivalDecisionModal';
 import { useAuth } from '@/lib/AuthContext';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { calculateDueDate, formatPaymentTerms, toISODate } from '@/lib/utils';
@@ -14,8 +15,16 @@ import { resolveTaxRate } from '@/lib/taxResolution';
 import SupplierInfoBlock from '@/components/purchasing/SupplierInfoBlock';
 import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 
+const emptyLine = () => ({ product_id: '', invoiced_qty: '', received_qty: '', unit_cost: '', uom: '', supplier_product_id: '' });
+
+// Effective received qty: blank means "received exactly what was invoiced".
+const recvOf = (l) => (l.received_qty === '' || l.received_qty == null)
+  ? (Number(l.invoiced_qty) || 0)
+  : (Number(l.received_qty) || 0);
+
 export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
   const { user } = useAuth();
+  const userName = user?.full_name || user?.email || 'System';
   const [saving, setSaving] = useState(false);
   const [supplierId, setSupplierId] = useState('');
   const [locationId, setLocationId] = useState('');
@@ -24,8 +33,10 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
   const [dueDate, setDueDate] = useState('');
   const [dueDateOverridden, setDueDateOverridden] = useState(false);
   const [notes, setNotes] = useState('');
-  const [lines, setLines] = useState([{ product_id: '', qty: '', unit_cost: '', uom: '', supplier_product_id: '' }]);
+  const [lines, setLines] = useState([emptyLine()]);
   const [duplicateInvoice, setDuplicateInvoice] = useState(null);
+  // When confirmGRN short-receives, it pauses here for per-line decisions.
+  const [pendingDecision, setPendingDecision] = useState(null); // { result, po, grn }
 
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers-active'],
@@ -102,7 +113,7 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
     };
   }), [scopedProducts, spByProductId]);
 
-  const addLine = () => setLines(prev => [...prev, { product_id: '', qty: '', unit_cost: '', uom: '', supplier_product_id: '' }]);
+  const addLine = () => setLines(prev => [...prev, emptyLine()]);
   const removeLine = idx => setLines(prev => prev.filter((_, i) => i !== idx));
 
   const selectProduct = (idx, productId) => {
@@ -123,10 +134,13 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
 
   const poTaxRate = useMemo(() => resolveTaxRate(null, selectedSupplier, taxRates), [selectedSupplier, taxRates]);
 
-  const validLines = lines.filter(l => l.product_id && Number(l.qty) > 0 && Number(l.unit_cost) >= 0);
-  const subtotal = validLines.reduce((s, l) => s + (Number(l.qty) * Number(l.unit_cost)), 0);
+  // Invoice value is what the supplier billed → invoiced_qty × cost. Stock value
+  // (handled inside confirmGRN) is driven by the received qty instead.
+  const validLines = lines.filter(l => l.product_id && Number(l.invoiced_qty) > 0 && Number(l.unit_cost) >= 0);
+  const subtotal = validLines.reduce((s, l) => s + (Number(l.invoiced_qty) * Number(l.unit_cost)), 0);
   const tax = Math.round(subtotal * poTaxRate * 100) / 100;
   const total = subtotal + tax;
+  const anyShort = validLines.some(l => recvOf(l) < Number(l.invoiced_qty));
 
   // Unsaved-changes guard: dirty once a header field is set or any line has
   // a product / qty / cost entered. Invoice date defaults to today.
@@ -135,8 +149,8 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
     !!locationId ||
     !!invoiceNumber ||
     !!notes ||
-    lines.some(l => l.product_id || l.qty || l.unit_cost);
-  useUnsavedChanges(dirty, { message: 'This blind receipt has unsaved changes.' });
+    lines.some(l => l.product_id || l.invoiced_qty || l.received_qty || l.unit_cost);
+  useUnsavedChanges(saving ? false : dirty, { message: 'This blind receipt has unsaved changes.' });
   const guardedClose = useGuardedAction();
 
   const checkDuplicateInvoice = async () => {
@@ -146,6 +160,59 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
       invoice_number: invoiceNumber,
     });
     return existing[0] || null;
+  };
+
+  // Create the supplier invoice (header + lines) once the GRN is settled, then finish.
+  const createInvoiceAndFinish = async (po, grn) => {
+    const supplier = suppliers.find(s => s.id === supplierId);
+    const invoice = await base44.entities.PurchaseInvoice.create({
+      invoice_number: invoiceNumber.trim(),
+      supplier_id: supplierId,
+      supplier_name: supplier?.name || '',
+      purchase_order_id: po.id,
+      grn_id: grn.id,
+      invoice_date: invoiceDate,
+      due_date_calculated: dueDate || null,
+      due_date_overridden: dueDateOverridden,
+      subtotal: Math.round(subtotal * 100) / 100,
+      tax_amount: tax,
+      total: Math.round(total * 100) / 100,
+      currency: 'ZAR',
+      status: 'pending_match',
+      payment_status: 'unpaid',
+      source: 'manual',
+      notes: notes || null,
+    });
+
+    for (const l of validLines) {
+      const invoicedQty = Number(l.invoiced_qty) || 0;
+      const receivedQty = recvOf(l);
+      const cost = Number(l.unit_cost) || 0;
+      const product = products.find(p => p.id === l.product_id);
+      await base44.entities.PurchaseInvoiceLine.create({
+        invoice_id: invoice.id,
+        po_line_id: l._poLineId || null,
+        product_id: l.product_id,
+        product_name: product?.name || '',
+        product_sku: product?.sku || '',
+        supplier_product_id: l.supplier_product_id || null,
+        ordered_qty: invoicedQty,
+        received_qty: receivedQty,
+        qty: invoicedQty,                  // the supplier billed this much
+        qty_variance: invoicedQty - receivedQty,
+        unit_cost: cost,
+        tax_rule: '',
+        tax_rate: poTaxRate,
+        line_total: Math.round(invoicedQty * cost * 100) / 100,
+        match_status: 'manually_matched',
+      });
+    }
+
+    // Stamp the expected invoice number on the PO (mirrors linkInvoiceToPO).
+    try { await base44.entities.PurchaseOrder.update(po.id, { supplier_invoice_number: invoiceNumber.trim() }); } catch (_) {}
+
+    toast.success(`Blind receipt ${grn.grn_number} confirmed — stock updated`);
+    onCreated(po);
   };
 
   const handleConfirm = async () => {
@@ -171,7 +238,7 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
         nextDocNumber('GRN'),
       ]);
 
-      // 1. Create blind PO
+      // 1. Create blind PO (status set by confirmGRN / finalise afterwards)
       const po = await base44.entities.PurchaseOrder.create({
         po_number: brNumber,
         supplier_id: supplierId,
@@ -191,26 +258,29 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
         notes: notes || null,
       });
 
-      // 2. Create PO lines
-      const poLines = validLines.map(l => {
+      // 2. Create PO lines individually so we can key GRN lines to po_line_id
+      //    (needed for shortage records). ordered = invoiced, received = accepted.
+      for (const l of validLines) {
         const product = products.find(p => p.id === l.product_id);
-        const qty = Number(l.qty);
-        const unitCost = Number(l.unit_cost);
-        return {
+        const invoicedQty = Number(l.invoiced_qty) || 0;
+        const receivedQty = recvOf(l);
+        const unitCost = Number(l.unit_cost) || 0;
+        const poLine = await base44.entities.PurchaseOrderLine.create({
           purchase_order_id: po.id,
           product_id: l.product_id,
           product_name: product?.name || '',
           product_sku: product?.sku || '',
-          ordered_qty: qty,
-          received_qty: qty,
+          supplier_product_id: l.supplier_product_id || null,
+          ordered_qty: invoicedQty,
+          received_qty: receivedQty,
           unit_cost: unitCost,
           uom: l.uom || product?.stock_uom || 'pcs',
-          line_total: Math.round(qty * unitCost * 100) / 100,
-        };
-      });
-      await base44.entities.PurchaseOrderLine.bulkCreate(poLines);
+          line_total: Math.round(invoicedQty * unitCost * 100) / 100,
+        });
+        l._poLineId = poLine.id; // stash for invoice line linking
+      }
 
-      // 3. Create GRN
+      // 3. Create GRN (draft → confirmed by confirmGRN)
       const grn = await base44.entities.GoodsReceivedNote.create({
         grn_number: grnNumber,
         purchase_order_id: po.id,
@@ -222,21 +292,25 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
         notes: notes || null,
       });
 
-      // 4. Build GRN lines for confirmGRN
+      // 4. Build GRN lines — expected = invoiced, received = accepted. A short
+      //    receival (received < invoiced) makes variance_qty negative, which
+      //    triggers confirmGRN's decision flow.
       const grnLines = validLines.map(l => {
         const product = products.find(p => p.id === l.product_id);
         const sp = spByProductId[l.product_id];
-        const qty = Number(l.qty);
-        const unitCost = Number(l.unit_cost);
+        const invoicedQty = Number(l.invoiced_qty) || 0;
+        const receivedQty = recvOf(l);
+        const unitCost = Number(l.unit_cost) || 0;
         const cf = sp?.conversion_factor || sp?.purchase_to_stock_factor || 1;
         return {
           grn_id: grn.id,
+          po_line_id: l._poLineId || null,
           product_id: l.product_id,
           product_name: product?.name || '',
           product_sku: product?.sku || '',
           supplier_product_id: l.supplier_product_id || null,
-          expected_qty: qty,
-          received_qty: qty,
+          expected_qty: invoicedQty,
+          received_qty: receivedQty,
           unit_cost: unitCost,
           purchase_uom: l.uom || '',
           conversion_factor: cf,
@@ -246,36 +320,51 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
         };
       });
 
-      // 5. Confirm GRN (creates movements, updates SOH and cost_avg)
-      await confirmGRN(grn, grnLines, user?.full_name || user?.email || 'System');
+      // 5. Confirm GRN (moves stock for received qty, lays cost layers).
+      const result = await confirmGRN(grn, grnLines, userName);
 
-      // 6. Create PurchaseInvoice
-      await base44.entities.PurchaseInvoice.create({
-        invoice_number: invoiceNumber.trim(),
-        supplier_id: supplierId,
-        supplier_name: supplier?.name || '',
-        purchase_order_id: po.id,
-        grn_id: grn.id,
-        invoice_date: invoiceDate,
-        due_date_calculated: dueDate || null,
-        due_date_overridden: dueDateOverridden,
-        subtotal: Math.round(subtotal * 100) / 100,
-        tax_amount: tax,
-        total: Math.round(total * 100) / 100,
-        currency: 'ZAR',
-        status: 'pending_match',
-        payment_status: 'unpaid',
-        source: 'manual',
-        notes: notes || null,
-      });
+      // Short-received lines → pause for per-line decisions, then create invoice.
+      if (result?.requiresDecision) {
+        setPendingDecision({ result, po, grn });
+        setSaving(false);
+        return;
+      }
 
-      toast.success(`Blind receipt ${grnNumber} confirmed — stock updated`);
-      onCreated(po);
+      // 6. No shortage → create the invoice and finish.
+      await createInvoiceAndFinish(po, grn);
     } catch (err) {
       console.error('[CreateBlindReceiptModal]', err);
       toast.error(`Failed: ${err.message || 'Unknown error'}`);
       setSaving(false);
     }
+  };
+
+  const handleDecisionsConfirmed = async (decisions) => {
+    if (!pendingDecision) return;
+    setSaving(true);
+    try {
+      await finaliseGRNWithDecisions(
+        pendingDecision.result.grn,
+        pendingDecision.result.persistedLines,
+        decisions,
+        userName,
+      );
+      await createInvoiceAndFinish(pendingDecision.po, pendingDecision.grn);
+      setPendingDecision(null);
+    } catch (err) {
+      console.error('[CreateBlindReceiptModal] finalise', err);
+      toast.error(`Failed to finalise: ${err.message || 'Unknown error'}`);
+      setSaving(false);
+    }
+  };
+
+  // Cancelling the decision leaves a confirmed-stock GRN as a draft to finalise
+  // later (stock has already moved) — surface that and close cleanly.
+  const handleDecisionsCancelled = () => {
+    const po = pendingDecision?.po;
+    setPendingDecision(null);
+    toast.warning('Stock received, but short lines still need a decision — finalise the GRN from the order to record the credit/await.');
+    if (po) onCreated(po); else setSaving(false);
   };
 
   return (
@@ -307,7 +396,7 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
               <label className="text-xs font-semibold text-muted-foreground uppercase">Supplier *</label>
               <SearchableSelect
                 value={supplierId}
-                onValueChange={v => { setSupplierId(v); setLines([{ product_id: '', qty: '', unit_cost: '', uom: '', supplier_product_id: '' }]); }}
+                onValueChange={v => { setSupplierId(v); setLines([emptyLine()]); }}
                 options={suppliers.map(s => ({ value: s.id, label: s.name }))}
                 placeholder="Select supplier..."
                 searchPlaceholder="Search suppliers..."
@@ -373,15 +462,20 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
           {/* Line items */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-semibold">Items Received</h4>
+              <h4 className="text-sm font-semibold">Items</h4>
               <Button variant="outline" size="sm" onClick={addLine} className="gap-1"><Plus className="w-3.5 h-3.5" /> Add Line</Button>
             </div>
+            <p className="text-[11px] text-muted-foreground mb-2">
+              <strong>Invoiced</strong> = what the supplier billed. <strong>Received</strong> = what actually arrived in good condition
+              (leave blank if it equals invoiced). If you received less than invoiced, you'll be asked to await the rest, request a credit, or split.
+            </p>
             <div className="border border-border rounded-lg overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
                     <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Qty Received</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Qty Invoiced</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-24">Qty Received</th>
                     <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-32">Unit Cost (excl. VAT)</th>
                     <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Line Total</th>
                     <th className="w-10"></th>
@@ -389,7 +483,10 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {lines.map((line, idx) => {
-                    const lt = (Number(line.qty) || 0) * (Number(line.unit_cost) || 0);
+                    const invoicedQty = Number(line.invoiced_qty) || 0;
+                    const receivedQty = recvOf(line);
+                    const short = line.product_id && invoicedQty > 0 && receivedQty < invoicedQty;
+                    const lt = invoicedQty * (Number(line.unit_cost) || 0);
                     const product = products.find(p => p.id === line.product_id);
                     return (
                       <tr key={idx}>
@@ -410,7 +507,18 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
                           )}
                         </td>
                         <td className="px-3 py-2">
-                          <Input type="number" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} placeholder="0" className="h-9 text-sm bg-background" min="0" />
+                          <Input type="number" value={line.invoiced_qty} onChange={e => updateLine(idx, 'invoiced_qty', e.target.value)} placeholder="0" className="h-9 text-sm bg-background" min="0" />
+                        </td>
+                        <td className="px-3 py-2">
+                          <Input
+                            type="number"
+                            value={line.received_qty}
+                            onChange={e => updateLine(idx, 'received_qty', e.target.value)}
+                            placeholder={line.invoiced_qty || '0'}
+                            className={`h-9 text-sm bg-background ${short ? 'border-amber-400 text-amber-700' : ''}`}
+                            min="0"
+                          />
+                          {short && <p className="text-[10px] text-amber-600 mt-0.5">{(invoicedQty - receivedQty)} short</p>}
                         </td>
                         <td className="px-3 py-2">
                           <Input type="number" value={line.unit_cost} onChange={e => updateLine(idx, 'unit_cost', e.target.value)} placeholder="0.00" className="h-9 text-sm bg-background" min="0" step="0.01" />
@@ -435,9 +543,15 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
 
           {subtotal > 0 && (
             <div className="bg-muted/50 rounded-lg p-4 space-y-1 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>R {subtotal.toFixed(2)}</span></div>
+              {anyShort && (
+                <div className="flex items-start gap-2 text-amber-700 text-xs pb-1">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>Some lines were received short. The invoice records the invoiced quantity; only the received quantity is added to stock, and you'll choose how to handle the difference.</span>
+                </div>
+              )}
+              <div className="flex justify-between"><span className="text-muted-foreground">Invoice subtotal</span><span>R {subtotal.toFixed(2)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">VAT ({Math.round(poTaxRate * 100)}%)</span><span>R {tax.toFixed(2)}</span></div>
-              <div className="flex justify-between font-bold text-base pt-1 border-t border-border"><span>Total</span><span>R {total.toFixed(2)}</span></div>
+              <div className="flex justify-between font-bold text-base pt-1 border-t border-border"><span>Invoice Total</span><span>R {total.toFixed(2)}</span></div>
             </div>
           )}
         </div>
@@ -450,6 +564,15 @@ export default function CreateBlindReceiptModal({ onCreated, onCancel }) {
           </Button>
         </div>
       </div>
+
+      {pendingDecision && (
+        <ShortReceivalDecisionModal
+          grn={pendingDecision.grn}
+          shortLines={pendingDecision.result.shortLines}
+          onConfirm={handleDecisionsConfirmed}
+          onCancel={handleDecisionsCancelled}
+        />
+      )}
     </div>
   );
 }

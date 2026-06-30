@@ -3,10 +3,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Receipt, ChevronRight, AlertTriangle, Settings } from 'lucide-react';
+import { Plus, Receipt, ChevronRight, AlertTriangle, Settings, PackageCheck } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { format } from 'date-fns';
 import CreatePOModal from '@/components/purchasing/CreatePOModal';
+import CreateBlindReceiptModal from '@/components/grn/CreateBlindReceiptModal';
 import PODetailDrawer from '@/components/purchasing/PODetailDrawer';
 import POFilters from '@/components/purchasing/POFilters';
 import POPagination from '@/components/purchasing/POPagination';
@@ -51,6 +51,7 @@ export default function PurchaseOrders() {
   // restores the same queue, filters and page instead of resetting to defaults.
   const [statusFilter, setStatusFilter] = usePersistentState('po:statusFilter', 'open');
   const [showCreate, setShowCreate] = useState(false);
+  const [showBlind, setShowBlind] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
   const [page, setPage] = usePersistentState('po:page', 1);
   const [pageSize, setPageSize] = usePersistentState('po:pageSize', 50);
@@ -276,6 +277,11 @@ export default function PurchaseOrders() {
             </Link>
           )}
           {perms.po_create && (
+            <Button variant="outline" onClick={() => setShowBlind(true)} className="gap-2">
+              <PackageCheck className="w-4 h-4" /> Blind Receipt
+            </Button>
+          )}
+          {perms.po_create && (
             <Button onClick={() => navigate('/purchasing/purchase-orders/new')} className="gap-2">
               <Plus className="w-4 h-4" /> New PO
             </Button>
@@ -423,6 +429,16 @@ export default function PurchaseOrders() {
             if (newPO) setSelectedPO(newPO);
           }}
           onCancel={() => setShowCreate(false)}
+        />
+      )}
+
+      {showBlind && (
+        <CreateBlindReceiptModal
+          onCreated={() => {
+            setShowBlind(false);
+            queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+          }}
+          onCancel={() => setShowBlind(false)}
         />
       )}
 
