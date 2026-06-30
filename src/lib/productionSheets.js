@@ -68,10 +68,9 @@ export function formatKg(kg) {
 // ── Data loader ──────────────────────────────────────────────────────────────
 
 async function loadBomData() {
-  const [portionBoms, cookBoms, components, products] = await Promise.all([
+  const [portionBoms, cookBoms, products] = await Promise.all([
     base44.entities.Bom.filter({ bom_type: 'portion', is_active: true }, 'product_name', 1000),
     base44.entities.Bom.filter({ bom_type: 'cook', is_active: true }, 'product_name', 1000),
-    base44.entities.BomComponent.list('bom_id', 4000),
     base44.entities.Product.filter({ status: 'active' }, 'name', 2000),
   ]);
 
@@ -80,6 +79,18 @@ async function loadBomData() {
 
   const cookBomByProductId = {};
   cookBoms.forEach(b => { cookBomByProductId[b.product_id] = b; });
+
+  // Fetch components SCOPED to the BOMs we need, in chunks. A bare list() is
+  // silently capped at 1000 rows by PostgREST — with >1000 bom_components total
+  // that truncated newer (UUID-id) BOMs, so their components were missing and
+  // Raw Weight read as 0 ("—"). Chunked $in keeps every request under the cap.
+  const bomIds = [...portionBoms.map(b => b.id), ...cookBoms.map(b => b.id)];
+  const components = [];
+  for (let i = 0; i < bomIds.length; i += 100) {
+    const part = await base44.entities.BomComponent.filter(
+      { bom_id: { $in: bomIds.slice(i, i + 100) } }, 'bom_id', 1000);
+    components.push(...part);
+  }
 
   const compsByBomId = {};
   components.forEach(c => {
