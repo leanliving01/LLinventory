@@ -30,6 +30,7 @@ const fmtQty = (n) => Number(n || 0).toLocaleString('af-ZA', { minimumFractionDi
  */
 export default function InventoryReportModal({ open, onClose, products = [], stockByProduct = {} }) {
   const [selected, setSelected] = useState([]); // [] = All; else array of product.type
+  const [hideZero, setHideZero] = useState(false); // include zero-stock products by default (full listing)
   const [logoOk, setLogoOk] = useState(true); // falls back to the LL badge if the logo asset is missing
   const isAll = selected.length === 0;
   const toggleCat = (t) => setSelected(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
@@ -41,20 +42,20 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
     enabled: open,
   });
 
-  // Categories present among products WITH stock on hand, plus a per-category count
-  // (so each chip shows how many in-stock lines it will pull).
+  // Per-category product counts across ALL tracked products (not just in-stock), so
+  // the chip counts match the Inventory Overview (e.g. Finished Meal (74)).
   const { presentCats, countByType } = useMemo(() => {
     const counts = {};
     for (const p of products) {
       if (!p.type) continue;
-      if ((stockByProduct[p.id]?.on_hand || 0) > 0) counts[p.type] = (counts[p.type] || 0) + 1;
+      counts[p.type] = (counts[p.type] || 0) + 1;
     }
     // Known categories first (business order), then any unmapped type so new enum
     // values are still selectable rather than silently appearing only under "All".
     const known = CATEGORY_ORDER.filter(t => counts[t]);
     const extra = Object.keys(counts).filter(t => !CATEGORY_ORDER.includes(t));
     return { presentCats: [...known, ...extra], countByType: counts };
-  }, [products, stockByProduct]);
+  }, [products]);
 
   const rows = useMemo(() => {
     const fifoMap = buildFifoCostMap(layers);
@@ -77,9 +78,9 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
           sellValue: qty * sellPrice,
         };
       })
-      .filter(r => r.qty > 0) // stock-value report: only what's on hand
+      .filter(r => !hideZero || r.qty > 0) // full listing by default; optionally hide zero-stock
       .sort((a, b) => b.costValue - a.costValue);
-  }, [products, layers, stockByProduct, selected, isAll]);
+  }, [products, layers, stockByProduct, selected, isAll, hideZero]);
 
   const totals = useMemo(() => rows.reduce((t, r) => {
     t.qty += r.qty;
@@ -116,7 +117,16 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
             <p className="text-xs font-semibold text-gray-700">
               Choose categories to pull — click to include / exclude
             </p>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-3 shrink-0">
+              <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={hideZero}
+                  onChange={(e) => setHideZero(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-[#12B76E]"
+                />
+                Hide zero-stock
+              </label>
               <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5 h-8 text-xs">
                 <Printer className="w-3.5 h-3.5" /> Print / PDF
               </Button>
@@ -187,7 +197,7 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
             <div className="text-right text-[11px] text-gray-600 leading-5">
               <p><span className="text-gray-400">Generated</span> {generatedDate}</p>
               <p><span className="text-gray-400">Scope</span> {catLabel}</p>
-              <p><span className="text-gray-400">Lines</span> {rows.length} product{rows.length === 1 ? '' : 's'} with stock</p>
+              <p><span className="text-gray-400">Lines</span> {rows.length} product{rows.length === 1 ? '' : 's'}{hideZero ? ' with stock' : ''}</p>
             </div>
           </div>
 
@@ -267,7 +277,7 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
               </tbody>
             </table>
             {!isLoading && rows.length === 0 && (
-              <p className="px-4 py-6 text-sm text-gray-500 text-center">No stock on hand for the selected categories</p>
+              <p className="px-4 py-6 text-sm text-gray-500 text-center">No products in the selected categories</p>
             )}
             {isLoading && (
               <p className="px-4 py-6 text-sm text-gray-500 text-center">Loading cost layers…</p>
@@ -278,7 +288,8 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
           <p className="text-[10px] text-gray-400 mt-3 leading-4">
             Figures reflect stock physically on hand at the time of generation. Inventory is valued at FIFO
             (first-in, first-out) cost; where a current cost layer is unavailable the latest average cost is used.
-            Retail value uses the current selling price (excl. VAT). Products with no stock on hand are excluded.
+            Retail value uses the current selling price (excl. VAT).
+            {hideZero ? ' Products with no stock on hand are excluded.' : ' All products in the selected categories are listed, including those with no stock on hand.'}
           </p>
 
           {/* Branded footer (repeats on each printed page) */}
