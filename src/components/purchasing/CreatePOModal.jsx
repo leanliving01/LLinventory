@@ -1,23 +1,18 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
-import { X, Plus, Trash2, Loader2, Receipt, PackageCheck, AlertTriangle } from 'lucide-react';
+import { X, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import { toast } from 'sonner';
-import { calculateDueDate, formatPaymentTerms, toISODate } from '@/lib/utils';
+import { formatPaymentTerms } from '@/lib/utils';
 import { nextDocNumber } from '@/lib/docNumbering';
 import { resolveTaxRate } from '@/lib/taxResolution';
-import { confirmGRN } from '@/components/grn/GRNConfirmLogic';
-import { useAuth } from '@/lib/AuthContext';
 import { useUnsavedChanges, useGuardedAction } from '@/lib/navigationGuard';
 
 export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
-  const { user } = useAuth();
   const [saving, setSaving] = useState(false);
-  const [isBlindReceipt, setIsBlindReceipt] = useState(false);
-  const [pendingToggle, setPendingToggle] = useState(false);
 
   // Common fields
   const [supplierId, setSupplierId] = useState('');
@@ -25,16 +20,7 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState(prefillLines || [{ product_id: '', qty: '', unit_cost: '', uom: '', supplier_product_id: '' }]);
   const [search, setSearch] = useState('');
-
-  // Formal PO fields
   const [expectedDate, setExpectedDate] = useState(new Date().toISOString().slice(0, 10));
-
-  // Blind receipt fields
-  const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
-  const [dueDate, setDueDate] = useState('');
-  const [dueDateOverridden, setDueDateOverridden] = useState(false);
-  const [duplicateInvoice, setDuplicateInvoice] = useState(null);
 
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers-active'],
@@ -64,17 +50,6 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
   });
 
   const selectedSupplier = useMemo(() => suppliers.find(s => s.id === supplierId), [suppliers, supplierId]);
-
-  // Auto-calculate due date from supplier payment terms whenever supplier or invoiceDate changes
-  useEffect(() => {
-    if (!isBlindReceipt || dueDateOverridden) return;
-    if (!selectedSupplier?.payment_term_type || !invoiceDate) {
-      setDueDate('');
-      return;
-    }
-    const calculated = calculateDueDate(invoiceDate, selectedSupplier.payment_term_type, selectedSupplier.payment_term_value);
-    setDueDate(calculated ? toISODate(calculated) : '');
-  }, [supplierId, invoiceDate, isBlindReceipt, dueDateOverridden, selectedSupplier]);
 
   const spByProductId = useMemo(() => {
     const map = {};
@@ -166,206 +141,59 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
     !!supplierId ||
     !!locationId ||
     !!notes ||
-    !!invoiceNumber ||
     lines.some(l => l.product_id || l.qty || l.unit_cost);
   useUnsavedChanges(dirty, { message: 'This purchase order has unsaved changes.' });
   const guardedClose = useGuardedAction();
 
-  const confirmToggle = () => {
-    setPendingToggle(false);
-    setIsBlindReceipt(false);
-    setInvoiceNumber('');
-    setDueDate('');
-    setDueDateOverridden(false);
-  };
-
-  const handleDueDateOverride = (val) => {
-    setDueDate(val);
-    setDueDateOverridden(true);
-  };
-
-  const checkDuplicateInvoice = async () => {
-    if (!invoiceNumber || !supplierId) return null;
-    const existing = await base44.entities.PurchaseInvoice.filter({
-      supplier_id: supplierId,
-      invoice_number: invoiceNumber.trim(),
-    });
-    return existing[0] || null;
-  };
-
   const handleCreate = async (asDraft) => {
     if (!supplierId) { toast.error('Select a supplier'); return; }
-    if (isBlindReceipt && !locationId) { toast.error('Select a delivery location'); return; }
-    if (isBlindReceipt && !invoiceNumber.trim()) { toast.error('Enter the supplier invoice number'); return; }
     if (validLines.length === 0) { toast.error('Add at least one line item'); return; }
 
     setSaving(true);
     try {
       const supplier = selectedSupplier;
       const today = new Date().toISOString().slice(0, 10);
-      const prefix = isBlindReceipt ? 'BR' : 'PO';
-      const docNumber = await nextDocNumber(prefix);
+      const docNumber = await nextDocNumber('PO');
 
-      if (isBlindReceipt) {
-        // Duplicate invoice guard
-        const dup = await checkDuplicateInvoice();
-        if (dup) {
-          setDuplicateInvoice(dup);
-          setSaving(false);
-          return;
-        }
+      const po = await base44.entities.PurchaseOrder.create({
+        po_number: docNumber,
+        supplier_id: supplierId,
+        supplier_name: supplier?.name || '',
+        location_id: locationId || null,
+        status: asDraft ? 'draft' : 'approved',
+        type: 'formal_po',
+        order_date: today,
+        expected_date: expectedDate || null,
+        subtotal: Math.round(subtotal * 100) / 100,
+        tax_amount: tax,
+        total: Math.round(total * 100) / 100,
+        currency: 'ZAR',
+        payment_status: 'unpaid',
+        notes: notes || null,
+      });
 
-        const calculatedDueDate = !dueDateOverridden && selectedSupplier?.payment_term_type
-          ? toISODate(calculateDueDate(invoiceDate, selectedSupplier.payment_term_type, selectedSupplier.payment_term_value))
-          : null;
-
-        // 1. Create blind PO
-        const po = await base44.entities.PurchaseOrder.create({
-          po_number: docNumber,
-          supplier_id: supplierId,
-          supplier_name: supplier?.name || '',
-          location_id: locationId || null,
-          status: 'received',
-          type: 'blind_receipt',
-          order_date: today,
-          expected_date: today,
-          supplier_invoice_number: invoiceNumber.trim(),
-          subtotal: Math.round(subtotal * 100) / 100,
-          tax_amount: tax,
-          total: Math.round(total * 100) / 100,
-          currency: 'ZAR',
-          payment_status: 'unpaid',
-          notes: notes || null,
-          due_date: dueDate || null,
-          due_date_calculated: calculatedDueDate || null,
-          due_date_overridden: dueDateOverridden,
-        });
-
-        const grnNumber = await nextDocNumber('GRN');
-
-        // 2. Create PO lines
-        const poLines = validLines.map(l => {
-          const product = products.find(p => p.id === l.product_id);
-          const qty = Number(l.qty);
-          const unitCost = Number(l.unit_cost);
-          return {
-            purchase_order_id: po.id,
-            product_id: l.product_id,
-            product_name: product?.name || '',
-            product_sku: product?.sku || '',
-            ordered_qty: qty,
-            received_qty: qty,
-            unit_cost: unitCost,
-            uom: l.uom || product?.stock_uom || 'pcs',
-            line_total: Math.round(qty * unitCost * 100) / 100,
-          };
-        });
-        await base44.entities.PurchaseOrderLine.bulkCreate(poLines);
-
-        // 3. Create GRN
-        const grn = await base44.entities.GoodsReceivedNote.create({
-          grn_number: grnNumber,
+      const poLines = validLines.map(l => {
+        const product = products.find(p => p.id === l.product_id);
+        const sp = spByProductId[l.product_id];
+        const qty = Number(l.qty);
+        const unitCost = Number(l.unit_cost);
+        return {
           purchase_order_id: po.id,
-          supplier_id: supplierId,
-          supplier_name: supplier?.name || '',
-          location_id: locationId,
-          status: 'draft',
-          received_date: invoiceDate || today,
-          notes: notes || null,
-        });
+          product_id: l.product_id,
+          product_name: product?.name || '',
+          product_sku: product?.sku || '',
+          ordered_qty: qty,
+          received_qty: 0,
+          unit_cost: unitCost,
+          uom: sp?.purchase_uom_label || sp?.purchase_uom || product?.purchase_uom || product?.stock_uom || 'pcs',
+          line_total: Math.round(qty * unitCost * 100) / 100,
+        };
+      });
+      await base44.entities.PurchaseOrderLine.bulkCreate(poLines);
 
-        // 4. Build GRN lines for confirmGRN
-        const grnLines = validLines.map(l => {
-          const product = products.find(p => p.id === l.product_id);
-          const sp = spByProductId[l.product_id];
-          const qty = Number(l.qty);
-          const unitCost = Number(l.unit_cost);
-          const cf = sp?.conversion_factor || sp?.purchase_to_stock_factor || 1;
-          return {
-            grn_id: grn.id,
-            product_id: l.product_id,
-            product_name: product?.name || '',
-            product_sku: product?.sku || '',
-            supplier_product_id: l.supplier_product_id || null,
-            expected_qty: qty,
-            received_qty: qty,
-            unit_cost: unitCost,
-            purchase_uom: l.uom || '',
-            conversion_factor: cf,
-            yield_factor: 1,
-            condition: 'accepted',
-            item_type: 'stock',
-          };
-        });
-
-        // 5. Confirm GRN
-        await confirmGRN(grn, grnLines, user?.full_name || user?.email || 'System');
-
-        // 6. Create PurchaseInvoice
-        await base44.entities.PurchaseInvoice.create({
-          invoice_number: invoiceNumber.trim(),
-          supplier_id: supplierId,
-          supplier_name: supplier?.name || '',
-          purchase_order_id: po.id,
-          grn_id: grn.id,
-          invoice_date: invoiceDate,
-          due_date: dueDate || null,
-          due_date_calculated: calculatedDueDate || null,
-          due_date_overridden: dueDateOverridden,
-          subtotal: Math.round(subtotal * 100) / 100,
-          tax_amount: tax,
-          total: Math.round(total * 100) / 100,
-          currency: 'ZAR',
-          status: 'pending_match',
-          payment_status: 'unpaid',
-          source: 'manual',
-          notes: notes || null,
-        });
-
-        toast.success(`Blind receipt ${docNumber} confirmed — stock updated`);
-        onCreated(po);
-      } else {
-        // Formal PO creation
-        const po = await base44.entities.PurchaseOrder.create({
-          po_number: docNumber,
-          supplier_id: supplierId,
-          supplier_name: supplier?.name || '',
-          location_id: locationId || null,
-          status: asDraft ? 'draft' : 'approved',
-          type: 'formal_po',
-          order_date: today,
-          expected_date: expectedDate || null,
-          subtotal: Math.round(subtotal * 100) / 100,
-          tax_amount: tax,
-          total: Math.round(total * 100) / 100,
-          currency: 'ZAR',
-          payment_status: 'unpaid',
-          notes: notes || null,
-        });
-
-        const poLines = validLines.map(l => {
-          const product = products.find(p => p.id === l.product_id);
-          const sp = spByProductId[l.product_id];
-          const qty = Number(l.qty);
-          const unitCost = Number(l.unit_cost);
-          return {
-            purchase_order_id: po.id,
-            product_id: l.product_id,
-            product_name: product?.name || '',
-            product_sku: product?.sku || '',
-            ordered_qty: qty,
-            received_qty: 0,
-            unit_cost: unitCost,
-            uom: sp?.purchase_uom_label || sp?.purchase_uom || product?.purchase_uom || product?.stock_uom || 'pcs',
-            line_total: Math.round(qty * unitCost * 100) / 100,
-          };
-        });
-        await base44.entities.PurchaseOrderLine.bulkCreate(poLines);
-
-        toast.success(`${docNumber} created as ${asDraft ? 'draft' : 'approved'}`);
-        setSaving(false);
-        onCreated(po);
-      }
+      toast.success(`${docNumber} created as ${asDraft ? 'draft' : 'approved'}`);
+      setSaving(false);
+      onCreated(po);
     } catch (err) {
       console.error('[CreatePOModal]', err);
       toast.error(`Failed: ${err.message || 'Unknown error'}`);
@@ -384,12 +212,8 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2">
-            {isBlindReceipt
-              ? <PackageCheck className="w-5 h-5 text-primary" />
-              : <Receipt className="w-5 h-5 text-primary" />}
-            <h3 className="text-lg font-bold">
-              {isBlindReceipt ? 'New Blind Receipt' : 'New Purchase Order'}
-            </h3>
+            <Receipt className="w-5 h-5 text-primary" />
+            <h3 className="text-lg font-bold">New Purchase Order</h3>
           </div>
           <Button variant="ghost" size="icon" onClick={() => guardedClose(onCancel)}><X className="w-5 h-5" /></Button>
         </div>
@@ -399,43 +223,13 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
               the Purchase Orders page (CreateBlindReceiptModal). This modal only
               creates formal purchase orders. */}
 
-          {/* Toggle warning */}
-          {pendingToggle && (
-            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="font-medium text-amber-800">Change purchase type?</p>
-                <p className="text-xs text-amber-700 mt-0.5">Lines will be kept — invoice number and due date will be cleared.</p>
-              </div>
-              <div className="flex gap-2 shrink-0">
-                <Button size="sm" variant="outline" onClick={() => setPendingToggle(false)}>Keep</Button>
-                <Button size="sm" onClick={confirmToggle}>Clear & Switch</Button>
-              </div>
-            </div>
-          )}
-
-          {/* Duplicate invoice warning */}
-          {duplicateInvoice && (
-            <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold">Duplicate invoice number</p>
-                <p className="text-xs mt-0.5">
-                  Invoice <strong>{invoiceNumber}</strong> already exists for this supplier
-                  {duplicateInvoice.invoice_date ? ` (recorded ${duplicateInvoice.invoice_date})` : ''}.
-                </p>
-                <Button variant="link" size="sm" className="h-auto p-0 mt-1 text-destructive text-xs" onClick={() => setDuplicateInvoice(null)}>Dismiss and edit</Button>
-              </div>
-            </div>
-          )}
-
           {/* Supplier and location */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase">Supplier *</label>
               <SearchableSelect
                 value={supplierId}
-                onValueChange={v => { setSupplierId(v); setDueDateOverridden(false); }}
+                onValueChange={setSupplierId}
                 placeholder="Select supplier..."
                 searchPlaceholder="Search suppliers..."
                 triggerClassName="mt-1"
@@ -444,16 +238,9 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
               {termsText && (
                 <p className="text-[10px] text-muted-foreground mt-0.5">Payment terms: {termsText}</p>
               )}
-              {supplierId && !selectedSupplier?.payment_term_type && isBlindReceipt && (
-                <p className="text-[10px] text-amber-600 mt-0.5 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3" /> No payment terms — enter due date manually
-                </p>
-              )}
             </div>
             <div>
-              <label className="text-xs font-semibold text-muted-foreground uppercase">
-                {isBlindReceipt ? 'Deliver To *' : 'Deliver To'}
-              </label>
+              <label className="text-xs font-semibold text-muted-foreground uppercase">Deliver To</label>
               <SearchableSelect
                 value={locationId}
                 onValueChange={setLocationId}
@@ -466,66 +253,21 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
           </div>
 
           {/* Formal PO fields */}
-          {!isBlindReceipt && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground uppercase">Expected Delivery</label>
-                <Input type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)} className="mt-1" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground uppercase">Notes</label>
-                <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Internal notes..." className="mt-1" />
-              </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase">Expected Delivery</label>
+              <Input type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)} className="mt-1" />
             </div>
-          )}
-
-          {/* Blind Receipt fields */}
-          {isBlindReceipt && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground uppercase">Supplier Invoice Number *</label>
-                <Input
-                  value={invoiceNumber}
-                  onChange={e => { setInvoiceNumber(e.target.value); setDuplicateInvoice(null); }}
-                  placeholder="e.g. INV-2024-001"
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground uppercase">Invoice Date</label>
-                <Input
-                  type="date"
-                  value={invoiceDate}
-                  onChange={e => { setInvoiceDate(e.target.value); setDueDateOverridden(false); }}
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground uppercase">
-                  Due Date
-                  {dueDate && !dueDateOverridden && <span className="ml-1 font-normal normal-case text-green-600">auto-calculated</span>}
-                  {dueDateOverridden && <span className="ml-1 font-normal normal-case text-amber-600">manually set</span>}
-                </label>
-                <Input
-                  type="date"
-                  value={dueDate}
-                  onChange={e => handleDueDateOverride(e.target.value)}
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground uppercase">Notes</label>
-                <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Reason for blind receipt, driver name, etc." className="mt-1" />
-              </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase">Notes</label>
+              <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Internal notes..." className="mt-1" />
             </div>
-          )}
+          </div>
 
           {/* Line items */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-semibold">
-                {isBlindReceipt ? 'Items Received' : 'Line Items'}
-              </h4>
+              <h4 className="text-sm font-semibold">Line Items</h4>
               <Button variant="outline" size="sm" onClick={addLine} className="gap-1">
                 <Plus className="w-3.5 h-3.5" /> Add Line
               </Button>
@@ -535,9 +277,7 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
                     <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase">Product</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">
-                      {isBlindReceipt ? 'Qty Received' : 'Qty'}
-                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Qty</th>
                     <th className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-32">Unit Cost (excl. VAT)</th>
                     <th className="text-right px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase w-28">Total</th>
                     <th className="w-10"></th>
@@ -644,23 +384,14 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
         {/* Footer */}
         <div className="px-6 py-4 border-t border-border shrink-0 flex gap-3">
           <Button variant="outline" className="flex-1" onClick={() => guardedClose(onCancel)}>Cancel</Button>
-          {isBlindReceipt ? (
-            <Button className="flex-1 gap-2" onClick={() => handleCreate(false)} disabled={saving}>
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <PackageCheck className="w-4 h-4" />}
-              Confirm Receipt & Update Stock
-            </Button>
-          ) : (
-            <>
-              <Button variant="secondary" className="flex-1 gap-2" onClick={() => handleCreate(true)} disabled={saving}>
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                Save as Draft
-              </Button>
-              <Button className="flex-1 gap-2" onClick={() => handleCreate(false)} disabled={saving}>
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                Approve PO
-              </Button>
-            </>
-          )}
+          <Button variant="secondary" className="flex-1 gap-2" onClick={() => handleCreate(true)} disabled={saving}>
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            Save as Draft
+          </Button>
+          <Button className="flex-1 gap-2" onClick={() => handleCreate(false)} disabled={saving}>
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            Approve PO
+          </Button>
         </div>
       </div>
     </div>
