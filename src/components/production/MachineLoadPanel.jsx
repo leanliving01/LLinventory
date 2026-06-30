@@ -49,7 +49,8 @@ export default function MachineLoadPanel({ lines = [] }) {
         {plan.groups.map((g) => {
           const Icon = GROUP_ICON[g.key] || Soup;
           return (
-            <div key={g.key} className={cn('rounded-xl border p-4', g.over ? 'border-red-300 bg-red-50/40' : 'border-border')}>
+            <div key={g.key} className={cn('rounded-xl border p-4',
+              g.over ? 'border-red-300 bg-red-50/40' : g.idle ? 'border-border border-dashed opacity-70' : 'border-border')}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <Icon className="w-4 h-4 text-muted-foreground" />
@@ -80,16 +81,22 @@ export default function MachineLoadPanel({ lines = [] }) {
                 </p>
               )}
 
-              <div className="border-t border-border/60 pt-2 space-y-0.5 max-h-44 overflow-y-auto">
-                {g.bulks.map((b) => (
-                  <div key={b.sku || b.name} className="flex items-center justify-between text-[11px]">
-                    <span className="truncate pr-2">{b.name}</span>
-                    <span className="text-muted-foreground tabular-nums shrink-0">
-                      {Math.round(b.kg)} kg · {b.batches}×
-                    </span>
-                  </div>
-                ))}
-              </div>
+              {g.idle ? (
+                <div className="border-t border-border/60 pt-2 text-[11px] text-muted-foreground italic">
+                  Idle today — spare capacity.
+                </div>
+              ) : (
+                <div className="border-t border-border/60 pt-2 space-y-0.5 max-h-44 overflow-y-auto">
+                  {g.bulks.map((b) => (
+                    <div key={b.sku || b.name} className="flex items-center justify-between text-[11px]">
+                      <span className="truncate pr-2">{b.name}</span>
+                      <span className="text-muted-foreground tabular-nums shrink-0">
+                        {Math.round(b.kg)} kg · {b.batches}×
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

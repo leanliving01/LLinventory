@@ -174,14 +174,17 @@ export function buildMachinePlan(wipNeeded, capsByProduct, equipment = [], optio
   const ovenUnits = equipment.filter((e) => isOvenName(e.name) || /oven/i.test(e.equipment_type || '')).length || 4;
   const ovenSplit = options.ovenSplit || { roast: Math.ceil(ovenUnits / 2), steam: Math.floor(ovenUnits / 2) };
 
-  // group key → accumulator
+  // group key → accumulator. ALL stations are always returned (even idle ones) so
+  // the kitchen picture is complete — a 0% tilting pan tells the chef there's
+  // spare wet capacity, rather than the machine silently vanishing.
   const G = {
-    IVARIO:      { key: 'IVARIO', label: 'Ivario (wet ≤20 kg)', units: 1, cookWindowMin, kg: 0, batches: 0, cookMin: 0, bulks: [] },
-    TILT:        { key: 'TILT',   label: 'Tilting Pan (wet >20 kg)', units: 1, cookWindowMin, kg: 0, batches: 0, cookMin: 0, bulks: [] },
+    IVARIO:      { key: 'IVARIO', label: 'Ivario (wet, ≤20 kg/batch)', units: 1, cookWindowMin, kg: 0, batches: 0, cookMin: 0, bulks: [] },
+    TILT:        { key: 'TILT',   label: 'Tilting Pan (wet, ≤100 kg/batch)', units: 1, cookWindowMin, kg: 0, batches: 0, cookMin: 0, bulks: [] },
     'OVEN-ROAST':{ key: 'OVEN-ROAST', label: `Ovens · roast (×${ovenSplit.roast})`, units: ovenSplit.roast, cookWindowMin, kg: 0, batches: 0, cookMin: 0, bulks: [] },
     'OVEN-STEAM':{ key: 'OVEN-STEAM', label: `Ovens · steam (×${ovenSplit.steam})`, units: ovenSplit.steam, cookWindowMin, kg: 0, batches: 0, cookMin: 0, bulks: [] },
   };
   const unscheduled = [];
+  const wet = []; // wet bulks deferred so we can balance them across BOTH pans
 
   for (const [bulkId, info] of Object.entries(wipNeeded)) {
     const kg = Math.round((info.kg || 0) * 100) / 100;
@@ -190,38 +193,49 @@ export function buildMachinePlan(wipNeeded, capsByProduct, equipment = [], optio
     if (caps.length === 0) { unscheduled.push({ ...info, kg, reason: 'no capacity set' }); continue; }
 
     const ovenCap = caps.find((c) => isOvenName(c.equipment_name));
-    let groupKey, maxBatch, cycle;
     if (ovenCap) {
       const mode = /roast/i.test(ovenCap.notes || '') ? 'roast' : 'steam';
-      groupKey = mode === 'roast' ? 'OVEN-ROAST' : 'OVEN-STEAM';
-      maxBatch = Number(ovenCap.max_capacity) || 0;
-      cycle = Number(ovenCap.cycle_time_min) || 0;
+      const groupKey = mode === 'roast' ? 'OVEN-ROAST' : 'OVEN-STEAM';
+      const maxBatch = Number(ovenCap.max_capacity) || 0;
+      const cycle = Number(ovenCap.cycle_time_min) || 0;
+      const batches = maxBatch > 0 ? Math.ceil(kg / maxBatch) : 1;
+      const g = G[groupKey];
+      g.kg += kg; g.batches += batches; g.cookMin += batches * cycle;
+      g.bulks.push({ name: info.name, sku: info.sku, kg, batches, cookMin: batches * cycle });
     } else {
-      // wet: pick by run size (recommendation; chef can switch)
+      // wet — collect; the Ivario and tilting pan are interchangeable, so balance
+      // these across both pans below (don't dump them all on the tiny Ivario).
       const ivario = caps.find((c) => isIvarioName(c.equipment_name));
       const tilt = caps.find((c) => !isIvarioName(c.equipment_name));
-      const useTilt = kg > 20 && tilt;
-      const chosen = useTilt ? tilt : (ivario || tilt);
-      groupKey = useTilt ? 'TILT' : 'IVARIO';
-      maxBatch = Number(chosen?.max_capacity) || 0;
-      cycle = Number(chosen?.cycle_time_min) || 0;
+      wet.push({
+        info, kg,
+        ivarioMax: Number(ivario?.max_capacity) || 20,
+        tiltMax: Number(tilt?.max_capacity) || 100,
+        cycle: Number((ivario || tilt)?.cycle_time_min) || 0,
+      });
     }
-
-    const batches = maxBatch > 0 ? Math.ceil(kg / maxBatch) : 1;
-    const cookMin = batches * cycle;
-    const g = G[groupKey];
-    g.kg += kg; g.batches += batches; g.cookMin += cookMin;
-    g.bulks.push({ name: info.name, sku: info.sku, kg, batches, cookMin });
   }
 
-  const groups = Object.values(G)
-    .filter((g) => g.bulks.length > 0)
-    .map((g) => {
-      const capacityMin = g.units * g.cookWindowMin;
-      const utilisationPct = capacityMin > 0 ? Math.round((g.cookMin / capacityMin) * 100) : 0;
-      return { ...g, capacityMin, utilisationPct, over: g.cookMin > capacityMin,
-               bulks: g.bulks.sort((a, b) => b.kg - a.kg) };
-    });
+  // Balance wet bulks across Ivario + Tilting Pan to cook them in PARALLEL (less
+  // wall-clock) rather than serially on one pan. Longest cooks placed first;
+  // anything over the Ivario's batch size must go on the tilting pan.
+  wet.sort((a, b) => b.cycle - a.cycle);
+  for (const w of wet) {
+    const mustTilt = w.kg > w.ivarioMax && w.tiltMax > 0;
+    const key = mustTilt ? 'TILT' : (G.IVARIO.cookMin <= G.TILT.cookMin ? 'IVARIO' : 'TILT');
+    const max = key === 'IVARIO' ? w.ivarioMax : w.tiltMax;
+    const batches = max > 0 ? Math.ceil(w.kg / max) : 1;
+    const g = G[key];
+    g.kg += w.kg; g.batches += batches; g.cookMin += batches * w.cycle;
+    g.bulks.push({ name: w.info.name, sku: w.info.sku, kg: w.kg, batches, cookMin: batches * w.cycle });
+  }
+
+  const groups = Object.values(G).map((g) => {
+    const capacityMin = g.units * g.cookWindowMin;
+    const utilisationPct = capacityMin > 0 ? Math.round((g.cookMin / capacityMin) * 100) : 0;
+    return { ...g, capacityMin, utilisationPct, over: g.cookMin > capacityMin, idle: g.bulks.length === 0,
+             bulks: g.bulks.sort((a, b) => b.kg - a.kg) };
+  });
 
   return { groups, unscheduled };
 }
