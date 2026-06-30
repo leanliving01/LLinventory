@@ -1,38 +1,38 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Sparkles, Loader2, RefreshCw, AlertTriangle, Check, ArrowRight } from 'lucide-react';
+import { Sparkles, Loader2, RefreshCw, AlertTriangle, Check, ArrowRight, Flag, Gauge, Eye, Info } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useMachinePlan } from '@/lib/useMachinePlan';
 
 /**
  * Livy's read of the production plan — the "vehicle" on top of the engine.
  *
- * The deterministic engine has ALREADY computed the plan (quantities + machine
- * load). We hand that finished plan to Livy as grounding and ask for JUDGMENT:
- * a prose read PLUS structured quantity adjustments. Because the numbers are in
- * the prompt, Livy never calls tools or writes code — fast (~5-10s) and
- * deterministic.
+ * The engine computes the plan (quantities + machine load); Livy reasons over it
+ * for JUDGMENT. To make the output easy to scan, Livy returns a STRUCTURED object
+ * (headline / make-first / machine / watch / adjustments) which we render as
+ * designed sections. If the structure ever fails to parse we fall back to plain
+ * markdown so it never breaks. Grounded on the engine's numbers → fast (~5-15s),
+ * deterministic, no tool round-trips for the maths.
  *
- * Phase 2: the adjustments come back as one-tap chips. Accepting one sets that
- * meal's quantity (onApply), which flows straight back into the engine — the
- * machine load and totals recompute live.
- *
- * @param {Array}    lines   - flattened plan lines (soh/committed/par/planned_qty/name/sku)
- * @param {function} onApply - (sku, toQty) => void; applies a suggested quantity
+ * @param {Array}    lines        - flattened plan lines (soh/committed/par/qty/name/sku)
+ * @param {function} onApply      - (sku, toQty) => void; applies a suggested quantity
+ * @param {function} onSuggestions- (adjustments) => void; for the learning loop
  */
-function extractAdjustments(text) {
-  const m = text.match(/```json\s*([\s\S]*?)```/i);
-  if (!m) return { clean: text, adjustments: [] };
-  let parsed = null;
-  try { parsed = JSON.parse(m[1].trim()); } catch { /* ignore bad json */ }
-  const clean = text.replace(m[0], '').trim();
-  const arr = Array.isArray(parsed) ? parsed
-    : (parsed && Array.isArray(parsed.adjustments)) ? parsed.adjustments : [];
-  return { clean, adjustments: arr };
+function extractStructured(text) {
+  if (!text) return null;
+  let body = text;
+  const fence = text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/i);
+  if (fence) body = fence[1];
+  const first = body.indexOf('{');
+  const last = body.lastIndexOf('}');
+  if (first === -1 || last <= first) return null;
+  try { return JSON.parse(body.slice(first, last + 1)); } catch { return null; }
 }
 
 export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
   const { plan: machinePlan, isLoading: planLoading } = useMachinePlan(lines);
-  const [reply, setReply] = useState('');
+  const [structured, setStructured] = useState(null);
+  const [fallbackText, setFallbackText] = useState('');
   const [adjustments, setAdjustments] = useState([]);
   const [applied, setApplied] = useState(() => new Set());
   const [loading, setLoading] = useState(false);
@@ -46,8 +46,7 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
   }, [lines]);
 
   const summary = useMemo(() => {
-    const backorders = [];
-    const belowPar = [];
+    const backorders = [], belowPar = [];
     let totalUnits = 0;
     for (const l of lines) {
       const soh = l.soh_at_plan || 0, com = l.committed_at_plan || 0, par = l.par_at_plan || 0, qty = l.planned_qty || 0;
@@ -63,30 +62,27 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
       machine: g.label, utilisation_pct: g.utilisationPct, over_capacity: g.over, kg: Math.round(g.kg), batches: g.batches,
     }));
     return {
-      date: new Date().toISOString().slice(0, 10),
-      total_meals: totalUnits, meal_lines: lines.length,
+      date: new Date().toISOString().slice(0, 10), total_meals: totalUnits, meal_lines: lines.length,
       backorders: backorders.slice(0, 8), below_par: belowPar.slice(0, 8),
-      top_quantities: topMakes, machines,
-      bulks_without_capacity: (machinePlan?.unscheduled || []).map(u => u.name),
+      top_quantities: topMakes, machines, bulks_without_capacity: (machinePlan?.unscheduled || []).map(u => u.name),
     };
   }, [lines, machinePlan]);
 
   const ask = useCallback(async () => {
     if (!lines.length) return;
-    setLoading(true); setError(''); setReply(''); setAdjustments([]); setApplied(new Set());
+    setLoading(true); setError(''); setStructured(null); setFallbackText(''); setAdjustments([]); setApplied(new Set());
     const system = {
       role: 'system',
       content:
         "You are Livy, the Lean Living production planner. The deterministic engine has ALREADY computed today's plan — the JSON below is FINAL and correct.\n" +
-        "First, do ONE quick lookup of your own memory (brain_search) for saved notes on how this manager prefers production planned, and weave any in. Use NO other tools (no ERP tools) and do NOT write or run code — the plan numbers below are final and complete; never recompute them.\n" +
-        "Give the production manager a tight read in markdown:\n" +
-        "• **Top priority** — the single most important thing to make first and why (backorders/owed orders rank above below-par).\n" +
-        "• **Machine balance** — call out anything overloaded (>100%) or idle; the wet line is interchangeable (Ivario ≤20kg ↔ tilting pan ≤100kg).\n" +
-        "• **Watch** — any risk (over-capacity defers to tomorrow, a bulk with no capacity, a big single-meal load).\n" +
-        "Be concise — short bullets, ground every point in the numbers. ZAR, meals in units, Africa/Johannesburg.\n\n" +
-        "THEN, only if you'd actually change a make-quantity, append a fenced json block (and nothing after it):\n" +
-        "```json\n{\"adjustments\":[{\"sku\":\"MWL10\",\"name\":\"Lean Mince…\",\"to_qty\":120,\"reason\":\"clear backorder + top seller\"}]}\n```\n" +
-        "to_qty is the NEW TOTAL units for that meal. Include only meals you'd change (max 5). If nothing should change, omit the block entirely.",
+        "First, do ONE quick lookup of your own memory (brain_search) for saved notes on how this manager prefers production planned, and factor them in. Use NO other tools (no ERP tools) and do NOT write or run code — the plan numbers are final; never recompute them.\n" +
+        "Reply with ONLY a JSON object (no text before or after it) in EXACTLY this shape:\n" +
+        '{"headline":"one short sentence — the bottom line",' +
+        '"make_first":[{"name":"Lean Mince…","sku":"MWL10","qty":89,"why":"14 owed + biggest run"}],' +
+        '"machine":["≤8-word note on balance/idle/overload"],' +
+        '"watch":[{"level":"risk","text":"short risk or note"}],' +
+        '"adjustments":[{"sku":"MWL10","name":"Lean Mince…","to_qty":120,"reason":"short why"}]}\n' +
+        "Rules: make_first = ordered make-first list (backorders before below-par), qty = today's make for that meal, keep ≤5. machine = 1-3 very short notes (the wet line Ivario↔tilting pan is interchangeable). watch = risks (level:\"risk\") or notes (level:\"info\"), ≤4, each one line. adjustments = ONLY real make-quantity changes you'd recommend (to_qty = new total), max 5, else []. Every string short and scannable. Numbers from the plan only.",
     };
     const user = { role: 'user', content: "Today's computed plan:\n```json\n" + JSON.stringify(summary) + "\n```" };
     const controller = new AbortController();
@@ -95,8 +91,7 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
       let resp;
       try {
         resp = await fetch('/__fn/livy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model: 'gpt-5.4', stream: false, messages: [system, user] }),
           signal: controller.signal,
         });
@@ -105,13 +100,19 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
       let data = null;
       try { data = raw ? JSON.parse(raw) : null; } catch { /* non-JSON */ }
       if (!resp.ok || !data) throw new Error(data?.error?.message || data?.error || (raw ? raw.slice(0, 140) : `HTTP ${resp.status}`));
-      const { clean, adjustments: adj } = extractAdjustments(data?.choices?.[0]?.message?.content || 'No response.');
-      setReply(clean);
-      // Keep only real, applyable changes (known sku, numeric, different from current).
-      const usable = adj.filter(a => a && a.sku && Number.isFinite(Number(a.to_qty))
-        && Number(a.to_qty) !== (currentQtyBySku[a.sku] ?? null)).slice(0, 5);
-      setAdjustments(usable);
-      onSuggestions?.(usable);
+      const content = data?.choices?.[0]?.message?.content || '';
+      const obj = extractStructured(content);
+      if (obj && (obj.make_first || obj.headline || obj.watch)) {
+        setStructured(obj);
+        const adj = Array.isArray(obj.adjustments) ? obj.adjustments : [];
+        const usable = adj.filter(a => a && a.sku && Number.isFinite(Number(a.to_qty))
+          && Number(a.to_qty) !== (currentQtyBySku[a.sku] ?? null)).slice(0, 5);
+        setAdjustments(usable);
+        onSuggestions?.(usable);
+      } else {
+        setFallbackText(content || 'No response.');
+        onSuggestions?.([]);
+      }
     } catch (err) {
       setError(err.name === 'AbortError'
         ? "Livy took too long to read the plan — try Refresh in a moment."
@@ -121,23 +122,20 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
     }
   }, [lines.length, summary, currentQtyBySku, onSuggestions]);
 
-  // Auto-run ONCE when the plan is first ready (so it "just happens"). Applying an
-  // adjustment must NOT silently re-trigger Livy — use Refresh for an updated read.
   useEffect(() => {
     if (planLoading || !lines.length || hasRun.current) return;
     hasRun.current = true;
     ask();
   }, [planLoading, lines.length, ask]);
 
-  const applyOne = (a) => {
-    onApply?.(a.sku, Number(a.to_qty));
-    setApplied(prev => new Set(prev).add(a.sku));
-  };
+  const applyOne = (a) => { onApply?.(a.sku, Number(a.to_qty)); setApplied(prev => new Set(prev).add(a.sku)); };
 
   if (!lines.length) return null;
 
+  const s = structured;
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
+      {/* Header */}
       <div className="px-6 py-4 border-b border-border flex items-center gap-2.5">
         <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
           <Sparkles className="w-4 h-4 text-primary" />
@@ -152,8 +150,8 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
         </button>
       </div>
 
-      <div className="px-6 py-4 space-y-4">
-        {(loading || planLoading) && !reply && (
+      <div className="px-6 py-5 space-y-5">
+        {(loading || planLoading) && !s && !fallbackText && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
             <Loader2 className="w-4 h-4 animate-spin" /> Livy is reading the plan…
           </div>
@@ -163,15 +161,81 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> {error}
           </div>
         )}
-        {reply && (
+
+        {/* Structured read */}
+        {s && (
+          <>
+            {s.headline && (
+              <div className="flex items-start gap-2.5 bg-primary/5 border border-primary/15 rounded-lg px-4 py-3">
+                <Sparkles className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                <p className="text-sm font-medium text-foreground leading-snug">{s.headline}</p>
+              </div>
+            )}
+
+            {Array.isArray(s.make_first) && s.make_first.length > 0 && (
+              <Section icon={Flag} title="Make first" tint="text-emerald-600">
+                <ol className="space-y-1.5">
+                  {s.make_first.map((m, i) => (
+                    <li key={m.sku || i} className="flex items-start gap-3">
+                      <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-foreground">{m.name || m.sku}</span>
+                          {m.sku && <span className="text-[10px] font-mono text-muted-foreground">{m.sku}</span>}
+                          {Number.isFinite(Number(m.qty)) && (
+                            <span className="text-[11px] tabular-nums font-semibold bg-muted px-1.5 py-0.5 rounded">{m.qty} units</span>
+                          )}
+                        </div>
+                        {m.why && <p className="text-xs text-muted-foreground leading-snug">{m.why}</p>}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </Section>
+            )}
+
+            {Array.isArray(s.machine) && s.machine.length > 0 && (
+              <Section icon={Gauge} title="Machine balance" tint="text-sky-600">
+                <ul className="space-y-1">
+                  {s.machine.map((t, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-foreground">
+                      <span className="w-1 h-1 rounded-full bg-muted-foreground/50 mt-2 shrink-0" />
+                      <span className="leading-snug">{typeof t === 'string' ? t : t?.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+            )}
+
+            {Array.isArray(s.watch) && s.watch.length > 0 && (
+              <Section icon={Eye} title="Watch" tint="text-amber-600">
+                <ul className="space-y-1.5">
+                  {s.watch.map((w, i) => {
+                    const risk = (w?.level || 'info') === 'risk';
+                    const Icon = risk ? AlertTriangle : Info;
+                    return (
+                      <li key={i} className="flex items-start gap-2 text-sm">
+                        <Icon className={cn('w-3.5 h-3.5 mt-0.5 shrink-0', risk ? 'text-amber-500' : 'text-muted-foreground')} />
+                        <span className={cn('leading-snug', risk ? 'text-foreground' : 'text-muted-foreground')}>{w?.text || (typeof w === 'string' ? w : '')}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </Section>
+            )}
+          </>
+        )}
+
+        {/* Fallback: plain markdown if the structure didn't parse */}
+        {!s && fallbackText && (
           <div className="prose prose-sm dark:prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0.5">
-            <ReactMarkdown>{reply}</ReactMarkdown>
+            <ReactMarkdown>{fallbackText}</ReactMarkdown>
           </div>
         )}
 
         {/* Suggested adjustments — one-tap, feed straight back into the engine */}
         {adjustments.length > 0 && (
-          <div className="border-t border-border pt-3">
+          <div className="border-t border-border pt-4">
             <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Suggested adjustments</p>
             <div className="space-y-2">
               {adjustments.map((a) => {
@@ -188,13 +252,9 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
                       </div>
                       {a.reason && <p className="text-[11px] text-muted-foreground truncate">{a.reason}</p>}
                     </div>
-                    <button
-                      onClick={() => applyOne(a)}
-                      disabled={done}
-                      className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg shrink-0 transition-colors ${
-                        done ? 'bg-emerald-100 text-emerald-700 cursor-default'
-                             : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
-                    >
+                    <button onClick={() => applyOne(a)} disabled={done}
+                      className={cn('inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg shrink-0 transition-colors',
+                        done ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90')}>
                       <Check className="w-3.5 h-3.5" /> {done ? 'Applied' : 'Apply'}
                     </button>
                   </div>
@@ -205,6 +265,18 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function Section({ icon: Icon, title, tint, children }) {
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 mb-2">
+        <Icon className={cn('w-4 h-4', tint)} />
+        <h4 className="text-xs font-bold uppercase tracking-wide text-foreground">{title}</h4>
+      </div>
+      <div className="pl-0.5">{children}</div>
     </div>
   );
 }
