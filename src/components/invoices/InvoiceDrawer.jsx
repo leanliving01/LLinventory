@@ -62,6 +62,7 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
   const [showCreditNote, setShowCreditNote] = useState(false);
   const [showMatchPO, setShowMatchPO] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
+  const [reMatch, setReMatch] = useState(false); // force the per-line match view on a matched invoice
 
   // Invoice lines
   const { data: lines = [], isLoading: linesLoading } = useQuery({
@@ -243,7 +244,12 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
   const matchedCount = lines.filter(l => ['auto_matched', 'manually_matched'].includes(l.match_status)).length;
   const unmatchedCount = lines.filter(l => l.match_status === 'unmatched').length;
   const isXero = invoice.source === 'xero_sync';
-  const isManual = invoice.source === 'manual';
+  // Progressive Details view: layout follows LINE STATE, not the invoice source.
+  // Every line matched to a product → the unified ordered/received/invoiced table
+  // (manual OR Xero); any unmatched line → the per-line match controls. The
+  // re-match toggle lets a fully-matched Xero invoice go back to the controls.
+  const allMatched = lines.length > 0 && lines.every(l => l.product_id);
+  const showLineTable = allMatched && !reMatch;
 
   const pendingShortages = shortages.filter(s =>
     ['open', 'credit_required'].includes(s.credit_follow_up_status) ||
@@ -344,9 +350,16 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
                 <div className="text-center py-12 text-sm text-muted-foreground">Loading...</div>
               ) : lines.length === 0 ? (
                 <div className="text-center py-12 text-sm text-muted-foreground">No lines on this invoice.</div>
-              ) : isManual ? (
-                // Three-way match table for manually created invoices
+              ) : showLineTable ? (
+                // Unified ordered/received/invoiced table for fully-matched invoices (any source)
                 <div className="overflow-x-auto">
+                  {isXero && canEdit && invoice.status !== 'approved' && (
+                    <div className="flex justify-end px-3 pt-2">
+                      <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setReMatch(true)}>
+                        <Link2 className="w-3.5 h-3.5" /> Re-match lines
+                      </Button>
+                    </div>
+                  )}
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-muted/50 border-b border-border">
@@ -406,17 +419,24 @@ export default function InvoiceDrawer({ invoice, onClose, onUpdated, canEdit }) 
                   </table>
                 </div>
               ) : (
-                // Xero match rows for xero_sync invoices
-                lines.map(line => (
-                  <InvoiceLineMatchRow
-                    key={line.id}
-                    line={line}
-                    supplierProducts={supplierProducts}
-                    onMatch={handleMatch}
-                    onUnmatch={handleUnmatch}
-                    editable={canEdit && invoice.status !== 'approved'}
-                  />
-                ))
+                // Per-line match controls for any invoice with unmatched lines
+                <div>
+                  {reMatch && allMatched && (
+                    <div className="flex justify-end px-3 pt-2">
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setReMatch(false)}>Done</Button>
+                    </div>
+                  )}
+                  {lines.map(line => (
+                    <InvoiceLineMatchRow
+                      key={line.id}
+                      line={line}
+                      supplierProducts={supplierProducts}
+                      onMatch={handleMatch}
+                      onUnmatch={handleUnmatch}
+                      editable={canEdit && invoice.status !== 'approved'}
+                    />
+                  ))}
+                </div>
               )}
 
               {isXero && (
