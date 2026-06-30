@@ -86,6 +86,7 @@ const ENTITY_TABLE_MAP = {
   CommittedDemand:          'committed_demands',
   DecomposedLine:           'decomposed_lines',
   PurchaseInvoiceLine:      'purchase_invoice_lines',
+  InvoiceScanDraft:         'invoice_scan_drafts',
   PurchaseInvoiceCharge:    'purchase_invoice_charges',
   PurchaseAttachment:       'purchase_attachments',
   PurchaseUnitProposal:     'purchase_unit_proposals',

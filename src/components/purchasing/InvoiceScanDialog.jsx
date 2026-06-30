@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44, supabase } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,13 +7,17 @@ import { Badge } from '@/components/ui/badge';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import PurchasingUnitFields from '@/components/shared/PurchasingUnitFields';
 import CreateBlindReceiptModal from '@/components/grn/CreateBlindReceiptModal';
+import CreateProductFromLineModal from '@/components/review-queue/CreateProductFromLineModal';
 import { calculateDueDate, formatPaymentTerms, toISODate } from '@/lib/utils';
 import { parsePack } from '@/lib/purchasingUnit';
 import {
   X, Upload, Loader2, ScanLine, CheckCircle2, AlertCircle, FileText,
-  Package, Unlink, PackageCheck, Settings2, Check,
+  Package, Unlink, PackageCheck, Settings2, Check, Plus, Save,
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+// Sentinel option value used by the line picker to trigger "create a new product".
+const ADD_NEW = '__add_new__';
 
 const STEP_UPLOAD   = 'upload';
 const STEP_REVIEW   = 'review';
@@ -85,35 +89,67 @@ function ModeToggle({ mode, onChange, disabled }) {
   );
 }
 
-export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplierId, initialMode = MODE_INVOICE }) {
+export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplierId, initialMode = MODE_INVOICE, resumeDraft = null }) {
+  const rd = resumeDraft;
+  const queryClient = useQueryClient();
   const fileInputRef = useRef(null);
-  const [step, setStep] = useState(STEP_UPLOAD);
-  const [mode, setMode] = useState(initialMode === MODE_BLIND ? MODE_BLIND : MODE_INVOICE);
+  const [step, setStep] = useState(rd ? STEP_REVIEW : STEP_UPLOAD);
+  const [mode, setMode] = useState(
+    (rd?.mode === MODE_BLIND || (!rd && initialMode === MODE_BLIND)) ? MODE_BLIND : MODE_INVOICE,
+  );
   const [dragOver, setDragOver] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
   const [preparing, setPreparing] = useState(false);
 
   // Extracted invoice data
-  const [extracted, setExtracted] = useState(null);
+  const [extracted, setExtracted] = useState(rd?.extracted || null);
   // Original uploaded file — archived to the purchase-documents bucket on save.
   const [scannedFile, setScannedFile] = useState(null);
+  // Stored file metadata (set on draft save / resume) so re-saving keeps the file.
+  const [draftFileMeta, setDraftFileMeta] = useState(rd?.file_path ? {
+    file_name: rd.file_name, file_path: rd.file_path, file_url: rd.file_url,
+    mime_type: rd.mime_type, size_bytes: rd.size_bytes,
+  } : null);
   // Per-line product mappings (index → product_id | 'skip')
-  const [mappings, setMappings] = useState({});
+  const [mappings, setMappings] = useState(rd?.mappings || {});
   // Per-line purchasing-unit forms (index → { purchase_uom, pack_size, ... })
-  const [unitForms, setUnitForms] = useState({});
+  const [unitForms, setUnitForms] = useState(rd?.unit_forms || {});
   // Which line's purchasing-unit editor is expanded.
   const [expandedUnit, setExpandedUnit] = useState(null);
+  // Which line is currently adding a brand-new product (index | null).
+  const [addProductIdx, setAddProductIdx] = useState(null);
+  // Draft persistence.
+  const [draftId, setDraftId] = useState(rd?.id || null);
+  const [savingDraft, setSavingDraft] = useState(false);
   // Editable header fields
   const [header, setHeader] = useState({
-    supplier_id: preselectedSupplierId || '',
-    invoice_number: '',
-    invoice_date: '',
-    due_date: '',
-    due_date_overridden: false,
+    supplier_id: rd?.supplier_id || preselectedSupplierId || '',
+    invoice_number: rd?.invoice_number || '',
+    invoice_date: rd?.invoice_date || '',
+    due_date: rd?.due_date || '',
+    due_date_overridden: !!rd?.due_date_overridden,
   });
   // When set, hand the scanned invoice into the canonical blind-receipt engine.
   const [receivePrefill, setReceivePrefill] = useState(null);
+
+  // On resume, pull the stored scanned file back into a File so the rest of the
+  // flow (PDF archive on save / receive) works exactly as a fresh scan.
+  useEffect(() => {
+    if (!rd?.file_url) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(rd.file_url);
+        const blob = await resp.blob();
+        if (!cancelled) {
+          setScannedFile(new File([blob], rd.file_name || 'invoice', { type: rd.mime_type || blob.type }));
+        }
+      } catch { /* non-fatal — completion will just skip re-archiving */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers-active'],
@@ -246,6 +282,11 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
   // Pick (or change) the product on a line. New links with no saved conversion
   // open the purchasing-unit editor, seeded from the invoice line text.
   const linkProduct = (idx, productId) => {
+    if (productId === ADD_NEW) {
+      if (!header.supplier_id) { toast.error('Select a supplier first'); return; }
+      setAddProductIdx(idx);
+      return;
+    }
     setMappings(prev => ({ ...prev, [idx]: productId }));
     if (!productId || productId === 'skip') {
       setUnitForms(prev => { const n = { ...prev }; delete n[idx]; return n; });
@@ -265,6 +306,90 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
 
   const setUnitField = (idx, key, value) =>
     setUnitForms(prev => ({ ...prev, [idx]: { ...prev[idx], [key]: value } }));
+
+  // A brand-new product (+ supplier link with conversion) was created from a
+  // line — refresh the catalogs and link the line to it. Seed the unit form
+  // from the new supplier link so the conversion shows without waiting for the
+  // query to land.
+  const handleProductCreated = async (_line, sp, product) => {
+    const idx = addProductIdx;
+    setAddProductIdx(null);
+    if (idx == null || !product) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['products-for-invoice-scan'] }),
+      queryClient.invalidateQueries({ queryKey: ['supplier-products-for-scan', header.supplier_id] }),
+    ]);
+    setMappings(prev => ({ ...prev, [idx]: product.id }));
+    if (sp) {
+      setUnitForms(prev => ({ ...prev, [idx]: {
+        purchase_uom: sp.purchase_uom || '',
+        pack_size: sp.pack_size != null ? String(sp.pack_size) : '',
+        pack_size_uom: sp.pack_size_uom || '',
+        pack_qty: sp.pack_qty != null ? String(sp.pack_qty) : '1',
+        conversion_factor: sp.conversion_factor != null ? String(sp.conversion_factor) : '',
+      } }));
+    }
+    setExpandedUnit(null);
+    toast.success(`Linked to ${product.name}`);
+  };
+
+  // ── Draft persistence ───────────────────────────────────────────────────────
+  const deleteDraftIfAny = async () => {
+    if (!draftId) return;
+    try { await base44.entities.InvoiceScanDraft.delete(draftId); } catch { /* best effort */ }
+    queryClient.invalidateQueries({ queryKey: ['invoice-scan-drafts'] });
+  };
+
+  const handleSaveDraft = async () => {
+    setSavingDraft(true);
+    try {
+      // Park the scanned file in storage once so a resumed draft keeps its PDF.
+      let meta = draftFileMeta;
+      if (!meta && scannedFile) {
+        const ext = (scannedFile.name?.split('.').pop() || 'pdf').toLowerCase();
+        const path = `drafts/${draftId || crypto.randomUUID()}/${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from('purchase-documents')
+          .upload(path, scannedFile, { contentType: scannedFile.type || 'application/octet-stream', upsert: true });
+        if (!upErr) {
+          const { data: pub } = supabase.storage.from('purchase-documents').getPublicUrl(path);
+          meta = {
+            file_name: scannedFile.name || `scan.${ext}`, file_path: path,
+            file_url: pub?.publicUrl || null, mime_type: scannedFile.type || null, size_bytes: scannedFile.size || null,
+          };
+          setDraftFileMeta(meta);
+        }
+      }
+
+      const payload = {
+        mode,
+        supplier_id: header.supplier_id || null,
+        supplier_name: selectedSupplier?.name || null,
+        invoice_number: header.invoice_number || null,
+        invoice_date: header.invoice_date || null,
+        due_date: header.due_date || null,
+        due_date_overridden: !!header.due_date_overridden,
+        extracted,
+        mappings,
+        unit_forms: unitForms,
+        ...(meta || {}),
+      };
+
+      if (draftId) {
+        await base44.entities.InvoiceScanDraft.update(draftId, payload);
+      } else {
+        const created = await base44.entities.InvoiceScanDraft.create(payload);
+        setDraftId(created.id);
+      }
+      queryClient.invalidateQueries({ queryKey: ['invoice-scan-drafts'] });
+      toast.success('Draft saved — resume it any time from "Resume scan".');
+      onClose?.();
+    } catch (err) {
+      toast.error('Failed to save draft: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSavingDraft(false);
+    }
+  };
 
   const mappedIdxs = useMemo(
     () => (extracted?.lines || []).map((_, idx) => idx).filter(isMapped),
@@ -389,6 +514,8 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
         }
       }));
 
+      await deleteDraftIfAny();
+
       setStep(STEP_DONE);
       toast.success(
         `Invoice ${header.invoice_number} saved — ${mappedLines.length} matched`
@@ -503,7 +630,7 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
     return (
       <CreateBlindReceiptModal
         prefill={receivePrefill}
-        onCreated={() => { onSaved?.(); onClose?.(); }}
+        onCreated={async () => { await deleteDraftIfAny(); onSaved?.(); onClose?.(); }}
         onCancel={() => setReceivePrefill(null)}
       />
     );
@@ -511,7 +638,7 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-card rounded-2xl border border-border w-full max-w-3xl shadow-xl flex flex-col max-h-[90vh]">
+      <div className="bg-card rounded-2xl border border-border w-full max-w-5xl shadow-xl flex flex-col max-h-[92vh]">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
@@ -802,6 +929,10 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
               <Button variant="outline" onClick={() => { setStep(STEP_UPLOAD); setExtracted(null); setMappings({}); setUnitForms({}); setExpandedUnit(null); setScannedFile(null); }}>
                 Rescan
               </Button>
+              <Button variant="outline" className="gap-2" onClick={handleSaveDraft} disabled={savingDraft}>
+                {savingDraft ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Save as Draft
+              </Button>
               {mode === MODE_BLIND ? (
                 <Button
                   className="flex-1 gap-2"
@@ -830,6 +961,23 @@ export default function InvoiceScanDialog({ onClose, onSaved, preselectedSupplie
           )}
         </div>
       </div>
+
+      {/* Inline product creation — for a line whose product doesn't exist yet. */}
+      {addProductIdx != null && extracted?.lines?.[addProductIdx] && (
+        <CreateProductFromLineModal
+          line={{
+            xero_description: extracted.lines[addProductIdx].description || '',
+            xero_item_code: extracted.lines[addProductIdx].item_code || '',
+            unit: extracted.lines[addProductIdx].unit || '',
+            qty: extracted.lines[addProductIdx].qty,
+            unit_cost: extracted.lines[addProductIdx].unit_price,
+            line_total: extracted.lines[addProductIdx].line_total,
+          }}
+          invoice={{ supplier_id: header.supplier_id, supplier_name: selectedSupplier?.name || '' }}
+          onCreated={handleProductCreated}
+          onCancel={() => setAddProductIdx(null)}
+        />
+      )}
     </div>
   );
 }
@@ -841,6 +989,14 @@ function ProductPicker({ value, onChange, allProducts }) {
       label: 'Send to review queue',
       node: (
         <span className="flex items-center gap-1.5 text-muted-foreground"><Unlink className="w-3 h-3" /> Send to review queue</span>
+      ),
+    },
+    {
+      value: ADD_NEW,
+      label: 'Add new product',
+      keywords: ['add', 'new', 'create', 'product'],
+      node: (
+        <span className="flex items-center gap-1.5 text-primary font-medium"><Plus className="w-3 h-3" /> Add new product…</span>
       ),
     },
     ...allProducts.map(p => ({

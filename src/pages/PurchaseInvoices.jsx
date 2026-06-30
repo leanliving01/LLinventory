@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { FileText, ScanLine } from 'lucide-react';
 import InvoiceScanDialog from '@/components/purchasing/InvoiceScanDialog';
+import ScanDraftsBanner from '@/components/purchasing/ScanDraftsBanner';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
@@ -36,6 +37,7 @@ export default function PurchaseInvoices() {
   const [statusTab, setStatusTab] = useState('all');
   const [selected, setSelected] = useState(null);
   const [showScan, setShowScan] = useState(false);
+  const [resumeDraft, setResumeDraft] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [filters, setFilters] = useState({
@@ -138,6 +140,8 @@ export default function PurchaseInvoices() {
         <SyncStatusBanner syncKeys={['xero_invoices']} title="Xero Invoice Sync" />
       )}
 
+      <ScanDraftsBanner onResume={(d) => { setResumeDraft(d); setShowScan(true); }} />
+
       <PageHelp items={HELP_ITEMS} />
 
       {/* Status tabs */}
@@ -201,9 +205,11 @@ export default function PurchaseInvoices() {
 
       {showScan && (
         <InvoiceScanDialog
-          onClose={() => setShowScan(false)}
+          resumeDraft={resumeDraft}
+          onClose={() => { setShowScan(false); setResumeDraft(null); }}
           onSaved={() => {
             setShowScan(false);
+            setResumeDraft(null);
             queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
           }}
         />

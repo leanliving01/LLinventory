@@ -12,6 +12,7 @@ import PurchasingKPIStrip from '@/components/purchasing/PurchasingKPIStrip';
 import PurchasingActivityFeed from '@/components/purchasing/PurchasingActivityFeed';
 import PurchasingAgingChart from '@/components/purchasing/PurchasingAgingChart';
 import InvoiceScanDialog from '@/components/purchasing/InvoiceScanDialog';
+import ScanDraftsBanner from '@/components/purchasing/ScanDraftsBanner';
 import PaymentsDueWidget from '@/components/purchasing/PaymentsDueWidget';
 import { toast } from 'sonner';
 
@@ -26,6 +27,7 @@ export default function PurchasingDashboard() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [showInvoiceScan, setShowInvoiceScan] = useState(false);
+  const [resumeDraft, setResumeDraft] = useState(null);
   const [syncingXero, setSyncingXero] = useState(false);
 
   const { data: pos = [] } = useQuery({
@@ -229,6 +231,8 @@ export default function PurchasingDashboard() {
         </Button>
       </div>
 
+      <ScanDraftsBanner onResume={(d) => { setResumeDraft(d); setShowInvoiceScan(true); }} />
+
       <PurchasingKPIStrip kpis={kpis} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -243,8 +247,9 @@ export default function PurchasingDashboard() {
 
       {showInvoiceScan && (
         <InvoiceScanDialog
-          onSaved={() => { setShowInvoiceScan(false); queryClient.invalidateQueries({ queryKey: ['pdash-invoices'] }); }}
-          onClose={() => setShowInvoiceScan(false)}
+          resumeDraft={resumeDraft}
+          onSaved={() => { setShowInvoiceScan(false); setResumeDraft(null); queryClient.invalidateQueries({ queryKey: ['pdash-invoices'] }); }}
+          onClose={() => { setShowInvoiceScan(false); setResumeDraft(null); }}
         />
       )}
     </div>
