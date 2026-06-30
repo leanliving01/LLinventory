@@ -935,16 +935,11 @@ export default function POWorkspace() {
           <h3 className="text-sm font-semibold text-foreground mb-4">{isBlindReceipt ? 'Blind Receipt Details' : 'Order Details'}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
-            {/* Blind receipt toggle — only when creating a new document */}
-            {isNew && (
-              <div className="sm:col-span-2 lg:col-span-3 flex items-start justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
-                <div>
-                  <p className="text-xs font-semibold">Blind Receipt</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Goods arrived with an invoice but no prior PO. Captures the invoice now and raises a PO automatically.</p>
-                </div>
-                <Switch checked={isBlindReceipt} onCheckedChange={setIsBlindReceipt} />
-              </div>
-            )}
+            {/* Blind receipts are now created via the dedicated "Blind Receipt"
+                flow on the Purchase Orders page (CreateBlindReceiptModal), which
+                captures invoiced-vs-received and runs the shortage decisions.
+                This workspace only creates formal POs and views existing blind
+                receipts. */}
 
             {/* Supplier */}
             <div>

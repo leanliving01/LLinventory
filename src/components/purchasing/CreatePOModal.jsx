@@ -4,8 +4,6 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
 import { X, Plus, Trash2, Loader2, Receipt, PackageCheck, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { calculateDueDate, formatPaymentTerms, toISODate } from '@/lib/utils';
@@ -172,22 +170,6 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
     lines.some(l => l.product_id || l.qty || l.unit_cost);
   useUnsavedChanges(dirty, { message: 'This purchase order has unsaved changes.' });
   const guardedClose = useGuardedAction();
-
-  // Handle blind receipt toggle
-  const handleBlindReceiptToggle = (checked) => {
-    const hasLines = lines.some(l => l.product_id);
-    if (!checked && hasLines && invoiceNumber) {
-      // Show warning before clearing invoice fields
-      setPendingToggle(true);
-      return;
-    }
-    setIsBlindReceipt(checked);
-    if (!checked) {
-      setInvoiceNumber('');
-      setDueDate('');
-      setDueDateOverridden(false);
-    }
-  };
 
   const confirmToggle = () => {
     setPendingToggle(false);
@@ -413,20 +395,9 @@ export default function CreatePOModal({ onCreated, onCancel, prefillLines }) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {/* Blind Receipt toggle */}
-          <div className="flex items-center gap-3 bg-muted/40 border border-border rounded-lg px-4 py-3">
-            <Checkbox
-              id="blind-receipt-toggle"
-              checked={isBlindReceipt}
-              onCheckedChange={handleBlindReceiptToggle}
-            />
-            <div>
-              <Label htmlFor="blind-receipt-toggle" className="text-sm font-medium cursor-pointer">
-                Blind Receipt
-              </Label>
-              <p className="text-xs text-muted-foreground">Invoice arrived — no prior purchase order was raised</p>
-            </div>
-          </div>
+          {/* Blind receipts are created via the dedicated "Blind Receipt" flow on
+              the Purchase Orders page (CreateBlindReceiptModal). This modal only
+              creates formal purchase orders. */}
 
           {/* Toggle warning */}
           {pendingToggle && (
