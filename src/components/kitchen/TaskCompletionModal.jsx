@@ -59,7 +59,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
   const availableFromPrep = isCookAfterPrep ? task.qty : null;
 
   // Load existing TaskConsumption records (saved from ConsumeTab)
-  const { data: existingConsumption = [] } = useQuery({
+  const { data: existingConsumption = [], isLoading: loadingConsumption } = useQuery({
     queryKey: ['task-consumption-modal', task.id],
     queryFn: () => base44.entities.TaskConsumption.filter({ task_id: task.id }),
     enabled: !!task.id,
@@ -154,8 +154,11 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
   const seededLeftoverJson = useRef(null);
 
   // Pre-fill actuals from saved TaskConsumption records, falling back to BOM-required.
+  // IMPORTANT: wait for the consumption query to settle before seeding — otherwise on a
+  // cold fetch we'd seed with required defaults and never pick up the operator's saved
+  // "Consumed" values from the To Consume tab (seeded only fires once).
   useEffect(() => {
-    if (isPortioning || componentRows.length === 0 || seeded) return;
+    if (isPortioning || componentRows.length === 0 || seeded || loadingConsumption) return;
 
     const prefilled = {};
     const prefilledWaste = {};
@@ -176,7 +179,7 @@ export default function TaskCompletionModal({ task, onConfirm, onCancel, cachedB
     seededActualsJson.current = JSON.stringify(prefilled);
     seededWastageJson.current = JSON.stringify(prefilledWaste);
     setSeeded(true);
-  }, [componentRows, isPortioning, existingConsumption, seeded]);
+  }, [componentRows, isPortioning, existingConsumption, seeded, loadingConsumption]);
 
   // Pre-fill portioning leftover with 0 (assume they used everything unless they say otherwise)
   useEffect(() => {

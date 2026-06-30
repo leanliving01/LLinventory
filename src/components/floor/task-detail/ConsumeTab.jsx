@@ -75,7 +75,7 @@ export default function ConsumeTab({ task, bom, components, onRef, allTasks, all
   }, [components, scale]);
 
   // Fetch existing TaskConsumption records for this task
-  const { data: existing = [] } = useQuery({
+  const { data: existing = [], isLoading: loadingExisting } = useQuery({
     queryKey: ['task-consumption', task.id],
     queryFn: () => base44.entities.TaskConsumption.filter({ task_id: task.id }),
     enabled: !!task.id,
@@ -98,6 +98,10 @@ export default function ConsumeTab({ task, bom, components, onRef, allTasks, all
     // Skip if we already seeded for this task
     if (lastSeededTaskId.current === task.id) return;
     if (scaledComponents.length === 0) return;
+    // Wait for the saved-consumption fetch to settle before seeding — otherwise on a
+    // cold load we'd seed blank and lock it in, never showing the operator's saved
+    // Consumed/Wastage values (seeds only once per task).
+    if (loadingExisting) return;
 
     const map = {};
     scaledComponents.forEach(c => {
@@ -113,7 +117,7 @@ export default function ConsumeTab({ task, bom, components, onRef, allTasks, all
     setValues(map);
     // Mark seeded after state settles
     setTimeout(() => { seeded.current = true; }, 100);
-  }, [task.id, existing, scaledComponents]);
+  }, [task.id, existing, scaledComponents, loadingExisting]);
 
   // Save a single row to the database
   const saveRow = useCallback(async (comp, rowValues) => {
