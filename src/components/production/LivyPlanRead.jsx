@@ -30,7 +30,7 @@ function extractAdjustments(text) {
   return { clean, adjustments: arr };
 }
 
-export default function LivyPlanRead({ lines = [], onApply }) {
+export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
   const { plan: machinePlan, isLoading: planLoading } = useMachinePlan(lines);
   const [reply, setReply] = useState('');
   const [adjustments, setAdjustments] = useState([]);
@@ -77,7 +77,8 @@ export default function LivyPlanRead({ lines = [], onApply }) {
     const system = {
       role: 'system',
       content:
-        "You are Livy, the Lean Living production planner. The deterministic engine has ALREADY computed today's plan — the JSON below is FINAL and correct. Do NOT recompute, call tools, or write code; reason only over these numbers.\n" +
+        "You are Livy, the Lean Living production planner. The deterministic engine has ALREADY computed today's plan — the JSON below is FINAL and correct.\n" +
+        "First, do ONE quick lookup of your own memory (brain_search) for saved notes on how this manager prefers production planned, and weave any in. Use NO other tools (no ERP tools) and do NOT write or run code — the plan numbers below are final and complete; never recompute them.\n" +
         "Give the production manager a tight read in markdown:\n" +
         "• **Top priority** — the single most important thing to make first and why (backorders/owed orders rank above below-par).\n" +
         "• **Machine balance** — call out anything overloaded (>100%) or idle; the wet line is interchangeable (Ivario ≤20kg ↔ tilting pan ≤100kg).\n" +
@@ -107,8 +108,10 @@ export default function LivyPlanRead({ lines = [], onApply }) {
       const { clean, adjustments: adj } = extractAdjustments(data?.choices?.[0]?.message?.content || 'No response.');
       setReply(clean);
       // Keep only real, applyable changes (known sku, numeric, different from current).
-      setAdjustments(adj.filter(a => a && a.sku && Number.isFinite(Number(a.to_qty))
-        && Number(a.to_qty) !== (currentQtyBySku[a.sku] ?? null)).slice(0, 5));
+      const usable = adj.filter(a => a && a.sku && Number.isFinite(Number(a.to_qty))
+        && Number(a.to_qty) !== (currentQtyBySku[a.sku] ?? null)).slice(0, 5);
+      setAdjustments(usable);
+      onSuggestions?.(usable);
     } catch (err) {
       setError(err.name === 'AbortError'
         ? "Livy took too long to read the plan — try Refresh in a moment."
@@ -116,7 +119,7 @@ export default function LivyPlanRead({ lines = [], onApply }) {
     } finally {
       setLoading(false);
     }
-  }, [lines.length, summary, currentQtyBySku]);
+  }, [lines.length, summary, currentQtyBySku, onSuggestions]);
 
   // Auto-run ONCE when the plan is first ready (so it "just happens"). Applying an
   // adjustment must NOT silently re-trigger Livy — use Refresh for an updated read.

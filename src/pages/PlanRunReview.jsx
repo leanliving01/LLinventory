@@ -32,6 +32,9 @@ export default function PlanRunReview() {
 
   // Local state for editing quantities within runs
   const [overrides, setOverrides] = useState({});
+  // Livy's suggested adjustments (for the learning loop on confirm).
+  const [livySuggestions, setLivySuggestions] = useState([]);
+  const handleSuggestions = useCallback((s) => setLivySuggestions(s || []), []);
 
   const initialPlan = planData?.splitPlan || [];
   const maxPerRun = planData?.maxPerRun || 2500;
@@ -78,6 +81,39 @@ export default function PlanRunReview() {
     });
     toast.success(`Set ${sku} to ${toQty} (Livy)`);
   }, [splitPlan]);
+
+  // Learning loop: when the manager confirms the run, tell Livy the final makes
+  // and how it treated Livy's suggestions, so Livy saves a durable preference to
+  // its Production brain (brain_write) and recalls it next time. Fire-and-forget
+  // (keepalive so it survives the redirect); best-effort, never blocks the UI.
+  const teachLivy = useCallback((runs) => {
+    if (!livySuggestions.length) return; // only learn when Livy actually weighed in
+    const finalBySku = {};
+    runs.forEach(run => run.lines.forEach(l => {
+      if ((l.planned_qty || 0) > 0) finalBySku[l.product_sku] = (finalBySku[l.product_sku] || 0) + l.planned_qty;
+    }));
+    const outcomes = livySuggestions.map(s => ({
+      sku: s.sku, name: s.name, livy_suggested: Number(s.to_qty),
+      manager_final: finalBySku[s.sku] ?? 0,
+      followed: (finalBySku[s.sku] ?? 0) === Number(s.to_qty),
+    }));
+    const system = {
+      role: 'system',
+      content:
+        "You are Livy. The Lean Living production manager just CONFIRMED today's production run. Below is how they treated your suggested quantity adjustments. " +
+        "If there's a durable preference worth learning (e.g. they consistently make more/less of something than you propose, ignore a certain kind of suggestion, or favour certain ranges), save ONE concise note to your Production brain via brain_write so you plan better next time. " +
+        "If nothing is notable, do nothing. Be brief; reply with one short sentence.",
+    };
+    const user = { role: 'user', content: 'Suggestion outcomes:\n```json\n' + JSON.stringify(outcomes) + '\n```' };
+    try {
+      fetch('/__fn/livy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'gpt-5.4', stream: false, messages: [system, user] }),
+        keepalive: true,
+      }).catch(() => { /* best-effort learning */ });
+    } catch { /* ignore */ }
+  }, [livySuggestions]);
 
   if (!planData) {
     return (
@@ -139,6 +175,7 @@ export default function PlanRunReview() {
 
       queryClient.invalidateQueries({ queryKey: ['production-runs'] });
       sessionStorage.removeItem('planRunReview');
+      teachLivy(splitPlan); // best-effort: let Livy learn from the confirmed plan
       toast.success(`Created ${totalCreated} production run${totalCreated > 1 ? 's' : ''} — ${grandTotal.toLocaleString()} total meals`);
       window.location.href = '/production/runs';
     } catch (err) {
@@ -194,7 +231,7 @@ export default function PlanRunReview() {
       )}
 
       {/* Livy's read — judgment + one-tap adjustments on top of the engine's plan */}
-      <LivyPlanRead lines={allPlanLines} onApply={applyLivyQty} />
+      <LivyPlanRead lines={allPlanLines} onApply={applyLivyQty} onSuggestions={handleSuggestions} />
 
       {/* Machine load breakdown — how the plan splits across the kitchen */}
       <MachineLoadPanel lines={allPlanLines} />
