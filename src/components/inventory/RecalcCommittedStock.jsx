@@ -8,7 +8,7 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { RefreshCw, Eye, Loader2, CheckCircle2, AlertTriangle, X, TriangleAlert } from 'lucide-react';
+import { RefreshCw, Eye, Loader2, CheckCircle2, X, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function RecalcCommittedStock() {
@@ -32,7 +32,7 @@ export default function RecalcCommittedStock() {
         if (data.missing_boms?.length > 0) {
           toast.warning(`${data.missing_boms.length} pack SKU(s) skipped — no active BOM: ${data.missing_boms.join(', ')}`);
         }
-        queryClient.invalidateQueries({ queryKey: ['inv-overview-soh'] });
+        queryClient.invalidateQueries({ queryKey: ['stock-levels'] });
         queryClient.invalidateQueries({ queryKey: ['inv-overview-products'] });
         queryClient.invalidateQueries({ queryKey: ['stock-on-hand'] });
       }

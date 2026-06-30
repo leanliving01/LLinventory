@@ -16,6 +16,7 @@ import RecalcCommittedStock from '@/components/inventory/RecalcCommittedStock';
 import InventoryBulkEditModal from '@/components/inventory/InventoryBulkEditModal';
 import { useAuth } from '@/lib/AuthContext';
 import { getUserPermissions } from '@/lib/permissions';
+import { useStockLevels, STOCK_LEVELS_QUERY_KEY } from '@/lib/useStockLevels';
 import { locationLabels } from '@/lib/locationHierarchy';
 import {
   CATEGORY_LABELS,
@@ -48,10 +49,10 @@ export default function InventoryOverview() {
     queryFn: () => base44.entities.Product.filter({ status: 'active', inventory_tracked: true }, 'name', 2000),
   });
 
-  const { data: stockRecords = [], isLoading: loadingStock } = useQuery({
-    queryKey: ['inv-overview-soh'],
-    queryFn: () => base44.entities.StockOnHand.list('product_sku', 5000),
-  });
+  // Canonical, never-truncated stock source (server-side RPC). Replaces the old
+  // StockOnHand.list('product_sku', 5000) which PostgREST capped at 1000 rows,
+  // silently zeroing late-alphabet SKUs (WLM/WWL/WWR). See lib/useStockLevels.js.
+  const { stockByProduct, isLoading: loadingStock } = useStockLevels();
 
   const { data: locations = [] } = useQuery({
     queryKey: ['inv-overview-locations'],
@@ -69,21 +70,6 @@ export default function InventoryOverview() {
     });
     return m;
   }, [products, locations]);
-
-  // Aggregate SOH per product (sum across locations)
-  const stockByProduct = useMemo(() => {
-    const map = {};
-    stockRecords.forEach(s => {
-      if (!s.product_id) return;
-      if (!map[s.product_id]) {
-        map[s.product_id] = { on_hand: 0, committed: 0, available: 0 };
-      }
-      map[s.product_id].on_hand += s.qty_on_hand || 0;
-      map[s.product_id].committed += s.qty_committed || 0;
-      map[s.product_id].available += s.qty_available || 0;
-    });
-    return map;
-  }, [stockRecords]);
 
   const filtered = useMemo(() => {
     return products.filter(p => {
@@ -164,7 +150,7 @@ export default function InventoryOverview() {
             products={products}
             onImportComplete={() => {
               queryClient.invalidateQueries({ queryKey: ['inv-overview-products'] });
-              queryClient.invalidateQueries({ queryKey: ['inv-overview-soh'] });
+              queryClient.invalidateQueries({ queryKey: STOCK_LEVELS_QUERY_KEY });
             }}
           />
         </div>
@@ -343,7 +329,7 @@ export default function InventoryOverview() {
             setBulkMode(null);
             setSelection([]);
             queryClient.invalidateQueries({ queryKey: ['inv-overview-products'] });
-            queryClient.invalidateQueries({ queryKey: ['inv-overview-soh'] });
+            queryClient.invalidateQueries({ queryKey: STOCK_LEVELS_QUERY_KEY });
           }}
         />
       )}
