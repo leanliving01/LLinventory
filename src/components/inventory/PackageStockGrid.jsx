@@ -1,18 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { groupMealsForProduction, VARIANT_INFO } from '@/lib/productionGrouping';
-import { resolveSubcategory } from '@/lib/productClassification';
+import { resolveSubcategory, makeSubcategorySorter } from '@/lib/productClassification';
 
 // The four standard packages, in the same column order as the production plan
 // and the ops spreadsheet: MWL (blue) → MLM (green) → WLM (orange) → WWL (pink).
 const PACKAGE_COLS = ['MWL', 'MLM', 'WLM', 'WWL'];
-
-// Single-package ranges get their own SKU / Meals / value table (they don't share
-// the 15 repeating meals across four packages). Order: Low Carb first, then Winter.
-const RANGES = [
-  { subcat: 'Low Carb Meals', title: 'Low Carb' },
-  { subcat: 'Winter Warmer Range', title: 'Winter Range' },
-];
 
 // The three views this grid can show. Every cell is filled with the SAME value
 // the Production Plan uses (production_stock_levels RPC via useStockLevels):
@@ -73,22 +66,34 @@ export default function PackageStockGrid({ products = [], stockByProduct = {}, s
     );
   }, [matrixRows, s]);
 
-  // Single-package range rows, bucketed by resolved subcategory (the app-wide source
-  // of truth). Low Carb + Winter Warmer meals carry their own SKU/name — no variants.
-  const rangeRows = useMemo(() => {
+  // Product ids already shown in the 15×4 matrix — excluded from the range tables
+  // below so a goal meal never appears twice.
+  const matrixIds = useMemo(() => {
+    const set = new Set();
+    matrixRows.forEach(r => PACKAGE_COLS.forEach(c => { if (r.variants[c]) set.add(r.variants[c].id); }));
+    return set;
+  }, [matrixRows]);
+
+  // Every OTHER meal range gets its own single-column SKU/Meals/value table,
+  // data-driven off the resolved subcategory (the app-wide source of truth). Low
+  // Carb + Winter Warmer today; any new range added in the catalog appears here
+  // automatically. Ordered by the canonical subcategory order (Other pushed last).
+  const rangeTables = useMemo(() => {
     const buckets = {};
     for (const p of finishedMeals) {
-      const sub = resolveSubcategory(p);
+      if (matrixIds.has(p.id)) continue; // already in the standard matrix
+      const sub = resolveSubcategory(p) || 'Other Meals';
       (buckets[sub] ||= []).push(p);
     }
-    const out = {};
-    for (const { subcat } of RANGES) {
-      out[subcat] = (buckets[subcat] || [])
+    const sorter = makeSubcategorySorter('finished_meal');
+    return Object.keys(buckets).sort(sorter).map(name => ({
+      subcat: name,
+      title: name,
+      rows: buckets[name]
         .slice()
-        .sort((a, b) => (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true }));
-    }
-    return out;
-  }, [finishedMeals]);
+        .sort((a, b) => (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true })),
+    }));
+  }, [finishedMeals, matrixIds]);
 
   // Column totals + grand total for the matrix, over the visible rows.
   const { colTotals, grandTotal } = useMemo(() => {
@@ -214,12 +219,13 @@ export default function PackageStockGrid({ products = [], stockByProduct = {}, s
         </div>
       </div>
 
-      {/* 2 & 3 — Single-package ranges (Low Carb, then Winter Range) */}
-      {RANGES.map(({ subcat, title }) => (
+      {/* Every other meal range — one table each, data-driven (Low Carb, Winter
+          Warmer, and anything added in the catalog later). */}
+      {rangeTables.map(({ subcat, title, rows }) => (
         <RangeTable
           key={subcat}
           title={title}
-          rows={rangeRows[subcat] || []}
+          rows={rows}
           metric={metric}
           metricLabel={metricLabel}
           stockByProduct={stockByProduct}
