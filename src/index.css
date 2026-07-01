@@ -256,12 +256,16 @@ body.barcode-scanning-active .barcode-scanning-ui * {
    none }` blanked EVERY other print route (e.g. Production Print Sheets), whose
    content lives inside #root rather than in a body-level portal. */
 @media print {
-  /* Hide everything, then reveal only the report subtree. */
+  /* Hide everything, then reveal only the report subtree.
+     NOTE: the reveal selectors MUST carry the same `body:has(...)` prefix as the
+     hide rule. `:has(#id)` counts as an ID for specificity, so an unscoped
+     `#inventory-report-print *` (1,0,0) LOSES to `body:has(#id) *` (1,0,1) and the
+     whole report would stay hidden — printing blank pages. */
   body:has(#inventory-report-print) * {
     visibility: hidden;
   }
-  #inventory-report-print,
-  #inventory-report-print * {
+  body:has(#inventory-report-print) #inventory-report-print,
+  body:has(#inventory-report-print) #inventory-report-print * {
     visibility: visible;
   }
   .no-print {
