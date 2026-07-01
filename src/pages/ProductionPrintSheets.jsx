@@ -22,12 +22,23 @@ const SHEETS = [
 const PRINT_CSS = `
 @media print {
   @page { size: A4 landscape; margin: 10mm; }
+  html, body { background: #fff !important; }
+  /* Isolate the print target. We keep it in NORMAL FLOW (position: static) so
+     multi-page content actually paginates — an absolutely-positioned print
+     root can't be fragmented across pages, so everything past page 1 gets
+     clipped and the printout comes out blank / half-rendered. */
   body * { visibility: hidden !important; }
   .print-area, .print-area * { visibility: visible !important; }
-  .print-area { position: absolute; left: 0; top: 0; width: 100%; }
-  /* Each sheet/section starts a new page. A forced break before the very first
-     box is ignored by the browser, so no leading blank page. */
+  .print-area {
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  /* Each sheet/section starts a new page, but never force a break before the
+     very first one (that would emit a leading blank page). */
   .print-page { break-before: page; }
+  .print-area .print-root:first-child .print-page:first-child { break-before: auto; }
 }
 /* Screen-only separation between stacked sheet previews. */
 @media screen {
