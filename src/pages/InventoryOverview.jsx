@@ -5,9 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Search, X, Gauge, MapPin, CheckSquare, FileText } from 'lucide-react';
+import { Search, X, Gauge, MapPin, CheckSquare, FileText, List, LayoutGrid } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { cn } from '@/lib/utils';
 import ProductionFloorBanner from '@/components/inventory/ProductionFloorBanner';
+import PackageStockGrid from '@/components/inventory/PackageStockGrid';
 import InventoryCSVExport from '@/components/inventory/InventoryCSVExport';
 import InventoryReportModal from '@/components/inventory/InventoryReportModal';
 import TablePagination from '@/components/shared/TablePagination';
@@ -39,6 +41,7 @@ export default function InventoryOverview() {
   const [selection, setSelection] = useState([]); // product ids
   const [bulkMode, setBulkMode] = useState(null); // 'reorder' | 'location' | null
   const [reportOpen, setReportOpen] = useState(false);
+  const [view, setView] = useState('list'); // 'list' | 'grid' (Package Grid matrix)
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -156,6 +159,40 @@ export default function InventoryOverview() {
         </div>
       </div>
 
+      {/* View toggle — flat list vs Excel-style package grid */}
+      <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
+        <button
+          onClick={() => setView('list')}
+          className={cn('flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-all',
+            view === 'list' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+        >
+          <List className="w-4 h-4" /> List
+        </button>
+        <button
+          onClick={() => setView('grid')}
+          className={cn('flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-all',
+            view === 'grid' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+        >
+          <LayoutGrid className="w-4 h-4" /> Package Grid
+        </button>
+      </div>
+
+      {view === 'grid' ? (
+        <>
+          {/* Search (shared with the grid) */}
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search meals..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <PackageStockGrid products={products} stockByProduct={stockByProduct} search={search} />
+        </>
+      ) : (
+      <>
       {/* Production Floor Banner (virtual calculation) */}
       <ProductionFloorBanner />
 
@@ -317,6 +354,8 @@ export default function InventoryOverview() {
             onPageSizeChange={v => { setPageSize(v); setPage(0); }}
           />
         </div>
+      )}
+      </>
       )}
 
       {bulkMode && (
