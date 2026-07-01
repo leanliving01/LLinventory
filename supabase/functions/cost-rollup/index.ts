@@ -79,7 +79,10 @@ Deno.serve(async (req) => {
   }
 
   // ── 4. Process layers in order ────────────────────────────────────────────
-  const LAYER_ORDER: Array<'cook' | 'portion' | 'pack'> = ['cook', 'portion', 'pack'];
+  // 'prep' (raw prep bulks, e.g. spiralised zucchini) runs BEFORE 'cook': a
+  // product with both a prep and a cook BOM keeps its cook cost (cook overwrites),
+  // while prep-only bulks finally get costed instead of sitting at R0.
+  const LAYER_ORDER: Array<'prep' | 'cook' | 'portion' | 'pack'> = ['prep', 'cook', 'portion', 'pack'];
   const changes: Array<{ id: string; oldCost: number; newCost: number; name: string }> = [];
 
   for (const layer of LAYER_ORDER) {
@@ -149,6 +152,6 @@ Deno.serve(async (req) => {
     updated: changes.length,
     details,
     layers_processed: LAYER_ORDER.length,
-    boms_evaluated: (bomRows || []).filter(b => LAYER_ORDER.includes(b.bom_type as 'cook' | 'portion' | 'pack')).length,
+    boms_evaluated: (bomRows || []).filter(b => LAYER_ORDER.includes(b.bom_type as 'prep' | 'cook' | 'portion' | 'pack')).length,
   });
 });
