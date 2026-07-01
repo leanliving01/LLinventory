@@ -1,10 +1,18 @@
 import React, { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { groupMealsForProduction, VARIANT_INFO } from '@/lib/productionGrouping';
+import { resolveSubcategory } from '@/lib/productClassification';
 
 // The four standard packages, in the same column order as the production plan
 // and the ops spreadsheet: MWL (blue) → MLM (green) → WLM (orange) → WWL (pink).
 const PACKAGE_COLS = ['MWL', 'MLM', 'WLM', 'WWL'];
+
+// Single-package ranges get their own SKU / Meals / value table (they don't share
+// the 15 repeating meals across four packages). Order: Low Carb first, then Winter.
+const RANGES = [
+  { subcat: 'Low Carb Meals', title: 'Low Carb' },
+  { subcat: 'Winter Warmer Range', title: 'Winter Range' },
+];
 
 // The three views this grid can show. Every cell is filled with the SAME value
 // the Production Plan uses (production_stock_levels RPC via useStockLevels):
@@ -20,63 +28,87 @@ const METRICS = [
 const fmt = (n) =>
   (Number(n) || 0).toLocaleString('en-ZA', { maximumFractionDigits: 2 });
 
+// Pull the selected metric off a product's stock row. Available is derived the same
+// way the plan derives it (on hand − committed) so every surface agrees.
+function metricValue(product, metric, stockByProduct) {
+  if (!product) return null;
+  const stock = stockByProduct[product.id];
+  if (!stock) return 0;
+  if (metric === 'available') return (stock.on_hand || 0) - (stock.committed || 0);
+  return stock[metric] || 0;
+}
+
 /**
- * Excel-style Meals × Package matrix (MWL / MLM / WLM / WWL) for the four standard
- * packages that share the same 15 repetitive meals. One value per cell, switchable
- * between On Hand / Available / Committed via the metric toggle. Values are pulled
- * from the exact same source as the Production Plan (stockByProduct), so the numbers
- * always agree with what the plan shows for each meal.
+ * Excel-style stock views for the Inventory Overview, matching the ops spreadsheets:
+ *   1. Meals × Package matrix (MWL / MLM / WLM / WWL) — the 15 repeating meals.
+ *   2. Low Carb — single-column SKU / Meals / value table.
+ *   3. Winter Range — single-column SKU / Meals / value table.
+ * One metric toggle (On Hand / Available / Committed) drives all three. Values come
+ * from the same source as the Production Plan (stockByProduct), so the numbers always
+ * agree with what the plan shows for each meal.
  *
  * @param products        active products (parent's inv-overview list); filtered to finished_meal here
  * @param stockByProduct  { [product_id]: { on_hand, committed, available } } from useStockLevels
- * @param search          optional search string (filters meal rows by name/number)
+ * @param search          optional search string (filters rows by name/SKU/number)
  */
 export default function PackageStockGrid({ products = [], stockByProduct = {}, search = '' }) {
   const [metric, setMetric] = useState('on_hand');
+  const s = search.trim().toLowerCase();
 
-  // Build the meal rows exactly like the production table: one row per meal number
-  // with a product per package column (variants: { MWL, MLM, WLM, WWL }).
-  const rows = useMemo(() => {
-    const finishedMeals = products.filter(p => p.type === 'finished_meal' && p.status === 'active');
+  const finishedMeals = useMemo(
+    () => products.filter(p => p.type === 'finished_meal' && p.status === 'active'),
+    [products]
+  );
+
+  // Matrix rows: one row per meal number with a product per package column.
+  const matrixRows = useMemo(() => {
     const { goalRows } = groupMealsForProduction(finishedMeals);
     return goalRows; // [{ mealNumber, baseName, variants }]
-  }, [products]);
+  }, [finishedMeals]);
 
-  const filteredRows = useMemo(() => {
-    const s = search.trim().toLowerCase();
-    if (!s) return rows;
-    return rows.filter(r =>
-      (r.baseName || '').toLowerCase().includes(s) ||
-      String(r.mealNumber).includes(s)
+  const filteredMatrixRows = useMemo(() => {
+    if (!s) return matrixRows;
+    return matrixRows.filter(r =>
+      (r.baseName || '').toLowerCase().includes(s) || String(r.mealNumber).includes(s)
     );
-  }, [rows, search]);
+  }, [matrixRows, s]);
 
-  // Pull the selected metric for one package cell.
-  const cellValue = (product) => {
-    if (!product) return null;
-    const stock = stockByProduct[product.id];
-    if (!stock) return 0;
-    if (metric === 'available') return (stock.on_hand || 0) - (stock.committed || 0);
-    return stock[metric] || 0;
-  };
+  // Single-package range rows, bucketed by resolved subcategory (the app-wide source
+  // of truth). Low Carb + Winter Warmer meals carry their own SKU/name — no variants.
+  const rangeRows = useMemo(() => {
+    const buckets = {};
+    for (const p of finishedMeals) {
+      const sub = resolveSubcategory(p);
+      (buckets[sub] ||= []).push(p);
+    }
+    const out = {};
+    for (const { subcat } of RANGES) {
+      out[subcat] = (buckets[subcat] || [])
+        .slice()
+        .sort((a, b) => (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true }));
+    }
+    return out;
+  }, [finishedMeals]);
 
-  // Column totals + grand total over the visible rows.
+  // Column totals + grand total for the matrix, over the visible rows.
   const { colTotals, grandTotal } = useMemo(() => {
     const totals = Object.fromEntries(PACKAGE_COLS.map(c => [c, 0]));
     let grand = 0;
-    filteredRows.forEach(row => {
+    filteredMatrixRows.forEach(row => {
       PACKAGE_COLS.forEach(code => {
-        const v = cellValue(row.variants[code]) || 0;
+        const v = metricValue(row.variants[code], metric, stockByProduct) || 0;
         totals[code] += v;
         grand += v;
       });
     });
     return { colTotals: totals, grandTotal: grand };
-  }, [filteredRows, metric, stockByProduct]);
+  }, [filteredMatrixRows, metric, stockByProduct]);
+
+  const metricLabel = METRICS.find(m => m.key === metric)?.label || '';
 
   return (
-    <div className="space-y-3">
-      {/* Metric toggle */}
+    <div className="space-y-6">
+      {/* Metric toggle — shared across all three tables */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Show</span>
         <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
@@ -96,86 +128,167 @@ export default function PackageStockGrid({ products = [], stockByProduct = {}, s
           ))}
         </div>
         <span className="text-xs text-muted-foreground ml-1">
-          Same values as the Production Plan · 4 standard packages
+          Same values as the Production Plan
         </span>
       </div>
 
-      {/* Matrix */}
+      {/* 1 — Standard packages matrix (15 meals × 4 packages) */}
+      <div>
+        <h3 className="text-sm font-semibold text-foreground mb-2">Standard Packages</h3>
+        <div className="bg-card border border-border rounded-xl overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="w-10 px-2 py-3 bg-muted/50 border-r border-border" />
+                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase bg-muted/50 border-r border-border">
+                  Meals
+                </th>
+                {PACKAGE_COLS.map(code => {
+                  const info = VARIANT_INFO[code];
+                  return (
+                    <th
+                      key={code}
+                      className={cn('text-center px-4 py-3 text-sm font-bold text-white', info.bg)}
+                      title={info.fullLabel}
+                    >
+                      {code}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filteredMatrixRows.map((row, idx) => (
+                <tr key={row.mealNumber} className="hover:bg-muted/30 transition-colors">
+                  <td className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground bg-muted/30 border-r border-border tabular-nums">
+                    {idx + 1}
+                  </td>
+                  <td className="px-4 py-2.5 text-sm font-medium border-r border-border">
+                    {row.baseName}
+                  </td>
+                  {PACKAGE_COLS.map(code => {
+                    const v = metricValue(row.variants[code], metric, stockByProduct);
+                    const missing = !row.variants[code];
+                    const negative = typeof v === 'number' && v < 0;
+                    return (
+                      <td
+                        key={code}
+                        className={cn(
+                          'px-4 py-2.5 text-sm text-center tabular-nums',
+                          missing ? 'text-muted-foreground/40' : negative ? 'text-red-600 font-medium' : 'text-foreground'
+                        )}
+                      >
+                        {missing ? '—' : fmt(v)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+              {filteredMatrixRows.length === 0 && (
+                <tr>
+                  <td colSpan={2 + PACKAGE_COLS.length} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    No meals match your search.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-border bg-muted/50 font-semibold">
+                <td className="px-2 py-3 border-r border-border" />
+                <td className="px-4 py-3 text-sm border-r border-border">Totals</td>
+                {PACKAGE_COLS.map(code => (
+                  <td key={code} className="px-4 py-3 text-sm text-center tabular-nums">
+                    {fmt(colTotals[code])}
+                  </td>
+                ))}
+              </tr>
+              <tr className="bg-muted font-bold">
+                <td className="px-2 py-3 border-r border-border" />
+                <td className="px-4 py-3 text-sm border-r border-border">GRANDTOTAL</td>
+                <td colSpan={PACKAGE_COLS.length} className="px-4 py-3 text-sm text-right tabular-nums">
+                  {fmt(grandTotal)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      {/* 2 & 3 — Single-package ranges (Low Carb, then Winter Range) */}
+      {RANGES.map(({ subcat, title }) => (
+        <RangeTable
+          key={subcat}
+          title={title}
+          rows={rangeRows[subcat] || []}
+          metric={metric}
+          metricLabel={metricLabel}
+          stockByProduct={stockByProduct}
+          search={s}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Single-package range table: SKU | Meals | <metric> with a GRANDTOTAL row. */
+function RangeTable({ title, rows, metric, metricLabel, stockByProduct, search }) {
+  const visible = useMemo(() => {
+    if (!search) return rows;
+    return rows.filter(p =>
+      (p.sku || '').toLowerCase().includes(search) || (p.name || '').toLowerCase().includes(search)
+    );
+  }, [rows, search]);
+
+  const grandTotal = useMemo(
+    () => visible.reduce((sum, p) => sum + (metricValue(p, metric, stockByProduct) || 0), 0),
+    [visible, metric, stockByProduct]
+  );
+
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-foreground mb-2">{title}</h3>
       <div className="bg-card border border-border rounded-xl overflow-x-auto">
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-border">
-              <th className="w-10 px-2 py-3 text-xs font-semibold text-muted-foreground bg-muted/50 border-r border-border" />
+              <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase bg-muted/50 border-r border-border w-32">
+                SKU
+              </th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase bg-muted/50 border-r border-border">
                 Meals
               </th>
-              {PACKAGE_COLS.map(code => {
-                const info = VARIANT_INFO[code];
-                return (
-                  <th
-                    key={code}
-                    className={cn('text-center px-4 py-3 text-sm font-bold text-white', info.bg)}
-                    title={info.fullLabel}
-                  >
-                    {code}
-                  </th>
-                );
-              })}
+              <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase bg-amber-400 text-amber-950 w-40">
+                {metricLabel}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {filteredRows.map((row, idx) => (
-              <tr key={row.mealNumber} className="hover:bg-muted/30 transition-colors">
-                <td className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground bg-muted/30 border-r border-border tabular-nums">
-                  {idx + 1}
-                </td>
-                <td className="px-4 py-2.5 text-sm font-medium border-r border-border">
-                  {row.baseName}
-                </td>
-                {PACKAGE_COLS.map(code => {
-                  const v = cellValue(row.variants[code]);
-                  const missing = !row.variants[code];
-                  const negative = typeof v === 'number' && v < 0;
-                  return (
-                    <td
-                      key={code}
-                      className={cn(
-                        'px-4 py-2.5 text-sm text-center tabular-nums',
-                        missing ? 'text-muted-foreground/40' : negative ? 'text-red-600 font-medium' : 'text-foreground'
-                      )}
-                    >
-                      {missing ? '—' : fmt(v)}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-            {filteredRows.length === 0 && (
+            {visible.map(p => {
+              const v = metricValue(p, metric, stockByProduct);
+              const negative = typeof v === 'number' && v < 0;
+              return (
+                <tr key={p.id} className="hover:bg-muted/30 transition-colors">
+                  <td className="px-4 py-2.5 text-sm font-mono font-medium text-center border-r border-border">{p.sku}</td>
+                  <td className="px-4 py-2.5 text-sm border-r border-border">{p.name}</td>
+                  <td className={cn('px-4 py-2.5 text-sm text-center tabular-nums', negative ? 'text-red-600 font-medium' : 'text-foreground')}>
+                    {fmt(v)}
+                  </td>
+                </tr>
+              );
+            })}
+            {visible.length === 0 && (
               <tr>
-                <td colSpan={2 + PACKAGE_COLS.length} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">
                   No meals match your search.
                 </td>
               </tr>
             )}
           </tbody>
           <tfoot>
-            {/* Per-package totals */}
-            <tr className="border-t-2 border-border bg-muted/50 font-semibold">
-              <td className="px-2 py-3 border-r border-border" />
-              <td className="px-4 py-3 text-sm border-r border-border">Totals</td>
-              {PACKAGE_COLS.map(code => (
-                <td key={code} className="px-4 py-3 text-sm text-center tabular-nums">
-                  {fmt(colTotals[code])}
-                </td>
-              ))}
-            </tr>
-            {/* Grand total */}
-            <tr className="bg-muted font-bold">
-              <td className="px-2 py-3 border-r border-border" />
-              <td className="px-4 py-3 text-sm border-r border-border">GRANDTOTAL</td>
-              <td colSpan={PACKAGE_COLS.length} className="px-4 py-3 text-sm text-right tabular-nums">
-                {fmt(grandTotal)}
-              </td>
+            <tr className="border-t-2 border-border bg-muted font-bold">
+              <td className="px-4 py-3 border-r border-border" />
+              <td className="px-4 py-3 text-sm text-right border-r border-border">GRANDTOTAL</td>
+              <td className="px-4 py-3 text-sm text-center tabular-nums">{fmt(grandTotal)}</td>
             </tr>
           </tfoot>
         </table>
