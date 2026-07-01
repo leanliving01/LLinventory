@@ -19,13 +19,31 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
-  // ── 1. Load all active products ──────────────────────────────────────────
-  const { data: productRows, error: pErr } = await supabase
-    .from('products')
-    .select('id, name, sku, cost_avg, stock_uom')
-    .eq('status', 'active');
+  // PostgREST caps a single select at 1000 rows. bom_components alone exceeds that
+  // (>1100), so an un-paged read silently drops recipe lines — the BOMs whose
+  // components fall in the dropped tail never get costed and their cost_avg freezes.
+  // Page through every table so the whole graph is loaded.
+  async function fetchAll(table: string, columns: string, filter?: (q: any) => any) {
+    const out: any[] = [];
+    const PAGE = 1000;
+    for (let from = 0; ; from += PAGE) {
+      let q = supabase.from(table).select(columns).range(from, from + PAGE - 1);
+      if (filter) q = filter(q);
+      const { data, error } = await q;
+      if (error) throw new Error(`${table}: ${error.message}`);
+      out.push(...(data || []));
+      if (!data || data.length < PAGE) break;
+    }
+    return out;
+  }
 
-  if (pErr) return json({ error: `Failed to load products: ${pErr.message}` }, 500);
+  // ── 1. Load all active products ──────────────────────────────────────────
+  let productRows: any[];
+  try {
+    productRows = await fetchAll('products', 'id, name, sku, cost_avg, stock_uom', q => q.eq('status', 'active'));
+  } catch (e) {
+    return json({ error: `Failed to load products: ${(e as Error).message}` }, 500);
+  }
 
   // Working cost map — updated in-memory as each layer is processed
   const costMap = new Map<string, number>();
@@ -51,19 +69,20 @@ Deno.serve(async (req) => {
   };
 
   // ── 2. Load all active BOMs ───────────────────────────────────────────────
-  const { data: bomRows, error: bErr } = await supabase
-    .from('boms')
-    .select('id, product_id, bom_type, yield_qty')
-    .eq('is_active', true);
+  let bomRows: any[];
+  try {
+    bomRows = await fetchAll('boms', 'id, product_id, bom_type, yield_qty', q => q.eq('is_active', true));
+  } catch (e) {
+    return json({ error: `Failed to load BOMs: ${(e as Error).message}` }, 500);
+  }
 
-  if (bErr) return json({ error: `Failed to load BOMs: ${bErr.message}` }, 500);
-
-  // ── 3. Load all BOM components ────────────────────────────────────────────
-  const { data: compRows, error: cErr } = await supabase
-    .from('bom_components')
-    .select('bom_id, input_product_id, qty, uom, is_consumable');
-
-  if (cErr) return json({ error: `Failed to load BOM components: ${cErr.message}` }, 500);
+  // ── 3. Load all BOM components (paged — this is the table that overflows 1000)
+  let compRows: any[];
+  try {
+    compRows = await fetchAll('bom_components', 'bom_id, input_product_id, qty, uom, is_consumable');
+  } catch (e) {
+    return json({ error: `Failed to load BOM components: ${(e as Error).message}` }, 500);
+  }
 
   // Index components by bom_id
   const compsByBom = new Map<string, Array<{ input_product_id: string; qty: number; uom: string; is_consumable: boolean }>>();
