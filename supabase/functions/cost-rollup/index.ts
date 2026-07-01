@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
   // ── 1. Load all active products ──────────────────────────────────────────
   const { data: productRows, error: pErr } = await supabase
     .from('products')
-    .select('id, name, sku, cost_avg')
+    .select('id, name, sku, cost_avg, stock_uom')
     .eq('status', 'active');
 
   if (pErr) return json({ error: `Failed to load products: ${pErr.message}` }, 500);
@@ -30,10 +30,25 @@ Deno.serve(async (req) => {
   // Working cost map — updated in-memory as each layer is processed
   const costMap = new Map<string, number>();
   const nameMap = new Map<string, string>();
+  const stockUomMap = new Map<string, string>();
   for (const p of productRows || []) {
     costMap.set(p.id as string, Number(p.cost_avg) || 0);
     nameMap.set(p.id as string, (p.name as string) || (p.sku as string) || p.id);
+    stockUomMap.set(p.id as string, String(p.stock_uom || '').toLowerCase());
   }
+
+  // A recipe line's qty is in `uom`, but the ingredient is COSTED per its stock_uom.
+  // Convert so grams×(R/kg) and ml×(R/L) don't come out 1000× too high.
+  const uomFactor = (fromUom: string, toUom: string): number => {
+    const f = String(fromUom || '').toLowerCase();
+    const t = String(toUom || '').toLowerCase();
+    if (!f || f === t) return 1;
+    if (f === 'g'  && t === 'kg') return 0.001;
+    if (f === 'kg' && t === 'g')  return 1000;
+    if (f === 'ml' && t === 'l')  return 0.001;
+    if (f === 'l'  && t === 'ml') return 1000;
+    return 1; // unknown pairing → don't guess, leave as-is
+  };
 
   // ── 2. Load all active BOMs ───────────────────────────────────────────────
   const { data: bomRows, error: bErr } = await supabase
@@ -46,18 +61,19 @@ Deno.serve(async (req) => {
   // ── 3. Load all BOM components ────────────────────────────────────────────
   const { data: compRows, error: cErr } = await supabase
     .from('bom_components')
-    .select('bom_id, input_product_id, qty, is_consumable');
+    .select('bom_id, input_product_id, qty, uom, is_consumable');
 
   if (cErr) return json({ error: `Failed to load BOM components: ${cErr.message}` }, 500);
 
   // Index components by bom_id
-  const compsByBom = new Map<string, Array<{ input_product_id: string; qty: number; is_consumable: boolean }>>();
+  const compsByBom = new Map<string, Array<{ input_product_id: string; qty: number; uom: string; is_consumable: boolean }>>();
   for (const c of compRows || []) {
     const key = c.bom_id as string;
     if (!compsByBom.has(key)) compsByBom.set(key, []);
     compsByBom.get(key)!.push({
       input_product_id: c.input_product_id as string,
       qty: Number(c.qty) || 0,
+      uom: String(c.uom || ''),
       is_consumable: Boolean(c.is_consumable),
     });
   }
@@ -79,7 +95,8 @@ Deno.serve(async (req) => {
       for (const comp of components) {
         if (comp.is_consumable) continue;
         const unitCost = costMap.get(comp.input_product_id) || 0;
-        inputCost += unitCost * comp.qty;
+        const qtyInStockUom = comp.qty * uomFactor(comp.uom, stockUomMap.get(comp.input_product_id) || '');
+        inputCost += unitCost * qtyInStockUom;
       }
 
       // Skip BOMs with no costed components — don't zero out existing costs
