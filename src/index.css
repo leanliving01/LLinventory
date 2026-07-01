@@ -250,10 +250,14 @@ body.barcode-scanning-active .barcode-scanning-ui * {
   }
 }
 
-/* ── Inventory Report — isolate the report so only it prints (clean PDF) ── */
+/* ── Inventory Report — isolate the report so only it prints (clean PDF) ──
+   These rules are SCOPED with :has(#inventory-report-print) so they only fire
+   when the report is actually on screen. Without the guard, `#root { display:
+   none }` blanked EVERY other print route (e.g. Production Print Sheets), whose
+   content lives inside #root rather than in a body-level portal. */
 @media print {
   /* Hide everything, then reveal only the report subtree. */
-  body * {
+  body:has(#inventory-report-print) * {
     visibility: hidden;
   }
   #inventory-report-print,
@@ -266,7 +270,7 @@ body.barcode-scanning-active .barcode-scanning-ui * {
   /* Remove the whole app from layout (not just ink). visibility:hidden keeps the
      app's ~2-page height, which pushed the report down — display:none reclaims it.
      The report Dialog is portaled to <body>, a sibling of #root, so it survives. */
-  #root {
+  body:has(#inventory-report-print) #root {
     display: none !important;
   }
   /* Break the report out of the fixed, height-capped, scrolling Dialog so the
