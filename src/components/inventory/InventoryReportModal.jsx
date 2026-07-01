@@ -14,6 +14,20 @@ const exact = { WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
 // read consistently on the same printed report.
 const fmtQty = (n) => Number(n || 0).toLocaleString('af-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
+// Columns in display order. `label` kind = left-aligned identity column; `num` kind
+// = right-aligned number. `always` columns can't be toggled off (product identity).
+const ALL_COLUMNS = [
+  { key: 'sku', label: 'SKU', kind: 'label', always: true },
+  { key: 'name', label: 'Product', kind: 'label', always: true },
+  { key: 'category', label: 'Category', kind: 'label' },
+  { key: 'qty', label: 'Qty on Hand', kind: 'num' },
+  { key: 'unitCost', label: 'Unit Cost', kind: 'num' },
+  { key: 'costValue', label: 'Cost Value', kind: 'num' },
+  { key: 'sellPrice', label: 'Selling Price', kind: 'num' },
+  { key: 'sellValue', label: 'Selling Value', kind: 'num' },
+];
+const OPTIONAL_COLUMNS = ALL_COLUMNS.filter(c => !c.always);
+
 /**
  * Professional inventory report, launched from Inventory Overview.
  *
@@ -32,8 +46,10 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
   const [selected, setSelected] = useState([]); // [] = All; else array of product.type
   const [hideZero, setHideZero] = useState(false); // include zero-stock products by default (full listing)
   const [logoOk, setLogoOk] = useState(true); // falls back to the LL badge if the logo asset is missing
+  const [cols, setCols] = useState({ category: true, qty: true, unitCost: true, costValue: true, sellPrice: true, sellValue: true });
   const isAll = selected.length === 0;
   const toggleCat = (t) => setSelected(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+  const toggleCol = (k) => setCols(prev => ({ ...prev, [k]: !prev[k] }));
 
   // FIFO layers are the authoritative cost basis (cost_avg is a legacy fallback).
   const { data: layers = [], isLoading } = useQuery({
@@ -108,6 +124,44 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
   const generatedDate = now.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' });
   const generatedStamp = now.toLocaleString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+  // Which columns are visible (identity columns always on), and which value totals to show.
+  const visibleColumns = ALL_COLUMNS.filter(c => c.always || cols[c.key]);
+  const labelColCount = visibleColumns.filter(c => c.kind === 'label').length;
+  const numCols = visibleColumns.filter(c => c.kind === 'num');
+  const showCost = cols.costValue;
+  const showSell = cols.sellValue;
+  const showMargin = cols.costValue && cols.sellValue;
+
+  const cellValue = (col, r) => {
+    switch (col.key) {
+      case 'sku': return r.sku;
+      case 'name': return r.name;
+      case 'category': return CATEGORY_LABELS[r.type] || r.type;
+      case 'qty': return `${fmtQty(r.qty)} ${r.uom}`;
+      case 'unitCost': return formatZAR(r.unitCost);
+      case 'costValue': return formatZAR(r.costValue);
+      case 'sellPrice': return r.sellPrice > 0 ? formatZAR(r.sellPrice) : '—';
+      case 'sellValue': return r.sellValue > 0 ? formatZAR(r.sellValue) : '—';
+      default: return '';
+    }
+  };
+  const tdClass = (col) => {
+    const base = 'px-3 py-2 border-b border-gray-100';
+    if (col.key === 'sku') return `${base} text-[10px] font-mono text-gray-400`;
+    if (col.key === 'name') return `${base} text-xs font-medium text-gray-900`;
+    if (col.key === 'category') return `${base} text-xs text-gray-500`;
+    const emphasis = (col.key === 'costValue' || col.key === 'sellValue') ? 'font-semibold text-gray-900' : 'text-gray-700';
+    return `${base} text-right text-xs tabular-nums ${emphasis}`;
+  };
+  const footerTotal = (col) => {
+    switch (col.key) {
+      case 'qty': return fmtQty(totals.qty);
+      case 'costValue': return formatZAR(totals.cost);
+      case 'sellValue': return formatZAR(totals.sell);
+      default: return '';
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-[95vw] w-[1100px] max-h-[92vh] overflow-y-auto p-0 bg-white">
@@ -153,6 +207,23 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
                   style={on ? { backgroundColor: BRAND } : undefined}
                 >
                   {on && <Check className="w-3 h-3" />} {CATEGORY_LABELS[t] || t} ({countByType[t]})
+                </button>
+              );
+            })}
+          </div>
+          {/* Column toggles — choose which fields appear on the sheet */}
+          <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+            <span className="text-[11px] font-medium text-gray-500 mr-1">Columns:</span>
+            {OPTIONAL_COLUMNS.map(c => {
+              const on = cols[c.key];
+              return (
+                <button
+                  key={c.key}
+                  onClick={() => toggleCol(c.key)}
+                  className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium border transition-all ${on ? 'text-white border-transparent' : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400'}`}
+                  style={on ? { backgroundColor: BRAND } : undefined}
+                >
+                  {on && <Check className="w-3 h-3" />} {c.label}
                 </button>
               );
             })}
@@ -204,31 +275,41 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
           {/* Brand divider */}
           <div className="h-[3px] rounded-full mt-4 mb-5" style={{ backgroundColor: BRAND, ...exact }} />
 
-          {/* Totals summary */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-lg border border-gray-200 p-3.5" style={{ backgroundColor: '#f8fafc', ...exact }}>
-              <p className="text-[11px] text-gray-500">Total Inventory (Cost) Value</p>
-              <p className="text-xl font-bold mt-0.5 text-gray-900">{formatZAR(totals.cost)}</p>
-            </div>
-            <div className="rounded-lg border border-gray-200 p-3.5" style={{ backgroundColor: '#f8fafc', ...exact }}>
-              <p className="text-[11px] text-gray-500">Total Retail (Selling) Value</p>
-              <p className="text-xl font-bold mt-0.5 text-gray-900">{formatZAR(totals.sell)}</p>
-            </div>
-            <div className="rounded-lg border p-3.5" style={{ backgroundColor: '#ecfdf5', borderColor: '#a7f3d0', ...exact }}>
-              <p className="text-[11px] text-gray-500">Gross Margin (Retail − Cost)</p>
-              <p className="text-xl font-bold mt-0.5" style={{ color: BRAND, ...exact }}>{formatZAR(margin)}</p>
-            </div>
-          </div>
-          <p className="text-[10px] text-gray-400 text-right mt-1.5">All values in ZAR, excluding VAT.</p>
+          {/* Totals summary — only the value totals whose columns are shown */}
+          {(showCost || showSell) && (
+            <>
+              <div className="flex flex-wrap gap-3">
+                {showCost && (
+                  <div className="flex-1 min-w-[200px] rounded-lg border border-gray-200 p-3.5" style={{ backgroundColor: '#f8fafc', ...exact }}>
+                    <p className="text-[11px] text-gray-500">Total Inventory (Cost) Value</p>
+                    <p className="text-xl font-bold mt-0.5 text-gray-900">{formatZAR(totals.cost)}</p>
+                  </div>
+                )}
+                {showSell && (
+                  <div className="flex-1 min-w-[200px] rounded-lg border border-gray-200 p-3.5" style={{ backgroundColor: '#f8fafc', ...exact }}>
+                    <p className="text-[11px] text-gray-500">Total Retail (Selling) Value</p>
+                    <p className="text-xl font-bold mt-0.5 text-gray-900">{formatZAR(totals.sell)}</p>
+                  </div>
+                )}
+                {showMargin && (
+                  <div className="flex-1 min-w-[200px] rounded-lg border p-3.5" style={{ backgroundColor: '#ecfdf5', borderColor: '#a7f3d0', ...exact }}>
+                    <p className="text-[11px] text-gray-500">Gross Margin (Retail − Cost)</p>
+                    <p className="text-xl font-bold mt-0.5" style={{ color: BRAND, ...exact }}>{formatZAR(margin)}</p>
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-gray-400 text-right mt-1.5">All values in ZAR, excluding VAT.</p>
+            </>
+          )}
 
-          {/* Per-category breakdown (when result spans >1 category) */}
-          {byType.length > 1 && (
+          {/* Per-category breakdown (when result spans >1 category and a value column is shown) */}
+          {byType.length > 1 && (showCost || showSell) && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
               {byType.map(([t, v]) => (
                 <div key={t} className="rounded-lg border border-gray-200 p-2.5" style={{ backgroundColor: '#fbfdfc', ...exact }}>
                   <p className="text-[11px] font-semibold text-gray-800">{CATEGORY_LABELS[t] || t}</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">Cost {formatZAR(v.cost)}</p>
-                  <p className="text-[11px] text-gray-500">Retail {formatZAR(v.sell)}</p>
+                  {showCost && <p className="text-[11px] text-gray-500 mt-0.5">Cost {formatZAR(v.cost)}</p>}
+                  {showSell && <p className="text-[11px] text-gray-500">Retail {formatZAR(v.sell)}</p>}
                 </div>
               ))}
             </div>
@@ -239,39 +320,27 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="text-[10px] font-semibold text-gray-600 uppercase" style={{ backgroundColor: '#f1f5f9', ...exact }}>
-                  <th className="text-left px-3 py-2.5">SKU</th>
-                  <th className="text-left px-3 py-2.5">Product</th>
-                  <th className="text-left px-3 py-2.5 w-28">Category</th>
-                  <th className="text-right px-3 py-2.5 w-24">Qty on Hand</th>
-                  <th className="text-right px-3 py-2.5 w-24">Unit Cost</th>
-                  <th className="text-right px-3 py-2.5 w-28">Cost Value</th>
-                  <th className="text-right px-3 py-2.5 w-24">Selling Price</th>
-                  <th className="text-right px-3 py-2.5 w-28">Selling Value</th>
+                  {visibleColumns.map(c => (
+                    <th key={c.key} className={`px-3 py-2.5 ${c.kind === 'num' ? 'text-right' : 'text-left'}`}>{c.label}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={r.id} style={i % 2 ? { backgroundColor: '#f8fafc', ...exact } : undefined}>
-                    <td className="px-3 py-2 text-[10px] font-mono text-gray-400 border-b border-gray-100">{r.sku}</td>
-                    <td className="px-3 py-2 text-xs font-medium text-gray-900 border-b border-gray-100">{r.name}</td>
-                    <td className="px-3 py-2 text-xs text-gray-500 border-b border-gray-100">{CATEGORY_LABELS[r.type] || r.type}</td>
-                    <td className="px-3 py-2 text-right text-xs text-gray-700 border-b border-gray-100 tabular-nums">{fmtQty(r.qty)} {r.uom}</td>
-                    <td className="px-3 py-2 text-right text-xs text-gray-700 border-b border-gray-100 tabular-nums">{formatZAR(r.unitCost)}</td>
-                    <td className="px-3 py-2 text-right text-xs font-semibold text-gray-900 border-b border-gray-100 tabular-nums">{formatZAR(r.costValue)}</td>
-                    <td className="px-3 py-2 text-right text-xs text-gray-700 border-b border-gray-100 tabular-nums">{r.sellPrice > 0 ? formatZAR(r.sellPrice) : '—'}</td>
-                    <td className="px-3 py-2 text-right text-xs font-semibold text-gray-900 border-b border-gray-100 tabular-nums">{r.sellValue > 0 ? formatZAR(r.sellValue) : '—'}</td>
+                    {visibleColumns.map(c => (
+                      <td key={c.key} className={tdClass(c)}>{cellValue(c, r)}</td>
+                    ))}
                   </tr>
                 ))}
                 {/* Grand total as the final body row (NOT <tfoot>, which browsers
                     repeat at the bottom of every printed page). */}
                 {rows.length > 0 && (
                   <tr className="font-bold text-gray-900" style={{ backgroundColor: '#f1f5f9', ...exact }}>
-                    <td className="px-3 py-2.5 text-xs" colSpan={3}>Total — {catLabel}</td>
-                    <td className="px-3 py-2.5 text-right text-xs tabular-nums">{fmtQty(totals.qty)}</td>
-                    <td className="px-3 py-2.5" />
-                    <td className="px-3 py-2.5 text-right text-xs tabular-nums">{formatZAR(totals.cost)}</td>
-                    <td className="px-3 py-2.5" />
-                    <td className="px-3 py-2.5 text-right text-xs tabular-nums">{formatZAR(totals.sell)}</td>
+                    <td className="px-3 py-2.5 text-xs" colSpan={labelColCount}>Total — {catLabel}</td>
+                    {numCols.map(c => (
+                      <td key={c.key} className="px-3 py-2.5 text-right text-xs tabular-nums">{footerTotal(c)}</td>
+                    ))}
                   </tr>
                 )}
               </tbody>
@@ -284,11 +353,11 @@ export default function InventoryReportModal({ open, onClose, products = [], sto
             )}
           </div>
 
-          {/* Methodology note */}
+          {/* Methodology note — adapts to the shown value columns */}
           <p className="text-[10px] text-gray-400 mt-3 leading-4">
-            Figures reflect stock physically on hand at the time of generation. Inventory is valued at FIFO
-            (first-in, first-out) cost; where a current cost layer is unavailable the latest average cost is used.
-            Retail value uses the current selling price (excl. VAT).
+            Figures reflect stock physically on hand at the time of generation.
+            {showCost ? ' Inventory is valued at FIFO (first-in, first-out) cost; where a current cost layer is unavailable the latest average cost is used.' : ''}
+            {showSell ? ' Retail value uses the current selling price (excl. VAT).' : ''}
             {hideZero ? ' Products with no stock on hand are excluded.' : ' All products in the selected categories are listed, including those with no stock on hand.'}
           </p>
 
