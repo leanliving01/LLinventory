@@ -348,9 +348,15 @@ Deno.serve(async (req) => {
   }
 
   // sales_orders — same rule: never mix inserts and updates in one upsert.
+  // Insert uses upsert-ignore on the natural key (external_id = Shopify order id):
+  // a brand-new order can be processed by this sync AND its webhook at the same
+  // instant, and uq_sales_orders_external_id lets only one row win. Upsert-ignore
+  // makes the loser a no-op instead of a hard error — and, critically, we do NOT
+  // trust the locally-generated UUID afterwards (see the re-read below).
   if (salesToInsert.length) {
-    const { error: siErr } = await supabase.from('sales_orders').insert(salesToInsert);
-    if (siErr) console.error('sales_orders insert error:', siErr.message);
+    const { error: siErr } = await supabase.from('sales_orders')
+      .upsert(salesToInsert, { onConflict: 'external_id', ignoreDuplicates: true });
+    if (siErr) console.error('sales_orders upsert error:', siErr.message);
   }
   if (salesToUpdate.length) {
     const { error: suErr } = await supabase
@@ -359,12 +365,24 @@ Deno.serve(async (req) => {
     if (suErr) console.error('sales_orders update error:', suErr.message);
   }
 
-  // Build salesIdMap: shopify_order_id → our sales_order id
+  // Build salesIdMap: shopify_order_id → our sales_order id — from PERSISTED rows,
+  // never from the generated UUIDs. A row in salesToInsert may have lost the
+  // external_id race to a concurrent webhook, so its generated id was never
+  // stored; binding lines to that non-persisted id is exactly what created the
+  // orphaned sales_order_lines. Re-reading DB truth guarantees every line
+  // attaches to the order that actually exists.
   const salesIdMap = new Map<string, string>();
-  for (const r of salesToInsert) salesIdMap.set(r.shopify_order_id as string, r.id as string);
   for (const o of orders) {
     const ex = existingSalesById.get(String(o.id));
     if (ex) salesIdMap.set(String(o.id), ex.id);
+  }
+  const insertedExternalIds = salesToInsert.map(r => r.external_id as string);
+  for (let i = 0; i < insertedExternalIds.length; i += 200) {
+    const chunk = insertedExternalIds.slice(i, i + 200);
+    const { data: persisted, error: reErr } = await supabase
+      .from('sales_orders').select('id, external_id').in('external_id', chunk);
+    if (reErr) { console.error('sales_orders re-read error:', reErr.message); continue; }
+    for (const r of persisted || []) salesIdMap.set(r.external_id as string, r.id as string);
   }
 
   // Bulk replace line items for these orders

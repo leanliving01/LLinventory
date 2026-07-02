@@ -242,8 +242,18 @@ Deno.serve(async (req) => {
     ourSalesId = existingSales.id as string;
     await supabase.from('sales_orders').update(salesPayload).eq('id', ourSalesId);
   } else {
-    ourSalesId = crypto.randomUUID();
-    await supabase.from('sales_orders').insert({ id: ourSalesId, ...salesPayload, created_date: now });
+    // A brand-new order can hit this webhook AND the scheduled sync at the same
+    // instant. Both would insert a row for the same order; uq_sales_orders_
+    // external_id lets only one win. Upsert-ignore so the loser no-ops instead of
+    // erroring, then re-read to bind to whichever id actually persisted — never
+    // the locally-generated (possibly non-persisted) id, which would orphan every
+    // line written under it.
+    const genId = crypto.randomUUID();
+    await supabase.from('sales_orders')
+      .upsert({ id: genId, ...salesPayload, created_date: now }, { onConflict: 'external_id', ignoreDuplicates: true });
+    const { data: persisted } = await supabase.from('sales_orders')
+      .select('id').eq('external_id', shopifyOrderId).maybeSingle();
+    ourSalesId = (persisted?.id as string) ?? genId;
   }
 
   // Snapshot existing lines BEFORE delete so we can log real edits (best-effort).
