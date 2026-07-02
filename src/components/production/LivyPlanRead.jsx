@@ -35,7 +35,7 @@ const flowClock = (min) => {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 };
 
-export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
+export default function LivyPlanRead({ lines = [], onApply, onSuggestions, dailyCapacity = null, productionDays = null }) {
   const { plan: machinePlan, flow, isLoading: planLoading } = useMachinePlan(lines);
   const [structured, setStructured] = useState(null);
   const [fallbackText, setFallbackText] = useState('');
@@ -52,13 +52,12 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
   }, [lines]);
 
   const summary = useMemo(() => {
-    const backorders = [], belowPar = [], catchUp = [];
+    const backorders = [], belowPar = [];
     let totalUnits = 0;
     for (const l of lines) {
       const soh = l.soh_at_plan || 0, com = l.committed_at_plan || 0, par = l.par_at_plan || 0, qty = l.planned_qty || 0;
       totalUnits += qty;
-      if (l.reason === 'catch_up') catchUp.push({ sku: l.product_sku, name: l.product_name, making: qty });
-      else if (com > soh) backorders.push({ sku: l.product_sku, name: l.product_name, owed: com - soh, making: qty });
+      if (com > soh) backorders.push({ sku: l.product_sku, name: l.product_name, owed: com - soh, making: qty });
       else if (par > 0 && (soh - com) < par) belowPar.push({ sku: l.product_sku, name: l.product_name, short: par - (soh - com), making: qty });
     }
     backorders.sort((a, b) => b.owed - a.owed);
@@ -71,14 +70,14 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
     const cookOrder = (flow?.steps || []).slice(0, 6).map(s => ({ bulk: s.name, machine: s.machine, feeds_meals: s.fanOut }));
     return {
       date: new Date().toISOString().slice(0, 10), total_meals: totalUnits, meal_lines: lines.length,
+      daily_capacity: dailyCapacity, production_days: productionDays,
       backorders: backorders.slice(0, 8), below_par: belowPar.slice(0, 8),
-      catch_up: catchUp.slice(0, 12),
       top_quantities: topMakes, machines, bulks_without_capacity: (machinePlan?.unscheduled || []).map(u => u.name),
       cook_order: cookOrder,
       portioning_can_start: flow ? flowClock(flow.portioningStartMin) : null,
       all_cooked_by: flow ? flowClock(flow.doneMin) : null,
     };
-  }, [lines, machinePlan, flow]);
+  }, [lines, machinePlan, flow, dailyCapacity, productionDays]);
 
   const ask = useCallback(async () => {
     if (!lines.length) return;
@@ -87,6 +86,7 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
       role: 'system',
       content:
         "You are Livy, the Lean Living production planner. The deterministic engine has ALREADY computed today's plan — the JSON below is FINAL and correct.\n" +
+        "PLAN LOGIC (so your read matches the numbers): each meal is simply rebuilt to its PAR — make = par − available (available = on-hand − committed); backorders are always fully covered. There is NO days-of-cover / 6-day cap anymore. The day's total is split into daily-capacity-sized runs — that split IS the production window (more than one run = a multi-day plan). The 4 package weightings of a dish (MWL/MLM/WLM/WWL) share one cooked bulk, so any of them that are below par are made together.\n" +
         "First, do ONE quick lookup of your own memory (brain_search) for saved notes on how this manager prefers production planned, and factor them in. Use NO other tools (no ERP tools) and do NOT write or run code — the plan numbers are final; never recompute them.\n" +
         "Reply with ONLY a JSON object (no text before or after it) in EXACTLY this shape:\n" +
         '{"headline":"one short sentence — the bottom line",' +
@@ -95,7 +95,7 @@ export default function LivyPlanRead({ lines = [], onApply, onSuggestions }) {
         '"watch":[{"level":"risk","text":"short risk or note"}],' +
         '"adjustments":[{"sku":"MWL10","name":"Lean Mince…","to_qty":120,"reason":"short why"}]}\n' +
         "Rules: make_first = ordered make-first list (backorders before below-par), qty = today's make for that meal, keep ≤5. machine = 1-3 very short notes (the wet line Ivario↔tilting pan is interchangeable). watch = risks (level:\"risk\") or notes (level:\"info\"), ≤4, each one line. adjustments = ONLY real make-quantity changes you'd recommend (to_qty = new total), max 5, else []. Every string short and scannable. Numbers from the plan only.\n" +
-        "NOTE: a `catch_up` list means the engine already topped up the other package variants of a dish whose bulk is being cooked anyway (same recipe, different plating) — call this out positively in `watch` (level:\"info\") if present, e.g. \"Caught up 3 packages on shared bulks\".\n" +
+        "NOTE: if `runs`/`production_days` > 1 the plan exceeds one day's capacity and is split across days — surface that in `watch` (level:\"info\"), e.g. \"3,050 > 1,500/day — splits over 2 days\".\n" +
         "NOTE: `cook_order` is the recommended sequence (broad+slow bulks first) and `portioning_can_start` is when the line can begin. Work the flow into your read — e.g. a make_first 'why' like \"start first, feeds 12 meals\", or a watch note \"portioning can start ~08:40\".",
     };
     const user = { role: 'user', content: "Today's computed plan:\n```json\n" + JSON.stringify(summary) + "\n```" };

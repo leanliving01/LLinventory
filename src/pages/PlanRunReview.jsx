@@ -232,7 +232,7 @@ export default function PlanRunReview() {
       )}
 
       {/* Livy's read — judgment + one-tap adjustments on top of the engine's plan */}
-      <LivyPlanRead lines={allPlanLines} onApply={applyLivyQty} onSuggestions={handleSuggestions} />
+      <LivyPlanRead lines={allPlanLines} onApply={applyLivyQty} onSuggestions={handleSuggestions} dailyCapacity={maxPerRun} productionDays={splitPlan.length} />
 
       {/* Production flow — the recommended cook order + portioning start */}
       <ProductionFlowPanel lines={allPlanLines} />

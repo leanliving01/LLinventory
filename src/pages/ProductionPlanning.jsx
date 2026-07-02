@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Factory, Search, X, Settings2, Save, Loader2, Plus, AlertTriangle, Sparkles, CalendarDays } from 'lucide-react';
+import { Factory, Search, X, Settings2, Save, Loader2, Plus, AlertTriangle, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import AdHocRunModal from '@/components/production/AdHocRunModal';
@@ -35,9 +35,6 @@ export default function ProductionPlanning() {
   const [showAdHoc, setShowAdHoc] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [belowParOnly, setBelowParOnly] = useState(false);
-  // Forward-cover planning window (days). Drives the "produce-to" cap: we build at
-  // most this many days of sales velocity per meal. Default 6; raise to plan ahead.
-  const [coverDays, setCoverDays] = useState(6);
 
   // ── Settings ──────────────────────────────────────────────────────────────
   const { data: maxSetting } = useQuery({
@@ -47,7 +44,9 @@ export default function ProductionPlanning() {
       return settings[0] || null;
     },
   });
-  const maxPerRun = maxSetting ? Number(maxSetting.value) || 2500 : 2500;
+  // Daily capacity — the most meals the kitchen can make in a day. The day's
+  // to-par total is split into this-sized runs = the production window.
+  const maxPerRun = maxSetting ? Number(maxSetting.value) || 1500 : 1500;
   // The typed value takes effect on the plan IMMEDIATELY (no need to click Save —
   // Save only persists it as the default). So changing Max/Run instantly re-splits
   // the run and updates the button. Falls back to the saved default when blank.
@@ -116,35 +115,13 @@ export default function ProductionPlanning() {
     return map;
   }, [stockRecords]);
 
-  // Sales velocity (units/week per meal) → drives the 6-day forward-cover cap.
-  // Reuses the Inventory Dashboard's inventory_trends RPC. Degrades gracefully:
-  // no velocity → the cap simply doesn't bite (engine falls back to par).
-  const { data: trends = [] } = useQuery({
-    queryKey: ['inventory-trends-planning'],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('inventory_trends');
-      if (error) { console.error('[inventory_trends]', error.message); return []; }
-      return data || [];
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // Feed the engine the spike-DAMPENED cap_rate (= max(28-day smooth, 0.5×this-week))
-  // so one hot week can't authorise an oversized cook of perishable meals. Falls back
-  // to weekly_rate if the migration-100 column isn't present yet. (Alerts/days-of-cover
-  // still use the full weekly_rate elsewhere; only the production cover cap uses this.)
-  const velocityMap = useMemo(() => {
-    const map = {};
-    trends.forEach(t => { if (t.product_id) map[t.product_id] = t.cap_rate ?? t.weekly_rate ?? 0; });
-    return map;
-  }, [trends]);
-
-  // The deterministic engine: one recommendation per meal (backorder-first,
-  // >10%-below-par trigger, 6-day cover cap). Single source of truth shared by
-  // the summary, the package cards, the detail table and the Run button.
+  // The deterministic engine: one recommendation per meal (pure par-to-target —
+  // recommended = max(0, par − available), backorders always covered). Single
+  // source of truth shared by the summary, the package cards, the detail table
+  // and the Run button.
   const recoMap = useMemo(
-    () => buildRecommendationMap(finishedMeals, stockMap, velocityMap, { forwardCoverDays: coverDays }),
-    [finishedMeals, stockMap, velocityMap, coverDays]
+    () => buildRecommendationMap(finishedMeals, stockMap),
+    [finishedMeals, stockMap]
   );
 
   // ── Package grouping ───────────────────────────────────────────────────────
@@ -344,7 +321,7 @@ export default function ProductionPlanning() {
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold" title="Meals more than 10% below par (the trigger to produce)">To Make (&gt;10%)</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold" title="Meals below par — the trigger to produce (rebuild to par)">Below Par</p>
           <p className="text-lg font-bold text-amber-600">{belowParCount}</p>
         </div>
         <div className="w-px h-8 bg-border" />
@@ -359,7 +336,7 @@ export default function ProductionPlanning() {
         </div>
         <div className="w-px h-8 bg-border" />
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Runs Needed</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold" title="Production window — the day's to-par total split into daily-capacity-sized runs">Production Days</p>
           <p className="text-lg font-bold text-foreground">{numRuns}</p>
         </div>
         <div className="w-px h-8 bg-border" />
@@ -368,40 +345,12 @@ export default function ProductionPlanning() {
           <p className="text-lg font-bold text-foreground">{packages.length}</p>
         </div>
 
-        {/* Planning window — how many days of demand to build toward (forward-cover cap) */}
+        {/* Daily capacity inline editor — how many meals/day the kitchen can make.
+            The to-par total splits into this-sized runs = the production window.
+            Typed value applies to the plan LIVE (Save only persists the default). */}
         <div className="ml-auto flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-2 border border-border">
-          <CalendarDays className="w-4 h-4 text-muted-foreground shrink-0" />
-          <div className="text-[10px] text-muted-foreground uppercase font-semibold whitespace-nowrap" title="We build at most this many days of sales velocity per meal. Raise it to plan further ahead.">Plan Window</div>
-          <div className="flex items-center gap-1">
-            {[6, 7, 10, 14].map(d => (
-              <Button
-                key={d}
-                size="sm"
-                variant={coverDays === d ? 'default' : 'ghost'}
-                onClick={() => setCoverDays(d)}
-                className="h-7 px-2.5 text-xs tabular-nums"
-              >
-                {d}d
-              </Button>
-            ))}
-            <Input
-              type="number"
-              min="1"
-              max="30"
-              value={coverDays}
-              // Clamp to a sane 1–30d integer: an unbounded value (e.g. a huge
-              // number → Infinity) would silently disable the forward-cover cap.
-              onChange={e => { const v = Math.floor(Number(e.target.value)); if (v >= 1) setCoverDays(Math.min(30, v)); }}
-              className="w-16 h-7 text-xs text-right"
-              title="Custom number of days (1–30)"
-            />
-          </div>
-        </div>
-
-        {/* Max meals per run inline editor */}
-        <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-2 border border-border">
           <Settings2 className="w-4 h-4 text-muted-foreground shrink-0" />
-          <div className="text-[10px] text-muted-foreground uppercase font-semibold whitespace-nowrap">Max / Run</div>
+          <div className="text-[10px] text-muted-foreground uppercase font-semibold whitespace-nowrap" title="Meals the kitchen can produce in one day. If the to-par total is higher, it splits across days.">Daily Capacity</div>
           <Input
             type="number"
             min="1"
@@ -492,7 +441,6 @@ export default function ProductionPlanning() {
               onOverride={handleOverride}
               search={search}
               belowParOnly={belowParOnly}
-              coverDays={coverDays}
             />
           </div>
         </>

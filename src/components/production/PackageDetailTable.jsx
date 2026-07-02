@@ -26,13 +26,11 @@ function StatusBar({ pct }) {
 const REASON_BADGE = {
   backorder:    { label: 'Backorder', cls: 'text-red-600' },
   below_par:    { label: 'Below par', cls: 'text-amber-600' },
-  catch_up:     { label: 'Catch-up', cls: 'text-indigo-600' },
-  within_10pct: { label: 'Within 10%', cls: 'text-muted-foreground' },
   at_par:       { label: 'At par', cls: 'text-emerald-600' },
   no_par:       { label: 'No par', cls: 'text-muted-foreground' },
 };
 
-function PackageSection({ pkg, stockMap, recoMap, overrides, onOverride, search, belowParOnly, defaultExpanded, coverDays = 6 }) {
+function PackageSection({ pkg, stockMap, recoMap, overrides, onOverride, search, belowParOnly, defaultExpanded }) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? true);
   const { fullLabel, label, color, meals } = pkg;
   const dotColor = color || '#6b7280';
@@ -169,7 +167,7 @@ function PackageSection({ pkg, stockMap, recoMap, overrides, onOverride, search,
                         <span>{recommended > 0 ? recommended : '—'}</span>
                         {badge && (
                           <span className={cn('text-[9px] font-medium uppercase tracking-wide', badge.cls)}>
-                            {reco.capped ? `Capped ${coverDays}d` : badge.label}
+                            {badge.label}
                           </span>
                         )}
                       </div>
@@ -223,7 +221,6 @@ export default function PackageDetailTable({
   onOverride,
   search,
   belowParOnly,
-  coverDays = 6,
 }) {
   const visible = selectedPackage
     ? packages.filter(p => p.code === selectedPackage)
@@ -267,7 +264,6 @@ export default function PackageDetailTable({
           onOverride={onOverride}
           search={search}
           belowParOnly={belowParOnly}
-          coverDays={coverDays}
           defaultExpanded={!!selectedPackage || visible.length <= 2}
         />
       ))}

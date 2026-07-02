@@ -1,86 +1,49 @@
 /**
  * Production Planning engine — the deterministic "judgment brain".
  *
- * Replaces the naive `Math.max(0, par - available)` recommendation with the
- * rules Thys locked on 29/06/2026:
+ * Pure PAR-TO-TARGET replenishment (Thys, 2026-07-02). The old "6-day forward
+ * cover" cap was RETIRED — it sat below par for slow movers and recommended
+ * less-than-par (or zero), which broke "just work back to par". The rule now:
  *
- *   1. Backorder (committed > on-hand) → ALWAYS produce, even 1 unit. Clears the
- *      negative and rebuilds toward par.
- *   2. Below par → only if more than 10% below par. Within 10% → skip (not worth
- *      a batch). Meals only (packages are built from meals).
- *   3. Produce-to target = back to par, THEN clamp to a 6-day forward-cover cap
- *      (6 × daily sales velocity). Stops over-building slow meals whose par
- *      implies many days of cover. No velocity data → the cap doesn't bite.
+ *   1. Backorder (committed > on-hand) → always covered: par − available exceeds
+ *      par when available is negative, so the owed units are included by design.
+ *   2. Otherwise rebuild to par: recommended = max(0, par − available), where
+ *      available = on-hand − committed. At/over par → 0.
+ *
+ * There is no velocity cap and no below-par threshold — any meal under par
+ * produces. Daily capacity + the production window (splitting the day's total
+ * into sized runs) is applied downstream on the planning page, not here. The
+ * shared-bulk / 4-weighting efficiency is inherent: every below-par variant of a
+ * dish already appears, so there's no separate catch-up pass.
  *
  * Numbers only — no LLM. Livy narrates the OUTPUT; it never invents the maths.
- * (See PRODUCTION_PLANNING_AGENT_BRIEF.md.)
+ * (See docs/PRODUCTION_PLANNING_LOGIC_2026-07-01.md + PRODUCTION_PLANNING_AGENT_BRIEF.md.)
  */
-
-export const PLANNING_DEFAULTS = {
-  belowParTriggerPct: 0.10, // must be > this fraction below par to trigger
-  forwardCoverDays: 6,      // max days of sales to hold for a fresh meal
-};
 
 /**
- * Recommend how many units of a single meal to produce.
+ * Recommend how many units of a single meal to produce — pure par-to-target.
  *
  * @param {object} a
- * @param {number} a.par         - products.par_level
- * @param {number} a.onHand      - total qty_on_hand across locations
- * @param {number} a.committed   - total qty_committed (paid-unfulfilled, exploded)
- * @param {number} [a.weeklyRate]- units sold/week (inventory_trends.weekly_rate)
- * @param {object} [a.options]   - { belowParTriggerPct, forwardCoverDays }
- * @returns {{ recommended:number, reason:string, capped:boolean, available:number,
- *            backorderShortfall:number, rawQty:number, coverCapOnHand:number }}
+ * @param {number} a.par        - products.par_level (target to rebuild to)
+ * @param {number} a.onHand     - total qty_on_hand across locations
+ * @param {number} a.committed  - total qty_committed (paid-unfulfilled, exploded)
+ * @returns {{ recommended:number, reason:string, available:number,
+ *            backorderShortfall:number, rawQty:number }}
  */
-export function recommendMealQty({ par = 0, onHand = 0, committed = 0, weeklyRate = 0, options = {} }) {
-  const belowParTriggerPct = options.belowParTriggerPct ?? PLANNING_DEFAULTS.belowParTriggerPct;
-  const forwardCoverDays = options.forwardCoverDays ?? PLANNING_DEFAULTS.forwardCoverDays;
-
+export function recommendMealQty({ par = 0, onHand = 0, committed = 0 }) {
   const available = onHand - committed;
   const backorderShortfall = Math.max(0, committed - onHand); // units owed beyond stock
-  const isBackorder = backorderShortfall > 0;
 
-  // ── 1+2. Trigger gate ──────────────────────────────────────────────────────
+  // Rebuild available up to par. A backorder (available < 0) is covered
+  // automatically since par − available then exceeds par. Never negative.
+  const recommended = Math.max(0, Math.round(par - available));
+
   let reason;
-  let shouldProduce = false;
-  if (isBackorder) {
-    shouldProduce = true;
-    reason = 'backorder';
-  } else if (par > 0 && available < par) {
-    const gapPct = (par - available) / par;
-    if (gapPct > belowParTriggerPct) {
-      shouldProduce = true;
-      reason = 'below_par';
-    } else {
-      reason = 'within_10pct'; // close enough to par — skip
-    }
-  } else {
-    reason = par > 0 ? 'at_par' : 'no_par';
-  }
+  if (backorderShortfall > 0) reason = 'backorder';
+  else if (par > 0 && available < par) reason = 'below_par';
+  else reason = par > 0 ? 'at_par' : 'no_par';
 
-  if (!shouldProduce) {
-    return { recommended: 0, reason, capped: false, available, backorderShortfall, rawQty: 0, coverCapOnHand: Infinity };
-  }
-
-  // Raw target: rebuild `available` up to par (covers a backorder automatically,
-  // since available is negative when committed > on-hand).
-  const rawQty = Math.max(0, par - available);
-
-  // ── 3. 6-day forward-cover cap on total on-hand ────────────────────────────
-  const dailyRate = weeklyRate > 0 ? weeklyRate / 7 : 0;
-  const coverCapOnHand = dailyRate > 0 ? Math.ceil(forwardCoverDays * dailyRate) : Infinity;
-  // Never cap below what we owe (committed must always be coverable).
-  const capOnHand = Math.max(committed, coverCapOnHand);
-  const qtyCap = Math.max(0, capOnHand - onHand);
-
-  let recommended = Math.min(rawQty, qtyCap);
-  // A real backorder is always fully covered, even if the cap would trim it.
-  recommended = Math.max(recommended, backorderShortfall);
-  recommended = Math.round(recommended);
-
-  const capped = recommended < rawQty;
-  return { recommended, reason, capped, available, backorderShortfall, rawQty, coverCapOnHand };
+  return { recommended, reason, available, backorderShortfall, rawQty: recommended };
 }
 
 /**
@@ -367,36 +330,17 @@ export function assignTaskSequence(tasks, ctx = {}) {
   });
 }
 
-// A "dish" is the same recipe plated across the 4 goal packages (MWL/MLM/WLM/WWL).
-// They share the same cooked bulk(s) — only the portioning differs. The dish key
-// is the meal NUMBER from the SKU (MWL1/MLM1/WLM1/WWL1 → "1"). Self-contained
-// (mirrors lib/productionGrouping.extractMealNumber) so the engine stays
-// node-testable without the '@/' alias.
-const GOAL_CODES = ['MLM', 'MWL', 'WLM', 'WWL'];
-function dishKey(sku) {
-  if (!sku) return null;
-  for (const c of GOAL_CODES) {
-    if (sku.startsWith(c) && /^\d+$/.test(sku.slice(c.length))) return sku.slice(c.length);
-  }
-  return null;
-}
-
 /**
- * Build the per-meal recommendation map for a list of meals, then apply the
- * BULK CATCH-UP rule: once any package-variant of a dish is being cooked (it
- * triggered a backorder or >10%-below-par), every OTHER variant of that same
- * dish that's below par gets topped up too — even if it's under the 10%
- * threshold. Rationale: the bulk is already being cooked, so the extra packages
- * cost only portioning. "You're already making Beef & Beans for one package, so
- * portion the other three that are a few short."
+ * Build the per-meal recommendation map (pure par-to-target). Every below-par
+ * meal produces on its own, so the old "bulk catch-up" pass is gone: all four
+ * package variants of a dish that are below par already appear here, and the
+ * shared bulk is cooked once for whichever variants need topping up.
  *
- * @param {Array}  meals      - finished_meal products ({ id, sku, par_level, ... })
- * @param {object} stockMap   - { [productId]: { qty_on_hand, qty_committed } }
- * @param {object} velocityMap- { [productId]: weeklyRate }
- * @param {object} [options]
- * @returns {object} { [productId]: result-from-recommendMealQty (reason may be 'catch_up') }
+ * @param {Array}  meals    - finished_meal products ({ id, sku, par_level, ... })
+ * @param {object} stockMap - { [productId]: { qty_on_hand, qty_committed } }
+ * @returns {object} { [productId]: result-from-recommendMealQty }
  */
-export function buildRecommendationMap(meals, stockMap, velocityMap = {}, options = {}) {
+export function buildRecommendationMap(meals, stockMap) {
   const map = {};
   for (const product of meals) {
     const s = stockMap[product.id] || {};
@@ -404,37 +348,7 @@ export function buildRecommendationMap(meals, stockMap, velocityMap = {}, option
       par: product.par_level || 0,
       onHand: s.qty_on_hand || 0,
       committed: s.qty_committed || 0,
-      weeklyRate: velocityMap[product.id] || 0,
-      options,
     });
   }
-
-  // ── Bulk catch-up across the 4 package variants of each dish ────────────────
-  const groups = {};
-  for (const p of meals) {
-    const k = dishKey(p.sku);
-    if (k) (groups[k] ||= []).push(p);
-  }
-  for (const members of Object.values(groups)) {
-    if (members.length < 2) continue;
-    const cooking = members.some(p => (map[p.id]?.recommended || 0) > 0);
-    if (!cooking) continue; // the bulk isn't being made today → no catch-up
-    for (const p of members) {
-      const r = map[p.id];
-      if (!r || r.recommended > 0) continue; // already producing this variant
-      const s = stockMap[p.id] || {};
-      const onHand = s.qty_on_hand || 0, committed = s.qty_committed || 0, par = p.par_level || 0;
-      if (par > 0 && (onHand - committed) < par) {
-        // Below par but didn't trigger on its own — top to par (force the trigger
-        // with a 0% threshold), still clamped to the 6-day forward-cover cap.
-        const catchUp = recommendMealQty({
-          par, onHand, committed, weeklyRate: velocityMap[p.id] || 0,
-          options: { ...options, belowParTriggerPct: 0 },
-        });
-        if (catchUp.recommended > 0) map[p.id] = { ...catchUp, reason: 'catch_up' };
-      }
-    }
-  }
-
   return map;
 }
