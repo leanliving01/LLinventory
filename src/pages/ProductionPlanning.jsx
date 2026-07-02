@@ -19,6 +19,8 @@ import { useSubcategories } from '@/lib/useSubcategories';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/api/supabaseClient';
 import { buildRecommendationMap } from '@/lib/productionEngine';
+import { buildVegToMealMap, computeBurnDown } from '@/lib/vegBurnDown';
+import LeftoverVegPanel from '@/components/production/LeftoverVegPanel';
 
 export default function ProductionPlanning() {
   const queryClient = useQueryClient();
@@ -35,6 +37,8 @@ export default function ProductionPlanning() {
   const [showAdHoc, setShowAdHoc] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [belowParOnly, setBelowParOnly] = useState(false);
+  // Leftover-veg burn-down entries: [{ vegId, kg, mealId }]
+  const [vegEntries, setVegEntries] = useState([]);
 
   // ── Settings ──────────────────────────────────────────────────────────────
   const { data: maxSetting } = useQuery({
@@ -90,6 +94,56 @@ export default function ProductionPlanning() {
     refetchOnWindowFocus: true,
   });
 
+  // BOM data for the leftover-veg burn-down: portion BOMs (meal→bulk), cook BOMs
+  // (bulk→raw), all components (paginated — bom_components exceeds the 1000-row
+  // REST cap), and the raw veg catalogue. Degrades gracefully to no burn-down.
+  const { data: bomData } = useQuery({
+    queryKey: ['production-veg-bom-data'],
+    queryFn: async () => {
+      const allComps = async () => {
+        let out = [], from = 0; const size = 1000;
+        for (;;) {
+          const { data, error } = await supabase
+            .from('bom_components').select('bom_id,input_product_id,qty,uom').range(from, from + size - 1);
+          if (error) { console.error('[bom_components]', error.message); break; }
+          out = out.concat(data || []);
+          if (!data || data.length < size) break;
+          from += size;
+        }
+        return out;
+      };
+      const [portion, cook, comps, rawVeg] = await Promise.all([
+        base44.entities.Bom.filter({ bom_type: 'portion', is_active: true }, 'product_name', 300),
+        base44.entities.Bom.filter({ bom_type: 'cook', is_active: true }, 'product_name', 300),
+        allComps(),
+        base44.entities.Product.filter({ type: 'raw', status: 'active' }, 'name', 500),
+      ]);
+      return { portion, cook, comps, rawVeg };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // In-flight production: units already scheduled/in-progress in OPEN runs count
+  // as cover, so a Day-2 plan doesn't re-make what an earlier run already covers.
+  const { data: inFlightMap = {} } = useQuery({
+    queryKey: ['production-in-flight'],
+    queryFn: async () => {
+      const openRuns = await base44.entities.ProductionRun.filter(
+        { status: { $in: ['draft', 'scheduled', 'in_progress'] } }, '-run_date', 1000);
+      const ids = openRuns.map(r => r.id);
+      if (!ids.length) return {};
+      const map = {};
+      for (let i = 0; i < ids.length; i += 50) {
+        const lines = await base44.entities.ProductionRunLine.filter(
+          { run_id: { $in: ids.slice(i, i + 50) } }, 'product_id', 5000);
+        lines.forEach(l => { if (l.product_id) map[l.product_id] = (map[l.product_id] || 0) + (l.planned_qty || 0); });
+      }
+      return map;
+    },
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: true,
+  });
+
   // Live updates — reflect new/changed products, stock and subcategories without
   // a manual refresh. Realtime where the table is in the publication; the
   // refetchOnWindowFocus above is the reliable fallback. (Pattern: SyncStatusBanner.)
@@ -115,13 +169,41 @@ export default function ProductionPlanning() {
     return map;
   }, [stockRecords]);
 
-  // The deterministic engine: one recommendation per meal (pure par-to-target —
-  // recommended = max(0, par − available), backorders always covered). Single
-  // source of truth shared by the summary, the package cards, the detail table
-  // and the Run button.
+  // Which raw veg maps to which meals (finished-meal homes only — the planner
+  // only produces finished meals), so leftover veg can be burned into a meal.
+  const finishedMealIds = useMemo(() => new Set(finishedMeals.map(m => m.id)), [finishedMeals]);
+  const vegToMealMap = useMemo(() => {
+    if (!bomData) return {};
+    const portionByProductId = {};
+    bomData.portion.forEach(b => { if (finishedMealIds.has(b.product_id)) portionByProductId[b.product_id] = b; });
+    const cookBomByProductId = {};
+    bomData.cook.forEach(b => { cookBomByProductId[b.product_id] = b; });
+    const compsByBomId = {};
+    bomData.comps.forEach(c => (compsByBomId[c.bom_id] ||= []).push(c));
+    const productById = {};
+    finishedMeals.forEach(p => { productById[p.id] = p; });
+    return buildVegToMealMap({ rawVegProducts: bomData.rawVeg, portionByProductId, cookBomByProductId, compsByBomId, productById });
+  }, [bomData, finishedMeals, finishedMealIds]);
+
+  const rawVegWithHome = useMemo(
+    () => (bomData?.rawVeg || []).filter(v => (vegToMealMap[v.id] || []).length > 0),
+    [bomData, vegToMealMap]
+  );
+
+  // Leftover-veg burn-down → per-meal over-par make targets.
+  const burnDownMap = useMemo(
+    () => computeBurnDown(vegEntries, vegToMealMap).burnDownMap,
+    [vegEntries, vegToMealMap]
+  );
+
+  // The deterministic engine: one recommendation per meal (par-to-target —
+  // recommended = max(0, par − available), backorders always covered; in-flight
+  // runs count as cover; leftover-veg burn-down can push a meal above par; a
+  // per-meal max_level ceiling caps it). Single source of truth shared by the
+  // summary, the package cards, the detail table and the Run button.
   const recoMap = useMemo(
-    () => buildRecommendationMap(finishedMeals, stockMap),
-    [finishedMeals, stockMap]
+    () => buildRecommendationMap(finishedMeals, stockMap, { inFlightMap, burnDownMap }),
+    [finishedMeals, stockMap, inFlightMap, burnDownMap]
   );
 
   // ── Package grouping ───────────────────────────────────────────────────────
@@ -398,6 +480,17 @@ export default function ProductionPlanning() {
         <div className="text-center py-12 text-sm text-muted-foreground">Loading meals...</div>
       ) : (
         <>
+          {/* Leftover-veg burn-down — over-par production to use up surplus raw veg */}
+          {rawVegWithHome.length > 0 && (
+            <LeftoverVegPanel
+              rawVeg={rawVegWithHome}
+              vegToMealMap={vegToMealMap}
+              entries={vegEntries}
+              onChange={setVegEntries}
+              recoMap={recoMap}
+            />
+          )}
+
           {/* Package summary cards */}
           <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
             {/* "All Packages" chip */}

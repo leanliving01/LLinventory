@@ -175,6 +175,9 @@ export default function PlanRunReview() {
       }
 
       queryClient.invalidateQueries({ queryKey: ['production-runs'] });
+      // The new runs are now in-flight cover — refresh so a return to planning
+      // doesn't reuse stale cover and double-produce.
+      queryClient.invalidateQueries({ queryKey: ['production-in-flight'] });
       sessionStorage.removeItem('planRunReview');
       teachLivy(splitPlan); // best-effort: let Livy learn from the confirmed plan
       toast.success(`Created ${totalCreated} production run${totalCreated > 1 ? 's' : ''} — ${grandTotal.toLocaleString()} total meals`);

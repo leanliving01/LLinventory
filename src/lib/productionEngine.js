@@ -21,29 +21,52 @@
  */
 
 /**
- * Recommend how many units of a single meal to produce — pure par-to-target.
+ * Recommend how many units of a single meal to produce — par-to-target with the
+ * Phase-2 levers layered on: in-flight cover, a per-meal max ceiling, and a
+ * leftover-veg burn-down target that may exceed par.
  *
  * @param {object} a
- * @param {number} a.par        - products.par_level (target to rebuild to)
- * @param {number} a.onHand     - total qty_on_hand across locations
- * @param {number} a.committed  - total qty_committed (paid-unfulfilled, exploded)
+ * @param {number}  a.par         - products.par_level (the floor to rebuild to)
+ * @param {number}  a.onHand      - total qty_on_hand across locations
+ * @param {number}  a.committed   - total qty_committed (paid-unfulfilled, exploded)
+ * @param {number}  [a.inFlight]  - units already scheduled/in-progress in open runs
+ *                                  (counts as cover so back-to-back days don't double-produce)
+ * @param {?number} [a.maxLevel]  - products.max_level ceiling; null = no ceiling
+ * @param {number}  [a.burnDownQty]- leftover-veg burn-down target for this meal (may
+ *                                  push the make ABOVE par; still bounded by maxLevel)
  * @returns {{ recommended:number, reason:string, available:number,
- *            backorderShortfall:number, rawQty:number }}
+ *            backorderShortfall:number, rawQty:number, inFlight:number, maxLevel:?number }}
  */
-export function recommendMealQty({ par = 0, onHand = 0, committed = 0 }) {
+export function recommendMealQty({ par = 0, onHand = 0, committed = 0, inFlight = 0, maxLevel = null, burnDownQty = 0 }) {
   const available = onHand - committed;
-  const backorderShortfall = Math.max(0, committed - onHand); // units owed beyond stock
+  // In-flight (scheduled / in-progress) production already counts as cover — so a
+  // Day-2 plan doesn't re-make what Day 1 already covers.
+  const scheduled = Math.max(0, inFlight);
+  const cover = available + scheduled;
+  // Units still owed after in-flight production is accounted for (a backorder an
+  // open run already covers isn't owed again).
+  const backorderShortfall = Math.max(0, committed - onHand - scheduled);
 
-  // Rebuild available up to par. A backorder (available < 0) is covered
-  // automatically since par − available then exceeds par. Never negative.
-  const recommended = Math.max(0, Math.round(par - available));
+  // Par target: rebuild cover up to par. Leftover-veg burn-down can raise the
+  // target ABOVE par (make extra to use up perishable raw veg).
+  const parTarget = Math.max(0, par - cover);
+  const burn = Math.max(0, burnDownQty);
+  let target = Math.max(parTarget, burn);
+
+  // Per-meal ceiling: never hold more than max_level on hand (backorders are
+  // always covered below, even past the ceiling).
+  const hasCeiling = maxLevel != null && maxLevel > 0;
+  if (hasCeiling) target = Math.min(target, Math.max(0, maxLevel - cover));
+
+  const recommended = Math.max(Math.round(target), backorderShortfall);
 
   let reason;
-  if (backorderShortfall > 0) reason = 'backorder';
-  else if (par > 0 && available < par) reason = 'below_par';
+  if (burn > 0 && burn >= parTarget && burn >= backorderShortfall) reason = 'veg_burndown';
+  else if (backorderShortfall > 0) reason = 'backorder';
+  else if (par > 0 && cover < par) reason = 'below_par';
   else reason = par > 0 ? 'at_par' : 'no_par';
 
-  return { recommended, reason, available, backorderShortfall, rawQty: recommended };
+  return { recommended, reason, available, backorderShortfall, rawQty: recommended, inFlight: scheduled, maxLevel: hasCeiling ? maxLevel : null };
 }
 
 /**
@@ -331,16 +354,20 @@ export function assignTaskSequence(tasks, ctx = {}) {
 }
 
 /**
- * Build the per-meal recommendation map (pure par-to-target). Every below-par
- * meal produces on its own, so the old "bulk catch-up" pass is gone: all four
- * package variants of a dish that are below par already appear here, and the
- * shared bulk is cooked once for whichever variants need topping up.
+ * Build the per-meal recommendation map (par-to-target + Phase-2 levers). Every
+ * below-par meal produces on its own, so there's no separate catch-up pass: all
+ * four package variants of a dish that are below par already appear here, and
+ * the shared bulk is cooked once for whichever variants need topping up.
  *
- * @param {Array}  meals    - finished_meal products ({ id, sku, par_level, ... })
+ * @param {Array}  meals    - finished_meal products ({ id, sku, par_level, max_level, ... })
  * @param {object} stockMap - { [productId]: { qty_on_hand, qty_committed } }
+ * @param {object} [opts]
+ * @param {object} [opts.inFlightMap] - { [productId]: units scheduled in open runs }
+ * @param {object} [opts.burnDownMap] - { [productId]: leftover-veg burn-down target }
  * @returns {object} { [productId]: result-from-recommendMealQty }
  */
-export function buildRecommendationMap(meals, stockMap) {
+export function buildRecommendationMap(meals, stockMap, opts = {}) {
+  const { inFlightMap = {}, burnDownMap = {} } = opts;
   const map = {};
   for (const product of meals) {
     const s = stockMap[product.id] || {};
@@ -348,6 +375,9 @@ export function buildRecommendationMap(meals, stockMap) {
       par: product.par_level || 0,
       onHand: s.qty_on_hand || 0,
       committed: s.qty_committed || 0,
+      maxLevel: product.max_level ?? null,
+      inFlight: inFlightMap[product.id] || 0,
+      burnDownQty: burnDownMap[product.id] || 0,
     });
   }
   return map;

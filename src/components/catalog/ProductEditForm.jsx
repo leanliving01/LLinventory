@@ -412,6 +412,9 @@ export default function ProductEditForm({ formData, onChange, locations, supplie
           <FormField label="Par Level" hint="Target on-hand quantity">
             <Input type="number" value={formData.par_level ?? ''} onChange={e => set('par_level', e.target.value ? Number(e.target.value) : 0)} />
           </FormField>
+          <FormField label="Max Level" hint="Production ceiling — never make above this (blank = no cap)">
+            <Input type="number" value={formData.max_level ?? ''} onChange={e => set('max_level', e.target.value === '' ? null : Number(e.target.value))} />
+          </FormField>
           <FormField label="Reorder Point" hint="Minimum before reorder">
             <Input type="number" value={formData.min_before_reorder ?? ''} onChange={e => set('min_before_reorder', e.target.value ? Number(e.target.value) : 0)} />
           </FormField>
