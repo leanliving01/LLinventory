@@ -299,7 +299,14 @@ export function getUserPermissions(user, customRoles = []) {
   try {
     const raw = JSON.parse(user.permissions);
     const overrides = migrateLegacyOverrides(raw);
-    return { ...defaults, ...overrides };
+    // Coerce every override to a strict boolean so a stray stored value
+    // (1, "true", "false", null…) can never silently grant/deny a permission.
+    // Note: the string "false" is truthy, so `!!v` is wrong here.
+    const coerced = {};
+    for (const [k, v] of Object.entries(overrides)) {
+      coerced[k] = v === true || v === 1 || v === '1' || v === 'true';
+    }
+    return { ...defaults, ...coerced };
   } catch {
     return { ...defaults };
   }

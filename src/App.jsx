@@ -3,13 +3,15 @@ import { Toaster as SonnerToaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
-import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Navigate, useLocation } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { useCustomRoles } from '@/components/settings/CustomRolesManager';
 import { getUserPermissions, BUILT_IN_ROLES } from '@/lib/permissions';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import AppLayout from '@/components/layout/AppLayout';
+import RouteGuard from '@/components/layout/RouteGuard';
+import AcceptInvite from '@/pages/AcceptInvite';
 import Dashboard from '@/pages/Dashboard';
 import ProductionPlanning from '@/pages/ProductionPlanning';
 import NewProduction from '@/pages/NewProduction';
@@ -138,6 +140,14 @@ const IS_NATIVE_APP = getIsNativeApp();
 const AuthenticatedApp = () => {
   const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin, isFloorUser } = useAuth();
   const customRoles = useCustomRoles();
+  const location = useLocation();
+
+  // Invite acceptance / set-password must render regardless of auth state — the
+  // invitee arrives here with tokens in the URL but no password yet, and the
+  // page itself establishes the session. Keep this before the loading/login gates.
+  if (location.pathname === '/accept-invite') {
+    return <AcceptInvite />;
+  }
 
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
@@ -212,9 +222,11 @@ const AuthenticatedApp = () => {
       {/* Xero OAuth callback — no sidebar */}
       <Route path="/xero-callback" element={<XeroCallback />} />
 
-      {/* Kitchen tablet routes — no sidebar (legacy, still accessible) */}
-      <Route path="/kitchen" element={<Kitchen />} />
-      <Route path="/kitchen/settings" element={<KitchenSettings />} />
+      {/* Kitchen tablet routes — no sidebar (legacy, still accessible).
+          Wrapped in RouteGuard so they honour the kitchen_tablet permission
+          like every other route (they sit outside AppLayout/FloorLayout). */}
+      <Route path="/kitchen" element={<RouteGuard><Kitchen /></RouteGuard>} />
+      <Route path="/kitchen/settings" element={<RouteGuard><KitchenSettings /></RouteGuard>} />
 
       {/* Floor Workspace — mobile-first, no sidebar */}
       <Route element={<FloorLayout />}>

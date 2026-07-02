@@ -29,20 +29,28 @@ async function fetchUserProfile(session) {
     }
   } catch { /* table missing or network — fall through to default */ }
 
-  // No user record — treat as admin (management users / bootstrap)
+  // No user record (or lookup failed) — fail CLOSED to least privilege.
+  // Admins are seeded into public.users, and invited users get a row created by
+  // the invite-user edge function, so a missing row means "not provisioned yet",
+  // NOT "trusted admin". This is what makes assigned roles actually restrict.
   return {
     id: session.user.id,
     email: session.user.email,
     full_name: session.user.email.split('@')[0],
-    role: 'admin',
+    role: 'viewer',
     station: null,
     permissions: '',
   };
 }
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState({ id: 'bypass', email: 'admin@leanliving.co.za', full_name: 'Admin', role: 'admin', station: null, permissions: [] });
-  const [isLoadingAuth, setIsLoadingAuth] = useState(false);
+  // Start with NO user and in a loading state. Previously this was hard-coded to
+  // an admin "bypass" user, which meant anyone who reached the app before the
+  // session resolved (or with no session at all) was treated as a full admin.
+  // Now we show a spinner until getSession resolves, then either a real profile
+  // or the login screen.
+  const [user, setUser] = useState(null);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
   const [authError, setAuthError] = useState(null);
   const [sessionLost, setSessionLost] = useState(false);

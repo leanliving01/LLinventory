@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44, supabase } from '@/api/base44Client';
+import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Users, UserPlus, Pencil, X, Loader2, Shield, ChevronDown, ChevronUp, Mail } from 'lucide-react';
+import { Users, UserPlus, Pencil, X, Shield, ChevronDown, ChevronUp, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import UserPermissionsEditor from './UserPermissionsEditor';
 import CustomRolesManager, { useCustomRoles } from './CustomRolesManager';
@@ -91,45 +91,44 @@ export default function SettingsUsersTab() {
   const sendInvite = async (role, permString) => {
     setInviting(true);
 
-    if (isAdmin) {
-      // Admin: temporarily mocked because auth.admin is server-side only
-      // await supabase.auth.admin.inviteUserByEmail(inviteEmail);
-      console.log(`Would invite ${inviteEmail} as admin`);
-      queryClient.invalidateQueries({ queryKey: ['users'] });
-      toast.success(`Invited ${inviteEmail} — set their permissions once they accept`);
-    } else {
-      // Non-admin: send approval request to all admins via email
-      const allUsers = await base44.entities.User.list('-created_date', 100);
-      const admins = allUsers.filter(u => u.role === 'admin');
-      const adminEmails = admins.map(u => u.email).filter(Boolean);
+    try {
+      if (isAdmin) {
+        // Admin: send a real Supabase invite email and create the users row with
+        // the chosen role + permissions (server-side, admin-verified). The role +
+        // permString here are exactly what was toggled in UserPermissionsEditor,
+        // so the invitee is restricted to those from first login.
+        const { data } = await base44.functions.invoke('inviteUser', {
+          email: inviteEmail.trim(),
+          role,
+          permissions: permString,
+          redirect_to: window.location.origin,
+        });
 
-      if (adminEmails.length === 0) {
-        toast.error('No admin found to approve this request');
-        setInviting(false);
-        return;
+        if (!data || data.success === false || data.status === 'error') {
+          toast.error(data?.error || 'Invite failed — please try again');
+          setInviting(false);
+          return;
+        }
+
+        queryClient.invalidateQueries({ queryKey: ['users'] });
+        toast.success(
+          data.already_member
+            ? (data.message || `${inviteEmail} updated`)
+            : `Invite sent to ${inviteEmail} — they'll set a password from the email`,
+        );
+      } else {
+        // Non-admin: only admins can create accounts (enforced server-side), so
+        // this is a heads-up to arrange the invite with an admin. A full
+        // request-approval email flow can be layered on later.
+        toast.success(`Noted — ask an admin to add ${inviteEmail} in Settings → Users`);
       }
 
-      const roleName = (role || 'viewer').replace(/_/g, ' ');
-      for (const adminEmail of adminEmails) {
-        // base44.integrations is undefined, mock sending email for now
-        console.log(`Would send email to ${adminEmail}`);
-        /* await base44.integrations.Core.SendEmail({
-          to: adminEmail,
-          subject: `Invite Request: ${inviteEmail}`,
-          body: `<h3>Team Invite Request</h3>
-<p><strong>${currentUser?.full_name || currentUser?.email}</strong> has requested to invite a new team member:</p>
-<ul>
-  <li><strong>Email:</strong> ${inviteEmail}</li>
-  <li><strong>Requested role:</strong> ${roleName}</li>
-</ul>
-<p>Please log in to the Lean Living app → Settings → Users to add this person.</p>`,
-        }); */
-      }
-      toast.success(`Request sent to admin for approval`);
+      setShowInvite(false);
+    } catch (err) {
+      toast.error('Invite failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setInviting(false);
     }
-
-    setShowInvite(false);
-    setInviting(false);
   };
 
   // Count active permissions for display

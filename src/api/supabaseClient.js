@@ -504,6 +504,7 @@ export const base44 = {
         'recalc-committed-stock':    'recalc-committed-stock',
         bulkSyncCustomers:           'sync-shopify-customers',
         verifyManagerPin:            'verify-manager-pin',
+        inviteUser:                  'invite-user',
       };
       const edgeFn = EDGE_FUNCTIONS[fnName] ?? fnName;
       // Route function calls through a Vercel serverless proxy (/api/fn) in
@@ -541,7 +542,20 @@ export const base44 = {
     me: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw { status: 401 };
-      return { email: user.email, id: user.id, role: 'admin' };
+      // Read the real role from the users table instead of assuming admin.
+      // Missing row → least privilege (viewer), matching AuthContext.
+      const { data: row } = await supabase
+        .from('users')
+        .select('role, full_name, permissions')
+        .eq('email', (user.email || '').toLowerCase())
+        .maybeSingle();
+      return {
+        email: user.email,
+        id: user.id,
+        role: row?.role || 'viewer',
+        full_name: row?.full_name || user.email?.split('@')[0],
+        permissions: row?.permissions || '',
+      };
     },
     updateMe: async (updates) => {
       console.warn('[supabase] auth.updateMe not yet implemented');
