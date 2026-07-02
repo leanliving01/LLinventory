@@ -357,9 +357,16 @@ Deno.serve(async (req) => {
 
     await supabase.from('shopify_order_lines').insert(orderLines);
     if (salesLines.length) {
-      const { error: solErr } = await supabase.from('sales_order_lines').insert(salesLines);
+      // Upsert (not insert): this webhook and the scheduled sync-shopify-orders
+      // both replace an order's lines via delete-then-insert. Running for the
+      // same order at the same instant, they used to interleave and duplicate
+      // every line. The unique index on (sales_order_id, external_id) —
+      // migration 103 — makes the losing racer's rows conflict; ignoreDuplicates
+      // turns that into a no-op instead of an error.
+      const { error: solErr } = await supabase.from('sales_order_lines')
+        .upsert(salesLines, { onConflict: 'sales_order_id,external_id', ignoreDuplicates: true });
       if (solErr) {
-        console.error('[webhook] sales_order_lines insert failed:', solErr.message);
+        console.error('[webhook] sales_order_lines upsert failed:', solErr.message);
         linesInsertOk = false;
       }
     }

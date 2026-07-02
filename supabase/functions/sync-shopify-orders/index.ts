@@ -540,8 +540,14 @@ Deno.serve(async (req) => {
 
   if (allLines.length) await supabase.from('shopify_order_lines').insert(allLines);
   if (allSalesLines.length) {
-    const { error: slErr } = await supabase.from('sales_order_lines').insert(allSalesLines);
-    if (slErr) console.error('sales_order_lines insert error:', slErr.message);
+    // Upsert (not insert): a concurrent re-import of the same order (scheduled
+    // sync racing the order's webhook) would otherwise interleave with the
+    // delete-then-insert above and duplicate every line. The unique index on
+    // (sales_order_id, external_id) — migration 103 — makes the losing racer's
+    // rows conflict; ignoreDuplicates turns that into a no-op instead of an error.
+    const { error: slErr } = await supabase.from('sales_order_lines')
+      .upsert(allSalesLines, { onConflict: 'sales_order_id,external_id', ignoreDuplicates: true });
+    if (slErr) console.error('sales_order_lines upsert error:', slErr.message);
   }
   if (allFinancialLines.length) {
     const { error: flErr } = await supabase.from('sales_order_financial_lines').insert(allFinancialLines);

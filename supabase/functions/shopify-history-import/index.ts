@@ -332,8 +332,12 @@ async function flushBatch(
 
   if (allShopifyLines.length) await supabase.from('shopify_order_lines').insert(allShopifyLines);
   if (allSalesLines.length) {
-    const { error } = await supabase.from('sales_order_lines').insert(allSalesLines);
-    if (error) console.error('[history-import] sales_order_lines insert:', error.message);
+    // Upsert-ignore so a re-import of an already-imported order can't duplicate
+    // lines or error against the unique index on (sales_order_id, external_id)
+    // — migration 103.
+    const { error } = await supabase.from('sales_order_lines')
+      .upsert(allSalesLines, { onConflict: 'sales_order_id,external_id', ignoreDuplicates: true });
+    if (error) console.error('[history-import] sales_order_lines upsert:', error.message);
   }
 }
 

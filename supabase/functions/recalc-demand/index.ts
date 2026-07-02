@@ -207,10 +207,13 @@ Deno.serve(async (req) => {
       .eq('is_package_component', true);
   }
 
-  // Insert new component lines
+  // Insert new component lines (upsert-ignore so a concurrent re-import racing
+  // the delete above can't duplicate or error against the unique index on
+  // (sales_order_id, external_id) — migration 103).
   if (componentLinesToInsert.length) {
-    const { error: compErr } = await supabase.from('sales_order_lines').insert(componentLinesToInsert);
-    if (compErr) console.error('Component lines insert error:', compErr.message);
+    const { error: compErr } = await supabase.from('sales_order_lines')
+      .upsert(componentLinesToInsert, { onConflict: 'sales_order_id,external_id', ignoreDuplicates: true });
+    if (compErr) console.error('Component lines upsert error:', compErr.message);
   }
 
   // Update shopify_orders
