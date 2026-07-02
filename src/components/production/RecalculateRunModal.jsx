@@ -32,7 +32,7 @@ export default function RecalculateRunModal({ runId, existingLines, onConfirm, o
       return settings[0] || null;
     },
   });
-  const maxPerRun = maxSetting ? Number(maxSetting.value) || 2500 : 2500;
+  const maxPerRun = maxSetting ? Number(maxSetting.value) || 1500 : 1500; // daily capacity default (matches ProductionPlanning)
 
   const stockMap = useMemo(() => {
     const map = {};

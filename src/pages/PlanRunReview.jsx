@@ -38,7 +38,7 @@ export default function PlanRunReview() {
   const handleSuggestions = useCallback((s) => setLivySuggestions(s || []), []);
 
   const initialPlan = planData?.splitPlan || [];
-  const maxPerRun = planData?.maxPerRun || 2500;
+  const maxPerRun = planData?.maxPerRun || 1500;
 
   // Apply overrides to the plan
   const splitPlan = useMemo(() => {

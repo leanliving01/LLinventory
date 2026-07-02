@@ -36,7 +36,7 @@ function DonutRing({ pct, color, size = 92 }) {
 export default function PackageSummaryCard({ pkg, stats, selected, onClick, maxPerRun }) {
   const { fullLabel, color } = pkg;
   const { totalToProduce, committed, belowPar, onPlanPct, totalMeals } = stats;
-  const runsNeeded = totalToProduce > 0 ? Math.max(1, Math.ceil(totalToProduce / (maxPerRun || 2500))) : 0;
+  const runsNeeded = totalToProduce > 0 ? Math.max(1, Math.ceil(totalToProduce / (maxPerRun || 1500))) : 0;
   const ringColor = color || '#6b7280';
 
   return (
